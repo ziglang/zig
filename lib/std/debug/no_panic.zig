@@ -35,6 +35,11 @@ pub fn inactiveUnionField(_: anytype, _: anytype) noreturn {
     @trap();
 }
 
+pub fn sliceCastLenRemainder(_: usize) noreturn {
+    @branchHint(.cold);
+    @trap();
+}
+
 pub fn reachedUnreachable() noreturn {
     @branchHint(.cold);
     @trap();

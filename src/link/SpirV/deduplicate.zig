@@ -155,7 +155,7 @@ const ModuleInfo = struct {
             }
         }
 
-        return ModuleInfo{
+        return .{
             .entities = entities.unmanaged,
             .operand_is_id = operand_is_id,
             // There may be unrelated decorations at the end, so make sure to

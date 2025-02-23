@@ -90,12 +90,3 @@ jobs:
         uses: actions/checkout@v4
       - name: Build and Test
         run: ci/x86_64-windows-release.ps1
-  aarch64-windows:
-    runs-on: [self-hosted, Windows, aarch64]
-    env:
-      ARCH: "aarch64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: ci/aarch64-windows.ps1

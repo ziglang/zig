@@ -149,10 +149,10 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     if (macho_file.base.isRelocatable()) {
         const osec = macho_file.getSectionByName(sect.segName(), sect.sectName()) orelse
             try macho_file.addSection(
-            sect.segName(),
-            sect.sectName(),
-            .{ .flags = sect.flags },
-        );
+                sect.segName(),
+                sect.sectName(),
+                .{ .flags = sect.flags },
+            );
         return osec;
     }
 

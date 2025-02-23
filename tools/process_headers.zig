@@ -192,7 +192,7 @@ pub fn main() !void {
             var dir_stack = std.ArrayList([]const u8).init(allocator);
             try dir_stack.append(target_include_dir);
 
-            while (dir_stack.popOrNull()) |full_dir_name| {
+            while (dir_stack.pop()) |full_dir_name| {
                 var dir = std.fs.cwd().openDir(full_dir_name, .{ .iterate = true }) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
@@ -273,14 +273,14 @@ pub fn main() !void {
             }
         }
         std.mem.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
-        const best_contents = contents_list.popOrNull().?;
+        const best_contents = contents_list.pop().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = best_contents.bytes });
             best_contents.is_generic = true;
-            while (contents_list.popOrNull()) |contender| {
+            while (contents_list.pop()) |contender| {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;

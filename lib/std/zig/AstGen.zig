@@ -920,7 +920,10 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.start);
             const end = if (full.ast.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end) else .none;
-            const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
+            const sentinel = if (full.ast.sentinel != 0) s: {
+                const sentinel_ty = try gz.addUnNode(.slice_sentinel_ty, lhs, node);
+                break :s try expr(gz, scope, .{ .rl = .{ .coerced_ty = sentinel_ty } }, full.ast.sentinel);
+            } else .none;
             try emitDbgStmt(gz, cursor);
             if (sentinel != .none) {
                 const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
@@ -2855,6 +2858,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_end,
             .slice_sentinel,
             .slice_length,
+            .slice_sentinel_ty,
             .import,
             .switch_block,
             .switch_block_ref,
@@ -5908,6 +5912,10 @@ fn containerDecl(
 
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
+
+            if (container_decl.layout_token) |layout_token| {
+                return astgen.failTok(layout_token, "opaque types do not support 'packed' or 'extern'", .{});
+            }
 
             for (container_decl.ast.members) |member_node| {
                 const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);

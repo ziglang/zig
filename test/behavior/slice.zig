@@ -1037,3 +1037,16 @@ test "peer slices keep abi alignment with empty struct" {
     comptime assert(@TypeOf(slice) == []const u32);
     try expect(slice.len == 0);
 }
+
+test "sentinel expression in slice operation has result type" {
+    const sentinel = std.math.maxInt(u16);
+
+    const arr: [3]u16 = .{ 1, 2, sentinel };
+    const slice = arr[0..2 :@intCast(sentinel)];
+
+    comptime assert(@TypeOf(slice) == *const [2:sentinel]u16);
+    comptime assert(slice[2] == sentinel);
+    comptime assert(slice.len == 2);
+    comptime assert(slice[0] == 1);
+    comptime assert(slice[1] == 2);
+}

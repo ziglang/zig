@@ -100,58 +100,58 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     return config_header;
 }
 
+pub fn addValue(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) void {
+    return addValueInner(config_header, name, T, value) catch @panic("OOM");
+}
+
 pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
-    return addValuesInner(config_header, values) catch @panic("OOM");
+    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
+        addValue(config_header, field.name, field.type, @field(values, field.name));
+    }
 }
 
 pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = .{ .file = &config_header.output_file } };
 }
 
-fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
-    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
-        try putValue(config_header, field.name, field.type, @field(values, field.name));
-    }
-}
-
-fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
+fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) !void {
     switch (@typeInfo(T)) {
         .null => {
-            try config_header.values.put(field_name, .undef);
+            try config_header.values.put(name, .undef);
         },
         .void => {
-            try config_header.values.put(field_name, .defined);
+            try config_header.values.put(name, .defined);
         },
         .bool => {
-            try config_header.values.put(field_name, .{ .boolean = v });
+            try config_header.values.put(name, .{ .boolean = value });
         },
         .int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
         .comptime_int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
-        .enum_literal => {
-            try config_header.values.put(field_name, .{ .ident = @tagName(v) });
+        .@"enum", .enum_literal => {
+            try config_header.values.put(name, .{ .ident = @tagName(value) });
         },
         .optional => {
-            if (v) |x| {
-                return putValue(config_header, field_name, @TypeOf(x), x);
+            if (value) |x| {
+                return addValueInner(config_header, name, @TypeOf(x), x);
             } else {
-                try config_header.values.put(field_name, .undef);
+                try config_header.values.put(name, .undef);
             }
         },
         .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .array => |array| {
                     if (ptr.size == .one and array.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
                 .int => {
                     if (ptr.size == .slice and ptr.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
@@ -264,8 +264,11 @@ fn render_autoconf(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    var is_used: std.DynamicBitSetUnmanaged = try .initEmpty(allocator, values.count());
+    defer is_used.deinit(allocator);
 
     var any_errors = false;
     var line_index: u32 = 0;
@@ -283,19 +286,21 @@ fn render_autoconf(
             try output.appendSlice("\n");
             continue;
         }
-        const name = it.rest();
-        const kv = values_copy.fetchSwapRemove(name) orelse {
+        const name = it.next().?;
+        const index = values.getIndex(name) orelse {
             try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
             continue;
         };
-        try renderValueC(output, name, kv.value);
+        is_used.set(index);
+        try renderValueC(output, name, values.values()[index]);
     }
 
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+    var unused_value_it = is_used.iterator(.{ .kind = .unset });
+    while (unused_value_it.next()) |index| {
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, values.keys()[index] });
         any_errors = true;
     }
 
@@ -616,7 +621,7 @@ fn expand_variables_cmake(
                     // no open bracket, preserve as a literal
                     break :blk;
                 }
-                const open_pos = var_stack.pop();
+                const open_pos = var_stack.pop().?;
                 if (source_offset == open_pos.source) {
                     source_offset += open_var.len;
                 }

@@ -80,7 +80,7 @@ else if (builtin.os.tag == .openbsd)
     OpenbsdImpl
 else if (builtin.os.tag == .dragonfly)
     DragonflyImpl
-else if (builtin.target.isWasm())
+else if (builtin.target.cpu.arch.isWasm())
     WasmImpl
 else if (std.Thread.use_pthreads)
     PosixImpl

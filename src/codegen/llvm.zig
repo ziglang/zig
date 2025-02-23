@@ -98,9 +98,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable, // Gated by hasLlvmSupport().
 
     };
@@ -390,7 +388,7 @@ const DataLayoutBuilder = struct {
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
                 !(self.target.cpu.arch == .aarch64 and
-                (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
+                    (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
                 self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
             try writer.writeAll("-p");
             if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
@@ -861,55 +859,54 @@ pub const Object = struct {
         builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
-            if (!builder.strip)
-        debug_info: {
-            // We fully resolve all paths at this point to avoid lack of
-            // source line info in stack traces or lack of debugging
-            // information which, if relative paths were used, would be
-            // very location dependent.
-            // TODO: the only concern I have with this is WASI as either host or target, should
-            // we leave the paths as relative then?
-            // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
-            // a particular directory, and then the directory path is specified elsewhere.
-            // In the compiler frontend we have it stored correctly in this
-            // way already, but here we throw all that sweet information
-            // into the garbage can by converting into absolute paths. What
-            // a terrible tragedy.
-            const compile_unit_dir = blk: {
-                if (comp.zcu) |zcu| m: {
-                    const d = try zcu.main_mod.root.joinString(arena, "");
-                    if (d.len == 0) break :m;
-                    if (std.fs.path.isAbsolute(d)) break :blk d;
-                    break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-                }
-                break :blk try std.process.getCwdAlloc(arena);
-            };
+            if (!builder.strip) debug_info: {
+                // We fully resolve all paths at this point to avoid lack of
+                // source line info in stack traces or lack of debugging
+                // information which, if relative paths were used, would be
+                // very location dependent.
+                // TODO: the only concern I have with this is WASI as either host or target, should
+                // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
+                const compile_unit_dir = blk: {
+                    if (comp.zcu) |zcu| m: {
+                        const d = try zcu.main_mod.root.joinString(arena, "");
+                        if (d.len == 0) break :m;
+                        if (std.fs.path.isAbsolute(d)) break :blk d;
+                        break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
+                    }
+                    break :blk try std.process.getCwdAlloc(arena);
+                };
 
-            const debug_file = try builder.debugFile(
-                try builder.metadataString(comp.root_name),
-                try builder.metadataString(compile_unit_dir),
-            );
+                const debug_file = try builder.debugFile(
+                    try builder.metadataString(comp.root_name),
+                    try builder.metadataString(compile_unit_dir),
+                );
 
-            const debug_enums_fwd_ref = try builder.debugForwardReference();
-            const debug_globals_fwd_ref = try builder.debugForwardReference();
+                const debug_enums_fwd_ref = try builder.debugForwardReference();
+                const debug_globals_fwd_ref = try builder.debugForwardReference();
 
-            const debug_compile_unit = try builder.debugCompileUnit(
-                debug_file,
-                // Don't use the version string here; LLVM misparses it when it
-                // includes the git revision.
-                try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
-                    build_options.semver.major,
-                    build_options.semver.minor,
-                    build_options.semver.patch,
-                }),
-                debug_enums_fwd_ref,
-                debug_globals_fwd_ref,
-                .{ .optimized = comp.root_mod.optimize_mode != .Debug },
-            );
+                const debug_compile_unit = try builder.debugCompileUnit(
+                    debug_file,
+                    // Don't use the version string here; LLVM misparses it when it
+                    // includes the git revision.
+                    try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
+                        build_options.semver.major,
+                        build_options.semver.minor,
+                        build_options.semver.patch,
+                    }),
+                    debug_enums_fwd_ref,
+                    debug_globals_fwd_ref,
+                    .{ .optimized = comp.root_mod.optimize_mode != .Debug },
+                );
 
-            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-            break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-        } else .{.none} ** 3;
+                try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+                break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
+            } else .{.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -1303,7 +1300,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.abi.float() == .hard)
             .Hard
         else
             .Soft;
@@ -1335,7 +1332,6 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
@@ -1343,6 +1339,9 @@ pub const Object = struct {
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
             .bitcode_filename = null,
+
+            // `.coverage` value is only used when `.sancov` is enabled.
+            .sancov = options.fuzz or comp.config.san_cov_trace_pc_guard,
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
@@ -1350,7 +1349,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = options.fuzz,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
@@ -2759,9 +2758,9 @@ pub const Object = struct {
 
                 const full_fields: [2]Builder.Metadata =
                     if (layout.tag_align.compare(.gte, layout.payload_align))
-                    .{ debug_tag_type, debug_payload_type }
-                else
-                    .{ debug_payload_type, debug_tag_type };
+                        .{ debug_tag_type, debug_payload_type }
+                    else
+                        .{ debug_payload_type, debug_tag_type };
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
@@ -2941,7 +2940,7 @@ pub const Object = struct {
             function_index.setLinkage(.internal, &o.builder);
             function_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         } else {
-            if (target.isWasm()) {
+            if (target.cpu.arch.isWasm()) {
                 try attributes.addFnAttr(.{ .string = .{
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(nav.name.toSlice(ip)),
@@ -3158,7 +3157,7 @@ pub const Object = struct {
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
-        if (target.floatAbi() == .soft) {
+        if (target.abi.float() == .soft) {
             // `use-soft-float` means "use software routines for floating point computations". In
             // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
             // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
@@ -4551,11 +4550,11 @@ pub const Object = struct {
             // instruction is followed by a `wrap_optional`, it will return this value
             // verbatim, and the result should test as non-null.
             switch (zcu.getTarget().ptrBitWidth()) {
-            16 => 0xaaaa,
-            32 => 0xaaaaaaaa,
-            64 => 0xaaaaaaaa_aaaaaaaa,
-            else => unreachable,
-        };
+                16 => 0xaaaa,
+                32 => 0xaaaaaaaa,
+                64 => 0xaaaaaaaa_aaaaaaaa,
+                else => unreachable,
+            };
         const llvm_usize = try o.lowerType(Type.usize);
         const llvm_ptr_ty = try o.lowerType(ptr_ty);
         return o.builder.castConst(.inttoptr, try o.builder.intConst(llvm_usize, int), llvm_ptr_ty);
@@ -4832,7 +4831,7 @@ pub const NavGen = struct {
             const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                     if (lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
@@ -5771,6 +5770,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    self.ng.ownerModule().no_builtin,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5821,6 +5821,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
+                self.ng.ownerModule().no_builtin,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -5902,7 +5903,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -5913,7 +5914,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{src_list.typeOfWip(&self.wip)}, &.{src_list}, "");
         return .none;
     }
 
@@ -5927,7 +5928,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -6569,7 +6570,7 @@ pub const FuncGen = struct {
             // Workaround for:
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
-            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+            if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -9542,7 +9543,7 @@ pub const FuncGen = struct {
 
         if (llvm_dest_ty.isStruct(&o.builder) or
             ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
-            operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
+                operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
         {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values or vectors with padding bits.
@@ -9734,6 +9735,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                self.ng.ownerModule().no_builtin,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -10026,7 +10028,7 @@ pub const FuncGen = struct {
         // of the length. This means we need to emit a check where we skip the memset when the length
         // is 0 as we allow for undefined pointers in 0-sized slices.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.isWasm() and
+        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
             ptr_ty.isSlice(zcu) and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
 
@@ -10041,9 +10043,22 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.ng.ownerModule().no_builtin,
+                    );
                 }
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
@@ -10060,9 +10075,22 @@ pub const FuncGen = struct {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.ng.ownerModule().no_builtin,
+                    );
                 }
                 return .none;
             }
@@ -10077,9 +10105,22 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                try self.safeWasmMemset(
+                    dest_ptr,
+                    fill_byte,
+                    len,
+                    dest_ptr_align,
+                    access_kind,
+                );
             } else {
-                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.ng.ownerModule().no_builtin,
+                );
             }
             return .none;
         }
@@ -10131,6 +10172,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
+                self.ng.ownerModule().no_builtin,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10158,7 +10200,14 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+        _ = try self.wip.callMemSet(
+            dest_ptr,
+            dest_ptr_align,
+            fill_byte,
+            len,
+            access_kind,
+            self.ng.ownerModule().no_builtin,
+        );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -10183,7 +10232,7 @@ pub const FuncGen = struct {
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
         // We only have to do this for slices as arrays will have a valid pointer.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.isWasm() and
+        if (o.target.cpu.arch.isWasm() and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
             dest_ptr_ty.isSlice(zcu))
         {
@@ -10200,6 +10249,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
+                self.ng.ownerModule().no_builtin,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10213,6 +10263,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
+            self.ng.ownerModule().no_builtin,
         );
         return .none;
     }
@@ -11346,6 +11397,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
+            fg.ng.ownerModule().no_builtin,
         );
         return result_ptr;
     }
@@ -11513,6 +11565,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
+            self.ng.ownerModule().no_builtin,
         );
     }
 
@@ -11768,16 +11821,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .x86_interrupt => .x86_intrcc,
         .aarch64_vfabi => .aarch64_vector_pcs,
         .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
-        .arm_apcs => .arm_apcscc,
         .arm_aapcs => .arm_aapcscc,
-        .arm_aapcs_vfp => if (target.os.tag != .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
-        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
+        .arm_aapcs_vfp => .arm_aapcs_vfpcc,
         .riscv64_lp64_v => .riscv_vectorcallcc,
         .riscv32_ilp32_v => .riscv_vectorcallcc,
         .avr_builtin => .avr_builtincc,
@@ -11821,7 +11866,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .powerpc_sysv_altivec,
         .powerpc_aix,
         .powerpc_aix_altivec,
-        .wasm_watc,
+        .wasm_mvp,
         .arc_sysv,
         .avr_gnu,
         .bpf_std,
@@ -11834,8 +11879,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
-        .propeller1_sysv,
-        .propeller2_sysv,
+        .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
         .ve_sysv,
@@ -11999,12 +12043,12 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
-        .wasm_watc => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -12054,7 +12098,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12084,7 +12128,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                 return o.builder.structType(.normal, types[0..types_len]);
             },
         },
-        .wasm_watc => {
+        .wasm_mvp => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
             }
@@ -12303,7 +12347,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
+            .arm_aapcs, .arm_aapcs_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
@@ -12349,7 +12393,7 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
-            .wasm_watc => {
+            .wasm_mvp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (isScalar(zcu, ty)) {
@@ -12707,7 +12751,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12734,7 +12778,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -13024,9 +13068,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable,
     }
 }

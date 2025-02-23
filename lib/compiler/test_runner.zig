@@ -150,6 +150,7 @@ fn mainServer() !void {
                 try server.serveU64Message(.fuzz_start_addr, entry_addr);
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
+                fuzzer_set_name(test_fn.name.ptr, test_fn.name.len);
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
                     else => {
@@ -341,12 +342,15 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
+extern fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
+extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void;
+extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
 extern fn fuzzer_coverage_id() u64;
 
 pub fn fuzz(
-    comptime testOne: fn ([]const u8) anyerror!void,
+    context: anytype,
+    comptime testOne: fn (context: @TypeOf(context), []const u8) anyerror!void,
     options: testing.FuzzInputOptions,
 ) anyerror!void {
     // Prevent this function from confusing the fuzzer by omitting its own code
@@ -371,12 +375,14 @@ pub fn fuzz(
     // our standard unit test checks such as memory leaks, and interaction with
     // error logs.
     const global = struct {
+        var ctx: @TypeOf(context) = undefined;
+
         fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.C) void {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
             log_err_count = 0;
-            testOne(input_ptr[0..input_len]) catch |err| switch (err) {
+            testOne(ctx, input_ptr[0..input_len]) catch |err| switch (err) {
                 error.SkipZigTest => return,
                 else => {
                     std.debug.lockStdErr();
@@ -395,18 +401,22 @@ pub fn fuzz(
     if (builtin.fuzz) {
         const prev_allocator_state = testing.allocator_instance;
         testing.allocator_instance = .{};
+        defer testing.allocator_instance = prev_allocator_state;
+
+        for (options.corpus) |elem| fuzzer_init_corpus_elem(elem.ptr, elem.len);
+
+        global.ctx = context;
         fuzzer_start(&global.fuzzer_one);
-        testing.allocator_instance = prev_allocator_state;
         return;
     }
 
     // When the unit test executable is not built in fuzz mode, only run the
     // provided corpus.
     for (options.corpus) |input| {
-        try testOne(input);
+        try testOne(context, input);
     }
 
     // In case there is no provided corpus, also use an empty
     // string as a smoke test.
-    try testOne("");
+    try testOne(context, "");
 }

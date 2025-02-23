@@ -230,56 +230,56 @@ pub const DevicePath = union(Type) {
     };
 
     pub const Messaging = union(Subtype) {
-        Atapi: *const AtapiDevicePath,
-        Scsi: *const ScsiDevicePath,
-        FibreChannel: *const FibreChannelDevicePath,
-        FibreChannelEx: *const FibreChannelExDevicePath,
+        atapi: *const AtapiDevicePath,
+        scsi: *const ScsiDevicePath,
+        fibre_channel: *const FibreChannelDevicePath,
+        fibre_channel_ex: *const FibreChannelExDevicePath,
         @"1394": *const F1394DevicePath,
-        Usb: *const UsbDevicePath,
-        Sata: *const SataDevicePath,
-        UsbWwid: *const UsbWwidDevicePath,
-        Lun: *const DeviceLogicalUnitDevicePath,
-        UsbClass: *const UsbClassDevicePath,
-        I2o: *const I2oDevicePath,
-        MacAddress: *const MacAddressDevicePath,
-        Ipv4: *const Ipv4DevicePath,
-        Ipv6: *const Ipv6DevicePath,
-        Vlan: *const VlanDevicePath,
-        InfiniBand: *const InfiniBandDevicePath,
-        Uart: *const UartDevicePath,
-        Vendor: *const VendorDefinedDevicePath,
+        usb: *const UsbDevicePath,
+        sata: *const SataDevicePath,
+        usb_wwid: *const UsbWwidDevicePath,
+        lun: *const DeviceLogicalUnitDevicePath,
+        usb_class: *const UsbClassDevicePath,
+        i2o: *const I2oDevicePath,
+        mac_address: *const MacAddressDevicePath,
+        ipv4: *const Ipv4DevicePath,
+        ipv6: *const Ipv6DevicePath,
+        vlan: *const VlanDevicePath,
+        infini_band: *const InfiniBandDevicePath,
+        uart: *const UartDevicePath,
+        vendor: *const VendorDefinedDevicePath,
 
         pub const Subtype = enum(u8) {
-            Atapi = 1,
-            Scsi = 2,
-            FibreChannel = 3,
-            FibreChannelEx = 21,
+            atapi = 1,
+            scsi = 2,
+            fibre_channel = 3,
+            fibre_channel_ex = 21,
             @"1394" = 4,
-            Usb = 5,
-            Sata = 18,
-            UsbWwid = 16,
-            Lun = 17,
-            UsbClass = 15,
-            I2o = 6,
-            MacAddress = 11,
-            Ipv4 = 12,
-            Ipv6 = 13,
-            Vlan = 20,
-            InfiniBand = 9,
-            Uart = 14,
-            Vendor = 10,
+            usb = 5,
+            sata = 18,
+            usb_wwid = 16,
+            lun = 17,
+            usb_class = 15,
+            i2o = 6,
+            mac_address = 11,
+            ipv4 = 12,
+            ipv6 = 13,
+            vlan = 20,
+            infini_band = 9,
+            uart = 14,
+            vendor = 10,
             _,
         };
 
         pub const AtapiDevicePath = extern struct {
-            const Role = enum(u8) {
-                Master = 0,
-                Slave = 1,
+            pub const Role = enum(u8) {
+                master = 0,
+                slave = 1,
             };
 
-            const Rank = enum(u8) {
-                Primary = 0,
-                Secondary = 1,
+            pub const Rank = enum(u8) {
+                primary = 0,
+                secondary = 1,
             };
 
             type: DevicePath.Type,
@@ -528,8 +528,8 @@ pub const DevicePath = union(Type) {
 
         pub const Ipv4DevicePath = extern struct {
             pub const IpType = enum(u8) {
-                Dhcp = 0,
-                Static = 1,
+                dhcp = 0,
+                static = 1,
             };
 
             type: DevicePath.Type,
@@ -564,9 +564,9 @@ pub const DevicePath = union(Type) {
 
         pub const Ipv6DevicePath = extern struct {
             pub const Origin = enum(u8) {
-                Manual = 0,
-                AssignedStateless = 1,
-                AssignedStateful = 2,
+                manual = 0,
+                assigned_stateless = 1,
+                assigned_stateful = 2,
             };
 
             type: DevicePath.Type,
@@ -619,8 +619,8 @@ pub const DevicePath = union(Type) {
         pub const InfiniBandDevicePath = extern struct {
             pub const ResourceFlags = packed struct(u32) {
                 pub const ControllerType = enum(u1) {
-                    Ioc = 0,
-                    Service = 1,
+                    ioc = 0,
+                    service = 1,
                 };
 
                 ioc_or_service: ControllerType,
@@ -659,20 +659,20 @@ pub const DevicePath = union(Type) {
 
         pub const UartDevicePath = extern struct {
             pub const Parity = enum(u8) {
-                Default = 0,
-                None = 1,
-                Even = 2,
-                Odd = 3,
-                Mark = 4,
-                Space = 5,
+                default = 0,
+                none = 1,
+                even = 2,
+                odd = 3,
+                mark = 4,
+                space = 5,
                 _,
             };
 
             pub const StopBits = enum(u8) {
-                Default = 0,
-                One = 1,
-                OneAndAHalf = 2,
-                Two = 3,
+                default = 0,
+                one = 1,
+                one_and_a_half = 2,
+                two = 3,
                 _,
             };
 
@@ -719,40 +719,40 @@ pub const DevicePath = union(Type) {
     };
 
     pub const Media = union(Subtype) {
-        HardDrive: *const HardDriveDevicePath,
-        Cdrom: *const CdromDevicePath,
-        Vendor: *const VendorDevicePath,
-        FilePath: *const FilePathDevicePath,
-        MediaProtocol: *const MediaProtocolDevicePath,
-        PiwgFirmwareFile: *const PiwgFirmwareFileDevicePath,
-        PiwgFirmwareVolume: *const PiwgFirmwareVolumeDevicePath,
-        RelativeOffsetRange: *const RelativeOffsetRangeDevicePath,
-        RamDisk: *const RamDiskDevicePath,
+        hard_drive: *const HardDriveDevicePath,
+        cdrom: *const CdromDevicePath,
+        vendor: *const VendorDevicePath,
+        file_path: *const FilePathDevicePath,
+        media_protocol: *const MediaProtocolDevicePath,
+        piwg_firmware_file: *const PiwgFirmwareFileDevicePath,
+        piwg_firmware_volume: *const PiwgFirmwareVolumeDevicePath,
+        relative_offset_range: *const RelativeOffsetRangeDevicePath,
+        ram_disk: *const RamDiskDevicePath,
 
         pub const Subtype = enum(u8) {
-            HardDrive = 1,
-            Cdrom = 2,
-            Vendor = 3,
-            FilePath = 4,
-            MediaProtocol = 5,
-            PiwgFirmwareFile = 6,
-            PiwgFirmwareVolume = 7,
-            RelativeOffsetRange = 8,
-            RamDisk = 9,
+            hard_drive = 1,
+            cdrom = 2,
+            vendor = 3,
+            file_path = 4,
+            media_protocol = 5,
+            piwg_firmware_file = 6,
+            piwg_firmware_volume = 7,
+            relative_offset_range = 8,
+            ram_disk = 9,
             _,
         };
 
         pub const HardDriveDevicePath = extern struct {
             pub const Format = enum(u8) {
-                LegacyMbr = 0x01,
-                GuidPartitionTable = 0x02,
+                legacy_mbr = 0x01,
+                guid_partition_table = 0x02,
             };
 
             pub const SignatureType = enum(u8) {
-                NoSignature = 0x00,
+                no_signature = 0x00,
                 /// "32-bit signature from address 0x1b8 of the type 0x01 MBR"
-                MbrSignature = 0x01,
-                GuidSignature = 0x02,
+                mbr_signature = 0x01,
+                guid_signature = 0x02,
             };
 
             type: DevicePath.Type,
@@ -935,10 +935,10 @@ pub const DevicePath = union(Type) {
     };
 
     pub const BiosBootSpecification = union(Subtype) {
-        BBS101: *const BBS101DevicePath,
+        bbs101: *const BBS101DevicePath,
 
         pub const Subtype = enum(u8) {
-            BBS101 = 1,
+            bbs101 = 1,
             _,
         };
 
@@ -967,12 +967,12 @@ pub const DevicePath = union(Type) {
     };
 
     pub const End = union(Subtype) {
-        EndEntire: *const EndEntireDevicePath,
-        EndThisInstance: *const EndThisInstanceDevicePath,
+        end_entire: *const EndEntireDevicePath,
+        end_this_instance: *const EndThisInstanceDevicePath,
 
         pub const Subtype = enum(u8) {
-            EndEntire = 0xff,
-            EndThisInstance = 0x01,
+            end_entire = 0xff,
+            end_this_instance = 0x01,
             _,
         };
 

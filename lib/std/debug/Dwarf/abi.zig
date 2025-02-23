@@ -17,7 +17,6 @@ pub fn supportsUnwinding(target: std.Target) bool {
         .spirv,
         .spirv32,
         .spirv64,
-        .spu_2,
         => false,
 
         // Enabling this causes relocation errors such as:

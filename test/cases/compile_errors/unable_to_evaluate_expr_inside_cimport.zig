@@ -7,7 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:11: error: unable to evaluate comptime expression

@@ -12,7 +12,7 @@ pub const default_stack_protector_buffer_size = 4;
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
         .freestanding => true,
-        else => target.isSpirV(),
+        else => target.cpu.arch.isSpirV(),
     };
 }
 
@@ -40,12 +40,12 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
 }
 
 pub fn requiresPIE(target: std.Target) bool {
-    return target.isAndroid() or target.isDarwin() or target.os.tag == .openbsd;
+    return target.abi.isAndroid() or target.os.tag.isDarwin() or target.os.tag == .openbsd;
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
-    return target.isAndroid() or
+    return target.abi.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
         (linking_libc and target.isGnuLibC());
@@ -195,9 +195,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
 
         // No LLVM backend exists.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => false,
     };
 }
@@ -247,7 +245,7 @@ pub fn clangSupportsStackProtector(target: std.Target) bool {
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
-    return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
+    return !target.isMinGW() and target.os.tag != .wasi and !target.cpu.arch.isSpirV();
 }
 
 pub fn supportsReturnAddress(target: std.Target) bool {
@@ -444,12 +442,11 @@ pub fn addrSpaceCastIsValid(
     from: AddressSpace,
     to: AddressSpace,
 ) bool {
-    const arch = target.cpu.arch;
-    switch (arch) {
-        .x86_64, .x86 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
+    switch (target.cpu.arch) {
+        .x86_64, .x86 => return target.cpu.supportsAddressSpace(from, null) and target.cpu.supportsAddressSpace(to, null),
         .nvptx64, .nvptx, .amdgcn => {
-            const to_generic = arch.supportsAddressSpace(from) and to == .generic;
-            const from_generic = arch.supportsAddressSpace(to) and from == .generic;
+            const to_generic = target.cpu.supportsAddressSpace(from, null) and to == .generic;
+            const from_generic = target.cpu.supportsAddressSpace(to, null) and from == .generic;
             return to_generic or from_generic;
         },
         else => return from == .generic and to == .generic,
@@ -629,6 +626,17 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
     };
 }
 
+pub fn functionPointerMask(target: std.Target) ?u64 {
+    // 32-bit Arm uses the LSB to mean that the target function contains Thumb code.
+    // MIPS uses the LSB to mean that the target function contains MIPS16/microMIPS code.
+    return if (target.cpu.arch.isArm() or target.cpu.arch.isMIPS32())
+        ~@as(u32, 1)
+    else if (target.cpu.arch.isMIPS64())
+        ~@as(u64, 1)
+    else
+        null;
+}
+
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     switch (backend) {
         .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
@@ -726,11 +734,11 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .is_named_enum_value => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .error_set_has_value => switch (backend) {
-            .stage2_llvm, .stage2_wasm => true,
+            .stage2_llvm, .stage2_wasm, .stage2_x86_64 => true,
             else => false,
         },
         .field_reordering => switch (backend) {
@@ -746,6 +754,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => true,
         },
         .all_vector_instructions => switch (backend) {
+            .stage2_x86_64 => true,
             else => false,
         },
     };

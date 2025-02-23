@@ -656,3 +656,14 @@ test "result location initialization of optional with OPV payload" {
     _ = &c;
     try expectEqual(0, (c orelse return error.TestFailed).x);
 }
+
+test "global comptime only optional" {
+    const S = struct {
+        const @"null": ?*type = null;
+        const @"void": ?*const type = &void;
+    };
+    comptime {
+        assert(S.null == null);
+        assert(S.void.?.* == void);
+    }
+}

@@ -160,6 +160,9 @@ dead_strip_dylibs: bool = false,
 /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
 force_load_objc: bool = false,
 
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
+
 /// Position Independent Executable
 pie: ?bool = null,
 
@@ -465,7 +468,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (compile.linkage != null and compile.linkage.? == .static) {
             compile.out_lib_filename = compile.out_filename;
         } else if (compile.version) |version| {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     compile.name,
                     version.major,
@@ -480,7 +483,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.out_lib_filename = compile.out_filename;
             }
         } else {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
                 compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
@@ -1524,7 +1527,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             try zig_args.append(b.fmt("{}", .{version}));
         }
 
-        if (compile.rootModuleTarget().isDarwin()) {
+        if (compile.rootModuleTarget().os.tag.isDarwin()) {
             const install_name = compile.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
                 compile.rootModuleTarget().libPrefix(),
                 compile.name,
@@ -1554,6 +1557,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
     if (compile.force_load_objc) {
         try zig_args.append("-ObjC");
+    }
+    if (compile.discard_local_symbols) {
+        try zig_args.append("--discard-all");
     }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);

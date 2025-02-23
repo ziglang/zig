@@ -36,7 +36,7 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :8:48: error: expected type 'type', found 'bool'

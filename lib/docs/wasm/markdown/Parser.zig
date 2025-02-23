@@ -374,7 +374,7 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
         // or not of the same marker type.
         const should_close_list = last_pending_block.tag == .list and
             (block_start.tag != .list_item or
-            block_start.data.list_item.marker != last_pending_block.data.list.marker);
+                block_start.data.list_item.marker != last_pending_block.data.list.marker);
         // The last block should also be closed if the new block is not a table
         // row, which is the only allowed child of a table.
         const should_close_table = last_pending_block.tag == .table and
@@ -816,7 +816,7 @@ fn isThematicBreak(line: []const u8) bool {
 }
 
 fn closeLastBlock(p: *Parser) !void {
-    const b = p.pending_blocks.pop();
+    const b = p.pending_blocks.pop().?;
     const node = switch (b.tag) {
         .list => list: {
             assert(b.string_start == p.scratch_string.items.len);

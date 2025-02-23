@@ -121,13 +121,13 @@ pub fn deinit(self: *SelfInfo) void {
 }
 
 pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleWin32(address);
     } else if (native_os == .haiku) {
         return self.lookupModuleHaiku(address);
-    } else if (builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return self.lookupModuleWasm(address);
     } else {
         return self.lookupModuleDl(address);
@@ -138,13 +138,13 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
 // This can be called when getModuleForAddress fails, so implementations should provide
 // a path that doesn't rely on any side-effects of a prior successful module lookup.
 pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleNameDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleNameWin32(address);
     } else if (native_os == .haiku) {
         return null;
-    } else if (builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return null;
     } else {
         return self.lookupModuleNameDl(address);
@@ -504,7 +504,7 @@ pub const Module = switch (native_os) {
     .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
-        mapped_memory: []align(mem.page_size) const u8,
+        mapped_memory: []align(std.heap.page_size_min) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -689,15 +689,15 @@ pub const Module = switch (native_os) {
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return .{
-                        .relocated_address = relocated_address,
-                        .symbol = symbol,
-                    },
-                    else => return err,
-                });
+                        error.FileNotFound,
+                        error.MissingDebugInfo,
+                        error.InvalidDebugInfo,
+                        => return .{
+                            .relocated_address = relocated_address,
+                            .symbol = symbol,
+                        },
+                        else => return err,
+                    });
 
                 return .{
                     .relocated_address = relocated_address,
@@ -1046,7 +1046,7 @@ pub fn readElfDebugInfo(
     build_id: ?[]const u8,
     expected_crc: ?u32,
     parent_sections: *Dwarf.SectionArray,
-    parent_mapped_mem: ?[]align(mem.page_size) const u8,
+    parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
 ) !Dwarf.ElfModule {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
@@ -1088,7 +1088,7 @@ const MachoSymbol = struct {
 
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
+fn mapWholeFile(file: File) ![]align(std.heap.page_size_min) const u8 {
     nosuspend {
         defer file.close();
 
@@ -2138,7 +2138,7 @@ pub const VirtualMachine = struct {
                 self.current_row.copy_on_write = true;
             },
             .restore_state => {
-                const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                const restored_columns = self.stack.pop() orelse return error.InvalidOperation;
                 self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
                 try self.columns.ensureUnusedCapacity(allocator, restored_columns.len);
 

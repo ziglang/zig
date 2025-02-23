@@ -1360,6 +1360,14 @@ test "lazy sizeof is resolved in division" {
     try expect(@sizeOf(A) - a == 2);
 }
 
+test "lazy sizeof union tag size in compare" {
+    const A = union(enum) {
+        a: void,
+        b: void,
+    };
+    try expect(@sizeOf(A) == 1);
+}
+
 test "lazy value is resolved as slice operand" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1750,4 +1758,15 @@ test "comptime labeled block implicit exit" {
         if (false) break :b 123;
     };
     comptime assert(result == {});
+}
+
+test "comptime block has intermediate runtime-known values" {
+    const arr: [2]u8 = .{ 1, 2 };
+
+    var idx: usize = undefined;
+    idx = 0;
+
+    comptime {
+        _ = arr[idx];
+    }
 }

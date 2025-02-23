@@ -203,7 +203,7 @@ fn printOutput(
                 if (mem.startsWith(u8, triple, "wasm32") or
                     mem.startsWith(u8, triple, "riscv64-linux") or
                     (mem.startsWith(u8, triple, "x86_64-linux") and
-                    builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
+                        builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
                 {
                     // skip execution
                     break :code_block;

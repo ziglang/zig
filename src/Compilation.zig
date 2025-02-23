@@ -657,7 +657,7 @@ pub const CObject = struct {
                     .end_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
                         .Meta => {},
                         .Diag => {
-                            var wip_diag = stack.pop();
+                            var wip_diag = stack.pop().?;
                             errdefer wip_diag.deinit(gpa);
 
                             const src_ranges = try wip_diag.src_ranges.toOwnedSlice(gpa);
@@ -806,6 +806,7 @@ pub const MiscTask = enum {
     @"wasi crt1-reactor.o",
     @"wasi crt1-command.o",
     @"wasi libc.a",
+    @"wasi libdl.a",
     @"libwasi-emulated-process-clocks.a",
     @"libwasi-emulated-getpid.a",
     @"libwasi-emulated-mman.a",
@@ -1159,6 +1160,8 @@ pub const CreateOptions = struct {
     dead_strip_dylibs: bool = false,
     /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
     force_load_objc: bool = false,
+    /// Whether local symbols should be discarded from the symbol table.
+    discard_local_symbols: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
     /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
     /// paths when consolidating CodeView streams into a single PDB file.
@@ -1584,6 +1587,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_load_objc = options.force_load_objc,
+            .discard_local_symbols = options.discard_local_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
@@ -1765,11 +1769,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (comp.config.link_libc and is_exe_or_dyn_lib) {
                 // If the "is darwin" check is moved below the libc_installation check below,
                 // error.LibCInstallationMissingCrtDir is returned from lci.resolveCrtPaths().
-                if (target.isDarwin()) {
-                    switch (target.abi) {
-                        .none, .simulator, .macabi => {},
-                        else => return error.LibCUnavailable,
-                    }
+                if (target.isDarwinLibC()) {
                     // TODO delete logic from MachO flush() and queue up tasks here instead.
                 } else if (comp.libc_installation) |lci| {
                     const basenames = LibCInstallation.CrtBasenames.get(.{
@@ -1792,7 +1792,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // Loads the libraries provided by `target_util.libcFullLinkFlags(target)`.
                     comp.link_task_queue.shared.appendAssumeCapacity(.load_host_libc);
                     comp.remaining_prelink_tasks += 1;
-                } else if (target.isMusl() and !target.isWasm()) {
+                } else if (target.isMuslLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
@@ -1816,7 +1816,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
                     comp.remaining_prelink_tasks += 1;
-                } else if (target.isWasm() and target.os.tag == .wasi) {
+                } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     for (comp.wasi_emulated_libs) |crt_file| {
@@ -1838,11 +1838,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
                     for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
-                } else if (target.isDarwin()) {
-                    switch (target.abi) {
-                        .none, .simulator, .macabi => {},
-                        else => return error.LibCUnavailable,
-                    }
                 } else if (target.os.tag == .freestanding and capable_of_building_zig_libc) {
                     comp.queued_jobs.zig_libc = true;
                     comp.remaining_prelink_tasks += 1;
@@ -2195,6 +2190,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
+        zcu.skip_analysis_errors = false;
+
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
         const std_mod = zcu.std_mod;
@@ -2220,10 +2217,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.astgen_work_queue.ensureUnusedCapacity(zcu.import_table.count());
         for (zcu.import_table.values()) |file_index| {
             if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
-            const file = zcu.fileByIndex(file_index);
-            if (file.getMode() == .zig) {
-                comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
-            }
+            comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
         if (comp.file_system_inputs) |fsi| {
             for (zcu.import_table.values()) |file_index| {
@@ -2674,6 +2668,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(opts.headerpad_max_install_names);
     man.hash.add(opts.dead_strip_dylibs);
     man.hash.add(opts.force_load_objc);
+    man.hash.add(opts.discard_local_symbols);
 
     // COFF specific stuff
     man.hash.addOptional(opts.subsystem);
@@ -2906,10 +2901,12 @@ pub fn makeBinFileWritable(comp: *Compilation) !void {
 const Header = extern struct {
     intern_pool: extern struct {
         thread_count: u32,
-        file_deps_len: u32,
         src_hash_deps_len: u32,
         nav_val_deps_len: u32,
         nav_ty_deps_len: u32,
+        interned_deps_len: u32,
+        zon_file_deps_len: u32,
+        embed_file_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2950,10 +2947,12 @@ pub fn saveState(comp: *Compilation) !void {
         const header: Header = .{
             .intern_pool = .{
                 .thread_count = @intCast(ip.locals.len),
-                .file_deps_len = @intCast(ip.file_deps.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
                 .nav_ty_deps_len = @intCast(ip.nav_ty_deps.count()),
+                .interned_deps_len = @intCast(ip.interned_deps.count()),
+                .zon_file_deps_len = @intCast(ip.zon_file_deps.count()),
+                .embed_file_deps_len = @intCast(ip.embed_file_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2978,14 +2977,18 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs, mem.asBytes(&header));
         addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
@@ -3202,16 +3205,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
     }
 
-    if (comp.zcu) |zcu| {
-        const ip = &zcu.intern_pool;
-
+    if (comp.zcu) |zcu| zcu_errors: {
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
                 // Must be ZIR or Zoir errors. Note that this may include AST errors.
                 _ = try file.getTree(gpa); // Tree must be loaded.
-                if (file.zir_loaded) {
+                if (file.zir != null) {
                     try addZirErrorMessages(&bundle, file);
                 } else if (file.zoir != null) {
                     try addZoirErrorMessages(&bundle, file);
@@ -3221,6 +3222,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
+        if (zcu.skip_analysis_errors) break :zcu_errors;
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
@@ -3277,20 +3279,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            report_ok: {
-                const file_index = switch (anal_unit.unwrap()) {
-                    .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
-                    .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
-                    .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
-                    .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
-                    .memoized_state => break :report_ok, // always report std.builtin errors
-                };
-
-                // Skip errors for AnalUnits within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
-            }
-
             std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
                 error_msg.msg,
                 zcu.fmtAnalUnit(anal_unit),
@@ -3318,12 +3306,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
-            if (!zcu.navFileScope(nav).okToReportErrors()) continue;
+        for (zcu.failed_codegen.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        for (zcu.failed_types.keys(), zcu.failed_types.values()) |ty_index, error_msg| {
-            if (!zcu.typeFileScope(ty_index).okToReportErrors()) continue;
+        for (zcu.failed_types.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         for (zcu.failed_exports.values()) |value| {
@@ -3372,7 +3358,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
     if (comp.zcu) |zcu| {
-        if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
+        if (!zcu.skip_analysis_errors and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3623,22 +3609,17 @@ pub fn addModuleErrorMsg(
 }
 
 pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
-    assert(file.zir_loaded);
-    assert(file.tree_loaded);
-    assert(file.source_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
-    return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
+    return eb.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, src_path);
 }
 
 pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
-    assert(file.source_loaded);
-    assert(file.tree_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
-    return eb.addZoirErrorMessages(file.zoir.?, file.tree, file.source, src_path);
+    return eb.addZoirErrorMessages(file.zoir.?, file.tree.?, file.source.?, src_path);
 }
 
 pub fn performAllTheWork(
@@ -3802,7 +3783,7 @@ fn performAllTheWorkInner(
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
                     const file = zcu.fileByIndex(file_index);
-                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
+                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateFile, .{
                         comp, file, file_index, path_digest, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
@@ -3810,7 +3791,7 @@ fn performAllTheWorkInner(
 
             for (0.., zcu.embed_table.values()) |ef_index_usize, ef| {
                 const ef_index: Zcu.EmbedFile.Index = @enumFromInt(ef_index_usize);
-                comp.thread_pool.spawnWgId(&astgen_wait_group, workerCheckEmbedFile, .{
+                comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateEmbedFile, .{
                     comp, ef_index, ef,
                 });
             }
@@ -3832,12 +3813,63 @@ fn performAllTheWorkInner(
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
+
+        // If the cache mode is `whole`, then add every source file to the cache manifest.
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |man| {
+                const gpa = zcu.gpa;
+                for (zcu.import_table.values()) |file_index| {
+                    const file = zcu.fileByIndex(file_index);
+                    const source = file.getSource(gpa) catch |err| {
+                        try pt.reportRetryableFileError(file_index, "unable to load source: {s}", .{@errorName(err)});
+                        continue;
+                    };
+                    const resolved_path = try std.fs.path.resolve(gpa, &.{
+                        file.mod.root.root_dir.path orelse ".",
+                        file.mod.root.sub_path,
+                        file.sub_file_path,
+                    });
+                    errdefer gpa.free(resolved_path);
+                    whole.cache_manifest_mutex.lock();
+                    defer whole.cache_manifest_mutex.unlock();
+                    man.addFilePostContents(resolved_path, source.bytes, source.stat) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        else => {
+                            try pt.reportRetryableFileError(file_index, "unable to update cache: {s}", .{@errorName(err)});
+                            continue;
+                        },
+                    };
+                }
+            },
+            .incremental => {},
+        }
+
+        try reportMultiModuleErrors(pt);
+
+        const any_fatal_files = for (zcu.import_table.values()) |file_index| {
+            const file = zcu.fileByIndex(file_index);
+            switch (file.status) {
+                .never_loaded => unreachable, // everything is loaded by the workers
+                .retryable_failure, .astgen_failure => break true,
+                .success => {},
+            }
+        } else false;
+
+        if (any_fatal_files or comp.alloc_failure_occurred) {
+            // We give up right now! No updating of ZIR refs, no nothing. The idea is that this prevents
+            // us from invalidating lots of incremental dependencies due to files with e.g. parse errors.
+            // However, this means our analysis data is invalid, so we want to omit all analysis errors.
+
+            assert(zcu.failed_files.count() > 0); // we will get an error
+            zcu.skip_analysis_errors = true;
+            return;
+        }
+
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
             try pt.updateZirRefs();
         }
-        try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
 
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
@@ -4280,7 +4312,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 }
 
-fn workerAstGenFile(
+fn workerUpdateFile(
     tid: usize,
     comp: *Compilation,
     file: *Zcu.File,
@@ -4290,40 +4322,44 @@ fn workerAstGenFile(
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
 ) void {
-    assert(file.getMode() == .zig);
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
     defer pt.deactivate();
-    pt.astGenFile(file, path_digest) catch |err| switch (err) {
+    pt.updateFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
-            file.status = .retryable_failure;
             pt.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
-                // Swallowing this error is OK because it's implied to be OOM when
-                // there is a missing `failed_files` error message.
-                error.OutOfMemory => {},
+                error.OutOfMemory => {
+                    comp.mutex.lock();
+                    defer comp.mutex.unlock();
+                    comp.setAllocFailure();
+                },
             };
             return;
         },
     };
 
+    switch (file.getMode()) {
+        .zig => {}, // continue to logic below
+        .zon => return, // ZON can't import anything so we're done
+    }
+
     // Pre-emptively look for `@import` paths and queue them up.
     // If we experience an error preemptively fetching the
     // file, just ignore it and let it happen again later during Sema.
-    assert(file.zir_loaded);
-    const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
         var extra_index = extra.end;
 
         while (import_i < extra.data.imports_len) : (import_i += 1) {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
+            const import_path = file.zir.?.nullTerminatedString(item.data.name);
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
@@ -4344,7 +4380,7 @@ fn workerAstGenFile(
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
                 break :blk .{ res, imported_path_digest };
             };
-            if (import_result.is_new and import_result.file.getMode() == .zig) {
+            if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });
@@ -4352,7 +4388,7 @@ fn workerAstGenFile(
                     .importing_file = file_index,
                     .import_tok = item.data.token,
                 } };
-                comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
+                comp.thread_pool.spawnWgId(wg, workerUpdateFile, .{
                     comp, import_result.file, import_result.file_index, imported_path_digest, prog_node, wg, sub_src,
                 });
             }
@@ -4375,7 +4411,7 @@ fn workerUpdateBuiltinZigFile(
     };
 }
 
-fn workerCheckEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+fn workerUpdateEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
     comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
         error.OutOfMemory => {
             comp.mutex.lock();
@@ -5504,7 +5540,7 @@ pub fn addCCArgs(
 
     // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
     if (target_util.clangSupportsFloatAbiArg(target)) {
-        const fabi = @tagName(target.floatAbi());
+        const fabi = @tagName(target.abi.float());
 
         try argv.append(switch (target.cpu.arch) {
             // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
@@ -5557,7 +5593,7 @@ pub fn addCCArgs(
     if (ext != .assembly) {
         try argv.append(if (target.os.tag == .freestanding) "-ffreestanding" else "-fhosted");
 
-        if (target_util.clangSupportsNoImplicitFloatArg(target) and target.floatAbi() == .soft) {
+        if (target_util.clangSupportsNoImplicitFloatArg(target) and target.abi.float() == .soft) {
             try argv.append("-mno-implicit-float");
         }
 
@@ -5605,7 +5641,7 @@ pub fn addCCArgs(
         // LLVM IR files don't support these flags.
         if (ext != .ll and ext != .bc) {
             // https://github.com/llvm/llvm-project/issues/105972
-            if (target.cpu.arch.isPowerPC() and target.floatAbi() == .soft) {
+            if (target.cpu.arch.isPowerPC() and target.abi.float() == .soft) {
                 try argv.append("-D__NO_FPRS__");
                 try argv.append("-D_SOFT_FLOAT");
                 try argv.append("-D_SOFT_DOUBLE");
@@ -5874,7 +5910,7 @@ pub fn addCCArgs(
                     try san_arg.appendSlice(arena, "fuzzer-no-link,");
                 }
                 // Chop off the trailing comma and append to argv.
-                if (san_arg.popOrNull()) |_| {
+                if (san_arg.pop()) |_| {
                     try argv.append(san_arg.items);
 
                     // These args have to be added after the `-fsanitize` arg or
@@ -5890,10 +5926,10 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
                     }
+                }
 
-                    if (comp.config.san_cov_trace_pc_guard) {
-                        try argv.appendSlice(&.{ "-Xclang", "-fsanitize-coverage-trace-pc-guard" });
-                    }
+                if (comp.config.san_cov_trace_pc_guard) {
+                    try argv.append("-fsanitize-coverage=trace-pc-guard");
                 }
             }
 
@@ -6459,6 +6495,8 @@ fn buildOutputFromZig(
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
+        .any_error_tracing = false,
+        .root_error_tracing = false,
         .lto = if (allow_lto) comp.config.lto else .none,
     });
 
@@ -6482,6 +6520,7 @@ fn buildOutputFromZig(
             .structured_cfg = comp.root_mod.structured_cfg,
             .no_builtin = true,
             .code_model = comp.root_mod.code_model,
+            .error_tracing = false,
         },
         .global = config,
         .cc_argv = &.{},
