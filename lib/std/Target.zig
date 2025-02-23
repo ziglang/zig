@@ -299,7 +299,7 @@ pub const Os = struct {
         pub fn parse(str: []const u8) !WindowsVersion {
             return std.meta.stringToEnum(WindowsVersion, str) orelse
                 @enumFromInt(std.fmt.parseInt(u32, str, 0) catch
-                return error.InvalidOperatingSystemVersion);
+                    return error.InvalidOperatingSystemVersion);
         }
 
         /// This function is defined to serialize a Zig source code representation of this

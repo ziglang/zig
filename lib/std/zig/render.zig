@@ -372,7 +372,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             if (!ais.indentStackEmpty() and
                 token_tags[i] != .colon and
                 ((token_tags[i] != .semicolon and token_tags[i] != .comma) or
-                ais.lastSpaceModeIndent() < ais.currentIndent()))
+                    ais.lastSpaceModeIndent() < ais.currentIndent()))
             {
                 ais.popIndent();
                 try ais.pushIndent(.normal);
@@ -1185,9 +1185,9 @@ fn renderVarDeclWithoutFixups(
     {
         const name_space = if (var_decl.ast.type_node == 0 and
             (var_decl.ast.align_node != 0 or
-            var_decl.ast.addrspace_node != 0 or
-            var_decl.ast.section_node != 0 or
-            var_decl.ast.init_node != 0))
+                var_decl.ast.addrspace_node != 0 or
+                var_decl.ast.section_node != 0 or
+                var_decl.ast.init_node != 0))
             Space.space
         else
             Space.none;

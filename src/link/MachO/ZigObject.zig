@@ -1104,8 +1104,8 @@ fn createTlvDescriptor(
 
     const sect_index = macho_file.getSectionByName("__DATA", "__thread_vars") orelse
         try macho_file.addSection("__DATA", "__thread_vars", .{
-        .flags = macho.S_THREAD_LOCAL_VARIABLES,
-    });
+            .flags = macho.S_THREAD_LOCAL_VARIABLES,
+        });
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 

@@ -610,11 +610,12 @@ pub fn hasRuntimeBitsInner(
                         // in which case we want control flow to continue down below.
                         if (tag_ty != .none and
                             try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
-                            ignore_comptime_only,
-                            strat,
-                            zcu,
-                            tid,
-                        )) {
+                                ignore_comptime_only,
+                                strat,
+                                zcu,
+                                tid,
+                            ))
+                        {
                             return true;
                         }
                     },

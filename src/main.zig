@@ -5919,8 +5919,8 @@ pub const ClangArgIterator = struct {
 
             self.arg_iterator_response_file =
                 initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
-                fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
-            };
+                    fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
+                };
             // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
             // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
 
@@ -6233,8 +6233,8 @@ fn cmdAstCheck(
                     file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
                 const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
-                    @sizeOf(Ast.Node.Data) +
-                    @sizeOf(Ast.TokenIndex));
+                        @sizeOf(Ast.Node.Data) +
+                        @sizeOf(Ast.TokenIndex));
                 const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
