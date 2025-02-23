@@ -1300,6 +1300,8 @@ const NavGen = struct {
             .type = child_ty_id,
         });
 
+        self.ptr_types.getPtr(key).?.fwd_emitted = true;
+
         return result_id;
     }
 
