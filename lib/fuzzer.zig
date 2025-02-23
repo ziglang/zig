@@ -130,6 +130,10 @@ const Fuzzer = struct {
     /// The file size corresponds to the capacity. The length is not stored
     /// and that is the next thing to work on!
     input: MemoryMappedList,
+    input_len_range: struct {
+        min: usize,
+        max: usize,
+    },
 
     const Input = struct {
         bytes: []u8,
@@ -217,7 +221,7 @@ const Fuzzer = struct {
             const i = f.corpus.items.len;
             var buf: [30]u8 = undefined;
             const input_sub_path = std.fmt.bufPrint(&buf, "{d}", .{i}) catch unreachable;
-            const input = f.corpus_directory.handle.readFileAlloc(gpa, input_sub_path, 1 << 31) catch |err| switch (err) {
+            var input = f.corpus_directory.handle.readFileAlloc(gpa, input_sub_path, 1 << 31) catch |err| switch (err) {
                 error.FileNotFound => {
                     // Make this one the next input.
                     const input_file = f.corpus_directory.handle.createFile(input_sub_path, .{
@@ -240,6 +244,7 @@ const Fuzzer = struct {
                 else => fatal("unable to read '{}{d}': {s}", .{ f.corpus_directory, i, @errorName(err) }),
             };
             errdefer gpa.free(input);
+            input = gpa.realloc(input, f.input_len_range.max) catch fatal("unable to reallocate input '{}{d}'", .{ f.corpus_directory, i });
             f.corpus.append(gpa, .{
                 .bytes = input,
                 .last_traced_comparison = 0,
@@ -273,7 +278,10 @@ const Fuzzer = struct {
 
         // If the corpus is empty, synthesize one input.
         if (f.corpus.items.len == 0) {
-            const len = rng.uintLessThanBiased(usize, 200);
+            const len = f.input_len_range.min + rng.uintLessThanBiased(
+                usize,
+                (f.input_len_range.max - f.input_len_range.min) + 1,
+            );
             const slice = try gpa.alloc(u8, len);
             rng.bytes(slice);
             f.input.appendSliceAssumeCapacity(slice);
@@ -309,8 +317,16 @@ const Fuzzer = struct {
         const rng = fuzzer.rng.random();
         f.input.clearRetainingCapacity();
         const old_input = f.corpus.items[corpus_index].bytes;
+        // In cases where we cannot add or remove bytes due to the bounds on input length,
+        // modify a byte instead.
+        const actual_mutation = if (old_input.len == f.input_len_range.min and mutation == .remove_byte)
+            .modify_byte
+        else if (old_input.len == f.input_len_range.max and mutation == .add_byte)
+            .modify_byte
+        else
+            mutation;
         f.input.ensureTotalCapacity(old_input.len + 1) catch @panic("mmap file resize failed");
-        switch (mutation) {
+        switch (actual_mutation) {
             .remove_byte => {
                 const omitted_index = rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input[0..omitted_index]);
@@ -328,6 +344,8 @@ const Fuzzer = struct {
                 f.input.appendSliceAssumeCapacity(old_input[modified_index..]);
             },
         }
+        assert(f.input.items.len >= f.input_len_range.min);
+        assert(f.input.items.len <= f.input_len_range.max);
         runOne(f, corpus_index);
     }
 
@@ -446,6 +464,7 @@ var fuzzer: Fuzzer = .{
     .corpus = .empty,
     .corpus_directory = undefined,
     .traced_comparisons = .empty,
+    .input_len_range = undefined,
 };
 
 /// Invalid until `fuzzer_init` is called.
@@ -455,8 +474,16 @@ export fn fuzzer_coverage_id() u64 {
 
 var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
 
-export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
+export fn fuzzer_start(
+    testOne: @TypeOf(fuzzer_one),
+    min_input_length: usize,
+    max_input_length: usize,
+) void {
     fuzzer_one = testOne;
+    fuzzer.input_len_range = .{
+        .min = min_input_length,
+        .max = max_input_length,
+    };
     fuzzer.start() catch |err| oom(err);
 }
 

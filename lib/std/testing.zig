@@ -1165,6 +1165,10 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
 
 pub const FuzzInputOptions = struct {
     corpus: []const []const u8 = &.{},
+    len_range: struct {
+        min: usize = 0,
+        max: usize = 200,
+    } = .{},
 };
 
 /// Inline to avoid coverage instrumentation.
