@@ -4746,19 +4746,18 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@deprecated() void{#endsyntax#}</pre>
       <p>
 	  Used to mark a given code path as deprecated. It evaluates to the same value
-	  passed in as argument, or the {#syntax#}void{#endsyntax#} value when given none.
+	  passed in as argument, or the void value when given none.
       </p>
       <p>
-      As an example, in Zig 0.14.0 {#syntax#}std.time.sleep{#endsyntax#} was
-	  deprecated and the sleep function was moved to {#syntax#}std.Thread.sleep{#endsyntax#}.
-	  This is how this deprecation could have been expressed:
-	   
-      {#syntax_block|zig|lib/std/time.zig#}
-pub const sleep = @deprecated(std.Thread.sleep); // moved
-      {#end_syntax_block#}
+      As an example, a library that wishes to move or rename a declaration, while
+	  deprecating usage of the old name can use {#syntax#}@deprecated{#endsyntax#} like so:
 	  </p>
+      {#syntax_block|zig|root.zig#}
+pub const fooToBar = @deprecated(bar.fromFoo); // moved
+      {#end_syntax_block#}
+
       <p>
-      By default it is a <b>compile error</b> to depend on deprecated code in
+      By default it is a <b>compile error</b> to reference deprecated code in
 	  a module defined by the root package, while it is not in modules defined
 	  by dependencies. This behavior can be overridden for the entire dependency
 	  tree by passing {#syntax#}-fallow-deprecated{#endsyntax#} or
@@ -4772,9 +4771,9 @@ pub const sleep = @deprecated(std.Thread.sleep); // moved
       </p>
 
 	  <p>
-      {#syntax#}@deprecated{#endsyntax#} can also be used without argument: 	
-      {#code|test_deprecated_builtin.zig#}
+      Using {#syntax#}@deprecated{#endsyntax#} without an argument can be useful inside of blocks:
 	  </p>
+      {#code|test_deprecated_builtin.zig#}
 	
       {#header_close#}
 
