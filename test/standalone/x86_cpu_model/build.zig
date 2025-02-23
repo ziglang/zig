@@ -10,8 +10,7 @@ pub fn build(b: *std.Build) void {
     const arch = target.result.cpu.arch;
     if (!arch.isX86()) return;
 
-    const abi = target.result.abi;
-    if (target.result.ofmt != .elf or !(abi.isMusl() or abi.isGnu())) return;
+    const cpu = target.result.cpu;
 
     const exe = b.addExecutable(.{
         .name = "main",
@@ -33,6 +32,17 @@ pub fn build(b: *std.Build) void {
     check_exe.checkInSymtab();
     check_exe.checkContains("__cpu_indicator_init");
     test_step.dependOn(&check_exe.step);
+
+    const run_exe = b.addRunArtifact(exe);
+    if (std.Target.x86.featureSetHas(cpu.features, .avx512vnni)) {
+        run_exe.expectExitCode(3);
+    } else if (std.Target.x86.featureSetHas(cpu.features, .avx2)) {
+        run_exe.expectExitCode(2);
+    } else {
+        run_exe.expectExitCode(1);
+    }
+    run_exe.step.dependOn(&check_exe.step);
+    test_step.dependOn(&run_exe.step);
 
     const lib = b.addSharedLibrary(.{
         .name = "main-lib",

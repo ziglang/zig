@@ -1,10 +1,8 @@
-#include <stdio.h>
-
 int foo(void) __attribute__((__visibility__("default")));
 
 #ifndef NO_MAIN
 int main(void) {
-    printf("%d\n", foo());
+    return foo();
 }
 #endif
 
