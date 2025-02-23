@@ -9,7 +9,7 @@ pub fn CountingWriter(comptime WriterType: type) type {
         child_stream: WriterType,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
 
         const Self = @This();
 

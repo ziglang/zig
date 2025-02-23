@@ -39,7 +39,7 @@ pub fn LinearFifo(
 
         const Self = @This();
         pub const Reader = std.io.GenericReader(*Self, error{}, readFn);
-        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+        pub const Writer = std.io.GenericWriter(*Self, error{OutOfMemory}, appendWrite);
 
         // Type of Self argument for slice operations.
         // If buffer is inline (Static) then we need to ensure we haven't
@@ -320,7 +320,7 @@ pub fn LinearFifo(
         }
 
         /// Same as `write` except it returns the number of bytes written, which is always the same
-        /// as `bytes.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// as `bytes.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
             try self.write(bytes);
             return bytes.len;

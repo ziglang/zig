@@ -375,7 +375,7 @@ pub const Connection = struct {
         UnexpectedWriteFailure,
     };
 
-    pub const Writer = std.io.Writer(*Connection, WriteError, write);
+    pub const Writer = std.io.GenericWriter(*Connection, WriteError, write);
 
     pub fn writer(conn: *Connection) Writer {
         return Writer{ .context = conn };
@@ -1138,7 +1138,7 @@ pub const Request = struct {
 
     pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
-    pub const Writer = std.io.Writer(*Request, WriteError, write);
+    pub const Writer = std.io.GenericWriter(*Request, WriteError, write);
 
     pub fn writer(req: *Request) Writer {
         return .{ .context = req };

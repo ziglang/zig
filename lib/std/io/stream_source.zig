@@ -2,9 +2,9 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const io = std.io;
 
-/// Provides `io.GenericReader`, `io.Writer`, and `io.SeekableStream` for in-memory buffers as
+/// Provides `io.GenericReader`, `io.GenericWriter`, and `io.SeekableStream` for in-memory buffers as
 /// well as files.
-/// For memory sources, if the supplied byte buffer is const, then `io.Writer` is not available.
+/// For memory sources, if the supplied byte buffer is const, then `io.GenericWriter` is not available.
 /// The error set of the stream functions is the error set of the corresponding file functions.
 pub const StreamSource = union(enum) {
     // TODO: expose UEFI files to std.os in a way that allows this to be true
@@ -27,7 +27,7 @@ pub const StreamSource = union(enum) {
     pub const GetSeekPosError = io.FixedBufferStream([]u8).GetSeekPosError || (if (has_file) std.fs.File.GetSeekPosError else error{});
 
     pub const Reader = io.GenericReader(*StreamSource, ReadError, read);
-    pub const Writer = io.Writer(*StreamSource, WriteError, write);
+    pub const Writer = io.GenericWriter(*StreamSource, WriteError, write);
     pub const SeekableStream = io.SeekableStream(
         *StreamSource,
         SeekError,

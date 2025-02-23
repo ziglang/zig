@@ -6,7 +6,7 @@
 //! The high-level `parseFromSlice` and `parseFromTokenSource` deserialize a JSON document into a Zig type.
 //! Parse into a dynamically-typed `Value` to load any JSON value for runtime inspection.
 //!
-//! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
+//! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.GenericWriter`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
 const builtin = @import("builtin");

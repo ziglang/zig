@@ -1586,7 +1586,7 @@ pub fn reader(file: File) Reader {
     return .{ .context = file };
 }
 
-pub const Writer = io.Writer(File, WriteError, write);
+pub const Writer = io.GenericWriter(File, WriteError, write);
 
 pub fn writer(file: File) Writer {
     return .{ .context = file };

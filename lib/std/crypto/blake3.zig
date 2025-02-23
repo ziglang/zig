@@ -476,7 +476,7 @@ pub const Blake3 = struct {
     }
 
     pub const Error = error{};
-    pub const Writer = std.io.Writer(*Blake3, Error, write);
+    pub const Writer = std.io.GenericWriter(*Blake3, Error, write);
 
     fn write(self: *Blake3, bytes: []const u8) Error!usize {
         self.update(bytes);

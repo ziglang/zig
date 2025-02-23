@@ -1040,7 +1040,7 @@ test "generic type constructed from inferred error set of unresolved function" {
             _ = bytes;
             return 0;
         }
-        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
+        const T = std.io.GenericWriter(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
         fn writer() T {
             return .{ .context = {} };
         }

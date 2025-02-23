@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const io = std.io;
 const testing = std.testing;
 
-pub const CWriter = io.Writer(*std.c.FILE, std.fs.File.WriteError, cWriterWrite);
+pub const CWriter = io.GenericWriter(*std.c.FILE, std.fs.File.WriteError, cWriterWrite);
 
 pub fn cWriter(c_file: *std.c.FILE) CWriter {
     return .{ .context = c_file };

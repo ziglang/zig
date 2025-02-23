@@ -2983,7 +2983,7 @@ pub fn LimitedWriter(comptime WriterType: type) type {
         bytes_left: u64,
 
         pub const Error = error{NoSpaceLeft} || WriterType.Error;
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         const Self = @This();
 

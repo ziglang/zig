@@ -43,7 +43,7 @@ pub fn HashedWriter(WriterType: type, HasherType: type) type {
         hasher: HasherType,
 
         pub const Error = WriterType.Error;
-        pub const Writer = std.io.Writer(*@This(), Error, write);
+        pub const Writer = std.io.GenericWriter(*@This(), Error, write);
 
         pub fn write(self: *@This(), buf: []const u8) Error!usize {
             const amt = try self.child_writer.write(buf);

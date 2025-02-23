@@ -15,7 +15,7 @@ pub fn MultiWriter(comptime Writers: type) type {
         streams: Writers,
 
         pub const Error = ErrSet;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };

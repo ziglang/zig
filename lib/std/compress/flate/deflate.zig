@@ -355,7 +355,7 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
 
         // Writer interface
 
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
         pub const Error = BlockWriterType.Error;
 
         /// Write `input` of uncompressed data.
@@ -512,7 +512,7 @@ fn SimpleCompressor(
 
         // Writer interface
 
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
         pub const Error = BlockWriterType.Error;
 
         // Write `input` of uncompressed data.

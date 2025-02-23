@@ -9478,7 +9478,7 @@ fn WriterWithErrors(comptime BackingWriter: type, comptime ExtraErrors: type) ty
         backing_writer: BackingWriter,
 
         pub const Error = BackingWriter.Error || ExtraErrors;
-        pub const Writer = std.io.Writer(*const Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*const Self, Error, write);
 
         const Self = @This();
 

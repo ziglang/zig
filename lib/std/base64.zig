@@ -99,7 +99,7 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // dest must be compatible with std.io.Writer's writeAll interface
+    // dest must be compatible with std.io.GenericWriter's writeAll interface
     pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
         var chunker = window(u8, source, 3, 3);
         while (chunker.next()) |chunk| {
@@ -109,7 +109,7 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
+    // destWriter must be compatible with std.io.GenericWriter's writeAll interface
     // sourceReader must be compatible with std.io.GenericReader's read interface
     pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
         while (true) {

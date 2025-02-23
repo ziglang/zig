@@ -342,7 +342,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(*Self, Allocator.Error, appendWrite);
+            std.io.GenericWriter(*Self, Allocator.Error, appendWrite);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self) Writer {
@@ -350,14 +350,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// as `m.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
         /// Invalidates element pointers if additional memory is needed.
         fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
             try self.appendSlice(m);
             return m.len;
         }
 
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
 
         /// Initializes a Writer which will append to the list but will return
         /// `error.OutOfMemory` rather than increasing capacity.
@@ -365,7 +365,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return .{ .context = self };
         }
 
-        /// The purpose of this function existing is to match `std.io.Writer` API.
+        /// The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
             const available_capacity = self.capacity - self.items.len;
             if (m.len > available_capacity)
@@ -944,7 +944,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(WriterContext, Allocator.Error, appendWrite);
+            std.io.GenericWriter(WriterContext, Allocator.Error, appendWrite);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self, allocator: Allocator) Writer {
@@ -953,14 +953,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Same as `append` except it returns the number of bytes written,
         /// which is always the same as `m.len`. The purpose of this function
-        /// existing is to match `std.io.Writer` API.
+        /// existing is to match `std.io.GenericWriter` API.
         /// Invalidates element pointers if additional memory is needed.
         fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
             try context.self.appendSlice(context.allocator, m);
             return m.len;
         }
 
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
 
         /// Initializes a Writer which will append to the list but will return
         /// `error.OutOfMemory` rather than increasing capacity.
@@ -968,7 +968,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return .{ .context = self };
         }
 
-        /// The purpose of this function existing is to match `std.io.Writer` API.
+        /// The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
             const available_capacity = self.capacity - self.items.len;
             if (m.len > available_capacity)
