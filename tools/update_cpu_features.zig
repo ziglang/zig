@@ -2005,7 +2005,6 @@ fn processX86Enums(
     zig_src_dir: fs.Dir,
     all_features: []Feature,
 ) !void {
-    _ = all_features; // autofix
     const Enum = struct {
         name: []const u8,
         fields: []const Field,
@@ -2109,6 +2108,47 @@ fn processX86Enums(
 
         break :blk .{ .name = "Feature", .fields = enum_fields.toOwnedSlice() catch unreachable };
     };
+
+    // Check that the features match the ones that are generated from X86.td
+    {
+        const ignored_features = std.StaticStringMap(void).initComptime(.{
+            // These are unimplemented in LLVM's llvm/lib/Target/X86/X86.td.
+            .{ "avx5124vnniw", {} },
+            .{ "avx5124fmaps", {} },
+
+            // These represent aggregate microarchitecture levels and thus do not correspond to individual features.
+            .{ "x86_64", {} },
+            .{ "x86_64_v2", {} },
+            .{ "x86_64_v3", {} },
+            .{ "x86_64_v4", {} },
+            .{ "apxf", {} },
+        });
+
+        var have_missing: bool = false;
+        for (features_enum.fields) |f| {
+            if (ignored_features.has(f.name)) continue;
+
+            const found = for (all_features) |feat| {
+                if (std.mem.eql(u8, f.name, feat.zig_name)) break true;
+            } else false;
+            if (!found) {
+                have_missing = true;
+                std.debug.print("feature `{s}' missing\n", .{f.name});
+            }
+        }
+
+        if (have_missing) {
+            std.debug.print(
+                \\CPU features were present in X86TargetParser.def but not in X86.td.
+                \\This may mean:
+                \\ - ignored_features needs updating in tools/update_cpu_features.zig
+                \\ - new aggregate architecture levels need handling in lib/compiler_rt/x86_cpu_model.zig
+                \\ - some other llvm change (compiler-rt/lib/builtins/cpu_mode/x86.c, llvm/include/llvm/TargetParse/X86TargetParser.h, clang/lib/CodeGen/CGBuiltin.cpp)
+                \\
+            , .{});
+            return error.MissingCpuFeature;
+        }
+    }
 
     var zig_enum_file = try zig_src_dir.createFile("lib/std/zig/system/x86/enums.zig", .{});
     defer zig_enum_file.close();
