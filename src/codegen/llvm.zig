@@ -388,7 +388,7 @@ const DataLayoutBuilder = struct {
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
                 !(self.target.cpu.arch == .aarch64 and
-                (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
+                    (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
                 self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
             try writer.writeAll("-p");
             if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
@@ -859,55 +859,54 @@ pub const Object = struct {
         builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
-            if (!builder.strip)
-        debug_info: {
-            // We fully resolve all paths at this point to avoid lack of
-            // source line info in stack traces or lack of debugging
-            // information which, if relative paths were used, would be
-            // very location dependent.
-            // TODO: the only concern I have with this is WASI as either host or target, should
-            // we leave the paths as relative then?
-            // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
-            // a particular directory, and then the directory path is specified elsewhere.
-            // In the compiler frontend we have it stored correctly in this
-            // way already, but here we throw all that sweet information
-            // into the garbage can by converting into absolute paths. What
-            // a terrible tragedy.
-            const compile_unit_dir = blk: {
-                if (comp.zcu) |zcu| m: {
-                    const d = try zcu.main_mod.root.joinString(arena, "");
-                    if (d.len == 0) break :m;
-                    if (std.fs.path.isAbsolute(d)) break :blk d;
-                    break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-                }
-                break :blk try std.process.getCwdAlloc(arena);
-            };
+            if (!builder.strip) debug_info: {
+                // We fully resolve all paths at this point to avoid lack of
+                // source line info in stack traces or lack of debugging
+                // information which, if relative paths were used, would be
+                // very location dependent.
+                // TODO: the only concern I have with this is WASI as either host or target, should
+                // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
+                const compile_unit_dir = blk: {
+                    if (comp.zcu) |zcu| m: {
+                        const d = try zcu.main_mod.root.joinString(arena, "");
+                        if (d.len == 0) break :m;
+                        if (std.fs.path.isAbsolute(d)) break :blk d;
+                        break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
+                    }
+                    break :blk try std.process.getCwdAlloc(arena);
+                };
 
-            const debug_file = try builder.debugFile(
-                try builder.metadataString(comp.root_name),
-                try builder.metadataString(compile_unit_dir),
-            );
+                const debug_file = try builder.debugFile(
+                    try builder.metadataString(comp.root_name),
+                    try builder.metadataString(compile_unit_dir),
+                );
 
-            const debug_enums_fwd_ref = try builder.debugForwardReference();
-            const debug_globals_fwd_ref = try builder.debugForwardReference();
+                const debug_enums_fwd_ref = try builder.debugForwardReference();
+                const debug_globals_fwd_ref = try builder.debugForwardReference();
 
-            const debug_compile_unit = try builder.debugCompileUnit(
-                debug_file,
-                // Don't use the version string here; LLVM misparses it when it
-                // includes the git revision.
-                try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
-                    build_options.semver.major,
-                    build_options.semver.minor,
-                    build_options.semver.patch,
-                }),
-                debug_enums_fwd_ref,
-                debug_globals_fwd_ref,
-                .{ .optimized = comp.root_mod.optimize_mode != .Debug },
-            );
+                const debug_compile_unit = try builder.debugCompileUnit(
+                    debug_file,
+                    // Don't use the version string here; LLVM misparses it when it
+                    // includes the git revision.
+                    try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
+                        build_options.semver.major,
+                        build_options.semver.minor,
+                        build_options.semver.patch,
+                    }),
+                    debug_enums_fwd_ref,
+                    debug_globals_fwd_ref,
+                    .{ .optimized = comp.root_mod.optimize_mode != .Debug },
+                );
 
-            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-            break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-        } else .{.none} ** 3;
+                try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+                break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
+            } else .{.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -2759,9 +2758,9 @@ pub const Object = struct {
 
                 const full_fields: [2]Builder.Metadata =
                     if (layout.tag_align.compare(.gte, layout.payload_align))
-                    .{ debug_tag_type, debug_payload_type }
-                else
-                    .{ debug_payload_type, debug_tag_type };
+                        .{ debug_tag_type, debug_payload_type }
+                    else
+                        .{ debug_payload_type, debug_tag_type };
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
@@ -4551,11 +4550,11 @@ pub const Object = struct {
             // instruction is followed by a `wrap_optional`, it will return this value
             // verbatim, and the result should test as non-null.
             switch (zcu.getTarget().ptrBitWidth()) {
-            16 => 0xaaaa,
-            32 => 0xaaaaaaaa,
-            64 => 0xaaaaaaaa_aaaaaaaa,
-            else => unreachable,
-        };
+                16 => 0xaaaa,
+                32 => 0xaaaaaaaa,
+                64 => 0xaaaaaaaa_aaaaaaaa,
+                else => unreachable,
+            };
         const llvm_usize = try o.lowerType(Type.usize);
         const llvm_ptr_ty = try o.lowerType(ptr_ty);
         return o.builder.castConst(.inttoptr, try o.builder.intConst(llvm_usize, int), llvm_ptr_ty);
@@ -9544,7 +9543,7 @@ pub const FuncGen = struct {
 
         if (llvm_dest_ty.isStruct(&o.builder) or
             ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
-            operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
+                operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
         {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values or vectors with padding bits.

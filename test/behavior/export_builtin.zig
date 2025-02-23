@@ -59,8 +59,8 @@ test "exporting comptime-known value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
-        builtin.target.ofmt != .macho and
-        builtin.target.ofmt != .coff)) return error.SkipZigTest;
+            builtin.target.ofmt != .macho and
+            builtin.target.ofmt != .coff)) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;

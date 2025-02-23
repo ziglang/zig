@@ -2851,12 +2851,12 @@ pub fn renameatW(
 
         rc =
             windows.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info,
-            @intCast(struct_len), // already checked for error.NameTooLong
-            .FileRenameInformation,
-        );
+                src_fd,
+                &io_status_block,
+                rename_info,
+                @intCast(struct_len), // already checked for error.NameTooLong
+                .FileRenameInformation,
+            );
     }
 
     switch (rc) {

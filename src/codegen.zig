@@ -423,7 +423,7 @@ pub fn generateSymbol(
 
                     const padding = abi_size -
                         (math.cast(usize, Type.fromInterned(vector_type.child).abiSize(zcu) * vector_type.len) orelse
-                        return error.Overflow);
+                            return error.Overflow);
                     if (padding > 0) try code.appendNTimes(gpa, 0, padding);
                 }
             },

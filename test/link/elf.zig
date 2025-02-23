@@ -475,7 +475,7 @@ fn testCommentString(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
-    \\pub fn main() void {}
+        \\pub fn main() void {}
     });
 
     const check = exe.checkObject();
@@ -490,7 +490,7 @@ fn testCommentStringStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string-static-lib", opts);
 
     const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes = 
-    \\export fn foo() void {}
+        \\export fn foo() void {}
     });
 
     const check = lib.checkObject();
@@ -861,23 +861,23 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-relocatable", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
-    \\const std = @import("std");
-    \\extern var bar: i32;
-    \\export fn foo() i32 {
-    \\   return bar;
-    \\}
-    \\export fn printFoo() void {
-    \\    std.debug.print("foo={d}\n", .{foo()});
-    \\}
+        \\const std = @import("std");
+        \\extern var bar: i32;
+        \\export fn foo() i32 {
+        \\   return bar;
+        \\}
+        \\export fn printFoo() void {
+        \\    std.debug.print("foo={d}\n", .{foo()});
+        \\}
     });
     a_o.linkLibC();
 
     const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
-    \\#include <stdio.h>
-    \\int bar = 42;
-    \\void printBar() {
-    \\  fprintf(stderr, "bar=%d\n", bar);
-    \\}
+        \\#include <stdio.h>
+        \\int bar = 42;
+        \\void printBar() {
+        \\  fprintf(stderr, "bar=%d\n", bar);
+        \\}
     });
     b_o.linkLibC();
 
@@ -886,13 +886,13 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     c_o.addObject(b_o);
 
     const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes = 
-    \\const std = @import("std");
-    \\extern fn printFoo() void;
-    \\extern fn printBar() void;
-    \\pub fn main() void {
-    \\    printFoo();
-    \\    printBar();
-    \\}
+        \\const std = @import("std");
+        \\extern fn printFoo() void;
+        \\extern fn printBar() void;
+        \\pub fn main() void {
+        \\    printFoo();
+        \\    printBar();
+        \\}
     });
     exe.addObject(c_o);
     exe.linkLibC();
@@ -1920,8 +1920,8 @@ fn testInitArrayOrder(b: *Build, opts: Options) *Step {
     g_o.linkLibC();
 
     const h_o = addObject(b, opts, .{ .name = "h", .c_source_bytes = 
-    \\#include <stdio.h>
-    \\__attribute__((destructor)) void fini2() { printf("8"); }
+        \\#include <stdio.h>
+        \\__attribute__((destructor)) void fini2() { printf("8"); }
     });
     h_o.linkLibC();
 
@@ -2495,23 +2495,23 @@ fn testMergeStrings2(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings2", opts);
 
     const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
-    \\const std = @import("std");
-    \\export fn foo() void {
-    \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
-    \\    const slice = std.mem.sliceTo(&arr, 3);
-    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
-    \\}
+        \\const std = @import("std");
+        \\export fn foo() void {
+        \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        \\    const slice = std.mem.sliceTo(&arr, 3);
+        \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+        \\}
     });
 
     const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
-    \\const std = @import("std");
-    \\extern fn foo() void;
-    \\pub fn main() void {
-    \\    foo();
-    \\    var arr: [5:0]u16 = [_:0]u16{ 5, 4, 3, 2, 1 };
-    \\    const slice = std.mem.sliceTo(&arr, 3);
-    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
-    \\}
+        \\const std = @import("std");
+        \\extern fn foo() void;
+        \\pub fn main() void {
+        \\    foo();
+        \\    var arr: [5:0]u16 = [_:0]u16{ 5, 4, 3, 2, 1 };
+        \\    const slice = std.mem.sliceTo(&arr, 3);
+        \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+        \\}
     });
 
     {
@@ -2752,17 +2752,17 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     });
     obj2.linkLibCpp();
     const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
-    \\#include <iostream>
-    \\#include <stdexcept>
-    \\extern int try_again();
-    \\int main() {
-    \\  try {
-    \\    try_again();
-    \\  } catch (const std::exception &e) {
-    \\    std::cout << "exception=" << e.what();
-    \\  }
-    \\  return 0;
-    \\}
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
     });
     obj3.linkLibCpp();
 
@@ -2864,15 +2864,15 @@ fn testRelocatableMergeStrings(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-merge-strings", opts);
 
     const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
-    \\.section .rodata.str1.1,"aMS",@progbits,1
-    \\val1:
-    \\.ascii "Hello \0"
-    \\.section .rodata.str1.1,"aMS",@progbits,1
-    \\val5:
-    \\.ascii "World \0"
-    \\.section .rodata.str1.1,"aMS",@progbits,1
-    \\val7:
-    \\.ascii "Hello \0"
+        \\.section .rodata.str1.1,"aMS",@progbits,1
+        \\val1:
+        \\.ascii "Hello \0"
+        \\.section .rodata.str1.1,"aMS",@progbits,1
+        \\val5:
+        \\.ascii "World \0"
+        \\.section .rodata.str1.1,"aMS",@progbits,1
+        \\val7:
+        \\.ascii "Hello \0"
     });
 
     const obj2 = addObject(b, opts, .{ .name = "b" });
@@ -3030,18 +3030,18 @@ fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
-    \\void foo();
-    \\__attribute__((section(".bar"))) void bar() {
-    \\  return foo();
-    \\}
-    \\__attribute__((section(".foo"))) void foo() {
-    \\  return bar();
-    \\}
-    \\int main() {
-    \\  foo();
-    \\  bar();
-    \\  return 0;
-    \\}
+        \\void foo();
+        \\__attribute__((section(".bar"))) void bar() {
+        \\  return foo();
+        \\}
+        \\__attribute__((section(".foo"))) void foo() {
+        \\  return bar();
+        \\}
+        \\int main() {
+        \\  foo();
+        \\  bar();
+        \\  return 0;
+        \\}
     });
 
     const check = exe.checkObject();

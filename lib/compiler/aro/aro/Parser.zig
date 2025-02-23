@@ -979,7 +979,7 @@ fn decl(p: *Parser) Error!bool {
         _ = try p.expectToken(.semicolon);
         if (decl_spec.ty.is(.@"enum") or
             (decl_spec.ty.isRecord() and !decl_spec.ty.isAnonymousRecord(p.comp) and
-            !decl_spec.ty.isTypeof())) // we follow GCC and clang's behavior here
+                !decl_spec.ty.isTypeof())) // we follow GCC and clang's behavior here
         {
             const specifier = decl_spec.ty.canonicalize(.standard).specifier;
             const attrs = p.attr_buf.items(.attr)[attr_buf_top..];
