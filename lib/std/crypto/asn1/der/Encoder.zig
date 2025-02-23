@@ -28,7 +28,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
     const merged_tag = self.mergedTag(tag_);
 
     switch (@typeInfo(T)) {
-        .Struct => |info| {
+        .@"struct" => |info| {
             inline for (0..info.fields.len) |i| {
                 const f = info.fields[info.fields.len - i - 1];
                 const field_val = @field(val, f.name);
@@ -36,7 +36,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
 
                 // > The encoding of a set value or sequence value shall not include an encoding for any
                 // > component value which is equal to its default value.
-                const is_default = if (f.is_comptime) false else if (f.default_value) |v| brk: {
+                const is_default = if (f.is_comptime) false else if (f.default_value_ptr) |v| brk: {
                     const default_val: *const f.type = @alignCast(@ptrCast(v));
                     break :brk std.mem.eql(u8, std.mem.asBytes(default_val), std.mem.asBytes(&field_val));
                 } else false;
@@ -57,17 +57,17 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                 }
             }
         },
-        .Bool => try self.buffer.prependSlice(&[_]u8{if (val) 0xff else 0}),
-        .Int => try self.int(T, val),
-        .Enum => |e| {
+        .bool => try self.buffer.prependSlice(&[_]u8{if (val) 0xff else 0}),
+        .int => try self.int(T, val),
+        .@"enum" => |e| {
             if (@hasDecl(T, "oids")) {
                 return self.any(T.oids.enumToOid(val));
             } else {
                 try self.int(e.tag_type, @intFromEnum(val));
             }
         },
-        .Optional => if (val) |v| return try self.anyTag(tag_, v),
-        .Null => {},
+        .optional => if (val) |v| return try self.anyTag(tag_, v),
+        .null => {},
         else => @compileError("cannot encode type " ++ @typeName(T)),
     }
 

@@ -17,10 +17,10 @@ const AllTypes = struct {
     h: asn1.Any,
 
     pub const asn1_tags = .{
-        .a = FieldTag.explicit(0, .context_specific),
-        .b = FieldTag.explicit(1, .context_specific),
-        .c = FieldTag.implicit(2, .context_specific),
-        .g = FieldTag.implicit(3, .context_specific),
+        .a = FieldTag.initExplicit(0, .context_specific),
+        .b = FieldTag.initExplicit(1, .context_specific),
+        .c = FieldTag.initImplicit(2, .context_specific),
+        .g = FieldTag.initImplicit(3, .context_specific),
     };
 
     const C = enum {

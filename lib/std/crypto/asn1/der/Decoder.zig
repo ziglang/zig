@@ -19,7 +19,7 @@ pub fn any(self: *Decoder, comptime T: type) !T {
 
     const tag = Tag.fromZig(T).toExpected();
     switch (@typeInfo(T)) {
-        .Struct => {
+        .@"struct" => {
             const ele = try self.element(tag);
             defer self.index = ele.slice.end; // don't force parsing all fields
 
@@ -37,22 +37,20 @@ pub fn any(self: *Decoder, comptime T: type) !T {
                 }
 
                 @field(res, f.name) = self.any(f.type) catch |err| brk: {
-                    if (f.default_value) |d| {
-                        break :brk @as(*const f.type, @alignCast(@ptrCast(d))).*;
+                    if (f.defaultValue()) |d| {
+                        break :brk d;
                     }
                     return err;
                 };
                 // DER encodes null values by skipping them.
-                if (@typeInfo(f.type) == .Optional and @field(res, f.name) == null) {
-                    if (f.default_value) |d| {
-                        @field(res, f.name) = @as(*const f.type, @alignCast(@ptrCast(d))).*;
-                    }
+                if (@typeInfo(f.type) == .optional and @field(res, f.name) == null) {
+                    if (f.defaultValue()) |d| @field(res, f.name) = d;
                 }
             }
 
             return res;
         },
-        .Bool => {
+        .bool => {
             const ele = try self.element(tag);
             const bytes = self.view(ele);
             if (bytes.len != 1) return error.InvalidBool;
@@ -63,12 +61,12 @@ pub fn any(self: *Decoder, comptime T: type) !T {
                 else => error.InvalidBool,
             };
         },
-        .Int => {
+        .int => {
             const ele = try self.element(tag);
             const bytes = self.view(ele);
             return try int(T, bytes);
         },
-        .Enum => |e| {
+        .@"enum" => |e| {
             const ele = try self.element(tag);
             const bytes = self.view(ele);
             if (@hasDecl(T, "oids")) {
@@ -76,7 +74,7 @@ pub fn any(self: *Decoder, comptime T: type) !T {
             }
             return @enumFromInt(try int(e.tag_type, bytes));
         },
-        .Optional => |o| return self.any(o.child) catch return null,
+        .optional => |o| return self.any(o.child) catch return null,
         else => @compileError("cannot decode type " ++ @typeName(T)),
     }
 }
@@ -113,7 +111,7 @@ pub fn view(self: Decoder, elem: Element) []const u8 {
 }
 
 fn int(comptime T: type, value: []const u8) error{ NonCanonical, LargeValue }!T {
-    if (@typeInfo(T).Int.bits % 8 != 0) @compileError("T must be byte aligned");
+    if (@typeInfo(T).int.bits % 8 != 0) @compileError("T must be byte aligned");
 
     var bytes = value;
     if (bytes.len >= 2) {

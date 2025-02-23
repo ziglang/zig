@@ -147,7 +147,7 @@ pub fn fromDotComptime(comptime dot_notation: []const u8) Oid {
 /// - Oid -> enum
 /// - Enum -> oid
 pub fn StaticMap(comptime Enum: type) type {
-    const enum_info = @typeInfo(Enum).Enum;
+    const enum_info = @typeInfo(Enum).@"enum";
     const EnumToOid = std.EnumArray(Enum, []const u8);
     const ReturnType = struct {
         oid_to_enum: std.StaticStringMap(Enum),
@@ -165,7 +165,7 @@ pub fn StaticMap(comptime Enum: type) type {
 
     return struct {
         pub fn initComptime(comptime key_pairs: anytype) ReturnType {
-            const struct_info = @typeInfo(@TypeOf(key_pairs)).Struct;
+            const struct_info = @typeInfo(@TypeOf(key_pairs)).@"struct";
             const error_msg = "Each field of '" ++ @typeName(Enum) ++ "' must map to exactly one OID";
             if (!enum_info.is_exhaustive or enum_info.fields.len != struct_info.fields.len) {
                 @compileError(error_msg);

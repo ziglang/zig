@@ -138,22 +138,22 @@ pub const Tag = struct {
 
     pub fn fromZig(comptime T: type) Tag {
         switch (@typeInfo(T)) {
-            .Struct, .Enum, .Union => {
+            .@"struct", .@"enum", .@"union" => {
                 if (@hasDecl(T, "asn1_tag")) return T.asn1_tag;
             },
             else => {},
         }
 
         switch (@typeInfo(T)) {
-            .Struct, .Union => return universal(.sequence, true),
-            .Bool => return universal(.boolean, false),
-            .Int => return universal(.integer, false),
-            .Enum => |e| {
+            .@"struct", .@"union" => return universal(.sequence, true),
+            .bool => return universal(.boolean, false),
+            .int => return universal(.integer, false),
+            .@"enum" => |e| {
                 if (@hasDecl(T, "oids")) return Oid.asn1_tag;
                 return universal(if (e.is_exhaustive) .enumerated else .integer, false);
             },
-            .Optional => |o| return fromZig(o.child),
-            .Null => return universal(.null, false),
+            .optional => |o| return fromZig(o.child),
+            .null => return universal(.null, false),
             else => @compileError("cannot map Zig type to asn1_tag " ++ @typeName(T)),
         }
     }
@@ -266,12 +266,12 @@ pub const FieldTag = struct {
     class: Tag.Class,
     explicit: bool = true,
 
-    pub fn explicit(number: std.meta.Tag(Tag.Number), class: Tag.Class) FieldTag {
-        return FieldTag{ .number = number, .class = class, .explicit = true };
+    pub fn initExplicit(number: std.meta.Tag(Tag.Number), class: Tag.Class) FieldTag {
+        return .{ .number = number, .class = class, .explicit = true };
     }
 
-    pub fn implicit(number: std.meta.Tag(Tag.Number), class: Tag.Class) FieldTag {
-        return FieldTag{ .number = number, .class = class, .explicit = false };
+    pub fn initImplicit(number: std.meta.Tag(Tag.Number), class: Tag.Class) FieldTag {
+        return .{ .number = number, .class = class, .explicit = false };
     }
 
     pub fn fromContainer(comptime Container: type, comptime field_name: []const u8) ?FieldTag {
