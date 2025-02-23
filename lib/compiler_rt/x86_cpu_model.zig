@@ -22,9 +22,6 @@ comptime {
 var cpu: Model = .{};
 var cpu_extra_features: [feature_set_size - 1]u32 = [_]u32{0} ** (feature_set_size - 1);
 
-// TODO: Do we need constructor attribute? As far as I can tell the generated LLVM detection code explicitly
-//       calls __cpu_indicator_init before actually using __cpu_model or __cpu_features2 (happens in
-//       clang/lib/CodeGen/CGBuiltin.cpp)
 fn init() callconv(.C) c_int {
     if (cpu.vendor != .unknown) return 0;
 
