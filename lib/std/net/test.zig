@@ -79,7 +79,6 @@ test "parse IPv6 address, check raw bytes" {
 
     const actual_raw = addr.in6.sa.addr[0..];
     try std.testing.expectEqualSlices(u8, expected_raw[0..], actual_raw);
-
 }
 
 test "parse and render IPv6 addresses" {
