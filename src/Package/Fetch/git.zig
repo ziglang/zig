@@ -1019,7 +1019,7 @@ pub const Session = struct {
             ProtocolError,
             UnexpectedPacket,
         };
-        pub const Reader = std.io.Reader(*FetchStream, ReadError, read);
+        pub const Reader = std.io.GenericReader(*FetchStream, ReadError, read);
 
         const StreamCode = enum(u8) {
             pack_data = 1,

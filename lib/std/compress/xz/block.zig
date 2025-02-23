@@ -27,7 +27,7 @@ pub fn Decoder(comptime ReaderType: type) type {
             ReaderType.Error ||
             DecodeError ||
             Allocator.Error;
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.GenericReader(*Self, Error, read);
 
         allocator: Allocator,
         inner_reader: ReaderType,

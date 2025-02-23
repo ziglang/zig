@@ -4,7 +4,7 @@ const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-/// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.SeekableStream`.
+/// This turns a byte buffer into an `io.Writer`, `io.GenericReader`, or `io.SeekableStream`.
 /// If the supplied byte buffer is const, then `io.Writer` is not available.
 pub fn FixedBufferStream(comptime Buffer: type) type {
     return struct {
@@ -17,7 +17,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
-        pub const Reader = io.Reader(*Self, ReadError, read);
+        pub const Reader = io.GenericReader(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
 
         pub const SeekableStream = io.SeekableStream(

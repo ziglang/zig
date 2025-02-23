@@ -562,7 +562,7 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
+    pub fn reader(self: *MsfStream) std.io.GenericReader(*MsfStream, Error, read) {
         return .{ .context = self };
     }
 };

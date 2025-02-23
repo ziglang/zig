@@ -312,7 +312,7 @@ pub const Connection = struct {
         EndOfStream,
     };
 
-    pub const Reader = std.io.Reader(*Connection, ReadError, read);
+    pub const Reader = std.io.GenericReader(*Connection, ReadError, read);
 
     pub fn reader(conn: *Connection) Reader {
         return Reader{ .context = conn };
@@ -938,7 +938,7 @@ pub const Request = struct {
 
     const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
+    const TransferReader = std.io.GenericReader(*Request, TransferReadError, transferRead);
 
     fn transferReader(req: *Request) TransferReader {
         return .{ .context = req };
@@ -1098,7 +1098,7 @@ pub const Request = struct {
     pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError ||
         error{ DecompressionFailure, InvalidTrailers };
 
-    pub const Reader = std.io.Reader(*Request, ReadError, read);
+    pub const Reader = std.io.GenericReader(*Request, ReadError, read);
 
     pub fn reader(req: *Request) Reader {
         return .{ .context = req };

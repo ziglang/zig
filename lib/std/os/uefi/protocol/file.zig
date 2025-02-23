@@ -25,7 +25,7 @@ pub const File = extern struct {
     pub const WriteError = error{WriteError};
 
     pub const SeekableStream = io.SeekableStream(*const File, SeekError, GetSeekPosError, seekTo, seekBy, getPos, getEndPos);
-    pub const Reader = io.Reader(*const File, ReadError, readFn);
+    pub const Reader = io.GenericReader(*const File, ReadError, readFn);
     pub const Writer = io.Writer(*const File, WriteError, writeFn);
 
     pub fn seekableStream(self: *File) SeekableStream {

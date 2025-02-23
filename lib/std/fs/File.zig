@@ -1580,7 +1580,7 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
 }
 
-pub const Reader = io.Reader(File, ReadError, read);
+pub const Reader = io.GenericReader(File, ReadError, read);
 
 pub fn reader(file: File) Reader {
     return .{ .context = file };

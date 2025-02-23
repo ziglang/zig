@@ -2949,7 +2949,7 @@ pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) 
         slurped_header: [size]u8 = [_]u8{0x00} ** size,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = std.io.Reader(*@This(), Error, read);
+        pub const Reader = std.io.GenericReader(*@This(), Error, read);
 
         pub fn read(self: *@This(), buf: []u8) Error!usize {
             const amt = try self.child_reader.read(buf);
