@@ -23,7 +23,10 @@ var cpu: Model = .{};
 var cpu_extra_features: [feature_set_size - 1]u32 = [_]u32{0} ** (feature_set_size - 1);
 
 fn init() callconv(.C) c_int {
-    if (cpu.vendor != .unknown) return 0;
+    if (@atomicLoad(Vendor, &cpu.vendor, .acquire) != .unknown) {
+        @branchHint(.likely);
+        return 0;
+    }
 
     const detected_features = blk: {
         var detected = Target.Cpu.Feature.Set.empty;
@@ -73,13 +76,11 @@ fn init() callconv(.C) c_int {
         break :blk features;
     };
 
-    cpu = .{
-        .vendor = detected.vendor,
-        .type = detected.type,
-        .subtype = detected.subtype,
-        .features = feature_set[0..1].*,
-    };
     cpu_extra_features = feature_set[1..].*;
+    cpu.features = feature_set[0..1].*;
+    cpu.subtype = detected.subtype;
+    cpu.type = detected.type;
+    @atomicStore(Vendor, &cpu.vendor, detected.vendor, .release);
 
     return 0;
 }
