@@ -90,11 +90,16 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const StackTrace = std.builtin.StackTrace;
 
-const default_page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
-    .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
-    .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
-    else => 128 * 1024, // Avoids too many active mappings when `page_size_max` is low.
-});
+const default_page_size: usize = switch (builtin.os.tag) {
+    // Makes `std.heap.PageAllocator` take the happy path.
+    .windows => 64 * 1024,
+    else => switch (builtin.cpu.arch) {
+        // Max alignment supported by `std.heap.WasmAllocator`.
+        .wasm32, .wasm64 => 64 * 1024,
+        // Avoids too many active mappings when `page_size_max` is low.
+        else => @max(std.heap.page_size_max, 128 * 1024),
+    },
+};
 
 const Log2USize = std.math.Log2Int(usize);
 
