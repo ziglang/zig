@@ -598,7 +598,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Remove and return the last element from the list, or return `null` if list is empty.
         /// Invalidates element pointers to the removed element, if any.
-        pub fn pop(self: *Self) T {
+        pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
 
             self.pointer_stability.lock();
@@ -1269,7 +1269,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Remove and return the last element from the list.
         /// If the list is empty, returns `null`.
         /// Invalidates pointers to last element.
-        pub fn pop(self: *Self) T {
+        pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
 
             self.pointer_stability.lock();
