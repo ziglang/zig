@@ -159,7 +159,7 @@ pub const Object = struct {
     uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index) = .empty,
 
     /// A map that maps AIR intern pool indices to SPIR-V result-ids.
-    intern_map: InternMap = .{},
+    intern_map: InternMap = .empty,
 
     /// This map serves a dual purpose:
     /// - It keeps track of pointers that are currently being emitted, so that we can tell
@@ -176,10 +176,10 @@ pub const Object = struct {
         push_constant_ptr: SpvModule.Decl.Index,
     } = null,
 
-    pub fn init(gpa: Allocator) Object {
+    pub fn init(gpa: Allocator, target: std.Target) Object {
         return .{
             .gpa = gpa,
-            .spv = SpvModule.init(gpa),
+            .spv = SpvModule.init(gpa, target),
         };
     }
 
@@ -314,7 +314,7 @@ const NavGen = struct {
     next_arg_index: u32 = 0,
 
     /// A map keeping track of which instruction generated which result-id.
-    inst_results: InstMap = .{},
+    inst_results: InstMap = .empty,
 
     /// A map that maps AIR intern pool indices to SPIR-V result-ids.
     /// See `Object.intern_map`.
@@ -412,11 +412,6 @@ const NavGen = struct {
         self.func.deinit(self.gpa);
     }
 
-    /// Return the target which we are currently compiling for.
-    pub fn getTarget(self: *NavGen) std.Target {
-        return self.pt.zcu.getTarget();
-    }
-
     pub fn fail(self: *NavGen, comptime format: []const u8, args: anytype) Error {
         @branchHint(.cold);
         const zcu = self.pt.zcu;
@@ -431,12 +426,12 @@ const NavGen = struct {
     }
 
     /// This imports the "default" extended instruction set for the target
-    /// For OpenCL, OpenCL.std.100. For Vulkan, GLSL.std.450.
+    /// For OpenCL, OpenCL.std.100. For Vulkan and OpenGL, GLSL.std.450.
     fn importExtendedSet(self: *NavGen) !IdResult {
-        const target = self.getTarget();
+        const target = self.spv.target;
         return switch (target.os.tag) {
             .opencl => try self.spv.importInstructionSet(.@"OpenCL.std"),
-            .vulkan => try self.spv.importInstructionSet(.@"GLSL.std.450"),
+            .vulkan, .opengl => try self.spv.importInstructionSet(.@"GLSL.std.450"),
             else => unreachable,
         };
     }
@@ -469,7 +464,7 @@ const NavGen = struct {
 
         const zcu = self.pt.zcu;
         const ty = Type.fromInterned(zcu.intern_pool.typeOf(val));
-        const decl_ptr_ty_id = try self.ptrType(ty, .Generic);
+        const decl_ptr_ty_id = try self.ptrType(ty, .Generic, .indirect);
 
         const spv_decl_index = blk: {
             const entry = try self.object.uav_link.getOrPut(self.object.gpa, .{ val, .Function });
@@ -532,7 +527,7 @@ const NavGen = struct {
 
             try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
 
-            const fn_decl_ptr_ty_id = try self.ptrType(ty, .Function);
+            const fn_decl_ptr_ty_id = try self.ptrType(ty, .Function, .indirect);
             try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                 .id_result_type = fn_decl_ptr_ty_id,
                 .id_result = result_id,
@@ -546,14 +541,10 @@ const NavGen = struct {
     }
 
     fn addFunctionDep(self: *NavGen, decl_index: SpvModule.Decl.Index, storage_class: StorageClass) !void {
-        const target = self.getTarget();
-        if (target.os.tag == .vulkan) {
-            // Shader entry point dependencies must be variables with Input or Output storage class
-            switch (storage_class) {
-                .Input, .Output => {
-                    try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
-                },
-                else => {},
+        if (self.spv.version.minor < 4) {
+            // Before version 1.4, the interface’s storage classes are limited to the Input and Output
+            if (storage_class == .Input or storage_class == .Output) {
+                try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
             }
         } else {
             try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
@@ -561,11 +552,7 @@ const NavGen = struct {
     }
 
     fn castToGeneric(self: *NavGen, type_id: IdRef, ptr_id: IdRef) !IdRef {
-        const target = self.getTarget();
-
-        if (target.os.tag == .vulkan) {
-            return ptr_id;
-        } else {
+        if (self.spv.hasFeature(.kernel)) {
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
                 .id_result_type = type_id,
@@ -574,6 +561,8 @@ const NavGen = struct {
             });
             return result_id;
         }
+
+        return ptr_id;
     }
 
     /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -596,29 +585,21 @@ const NavGen = struct {
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
     fn backingIntBits(self: *NavGen, bits: u16) ?u16 {
-        const target = self.getTarget();
-
         // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         assert(bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
         const ints = [_]struct { bits: u16, feature: ?Target.spirv.Feature }{
-            .{ .bits = 8, .feature = .Int8 },
-            .{ .bits = 16, .feature = .Int16 },
+            .{ .bits = 8, .feature = .int8 },
+            .{ .bits = 16, .feature = .int16 },
             .{ .bits = 32, .feature = null },
-            .{ .bits = 64, .feature = .Int64 },
+            .{ .bits = 64, .feature = .int64 },
         };
 
         for (ints) |int| {
-            const has_feature = if (int.feature) |feature|
-                Target.spirv.featureSetHas(target.cpu.features, feature)
-            else
-                true;
-
-            if (bits <= int.bits and has_feature) {
-                return int.bits;
-            }
+            const has_feature = if (int.feature) |feature| self.spv.hasFeature(feature) else true;
+            if (bits <= int.bits and has_feature) return int.bits;
         }
 
         return null;
@@ -631,11 +612,7 @@ const NavGen = struct {
     /// is no way of knowing whether those are actually supported.
     /// TODO: Maybe this should be cached?
     fn largestSupportedIntBits(self: *NavGen) u16 {
-        const target = self.getTarget();
-        return if (Target.spirv.featureSetHas(target.cpu.features, .Int64))
-            64
-        else
-            32;
+        return if (self.spv.hasFeature(.int64)) 64 else 32;
     }
 
     /// Checks whether the type is "composite int", an integer consisting of multiple native integers. These are represented by
@@ -648,7 +625,6 @@ const NavGen = struct {
     /// Checks whether the type can be directly translated to SPIR-V vectors
     fn isSpvVector(self: *NavGen, ty: Type) bool {
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
         if (ty.zigTypeTag(zcu) != .vector) return false;
 
         // TODO: This check must be expanded for types that can be represented
@@ -664,17 +640,19 @@ const NavGen = struct {
         }
 
         const elem_ty = ty.childType(zcu);
-
         const len = ty.vectorLen(zcu);
-        const is_scalar = elem_ty.isNumeric(zcu) or elem_ty.toIntern() == .bool_type;
-        const spirv_len = len > 1 and len <= 4;
-        const opencl_len = if (target.os.tag == .opencl) (len == 8 or len == 16) else false;
-        return is_scalar and (spirv_len or opencl_len);
+
+        if (elem_ty.isNumeric(zcu) or elem_ty.toIntern() == .bool_type) {
+            if (len > 1 and len <= 4) return true;
+            if (self.spv.hasFeature(.vector16)) return (len == 8 or len == 16);
+        }
+
+        return false;
     }
 
     fn arithmeticTypeInfo(self: *NavGen, ty: Type) ArithmeticTypeInfo {
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         var scalar_ty = ty.scalarType(zcu);
         if (scalar_ty.zigTypeTag(zcu) == .@"enum") {
             scalar_ty = scalar_ty.intTagType(zcu);
@@ -721,36 +699,16 @@ const NavGen = struct {
 
     /// Emits a bool constant in a particular representation.
     fn constBool(self: *NavGen, value: bool, repr: Repr) !IdRef {
-        // TODO: Cache?
-
-        const section = &self.spv.sections.types_globals_constants;
-        switch (repr) {
-            .indirect => {
-                return try self.constInt(Type.u1, @intFromBool(value), .indirect);
-            },
-            .direct => {
-                const result_ty_id = try self.resolveType(Type.bool, .direct);
-                const result_id = self.spv.allocId();
-                switch (value) {
-                    inline else => |val_ct| try section.emit(
-                        self.spv.gpa,
-                        if (val_ct) .OpConstantTrue else .OpConstantFalse,
-                        .{
-                            .id_result_type = result_ty_id,
-                            .id_result = result_id,
-                        },
-                    ),
-                }
-                return result_id;
-            },
-        }
+        return switch (repr) {
+            .indirect => self.constInt(Type.u1, @intFromBool(value)),
+            .direct => self.spv.constBool(value),
+        };
     }
 
     /// Emits an integer constant.
     /// This function, unlike SpvModule.constInt, takes care to bitcast
     /// the value to an unsigned int first for Kernels.
-    fn constInt(self: *NavGen, ty: Type, value: anytype, repr: Repr) !IdRef {
-        // TODO: Cache?
+    fn constInt(self: *NavGen, ty: Type, value: anytype) !IdRef {
         const zcu = self.pt.zcu;
         const scalar_ty = ty.scalarType(zcu);
         const int_info = scalar_ty.intInfo(zcu);
@@ -763,18 +721,18 @@ const NavGen = struct {
             else => unreachable,
         };
 
-        const bits: u64 = switch (signedness) {
+        const value64: u64 = switch (signedness) {
             .signed => @bitCast(@as(i64, @intCast(value))),
             .unsigned => @as(u64, @intCast(value)),
         };
 
         // Manually truncate the value to the right amount of bits.
-        const truncated_bits = if (backing_bits == 64)
-            bits
+        const truncated_value = if (backing_bits == 64)
+            value64
         else
-            bits & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+            value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
 
-        const result_ty_id = try self.resolveType(scalar_ty, repr);
+        const result_ty_id = try self.resolveType(scalar_ty, .indirect);
         const result_id = self.spv.allocId();
 
         const section = &self.spv.sections.types_globals_constants;
@@ -783,100 +741,42 @@ const NavGen = struct {
             1...32 => try section.emit(self.spv.gpa, .OpConstant, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
-                .value = .{ .uint32 = @truncate(truncated_bits) },
+                .value = .{ .uint32 = @truncate(truncated_value) },
             }),
             33...64 => try section.emit(self.spv.gpa, .OpConstant, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
-                .value = .{ .uint64 = truncated_bits },
+                .value = .{ .uint64 = truncated_value },
             }),
             else => unreachable, // TODO: Large integer constants
         }
 
-        if (!ty.isVector(zcu)) {
-            return result_id;
-        }
-
-        const n = ty.vectorLen(zcu);
-        const ids = try self.gpa.alloc(IdRef, n);
-        defer self.gpa.free(ids);
-        @memset(ids, result_id);
-
-        const vec_ty_id = try self.resolveType(ty, repr);
-        const vec_result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = vec_ty_id,
-            .id_result = vec_result_id,
-            .constituents = ids,
-        });
-        return vec_result_id;
+        if (!ty.isVector(zcu)) return result_id;
+        return self.constructCompositeSplat(ty, result_id);
     }
 
-    /// Construct a struct at runtime.
-    /// ty must be a struct type.
-    /// Constituents should be in `indirect` representation (as the elements of a struct should be).
-    /// Result is in `direct` representation.
-    fn constructStruct(self: *NavGen, ty: Type, types: []const Type, constituents: []const IdRef) !IdRef {
-        assert(types.len == constituents.len);
-
+    pub fn constructComposite(self: *NavGen, result_ty_id: IdRef, constituents: []const IdRef) !IdRef {
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = try self.resolveType(ty, .direct),
+        try self.func.body.emit(self.gpa, .OpCompositeConstruct, .{
+            .id_result_type = result_ty_id,
             .id_result = result_id,
             .constituents = constituents,
         });
         return result_id;
     }
 
-    /// Construct a vector at runtime.
-    /// ty must be an vector type.
-    fn constructVector(self: *NavGen, ty: Type, constituents: []const IdRef) !IdRef {
+    /// Construct a composite at runtime with all lanes set to the same value.
+    /// ty must be an aggregate type.
+    fn constructCompositeSplat(self: *NavGen, ty: Type, constituent: IdRef) !IdRef {
         const zcu = self.pt.zcu;
-        assert(ty.vectorLen(zcu) == constituents.len);
-
-        // Note: older versions of the Khronos SPRIV-LLVM translator crash on this instruction
-        // because it cannot construct structs which' operands are not constant.
-        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
-        // Currently this is the case for Intel OpenCL CPU runtime (2023-WW46), but the
-        // alternatives dont work properly:
-        // - using temporaries/pointers doesn't work properly with vectors of bool, causes
-        //   backends that use llvm to crash
-        // - using OpVectorInsertDynamic doesn't work for non-spirv-vectors of bool.
-
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = try self.resolveType(ty, .direct),
-            .id_result = result_id,
-            .constituents = constituents,
-        });
-        return result_id;
-    }
-
-    /// Construct a vector at runtime with all lanes set to the same value.
-    /// ty must be an vector type.
-    fn constructVectorSplat(self: *NavGen, ty: Type, constituent: IdRef) !IdRef {
-        const zcu = self.pt.zcu;
-        const n = ty.vectorLen(zcu);
+        const n: usize = @intCast(ty.arrayLen(zcu));
 
         const constituents = try self.gpa.alloc(IdRef, n);
         defer self.gpa.free(constituents);
         @memset(constituents, constituent);
 
-        return try self.constructVector(ty, constituents);
-    }
-
-    /// Construct an array at runtime.
-    /// ty must be an array type.
-    /// Constituents should be in `indirect` representation (as the elements of an array should be).
-    /// Result is in `direct` representation.
-    fn constructArray(self: *NavGen, ty: Type, constituents: []const IdRef) !IdRef {
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = try self.resolveType(ty, .direct),
-            .id_result = result_id,
-            .constituents = constituents,
-        });
-        return result_id;
+        const result_ty_id = try self.resolveType(ty, .direct);
+        return self.constructComposite(result_ty_id, constituents);
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
@@ -895,7 +795,7 @@ const NavGen = struct {
 
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &zcu.intern_pool;
 
@@ -947,9 +847,9 @@ const NavGen = struct {
                 },
                 .int => {
                     if (ty.isSignedInt(zcu)) {
-                        break :cache try self.constInt(ty, val.toSignedInt(zcu), repr);
+                        break :cache try self.constInt(ty, val.toSignedInt(zcu));
                     } else {
-                        break :cache try self.constInt(ty, val.toUnsignedInt(zcu), repr);
+                        break :cache try self.constInt(ty, val.toUnsignedInt(zcu));
                     }
                 },
                 .float => {
@@ -970,7 +870,7 @@ const NavGen = struct {
                 },
                 .err => |err| {
                     const value = try pt.getErrorValue(err.name);
-                    break :cache try self.constInt(ty, value, repr);
+                    break :cache try self.constInt(ty, value);
                 },
                 .error_union => |error_union| {
                     // TODO: Error unions may be constructed with constant instructions if the payload type
@@ -1011,7 +911,8 @@ const NavGen = struct {
                         types = .{ payload_ty, err_ty };
                     }
 
-                    return try self.constructStruct(ty, &types, &constituents);
+                    const comp_ty_id = try self.resolveType(ty, .direct);
+                    return try self.constructComposite(comp_ty_id, &constituents);
                 },
                 .enum_tag => {
                     const int_val = try val.intFromEnum(ty, pt);
@@ -1020,14 +921,10 @@ const NavGen = struct {
                 },
                 .ptr => return self.constantPtr(val),
                 .slice => |slice| {
-                    const ptr_ty = ty.slicePtrFieldType(zcu);
                     const ptr_id = try self.constantPtr(Value.fromInterned(slice.ptr));
                     const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
-                    return self.constructStruct(
-                        ty,
-                        &.{ ptr_ty, Type.usize },
-                        &.{ ptr_id, len_id },
-                    );
+                    const comp_ty_id = try self.resolveType(ty, .direct);
+                    return try self.constructComposite(comp_ty_id, &.{ ptr_id, len_id });
                 },
                 .opt => {
                     const payload_ty = ty.optionalChild(zcu);
@@ -1053,11 +950,8 @@ const NavGen = struct {
                     else
                         try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
 
-                    return try self.constructStruct(
-                        ty,
-                        &.{ payload_ty, Type.bool },
-                        &.{ payload_id, has_pl_id },
-                    );
+                    const comp_ty_id = try self.resolveType(ty, .direct);
+                    return try self.constructComposite(comp_ty_id, &.{ payload_id, has_pl_id });
                 },
                 .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
                     inline .array_type, .vector_type => |array_type, tag| {
@@ -1077,7 +971,7 @@ const NavGen = struct {
                                 // TODO: This is really space inefficient, perhaps there is a better
                                 // way to do it?
                                 for (constituents, bytes.toSlice(constituents.len, ip)) |*constituent, byte| {
-                                    constituent.* = try self.constInt(elem_ty, byte, child_repr);
+                                    constituent.* = try self.constInt(elem_ty, byte);
                                 }
                             },
                             .elems => |elems| {
@@ -1090,11 +984,8 @@ const NavGen = struct {
                             },
                         }
 
-                        switch (tag) {
-                            .array_type => return self.constructArray(ty, constituents),
-                            .vector_type => return self.constructVector(ty, constituents),
-                            else => unreachable,
-                        }
+                        const comp_ty_id = try self.resolveType(ty, .direct);
+                        return self.constructComposite(comp_ty_id, constituents);
                     },
                     .struct_type => {
                         const struct_type = zcu.typeToStruct(ty).?;
@@ -1124,7 +1015,8 @@ const NavGen = struct {
                             try constituents.append(field_id);
                         }
 
-                        return try self.constructStruct(ty, types.items, constituents.items);
+                        const comp_ty_id = try self.resolveType(ty, .direct);
+                        return try self.constructComposite(comp_ty_id, constituents.items);
                     },
                     .tuple_type => unreachable, // TODO
                     else => unreachable,
@@ -1149,8 +1041,6 @@ const NavGen = struct {
     }
 
     fn constantPtr(self: *NavGen, ptr_val: Value) Error!IdRef {
-        // TODO: Caching??
-
         const pt = self.pt;
 
         if (ptr_val.isUndef(pt.zcu)) {
@@ -1201,7 +1091,7 @@ const NavGen = struct {
             .elem_ptr => |elem| {
                 const parent_ptr_id = try self.derivePtr(elem.parent.*);
                 const parent_ptr_ty = try elem.parent.ptrType(pt);
-                const index_id = try self.constInt(Type.usize, elem.elem_idx, .direct);
+                const index_id = try self.constInt(Type.usize, elem.elem_idx);
                 return self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
             },
             .offset_and_cast => |oac| {
@@ -1255,7 +1145,7 @@ const NavGen = struct {
 
         // Uav refs are always generic.
         assert(ty.ptrAddressSpace(zcu) == .generic);
-        const decl_ptr_ty_id = try self.ptrType(uav_ty, .Generic);
+        const decl_ptr_ty_id = try self.ptrType(uav_ty, .Generic, .indirect);
         const ptr_id = try self.resolveUav(uav.val);
 
         if (decl_ptr_ty_id != ty_id) {
@@ -1310,7 +1200,7 @@ const NavGen = struct {
         const storage_class = self.spvStorageClass(nav.getAddrspace());
         try self.addFunctionDep(spv_decl_index, storage_class);
 
-        const decl_ptr_ty_id = try self.ptrType(nav_ty, storage_class);
+        const decl_ptr_ty_id = try self.ptrType(nav_ty, storage_class, .indirect);
 
         const ptr_id = switch (storage_class) {
             .Generic => try self.castToGeneric(decl_ptr_ty_id, decl_id),
@@ -1351,31 +1241,20 @@ const NavGen = struct {
         };
 
         // Kernel only supports unsigned ints.
-        if (self.getTarget().os.tag == .vulkan) {
-            return self.spv.intType(signedness, backing_bits);
+        if (self.spv.hasFeature(.kernel)) {
+            return self.spv.intType(.unsigned, backing_bits);
         }
 
-        return self.spv.intType(.unsigned, backing_bits);
+        return self.spv.intType(signedness, backing_bits);
     }
 
     fn arrayType(self: *NavGen, len: u32, child_ty: IdRef) !IdRef {
-        // TODO: Cache??
-        const len_id = try self.constInt(Type.u32, len, .direct);
-        const result_id = self.spv.allocId();
-
-        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypeArray, .{
-            .id_result = result_id,
-            .element_type = child_ty,
-            .length = len_id,
-        });
-        return result_id;
+        const len_id = try self.constInt(Type.u32, len);
+        return self.spv.arrayType(len_id, child_ty);
     }
 
-    fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass) !IdRef {
-        return try self.ptrType2(child_ty, storage_class, .indirect);
-    }
-
-    fn ptrType2(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !IdRef {
+    fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !IdRef {
+        const zcu = self.pt.zcu;
         const key = .{ child_ty.toIntern(), storage_class, child_repr };
         const entry = try self.ptr_types.getOrPut(self.gpa, key);
         if (entry.found_existing) {
@@ -1398,6 +1277,17 @@ const NavGen = struct {
 
         const child_ty_id = try self.resolveType(child_ty, child_repr);
 
+        if (self.spv.hasFeature(.shader)) {
+            if (child_ty.zigTypeTag(zcu) == .@"struct") {
+                switch (storage_class) {
+                    .Uniform, .PushConstant => try self.spv.decorate(child_ty_id, .Block),
+                    else => {},
+                }
+            }
+
+            try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
+        }
+
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
             .id_result = result_id,
             .storage_class = storage_class,
@@ -1408,8 +1298,7 @@ const NavGen = struct {
     }
 
     fn functionType(self: *NavGen, return_ty: Type, param_types: []const Type) !IdRef {
-        // TODO: Cache??
-
+        const return_ty_id = try self.resolveFnReturnType(return_ty);
         const param_ids = try self.gpa.alloc(IdRef, param_types.len);
         defer self.gpa.free(param_ids);
 
@@ -1417,14 +1306,7 @@ const NavGen = struct {
             param_id.* = try self.resolveType(param_ty, .direct);
         }
 
-        const ty_id = self.spv.allocId();
-        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypeFunction, .{
-            .id_result = ty_id,
-            .return_type = try self.resolveFnReturnType(return_ty),
-            .id_ref_2 = param_ids,
-        });
-
-        return ty_id;
+        return self.spv.functionType(return_ty_id, param_ids);
     }
 
     fn zigScalarOrVectorTypeLike(self: *NavGen, new_ty: Type, base_ty: Type) !Type {
@@ -1544,7 +1426,7 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         log.debug("resolveType: ty = {}", .{ty.fmt(pt)});
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const section = &self.spv.sections.types_globals_constants;
 
@@ -1595,10 +1477,10 @@ const NavGen = struct {
                 // so if the float is not supported, just return an error.
                 const bits = ty.floatBits(target);
                 const supported = switch (bits) {
-                    16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
+                    16 => self.spv.hasFeature(.float16),
                     // 32-bit floats are always supported (see spec, 2.16.1, Data rules).
                     32 => true,
-                    64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
+                    64 => self.spv.hasFeature(.float64),
                     else => false,
                 };
 
@@ -1641,7 +1523,7 @@ const NavGen = struct {
                     return try self.arrayType(1, elem_ty_id);
                 } else {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
-                    if (target.os.tag == .vulkan) {
+                    if (self.spv.hasFeature(.shader)) {
                         try self.spv.decorate(result_id, .{ .ArrayStride = .{
                             .array_stride = @intCast(elem_ty.abiSize(zcu)),
                         } });
@@ -1702,13 +1584,7 @@ const NavGen = struct {
 
                 const child_ty = Type.fromInterned(ptr_info.child);
                 const storage_class = self.spvStorageClass(ptr_info.flags.address_space);
-                const ptr_ty_id = try self.ptrType(child_ty, storage_class);
-
-                if (target.os.tag == .vulkan and ptr_info.flags.size == .many) {
-                    try self.spv.decorate(ptr_ty_id, .{ .ArrayStride = .{
-                        .array_stride = @intCast(child_ty.abiSize(zcu)),
-                    } });
-                }
+                const ptr_ty_id = try self.ptrType(child_ty, storage_class, .indirect);
 
                 if (ptr_info.flags.size != .slice) {
                     return ptr_ty_id;
@@ -1755,10 +1631,6 @@ const NavGen = struct {
                         defer self.gpa.free(type_name);
                         try self.spv.debugName(result_id, type_name);
 
-                        if (target.os.tag == .vulkan) {
-                            try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
-                        }
-
                         return result_id;
                     },
                     .struct_type => ip.loadStructType(ty.toIntern()),
@@ -1785,7 +1657,7 @@ const NavGen = struct {
                         continue;
                     }
 
-                    if (target.os.tag == .vulkan) {
+                    if (self.spv.hasFeature(.shader)) {
                         try self.spv.decorateMember(result_id, index, .{ .Offset = .{
                             .byte_offset = @intCast(ty.structFieldOffset(field_index, zcu)),
                         } });
@@ -1803,10 +1675,6 @@ const NavGen = struct {
                 const type_name = try self.resolveTypeName(ty);
                 defer self.gpa.free(type_name);
                 try self.spv.debugName(result_id, type_name);
-
-                if (target.os.tag == .vulkan) {
-                    try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
-                }
 
                 return result_id;
             },
@@ -1891,20 +1759,11 @@ const NavGen = struct {
     }
 
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
-        const target = self.getTarget();
         return switch (as) {
-            .generic => switch (target.os.tag) {
-                .vulkan => .Function,
-                .opencl => .Generic,
-                else => unreachable,
-            },
+            .generic => if (self.spv.hasFeature(.generic_pointer)) .Generic else .Function,
             .shared => .Workgroup,
             .local => .Function,
-            .global => switch (target.os.tag) {
-                .opencl => .CrossWorkgroup,
-                .vulkan => .PhysicalStorageBuffer,
-                else => unreachable,
-            },
+            .global => if (self.spv.hasFeature(.shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
             .constant => .UniformConstant,
             .push_constant => .PushConstant,
             .input => .Input,
@@ -2073,12 +1932,13 @@ const NavGen = struct {
                 .exploded_vector => |range| {
                     assert(self.ty.isVector(zcu));
                     assert(self.ty.vectorLen(zcu) == range.len);
-                    const consituents = try ng.gpa.alloc(IdRef, range.len);
-                    defer ng.gpa.free(consituents);
-                    for (consituents, 0..range.len) |*id, i| {
+                    const constituents = try ng.gpa.alloc(IdRef, range.len);
+                    defer ng.gpa.free(constituents);
+                    for (constituents, 0..range.len) |*id, i| {
                         id.* = range.at(i);
                     }
-                    return ng.constructVector(self.ty, consituents);
+                    const result_ty_id = try ng.resolveType(self.ty, .direct);
+                    return ng.constructComposite(result_ty_id, constituents);
                 },
             }
         }
@@ -2282,7 +2142,7 @@ const NavGen = struct {
                             .child = tmp.ty.toIntern(),
                         });
 
-                        const vector = try ng.constructVectorSplat(vector_ty, id);
+                        const vector = try ng.constructCompositeSplat(vector_ty, id);
                         return .{
                             .ty = vector_ty,
                             .value = .{ .spv_vectorwise = vector },
@@ -2447,7 +2307,7 @@ const NavGen = struct {
     }
 
     fn buildFma(self: *NavGen, a: Temporary, b: Temporary, c: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const v = self.vectorization(.{ a, b, c });
         const ops = v.operations();
@@ -2469,7 +2329,7 @@ const NavGen = struct {
             // NOTE: Vulkan's FMA instruction does *NOT* produce the right values!
             //   its precision guarantees do NOT match zigs and it does NOT match OpenCLs!
             //   it needs to be emulated!
-            .vulkan => unreachable, // TODO: See above
+            .vulkan, .opengl => unreachable, // TODO: See above
             else => unreachable,
         };
 
@@ -2606,14 +2466,14 @@ const NavGen = struct {
     };
 
     fn buildUnary(self: *NavGen, op: UnaryOp, operand: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
         const v = blk: {
             const v = self.vectorization(.{operand});
             break :blk switch (op) {
                 // TODO: These instructions don't seem to be working
                 // properly for LLVM-based backends on OpenCL for 8- and
                 // 16-component vectors.
-                .i_abs => if (target.os.tag == .opencl and v.components() >= 8) v.unroll() else v,
+                .i_abs => if (self.spv.hasFeature(.vector16) and v.components() >= 8) v.unroll() else v,
                 else => v,
             };
         };
@@ -2666,7 +2526,7 @@ const NavGen = struct {
                 // Note: We'll need to check these for floating point accuracy
                 // Vulkan does not put tight requirements on these, for correction
                 // we might want to emulate them at some point.
-                .vulkan => switch (op) {
+                .vulkan, .opengl => switch (op) {
                     .i_abs => 5, // SAbs
                     .f_abs => 4, // FAbs
                     .clz => unreachable, // TODO
@@ -2736,7 +2596,7 @@ const NavGen = struct {
     };
 
     fn buildBinary(self: *NavGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const v = self.vectorization(.{ lhs, rhs });
         const ops = v.operations();
@@ -2795,7 +2655,7 @@ const NavGen = struct {
                     .u_min => 159, // u_min
                     else => unreachable,
                 },
-                .vulkan => switch (op) {
+                .vulkan, .opengl => switch (op) {
                     .f_max => 40, // FMax
                     .s_max => 42, // SMax
                     .u_max => 41, // UMax
@@ -2834,7 +2694,7 @@ const NavGen = struct {
     ) !struct { Temporary, Temporary } {
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const ip = &zcu.intern_pool;
 
         const v = lhs.vectorization(self).unify(rhs.vectorization(self));
@@ -2877,7 +2737,7 @@ const NavGen = struct {
                     });
                 }
             },
-            .vulkan => {
+            .vulkan, .opengl => {
                 // Operations return a struct{T, T}
                 // where T is maybe vectorized.
                 const op_result_ty: Type = .fromInterned(try ip.getTupleType(zcu.gpa, pt.tid, .{
@@ -2964,7 +2824,7 @@ const NavGen = struct {
 
         const section = &self.spv.sections.functions;
 
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const p_error_id = self.spv.allocId();
         switch (target.os.tag) {
@@ -2987,7 +2847,7 @@ const NavGen = struct {
                     .id_result = self.spv.allocId(),
                 });
             },
-            .vulkan => {
+            .vulkan, .opengl => {
                 const ptr_ptr_anyerror_ty_id = self.spv.allocId();
                 try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
                     .id_result = ptr_ptr_anyerror_ty_id,
@@ -3045,7 +2905,7 @@ const NavGen = struct {
                 const spv_err_decl_index = self.object.error_push_constant.?.push_constant_ptr;
                 const push_constant_id = self.spv.declPtr(spv_err_decl_index).result_id;
 
-                const zero_id = try self.constInt(Type.u32, 0, .direct);
+                const zero_id = try self.constInt(Type.u32, 0);
                 // We cannot use OpInBoundsAccessChain to dereference cross-storage class, so we have to use
                 // a load.
                 const tmp = self.spv.allocId();
@@ -3088,7 +2948,7 @@ const NavGen = struct {
         defer self.gpa.free(test_name);
 
         const execution_mode: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan => .GLCompute,
+            .vulkan, .opengl => .GLCompute,
             .opencl => .Kernel,
             else => unreachable,
         };
@@ -3187,7 +3047,7 @@ const NavGen = struct {
                 const storage_class = self.spvStorageClass(nav.getAddrspace());
                 assert(storage_class != .Generic); // These should be instance globals
 
-                const ptr_ty_id = try self.ptrType(ty, storage_class);
+                const ptr_ty_id = try self.ptrType(ty, storage_class, .indirect);
 
                 try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
                     .id_result_type = ptr_ty_id,
@@ -3208,7 +3068,7 @@ const NavGen = struct {
 
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
 
-                const ptr_ty_id = try self.ptrType(ty, .Function);
+                const ptr_ty_id = try self.ptrType(ty, .Function, .indirect);
 
                 if (maybe_init_val) |init_val| {
                     // TODO: Combine with resolveAnonDecl?
@@ -3265,8 +3125,8 @@ const NavGen = struct {
     }
 
     fn intFromBool2(self: *NavGen, value: Temporary, result_ty: Type) !Temporary {
-        const zero_id = try self.constInt(result_ty, 0, .direct);
-        const one_id = try self.constInt(result_ty, 1, .direct);
+        const zero_id = try self.constInt(result_ty, 0);
+        const one_id = try self.constInt(result_ty, 1);
 
         return try self.buildSelect(
             value,
@@ -3449,10 +3309,8 @@ const NavGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .int_from_ptr    => try self.airIntFromPtr(inst),
             .float_from_int  => try self.airFloatFromInt(inst),
             .int_from_float  => try self.airIntFromFloat(inst),
-            .int_from_bool   => try self.airIntFromBool(inst),
             .fpext, .fptrunc => try self.airFloatCast(inst),
             .not             => try self.airNot(inst),
 
@@ -3650,12 +3508,12 @@ const NavGen = struct {
             .strange_integer => switch (info.signedness) {
                 .unsigned => {
                     const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
-                    const mask_id = try self.constInt(ty.scalarType(zcu), mask_value, .direct);
+                    const mask_id = try self.constInt(ty.scalarType(zcu), mask_value);
                     return try self.buildBinary(.bit_and, value, Temporary.init(ty.scalarType(zcu), mask_id));
                 },
                 .signed => {
                     // Shift left and right so that we can copy the sight bit that way.
-                    const shift_amt_id = try self.constInt(ty.scalarType(zcu), info.backing_bits - info.bits, .direct);
+                    const shift_amt_id = try self.constInt(ty.scalarType(zcu), info.backing_bits - info.bits);
                     const shift_amt = Temporary.init(ty.scalarType(zcu), shift_amt_id);
                     const left = try self.buildBinary(.sll, value, shift_amt);
                     return try self.buildBinary(.sra, left, shift_amt);
@@ -3689,7 +3547,7 @@ const NavGen = struct {
                 const div = try self.buildBinary(.s_div, lhs, rhs);
                 const rem = try self.buildBinary(.s_rem, lhs, rhs);
 
-                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0, .direct));
+                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0));
 
                 const rem_is_not_zero = try self.buildCmp(.i_ne, rem, zero);
 
@@ -3793,7 +3651,6 @@ const NavGen = struct {
     }
 
     fn abs(self: *NavGen, result_ty: Type, value: Temporary) !Temporary {
-        const target = self.getTarget();
         const operand_info = self.arithmeticTypeInfo(value.ty);
 
         switch (operand_info.class) {
@@ -3805,7 +3662,7 @@ const NavGen = struct {
                 // depending on the result type. Do that when
                 // bitCast is implemented for vectors.
                 // This is only relevant for Vulkan
-                assert(target.os.tag != .vulkan); // TODO
+                assert(self.spv.hasFeature(.kernel)); // TODO
 
                 return try self.normalize(abs_value, self.arithmeticTypeInfo(result_ty));
             },
@@ -3865,7 +3722,7 @@ const NavGen = struct {
             // = (rhs < 0) == (value < lhs)
             // = (rhs < 0) == (lhs > value)
             .signed => blk: {
-                const zero = Temporary.init(rhs.ty, try self.constInt(rhs.ty, 0, .direct));
+                const zero = Temporary.init(rhs.ty, try self.constInt(rhs.ty, 0));
                 const rhs_lt_zero = try self.buildCmp(.s_lt, rhs, zero);
                 const result_gt_lhs = try self.buildCmp(scmp, lhs, result);
                 break :blk try self.buildCmp(.l_eq, rhs_lt_zero, result_gt_lhs);
@@ -3874,15 +3731,11 @@ const NavGen = struct {
 
         const ov = try self.intFromBool(overflowed);
 
-        return try self.constructStruct(
-            result_ty,
-            &.{ result.ty, ov.ty },
-            &.{ try result.materialize(self), try ov.materialize(self) },
-        );
+        const result_ty_id = try self.resolveType(result_ty, .direct);
+        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
     fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const target = self.getTarget();
         const pt = self.pt;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -3906,7 +3759,7 @@ const NavGen = struct {
         // - Additionally, if info.bits != 32, we'll have to check the high bits
         //   of the result too.
 
-        const largest_int_bits: u16 = if (Target.spirv.featureSetHas(target.cpu.features, .Int64)) 64 else 32;
+        const largest_int_bits = self.largestSupportedIntBits();
         // If non-null, the number of bits that the multiplication should be performed in. If
         // null, we have to use wide multiplication.
         const maybe_op_ty_bits: ?u16 = switch (info.bits) {
@@ -3930,11 +3783,11 @@ const NavGen = struct {
                     const result = try self.normalize(low_bits, info);
 
                     // Shift the result bits away to get the overflow bits.
-                    const shift = Temporary.init(full_result.ty, try self.constInt(full_result.ty, info.bits, .direct));
+                    const shift = Temporary.init(full_result.ty, try self.constInt(full_result.ty, info.bits));
                     const overflow = try self.buildBinary(.srl, full_result, shift);
 
                     // Directly check if its zero in the op_ty without converting first.
-                    const zero = Temporary.init(full_result.ty, try self.constInt(full_result.ty, 0, .direct));
+                    const zero = Temporary.init(full_result.ty, try self.constInt(full_result.ty, 0));
                     const overflowed = try self.buildCmp(.i_ne, zero, overflow);
 
                     break :blk .{ result, overflowed };
@@ -3948,7 +3801,7 @@ const NavGen = struct {
                 // Overflow happened if the high-bits of the result are non-zero OR if the
                 // high bits of the low word of the result (those outside the range of the
                 // int) are nonzero.
-                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0, .direct));
+                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0));
                 const high_overflowed = try self.buildCmp(.i_ne, zero, high_bits);
 
                 // If no overflow bits in low_bits, no extra work needs to be done.
@@ -3957,7 +3810,7 @@ const NavGen = struct {
                 }
 
                 // Shift the result bits away to get the overflow bits.
-                const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits, .direct));
+                const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits));
                 const low_overflow = try self.buildBinary(.srl, low_bits, shift);
                 const low_overflowed = try self.buildCmp(.i_ne, zero, low_overflow);
 
@@ -3976,7 +3829,7 @@ const NavGen = struct {
                 // overflow should be -1 when
                 //   (lhs > 0 && rhs < 0) || (lhs < 0 && rhs > 0)
 
-                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0, .direct));
+                const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0));
                 const lhs_negative = try self.buildCmp(.s_lt, lhs, zero);
                 const rhs_negative = try self.buildCmp(.s_lt, rhs, zero);
                 const lhs_positive = try self.buildCmp(.s_gt, lhs, zero);
@@ -4005,13 +3858,13 @@ const NavGen = struct {
                     // bit for the expected overflow bits.
                     // To do that, shift out everything bit the sign bit and
                     // then check what remains.
-                    const shift = Temporary.init(full_result.ty, try self.constInt(full_result.ty, info.bits - 1, .direct));
+                    const shift = Temporary.init(full_result.ty, try self.constInt(full_result.ty, info.bits - 1));
                     // Use SRA so that any sign bits are duplicated. Now we can just check if ALL bits are set
                     // for negative cases.
                     const overflow = try self.buildBinary(.sra, full_result, shift);
 
-                    const long_all_set = Temporary.init(full_result.ty, try self.constInt(full_result.ty, -1, .direct));
-                    const long_zero = Temporary.init(full_result.ty, try self.constInt(full_result.ty, 0, .direct));
+                    const long_all_set = Temporary.init(full_result.ty, try self.constInt(full_result.ty, -1));
+                    const long_zero = Temporary.init(full_result.ty, try self.constInt(full_result.ty, 0));
                     const mask = try self.buildSelect(expected_overflow_bit, long_all_set, long_zero);
 
                     const overflowed = try self.buildCmp(.i_ne, mask, overflow);
@@ -4024,7 +3877,7 @@ const NavGen = struct {
                 // Truncate result if required.
                 const result = try self.normalize(low_bits, info);
 
-                const all_set = Temporary.init(lhs.ty, try self.constInt(lhs.ty, -1, .direct));
+                const all_set = Temporary.init(lhs.ty, try self.constInt(lhs.ty, -1));
                 const mask = try self.buildSelect(expected_overflow_bit, all_set, zero);
 
                 // Like with unsigned, overflow happened if high_bits are not the ones we expect,
@@ -4040,7 +3893,7 @@ const NavGen = struct {
                 }
 
                 // Shift the result bits away to get the overflow bits.
-                const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits - 1, .direct));
+                const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits - 1));
                 // Use SRA so that any sign bits are duplicated. Now we can just check if ALL bits are set
                 // for negative cases.
                 const low_overflow = try self.buildBinary(.sra, low_bits, shift);
@@ -4054,11 +3907,8 @@ const NavGen = struct {
 
         const ov = try self.intFromBool(overflowed);
 
-        return try self.constructStruct(
-            result_ty,
-            &.{ result.ty, ov.ty },
-            &.{ try result.materialize(self), try ov.materialize(self) },
-        );
+        const result_ty_id = try self.resolveType(result_ty, .direct);
+        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
     fn airShlOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4094,11 +3944,8 @@ const NavGen = struct {
         const overflowed = try self.buildCmp(.i_ne, base, right);
         const ov = try self.intFromBool(overflowed);
 
-        return try self.constructStruct(
-            result_ty,
-            &.{ result.ty, ov.ty },
-            &.{ try result.materialize(self), try ov.materialize(self) },
-        );
+        const result_ty_id = try self.resolveType(result_ty, .direct);
+        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
     fn airMulAdd(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4121,7 +3968,6 @@ const NavGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
 
@@ -4134,10 +3980,7 @@ const NavGen = struct {
             .float, .bool => unreachable,
         }
 
-        switch (target.os.tag) {
-            .vulkan => unreachable, // TODO
-            else => {},
-        }
+        assert(self.spv.hasFeature(.kernel)); // TODO
 
         const count = try self.buildUnary(op, operand);
 
@@ -4165,7 +4008,7 @@ const NavGen = struct {
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
 
-        return try self.constructVectorSplat(result_ty, operand_id);
+        return try self.constructCompositeSplat(result_ty, operand_id);
     }
 
     fn airReduce(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4299,10 +4142,10 @@ const NavGen = struct {
 
         // Fall back to manually extracting and inserting components.
 
-        const components = try self.gpa.alloc(IdRef, result_ty.vectorLen(zcu));
-        defer self.gpa.free(components);
+        const constituents = try self.gpa.alloc(IdRef, result_ty.vectorLen(zcu));
+        defer self.gpa.free(constituents);
 
-        for (components, 0..) |*id, i| {
+        for (constituents, 0..) |*id, i| {
             const elem = try mask.elemValue(pt, i);
             if (elem.isUndef(zcu)) {
                 id.* = try self.spv.constUndef(scalar_ty_id);
@@ -4317,14 +4160,15 @@ const NavGen = struct {
             }
         }
 
-        return try self.constructVector(result_ty, components);
+        const result_ty_id = try self.resolveType(result_ty, .direct);
+        return try self.constructComposite(result_ty_id, constituents);
     }
 
     fn indicesToIds(self: *NavGen, indices: []const u32) ![]IdRef {
         const ids = try self.gpa.alloc(IdRef, indices.len);
         errdefer self.gpa.free(ids);
         for (indices, ids) |index, *id| {
-            id.* = try self.constInt(Type.u32, index, .direct);
+            id.* = try self.constInt(Type.u32, index);
         }
 
         return ids;
@@ -4372,23 +4216,22 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        const target = self.getTarget();
-        switch (target.os.tag) {
-            .opencl => try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+        if (self.spv.hasFeature(.kernel)) {
+            try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .base = base,
                 .element = element,
                 .indexes = ids,
-            }),
-            .vulkan => try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
+            });
+        } else {
+            try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .base = base,
                 .element = element,
                 .indexes = ids,
-            }),
-            else => unreachable,
+            });
         }
         return result_id;
     }
@@ -4678,7 +4521,7 @@ const NavGen = struct {
                 break :blk result_id;
             }
 
-            const dst_ptr_ty_id = try self.ptrType(dst_ty, .Function);
+            const dst_ptr_ty_id = try self.ptrType(dst_ty, .Function, .indirect);
 
             const tmp_id = try self.alloc(src_ty, .{ .storage_class = .Function });
             try self.store(src_ty, tmp_id, src_id, .{});
@@ -4706,9 +4549,14 @@ const NavGen = struct {
 
     fn airBitCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
+        if (operand_ty.toIntern() == .bool_type) {
+            const operand = try self.temporary(ty_op.operand);
+            const result = try self.intFromBool(operand);
+            return try result.materialize(self);
+        }
+        const operand_id = try self.resolve(ty_op.operand);
         return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
@@ -4747,12 +4595,6 @@ const NavGen = struct {
             .pointer = operand_id,
         });
         return result_id;
-    }
-
-    fn airIntFromPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand_id = try self.resolve(un_op);
-        return try self.intFromPtr(operand_id);
     }
 
     fn airFloatFromInt(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4808,13 +4650,6 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airIntFromBool(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.temporary(un_op);
-        const result = try self.intFromBool(operand);
-        return try result.materialize(self);
-    }
-
     fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -4861,7 +4696,7 @@ const NavGen = struct {
         const elem_ptr_ty_id = try self.resolveType(elem_ptr_ty, .direct);
 
         const array_ptr_id = try self.resolve(ty_op.operand);
-        const len_id = try self.constInt(Type.usize, array_ty.arrayLen(zcu), .direct);
+        const len_id = try self.constInt(Type.usize, array_ty.arrayLen(zcu));
 
         const elem_ptr_id = if (!array_ty.hasRuntimeBitsIgnoreComptime(zcu))
             // Note: The pointer is something like *opaque{}, so we need to bitcast it to the element type.
@@ -4870,11 +4705,8 @@ const NavGen = struct {
             // Convert the pointer-to-array to a pointer to the first element.
             try self.accessChain(elem_ptr_ty_id, array_ptr_id, &.{0});
 
-        return try self.constructStruct(
-            slice_ty,
-            &.{ elem_ptr_ty, Type.usize },
-            &.{ elem_ptr_id, len_id },
-        );
+        const slice_ty_id = try self.resolveType(slice_ty, .direct);
+        return try self.constructComposite(slice_ty_id, &.{ elem_ptr_id, len_id });
     }
 
     fn airSlice(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4882,16 +4714,9 @@ const NavGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const len_id = try self.resolve(bin_op.rhs);
-        const ptr_ty = self.typeOf(bin_op.lhs);
         const slice_ty = self.typeOfIndex(inst);
-
-        // Note: Types should not need to be converted to direct, these types
-        // dont need to be converted.
-        return try self.constructStruct(
-            slice_ty,
-            &.{ ptr_ty, Type.usize },
-            &.{ ptr_id, len_id },
-        );
+        const slice_ty_id = try self.resolveType(slice_ty, .direct);
+        return try self.constructComposite(slice_ty_id, &.{ ptr_id, len_id });
     }
 
     fn airAggregateInit(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4946,11 +4771,8 @@ const NavGen = struct {
                     else => unreachable,
                 }
 
-                return try self.constructStruct(
-                    result_ty,
-                    types[0..index],
-                    constituents[0..index],
-                );
+                const result_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(result_ty_id, constituents[0..index]);
             },
             .vector => {
                 const n_elems = result_ty.vectorLen(zcu);
@@ -4961,7 +4783,8 @@ const NavGen = struct {
                     elem_ids[i] = try self.resolve(element);
                 }
 
-                return try self.constructVector(result_ty, elem_ids);
+                const result_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(result_ty_id, elem_ids);
             },
             .array => {
                 const array_info = result_ty.arrayInfo(zcu);
@@ -4978,7 +4801,8 @@ const NavGen = struct {
                     elem_ids[n_elems - 1] = try self.constant(array_info.elem_type, sentinel_val, .indirect);
                 }
 
-                return try self.constructArray(result_ty, elem_ids);
+                const result_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(result_ty_id, elem_ids);
             },
             else => unreachable,
         }
@@ -4994,7 +4818,7 @@ const NavGen = struct {
                 const elem_ty = array_ty.childType(zcu);
                 const abi_size = elem_ty.abiSize(zcu);
                 const size = array_ty.arrayLenIncludingSentinel(zcu) * abi_size;
-                return try self.constInt(Type.usize, size, .direct);
+                return try self.constInt(Type.usize, size);
             },
             .many, .c => unreachable,
         }
@@ -5070,7 +4894,7 @@ const NavGen = struct {
         const zcu = self.pt.zcu;
         // Construct new pointer type for the resulting pointer
         const elem_ty = ptr_ty.elemType2(zcu); // use elemType() so that we get T for *[N]T.
-        const elem_ptr_ty_id = try self.ptrType(elem_ty, self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu)));
+        const elem_ptr_ty_id = try self.ptrType(elem_ty, self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu)), .indirect);
         if (ptr_ty.isSinglePointer(zcu)) {
             // Pointer-to-array. In this case, the resulting pointer is not of the same type
             // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
@@ -5125,8 +4949,8 @@ const NavGen = struct {
         const is_vector = array_ty.isVector(zcu);
 
         const elem_repr: Repr = if (is_vector) .direct else .indirect;
-        const ptr_array_ty_id = try self.ptrType2(array_ty, .Function, .direct);
-        const ptr_elem_ty_id = try self.ptrType2(elem_ty, .Function, elem_repr);
+        const ptr_array_ty_id = try self.ptrType(array_ty, .Function, .direct);
+        const ptr_elem_ty_id = try self.ptrType(elem_ty, .Function, elem_repr);
 
         const tmp_id = self.spv.allocId();
         try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
@@ -5181,7 +5005,7 @@ const NavGen = struct {
         const scalar_ty = vector_ty.scalarType(zcu);
 
         const storage_class = self.spvStorageClass(vector_ptr_ty.ptrAddressSpace(zcu));
-        const scalar_ptr_ty_id = try self.ptrType(scalar_ty, storage_class);
+        const scalar_ptr_ty_id = try self.ptrType(scalar_ty, storage_class, .indirect);
 
         const vector_ptr = try self.resolve(data.vector_ptr);
         const index = try self.resolve(extra.lhs);
@@ -5203,7 +5027,7 @@ const NavGen = struct {
         if (layout.tag_size == 0) return;
 
         const tag_ty = un_ty.unionTagTypeSafety(zcu).?;
-        const tag_ptr_ty_id = try self.ptrType(tag_ty, self.spvStorageClass(un_ptr_ty.ptrAddressSpace(zcu)));
+        const tag_ptr_ty_id = try self.ptrType(tag_ty, self.spvStorageClass(un_ptr_ty.ptrAddressSpace(zcu)), .indirect);
 
         const union_ptr_id = try self.resolve(bin_op.lhs);
         const new_tag_id = try self.resolve(bin_op.rhs);
@@ -5262,23 +5086,23 @@ const NavGen = struct {
         } else 0;
 
         if (!layout.has_payload) {
-            return try self.constInt(tag_ty, tag_int, .direct);
+            return try self.constInt(tag_ty, tag_int);
         }
 
         const tmp_id = try self.alloc(ty, .{ .storage_class = .Function });
 
         if (layout.tag_size != 0) {
-            const tag_ptr_ty_id = try self.ptrType(tag_ty, .Function);
+            const tag_ptr_ty_id = try self.ptrType(tag_ty, .Function, .indirect);
             const ptr_id = try self.accessChain(tag_ptr_ty_id, tmp_id, &.{@as(u32, @intCast(layout.tag_index))});
-            const tag_id = try self.constInt(tag_ty, tag_int, .direct);
+            const tag_id = try self.constInt(tag_ty, tag_int);
             try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
         const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-            const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function);
+            const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
-            const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function);
+            const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
             const active_pl_ptr_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
                 .id_result_type = active_pl_ptr_ty_id,
@@ -5342,10 +5166,10 @@ const NavGen = struct {
                     const tmp_id = try self.alloc(object_ty, .{ .storage_class = .Function });
                     try self.store(object_ty, tmp_id, object_id, .{});
 
-                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function);
+                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
                     const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
 
-                    const active_pl_ptr_ty_id = try self.ptrType(field_ty, .Function);
+                    const active_pl_ptr_ty_id = try self.ptrType(field_ty, .Function, .indirect);
                     const active_pl_ptr_id = self.spv.allocId();
                     try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
                         .id_result_type = active_pl_ptr_ty_id,
@@ -5375,7 +5199,7 @@ const NavGen = struct {
         const base_ptr_int = base_ptr_int: {
             if (field_offset == 0) break :base_ptr_int field_ptr_int;
 
-            const field_offset_id = try self.constInt(Type.usize, field_offset, .direct);
+            const field_offset_id = try self.constInt(Type.usize, field_offset);
             const field_ptr_tmp = Temporary.init(Type.usize, field_ptr_int);
             const field_offset_tmp = Temporary.init(Type.usize, field_offset_id);
             const result = try self.buildBinary(.i_sub, field_ptr_tmp, field_offset_tmp);
@@ -5425,7 +5249,7 @@ const NavGen = struct {
                     }
 
                     const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
-                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class);
+                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class, .indirect);
                     const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
 
                     const active_pl_ptr_id = self.spv.allocId();
@@ -5466,7 +5290,7 @@ const NavGen = struct {
         ty: Type,
         options: AllocOptions,
     ) !IdRef {
-        const ptr_fn_ty_id = try self.ptrType(ty, .Function);
+        const ptr_fn_ty_id = try self.ptrType(ty, .Function, .indirect);
 
         // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
         // directly generate them into func.prologue instead of the body.
@@ -5478,14 +5302,11 @@ const NavGen = struct {
             .initializer = options.initializer,
         });
 
-        const target = self.getTarget();
-        if (target.os.tag == .vulkan) {
-            return var_id;
-        }
+        if (self.spv.hasFeature(.shader)) return var_id;
 
         switch (options.storage_class) {
             .Generic => {
-                const ptr_gn_ty_id = try self.ptrType(ty, .Generic);
+                const ptr_gn_ty_id = try self.ptrType(ty, .Generic, .indirect);
                 // Convert to a generic pointer
                 return self.castToGeneric(ptr_gn_ty_id, var_id);
             },
@@ -5734,7 +5555,7 @@ const NavGen = struct {
         assert(cf.block_stack.items.len > 0);
 
         // Check if the target of the branch was this current block.
-        const this_block = try self.constInt(Type.u32, @intFromEnum(inst), .direct);
+        const this_block = try self.constInt(Type.u32, @intFromEnum(inst));
         const jump_to_this_block_id = self.spv.allocId();
         const bool_ty_id = try self.resolveType(Type.bool, .direct);
         try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
@@ -5814,7 +5635,7 @@ const NavGen = struct {
                     try self.store(operand_ty, block_result_var_id, operand_id, .{});
                 }
 
-                const next_block = try self.constInt(Type.u32, @intFromEnum(br.block_inst), .direct);
+                const next_block = try self.constInt(Type.u32, @intFromEnum(br.block_inst));
                 try self.structuredBreak(next_block);
             },
             .unstructured => |cf| {
@@ -5978,7 +5799,7 @@ const NavGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                const no_err_id = try self.constInt(Type.anyerror, 0, .direct);
+                const no_err_id = try self.constInt(Type.anyerror, 0);
                 return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
             } else {
                 return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
@@ -6002,7 +5823,7 @@ const NavGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                const no_err_id = try self.constInt(Type.anyerror, 0, .direct);
+                const no_err_id = try self.constInt(Type.anyerror, 0);
                 return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
             } else {
                 return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
@@ -6036,7 +5857,7 @@ const NavGen = struct {
             else
                 err_union_id;
 
-            const zero_id = try self.constInt(Type.anyerror, 0, .direct);
+            const zero_id = try self.constInt(Type.anyerror, 0);
             const is_err_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
                 .id_result_type = bool_ty_id,
@@ -6144,7 +5965,8 @@ const NavGen = struct {
         types[eu_layout.errorFieldIndex()] = Type.anyerror;
         types[eu_layout.payloadFieldIndex()] = payload_ty;
 
-        return try self.constructStruct(err_union_ty, &types, &members);
+        const err_union_ty_id = try self.resolveType(err_union_ty, .direct);
+        return try self.constructComposite(err_union_ty_id, &members);
     }
 
     fn airWrapErrUnionPayload(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -6155,18 +5977,19 @@ const NavGen = struct {
         const eu_layout = self.errorUnionLayout(payload_ty);
 
         if (!eu_layout.payload_has_bits) {
-            return try self.constInt(Type.anyerror, 0, .direct);
+            return try self.constInt(Type.anyerror, 0);
         }
 
         var members: [2]IdRef = undefined;
-        members[eu_layout.errorFieldIndex()] = try self.constInt(Type.anyerror, 0, .direct);
+        members[eu_layout.errorFieldIndex()] = try self.constInt(Type.anyerror, 0);
         members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
 
         var types: [2]Type = undefined;
         types[eu_layout.errorFieldIndex()] = Type.anyerror;
         types[eu_layout.payloadFieldIndex()] = payload_ty;
 
-        return try self.constructStruct(err_union_ty, &types, &members);
+        const err_union_ty_id = try self.resolveType(err_union_ty, .direct);
+        return try self.constructComposite(err_union_ty_id, &members);
     }
 
     fn airIsNull(self: *NavGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
@@ -6214,7 +6037,7 @@ const NavGen = struct {
             if (is_pointer) {
                 if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const storage_class = self.spvStorageClass(operand_ty.ptrAddressSpace(zcu));
-                    const bool_ptr_ty_id = try self.ptrType(Type.bool, storage_class);
+                    const bool_ptr_ty_id = try self.ptrType(Type.bool, storage_class, .indirect);
                     const tag_ptr_id = try self.accessChain(bool_ptr_ty_id, operand_id, &.{1});
                     break :blk try self.load(Type.bool, tag_ptr_id, .{});
                 }
@@ -6277,7 +6100,7 @@ const NavGen = struct {
                     .id_result_type = bool_ty_id,
                     .id_result = result_id,
                     .operand_1 = error_id,
-                    .operand_2 = try self.constInt(Type.anyerror, 0, .direct),
+                    .operand_2 = try self.constInt(Type.anyerror, 0),
                 },
             ),
         }
@@ -6345,14 +6168,14 @@ const NavGen = struct {
 
         const payload_id = try self.convertToIndirect(payload_ty, operand_id);
         const members = [_]IdRef{ payload_id, try self.constBool(true, .indirect) };
-        const types = [_]Type{ payload_ty, Type.bool };
-        return try self.constructStruct(optional_ty, &types, &members);
+        const optional_ty_id = try self.resolveType(optional_ty, .direct);
+        return try self.constructComposite(optional_ty_id, &members);
     }
 
     fn airSwitchBr(self: *NavGen, inst: Air.Inst.Index) !void {
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const switch_br = self.air.unwrapSwitch(inst);
         const cond_ty = self.typeOf(switch_br.operand);
         const cond = try self.resolve(switch_br.operand);
@@ -6615,9 +6438,8 @@ const NavGen = struct {
 
                     .undef => return self.fail("assembly input with 'c' constraint cannot be undefined", .{}),
 
-                    .int => {
-                        try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) });
-                    },
+                    .int => try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
+                    .enum_literal => |str| try as.value_map.put(as.gpa, name, .{ .string = str.toSlice(ip) }),
 
                     else => unreachable, // TODO
                 }
@@ -6699,7 +6521,7 @@ const NavGen = struct {
                 .just_declared, .unresolved_forward_reference => unreachable,
                 .ty => return self.fail("cannot return spir-v type as value from assembly", .{}),
                 .value => |ref| return ref,
-                .constant => return self.fail("cannot return constant from assembly", .{}),
+                .constant, .string => return self.fail("cannot return constant from assembly", .{}),
             }
 
             // TODO: Multiple results
@@ -6762,13 +6584,13 @@ const NavGen = struct {
 
     fn builtin3D(self: *NavGen, result_ty: Type, builtin: spec.BuiltIn, dimension: u32, out_of_range_value: anytype) !IdRef {
         if (dimension >= 3) {
-            return try self.constInt(result_ty, out_of_range_value, .direct);
+            return try self.constInt(result_ty, out_of_range_value);
         }
         const vec_ty = try self.pt.vectorType(.{
             .len = 3,
             .child = result_ty.toIntern(),
         });
-        const ptr_ty_id = try self.ptrType(vec_ty, .Input);
+        const ptr_ty_id = try self.ptrType(vec_ty, .Input, .indirect);
         const spv_decl_index = try self.spv.builtin(ptr_ty_id, builtin);
         try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
         const ptr = self.spv.declPtr(spv_decl_index).result_id;

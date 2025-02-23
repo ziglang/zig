@@ -16,5 +16,5 @@ fn mod0(a: i32, b: i32) i32 {
     return @mod(a, b);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

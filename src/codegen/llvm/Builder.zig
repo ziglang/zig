@@ -2634,6 +2634,7 @@ pub const Intrinsic = enum {
     cos,
     pow,
     exp,
+    exp10,
     exp2,
     ldexp,
     frexp,
@@ -2801,22 +2802,22 @@ pub const Intrinsic = enum {
         .va_start = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_end = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_copy = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
@@ -2929,7 +2930,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
                 .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
-                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
@@ -2959,7 +2960,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
                 .{ .kind = .{ .type = .i8 } },
-                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
@@ -3015,6 +3016,14 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .exp2 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp10 = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
@@ -6093,6 +6102,7 @@ pub const WipFunction = struct {
         src_align: Alignment,
         len: Value,
         kind: MemoryAccessKind,
+        @"inline": bool,
     ) Allocator.Error!Instruction.Index {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
@@ -6104,7 +6114,7 @@ pub const WipFunction = struct {
                 try self.builder.attrs(&dst_attrs),
                 try self.builder.attrs(&src_attrs),
             }),
-            .memcpy,
+            if (@"inline") .@"memcpy.inline" else .memcpy,
             &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
             &.{ dst, src, len, switch (kind) {
                 .normal => Value.false,
@@ -6122,12 +6132,13 @@ pub const WipFunction = struct {
         val: Value,
         len: Value,
         kind: MemoryAccessKind,
+        @"inline": bool,
     ) Allocator.Error!Instruction.Index {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         const value = try self.callIntrinsic(
             .normal,
             try self.builder.fnAttrs(&.{ .none, .none, try self.builder.attrs(&dst_attrs) }),
-            .memset,
+            if (@"inline") .@"memset.inline" else .memset,
             &.{ dst.typeOfWip(self), len.typeOfWip(self) },
             &.{ dst, val, len, switch (kind) {
                 .normal => Value.false,
@@ -13776,8 +13787,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         };
                         const bit_count = extra.type.scalarBits(self);
                         const val: i64 = if (bit_count <= 64)
-                            bigint.to(i64) catch unreachable
-                        else if (bigint.to(u64)) |val|
+                            bigint.toInt(i64) catch unreachable
+                        else if (bigint.toInt(u64)) |val|
                             @bitCast(val)
                         else |_| {
                             const limbs = try record.addManyAsSlice(
@@ -14276,9 +14287,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 else => unreachable,
                             },
                         };
-                        const val: i64 = if (bigint.to(i64)) |val|
+                        const val: i64 = if (bigint.toInt(i64)) |val|
                             val
-                        else |_| if (bigint.to(u64)) |val|
+                        else |_| if (bigint.toInt(u64)) |val|
                             @bitCast(val)
                         else |_| {
                             const limbs_len = std.math.divCeil(u32, extra.bit_width, 64) catch unreachable;

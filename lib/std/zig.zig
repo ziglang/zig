@@ -54,11 +54,8 @@ pub const Color = enum {
     }
 
     pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
         return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
+            .ttyconf = get_tty_conf(color),
         };
     }
 };
@@ -538,16 +535,12 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(
-    allocator: Allocator,
-    input: std.fs.File,
-    size_hint: ?usize,
-) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?usize) ![:0]u8 {
     const source_code = input.readToEndAllocOptions(
-        allocator,
+        gpa,
         max_src_size,
         size_hint,
-        @alignOf(u16),
+        @alignOf(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
@@ -555,7 +548,7 @@ pub fn readSourceFileToEndAlloc(
         error.NotOpenForReading => unreachable,
         else => |e| return e,
     };
-    errdefer allocator.free(source_code);
+    errdefer gpa.free(source_code);
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -571,15 +564,19 @@ pub fn readSourceFileToEndAlloc(
 
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
-        const source_code_utf16_le = std.mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
+        if (source_code.len % 2 != 0) return error.InvalidEncoding;
+        // TODO: after wrangle-writer-buffering branch is merged,
+        // avoid this unnecessary allocation
+        const aligned_copy = try gpa.alloc(u16, source_code.len / 2);
+        defer gpa.free(aligned_copy);
+        @memcpy(std.mem.sliceAsBytes(aligned_copy), source_code);
+        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(gpa, aligned_copy) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             else => |e| return e,
         };
-
-        allocator.free(source_code);
+        gpa.free(source_code);
         return source_code_utf8;
     }
 
@@ -700,6 +697,10 @@ pub const EnvVar = enum {
     XDG_CACHE_HOME,
     HOME,
 
+    pub fn isSet(comptime ev: EnvVar) bool {
+        return std.process.hasNonEmptyEnvVarConstant(@tagName(ev));
+    }
+
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
         if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
             return value;
@@ -711,11 +712,6 @@ pub const EnvVar = enum {
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
         return std.posix.getenvZ(@tagName(ev));
-    }
-
-    pub fn isSet(ev: EnvVar, arena: std.mem.Allocator) !bool {
-        const value = try ev.get(arena) orelse return false;
-        return value.len != 0;
     }
 };
 

@@ -39,6 +39,8 @@ const AnalUnit = InternPool.AnalUnit;
 const BuiltinFn = std.zig.BuiltinFn;
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -178,6 +180,8 @@ analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
 resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
+
+skip_analysis_errors: bool = false,
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -656,22 +660,35 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: Status,
-    prev_status: Status,
-    source_loaded: bool,
-    tree_loaded: bool,
-    zir_loaded: bool,
     /// Relative to the owning package's root source directory.
     /// Memory is stored in gpa, owned by File.
     sub_file_path: []const u8,
-    /// Whether this is populated depends on `source_loaded`.
-    source: [:0]const u8,
+
+    status: enum {
+        /// We have not yet attempted to load this file.
+        /// `stat` is not populated and may be `undefined`.
+        never_loaded,
+        /// A filesystem access failed. It should be retried on the next update.
+        /// There is a `failed_files` entry containing a non-`null` message.
+        /// `stat` is not populated and may be `undefined`.
+        retryable_failure,
+        /// Parsing/AstGen/ZonGen of this file has failed.
+        /// There is an error in `zir` or `zoir`.
+        /// There is a `failed_files` entry (with a `null` message).
+        /// `stat` is populated.
+        astgen_failure,
+        /// Parsing and AstGen/ZonGen of this file has succeeded.
+        /// `stat` is populated.
+        success,
+    },
     /// Whether this is populated depends on `status`.
     stat: Cache.File.Stat,
-    /// Whether this is populated or not depends on `tree_loaded`.
-    tree: Ast,
-    /// Whether this is populated or not depends on `zir_loaded`.
-    zir: Zir,
+
+    source: ?[:0]const u8,
+    tree: ?Ast,
+    zir: ?Zir,
+    zoir: ?Zoir,
+
     /// Module that this file is a part of, managed externally.
     mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
@@ -679,19 +696,24 @@ pub const File = struct {
     /// List of references to this file, used for multi-package errors.
     references: std.ArrayListUnmanaged(File.Reference) = .empty,
 
-    /// The most recent successful ZIR for this file, with no errors.
-    /// This is only populated when a previously successful ZIR
-    /// newly introduces compile errors during an update. When ZIR is
-    /// successful, this field is unloaded.
+    /// The ZIR for this file from the last update with no file failures. As such, this ZIR is never
+    /// failed (although it may have compile errors).
+    ///
+    /// Because updates with file failures do not perform ZIR mapping or semantic analysis, we keep
+    /// this around so we have the "old" ZIR to map when an update is ready to do so. Once such an
+    /// update occurs, this field is unloaded, since it is no longer necessary.
+    ///
+    /// In other words, if `TrackedInst`s are tied to ZIR other than what's in the `zir` field, this
+    /// field is populated with that old ZIR.
     prev_zir: ?*Zir = null,
 
-    pub const Status = enum {
-        never_loaded,
-        retryable_failure,
-        parse_failure,
-        astgen_failure,
-        success_zir,
-    };
+    /// This field serves a similar purpose to `prev_zir`, but for ZOIR. However, since we do not
+    /// need to map old ZOIR to new ZOIR -- instead only invalidating dependencies if the ZOIR
+    /// changed -- this field is just a simple boolean.
+    ///
+    /// When `zoir` is updated, this field is set to `true`. In `updateZirRefs`, if this is `true`,
+    /// we invalidate the corresponding `zon_file` dependency, and reset it to `false`.
+    zoir_invalidated: bool = false,
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -704,30 +726,42 @@ pub const File = struct {
         root: *Package.Module,
     };
 
+    pub fn getMode(self: File) Ast.Mode {
+        if (std.mem.endsWith(u8, self.sub_file_path, ".zon")) {
+            return .zon;
+        } else if (std.mem.endsWith(u8, self.sub_file_path, ".zig")) {
+            return .zig;
+        } else {
+            // `Module.importFile` rejects all other extensions
+            unreachable;
+        }
+    }
+
     pub fn unload(file: *File, gpa: Allocator) void {
+        if (file.zoir) |zoir| zoir.deinit(gpa);
         file.unloadTree(gpa);
         file.unloadSource(gpa);
         file.unloadZir(gpa);
     }
 
     pub fn unloadTree(file: *File, gpa: Allocator) void {
-        if (file.tree_loaded) {
-            file.tree_loaded = false;
-            file.tree.deinit(gpa);
+        if (file.tree) |*tree| {
+            tree.deinit(gpa);
+            file.tree = null;
         }
     }
 
     pub fn unloadSource(file: *File, gpa: Allocator) void {
-        if (file.source_loaded) {
-            file.source_loaded = false;
-            gpa.free(file.source);
+        if (file.source) |source| {
+            gpa.free(source);
+            file.source = null;
         }
     }
 
     pub fn unloadZir(file: *File, gpa: Allocator) void {
-        if (file.zir_loaded) {
-            file.zir_loaded = false;
-            file.zir.deinit(gpa);
+        if (file.zir) |*zir| {
+            zir.deinit(gpa);
+            file.zir = null;
         }
     }
 
@@ -737,8 +771,8 @@ pub const File = struct {
     };
 
     pub fn getSource(file: *File, gpa: Allocator) !Source {
-        if (file.source_loaded) return Source{
-            .bytes = file.source,
+        if (file.source) |source| return .{
+            .bytes = source,
             .stat = file.stat,
         };
 
@@ -753,18 +787,20 @@ pub const File = struct {
             return error.FileTooBig;
 
         const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-        defer if (!file.source_loaded) gpa.free(source);
+        errdefer gpa.free(source);
+
         const amt = try f.readAll(source);
         if (amt != stat.size)
             return error.UnexpectedEndOfFile;
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
-        // astGenFile can know to regenerate ZIR.
+        // updateFile can know to regenerate ZIR.
 
         file.source = source;
-        file.source_loaded = true;
-        return Source{
+        errdefer comptime unreachable; // don't error after populating `source`
+
+        return .{
             .bytes = source,
             .stat = .{
                 .size = stat.size,
@@ -775,12 +811,25 @@ pub const File = struct {
     }
 
     pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
-        if (file.tree_loaded) return &file.tree;
+        if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, .zig);
-        file.tree_loaded = true;
-        return &file.tree;
+        file.tree = try .parse(gpa, source.bytes, file.getMode());
+        return &file.tree.?;
+    }
+
+    pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
+        if (file.zoir) |*zoir| return zoir;
+
+        const tree = file.tree.?;
+        assert(tree.mode == .zon);
+
+        file.zoir = try ZonGen.generate(zcu.gpa, tree, .{});
+        if (file.zoir.?.hasCompileErrors()) {
+            try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
+            return error.AnalysisFail;
+        }
+        return &file.zoir.?;
     }
 
     pub fn fullyQualifiedNameLen(file: File) usize {
@@ -825,13 +874,6 @@ pub const File = struct {
         std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
     }
 
-    pub fn okToReportErrors(file: File) bool {
-        return switch (file.status) {
-            .parse_failure, .astgen_failure => false,
-            else => true,
-        };
-    }
-
     /// Add a reference to this file during AstGen.
     pub fn addReference(file: *File, zcu: *Zcu, ref: File.Reference) !void {
         // Don't add the same module root twice. Note that since we always add module roots at the
@@ -871,18 +913,18 @@ pub const File = struct {
 
         // We can only mark children as failed if the ZIR is loaded, which may not
         // be the case if there were other astgen failures in this file
-        if (!file.zir_loaded) return;
+        if (file.zir == null) return;
 
-        const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+        const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
         if (imports_index == 0) return;
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
 
         var extra_index = extra.end;
         for (0..extra.data.imports_len) |_| {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
+            const import_path = file.zir.?.nullTerminatedString(item.data.name);
             if (mem.eql(u8, import_path, "builtin")) continue;
 
             const res = pt.importFile(file, import_path) catch continue;
@@ -895,6 +937,7 @@ pub const File = struct {
     pub const Index = InternPool.FileIndex;
 };
 
+/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
     /// Module that this file is a part of, managed externally.
     owner: *Package.Module,
@@ -982,7 +1025,7 @@ pub const SrcLoc = struct {
     lazy: LazySrcLoc.Offset,
 
     pub fn baseSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
-        const tree = src_loc.file_scope.tree;
+        const tree = src_loc.file_scope.tree.?;
         return tree.firstToken(src_loc.base_node);
     }
 
@@ -1027,7 +1070,6 @@ pub const SrcLoc = struct {
                 const node_off = traced_off.x;
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
@@ -1039,7 +1081,6 @@ pub const SrcLoc = struct {
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
@@ -1455,8 +1496,8 @@ pub const SrcLoc = struct {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                        node_tags[case.ast.values[0]] == .identifier and
-                        mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
+                            node_tags[case.ast.values[0]] == .identifier and
+                            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (!is_special) continue;
 
                     return tree.nodeToSpan(case_node);
@@ -1475,8 +1516,8 @@ pub const SrcLoc = struct {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                        node_tags[case.ast.values[0]] == .identifier and
-                        mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
+                            node_tags[case.ast.values[0]] == .identifier and
+                            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (is_special) continue;
 
                     for (case.ast.values) |item_node| {
@@ -2372,9 +2413,14 @@ pub const LazySrcLoc = struct {
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
-        assert(file.zir_loaded);
 
-        const zir = file.zir;
+        // If we're relative to .main_struct_inst, we know the ast node is the root and don't need to resolve the ZIR,
+        // which may not exist e.g. in the case of errors in ZON files.
+        if (zir_inst == .main_struct_inst) return .{ file, 0 };
+
+        // Otherwise, make sure ZIR is loaded.
+        const zir = file.zir.?;
+
         const inst = zir.instructions.get(@intFromEnum(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
@@ -2605,6 +2651,189 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
     }
 
     return zir;
+}
+
+pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.Stat, zir: Zir) (std.fs.File.WriteError || Allocator.Error)!void {
+    const safety_buffer = if (data_has_safety_tag)
+        try gpa.alloc([8]u8, zir.instructions.len)
+    else
+        undefined;
+    defer if (data_has_safety_tag) gpa.free(safety_buffer);
+
+    const data_ptr: [*]const u8 = if (data_has_safety_tag)
+        if (zir.instructions.len == 0)
+            undefined
+        else
+            @ptrCast(safety_buffer.ptr)
+    else
+        @ptrCast(zir.instructions.items(.data).ptr);
+
+    if (data_has_safety_tag) {
+        // The `Data` union has a safety tag but in the file format we store it without.
+        for (zir.instructions.items(.data), 0..) |*data, i| {
+            const as_struct: *const HackDataLayout = @ptrCast(data);
+            safety_buffer[i] = as_struct.data;
+        }
+    }
+
+    const header: Zir.Header = .{
+        .instructions_len = @intCast(zir.instructions.len),
+        .string_bytes_len = @intCast(zir.string_bytes.len),
+        .extra_len = @intCast(zir.extra.len),
+
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+    };
+    var iovecs: [5]std.posix.iovec_const = .{
+        .{
+            .base = @ptrCast(&header),
+            .len = @sizeOf(Zir.Header),
+        },
+        .{
+            .base = @ptrCast(zir.instructions.items(.tag).ptr),
+            .len = zir.instructions.len,
+        },
+        .{
+            .base = data_ptr,
+            .len = zir.instructions.len * 8,
+        },
+        .{
+            .base = zir.string_bytes.ptr,
+            .len = zir.string_bytes.len,
+        },
+        .{
+            .base = @ptrCast(zir.extra.ptr),
+            .len = zir.extra.len * 4,
+        },
+    };
+    try cache_file.writevAll(&iovecs);
+}
+
+pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir) std.fs.File.WriteError!void {
+    const header: Zoir.Header = .{
+        .nodes_len = @intCast(zoir.nodes.len),
+        .extra_len = @intCast(zoir.extra.len),
+        .limbs_len = @intCast(zoir.limbs.len),
+        .string_bytes_len = @intCast(zoir.string_bytes.len),
+        .compile_errors_len = @intCast(zoir.compile_errors.len),
+        .error_notes_len = @intCast(zoir.error_notes.len),
+
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+    };
+    var iovecs: [9]std.posix.iovec_const = .{
+        .{
+            .base = @ptrCast(&header),
+            .len = @sizeOf(Zoir.Header),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.tag)),
+            .len = zoir.nodes.len * @sizeOf(Zoir.Node.Repr.Tag),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.data)),
+            .len = zoir.nodes.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.ast_node)),
+            .len = zoir.nodes.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.extra),
+            .len = zoir.extra.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.limbs),
+            .len = zoir.limbs.len * 4,
+        },
+        .{
+            .base = zoir.string_bytes.ptr,
+            .len = zoir.string_bytes.len,
+        },
+        .{
+            .base = @ptrCast(zoir.compile_errors),
+            .len = zoir.compile_errors.len * @sizeOf(Zoir.CompileError),
+        },
+        .{
+            .base = @ptrCast(zoir.error_notes),
+            .len = zoir.error_notes.len * @sizeOf(Zoir.CompileError.Note),
+        },
+    };
+    try cache_file.writevAll(&iovecs);
+}
+
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs.File) !Zoir {
+    var zoir: Zoir = .{
+        .nodes = .empty,
+        .extra = &.{},
+        .limbs = &.{},
+        .string_bytes = &.{},
+        .compile_errors = &.{},
+        .error_notes = &.{},
+    };
+    errdefer zoir.deinit(gpa);
+
+    zoir.nodes = nodes: {
+        var nodes: std.MultiArrayList(Zoir.Node.Repr) = .empty;
+        defer nodes.deinit(gpa);
+        try nodes.setCapacity(gpa, header.nodes_len);
+        nodes.len = header.nodes_len;
+        break :nodes nodes.toOwnedSlice();
+    };
+
+    zoir.extra = try gpa.alloc(u32, header.extra_len);
+    zoir.limbs = try gpa.alloc(std.math.big.Limb, header.limbs_len);
+    zoir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
+
+    zoir.compile_errors = try gpa.alloc(Zoir.CompileError, header.compile_errors_len);
+    zoir.error_notes = try gpa.alloc(Zoir.CompileError.Note, header.error_notes_len);
+
+    var iovecs: [8]std.posix.iovec = .{
+        .{
+            .base = @ptrCast(zoir.nodes.items(.tag)),
+            .len = header.nodes_len * @sizeOf(Zoir.Node.Repr.Tag),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.data)),
+            .len = header.nodes_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.ast_node)),
+            .len = header.nodes_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.extra),
+            .len = header.extra_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.limbs),
+            .len = header.limbs_len * @sizeOf(std.math.big.Limb),
+        },
+        .{
+            .base = zoir.string_bytes.ptr,
+            .len = header.string_bytes_len,
+        },
+        .{
+            .base = @ptrCast(zoir.compile_errors),
+            .len = header.compile_errors_len * @sizeOf(Zoir.CompileError),
+        },
+        .{
+            .base = @ptrCast(zoir.error_notes),
+            .len = header.error_notes_len * @sizeOf(Zoir.CompileError.Note),
+        },
+    };
+
+    const bytes_expected = expected: {
+        var n: usize = 0;
+        for (iovecs) |v| n += v.len;
+        break :expected n;
+    };
+
+    const bytes_read = try cache_file.readvAll(&iovecs);
+    if (bytes_read != bytes_expected) return error.UnexpectedFileSize;
+    return zoir;
 }
 
 pub fn markDependeeOutdated(
@@ -2901,7 +3130,7 @@ pub fn mapOldZirToNew(
         }
     }
 
-    while (match_stack.popOrNull()) |match_item| {
+    while (match_stack.pop()) |match_item| {
         // First, a check: if the number of captures of this type has changed, we can't map it, because
         // we wouldn't know how to correlate type information with the last update.
         // Synchronizes with logic in `Zcu.PerThread.recreateStructType` etc.
@@ -3183,7 +3412,7 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 
     try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
 
-    const ref_idx = zcu.free_references.popOrNull() orelse idx: {
+    const ref_idx = zcu.free_references.pop() orelse idx: {
         _ = try zcu.all_references.addOne(gpa);
         break :idx zcu.all_references.items.len - 1;
     };
@@ -3208,7 +3437,7 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
 
     try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
 
-    const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
+    const ref_idx = zcu.free_type_references.pop() orelse idx: {
         _ = try zcu.all_type_references.addOne(gpa);
         break :idx zcu.all_type_references.items.len - 1;
     };
@@ -3267,19 +3496,6 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
-    switch (file.status) {
-        .success_zir, .retryable_failure => {},
-        .never_loaded, .parse_failure, .astgen_failure => {
-            zcu.comp.mutex.lock();
-            defer zcu.comp.mutex.unlock();
-            if (zcu.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(zcu.gpa); // Delete previous error message.
-            }
-        },
-    }
-}
-
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,
@@ -3313,7 +3529,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.Panic` functions for things like safety checks and
+    /// `std.builtin.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -3329,12 +3545,22 @@ pub const Feature = enum {
     /// * `Air.Inst.Tag.add_safe`
     /// * `Air.Inst.Tag.sub_safe`
     /// * `Air.Inst.Tag.mul_safe`
+    /// * `Air.Inst.Tag.intcast_safe`
     /// The motivation for this feature is that it makes AIR smaller, and makes it easier
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
     safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
+    /// If the backend supports the following AIR instructions with vector types:
+    /// * `Air.Inst.Tag.bit_and`
+    /// * `Air.Inst.Tag.bit_or`
+    /// * `Air.Inst.Tag.bitcast`
+    /// * `Air.Inst.Tag.float_from_int`
+    /// * `Air.Inst.Tag.fptrunc`
+    /// * `Air.Inst.Tag.int_from_float`
+    /// If not supported, Sema will scalarize the operation.
+    all_vector_instructions,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
@@ -3368,7 +3594,6 @@ pub fn atomicPtrAlignment(
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
-        .spu_2,
         => 16,
 
         .arc,
@@ -3394,8 +3619,7 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .loongarch32,
         .xtensa,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => 32,
 
         .amdgcn,
@@ -3451,8 +3675,6 @@ pub fn atomicPtrAlignment(
 }
 
 /// Returns null in the following cases:
-/// * `@TypeOf(.{})`
-/// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
 pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
@@ -3573,7 +3795,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
     }
 
     while (true) {
-        if (type_queue.popOrNull()) |kv| {
+        if (type_queue.pop()) |kv| {
             const ty = kv.key;
             const referencer = kv.value;
             try checked_types.putNoClobber(gpa, ty, {});
@@ -3626,9 +3848,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // `test` declarations are analyzed depending on the test filter.
                 const inst_info = nav.analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
 
                 if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
 
@@ -3658,9 +3878,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // These are named declarations. They are analyzed only if marked `export`.
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
@@ -3676,9 +3894,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // These are named declarations. They are analyzed only if marked `export`.
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
@@ -3702,7 +3918,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             }
             continue;
         }
-        if (unit_queue.popOrNull()) |kv| {
+        if (unit_queue.pop()) |kv| {
             const unit = kv.key;
             try result.putNoClobber(gpa, unit, kv.value);
 
@@ -3814,7 +4030,7 @@ pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
     const zir = zcu.fileByIndex(inst_info.file).zir;
-    return zir.getDeclaration(inst_info.inst).src_line;
+    return zir.?.getDeclaration(inst_info.inst).src_line;
 }
 
 pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
@@ -3866,10 +4082,6 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
-        .file => |file| {
-            const file_path = zcu.fileByIndex(file).sub_file_path;
-            return writer.print("file('{s}')", .{file_path});
-        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
@@ -3889,6 +4101,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
+        },
+        .zon_file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("zon_file('{s}')", .{file_path});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
@@ -3993,9 +4209,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
-                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
-                .arm_aapcs16_vfp,
-                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
+                => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
@@ -4023,7 +4237,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             };
         },
         .stage2_wasm => switch (cc) {
-            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            .wasm_mvp => |opts| opts.incoming_stack_alignment == null,
             else => false,
         },
         .stage2_arm => switch (cc) {

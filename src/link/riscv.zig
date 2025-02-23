@@ -9,6 +9,31 @@ pub fn writeSetSub6(comptime op: enum { set, sub }, code: *[1]u8, addend: anytyp
     mem.writeInt(u8, code, value, .little);
 }
 
+pub fn writeSetSubUleb(comptime op: enum { set, sub }, stream: *std.io.FixedBufferStream([]u8), addend: i64) !void {
+    switch (op) {
+        .set => try overwriteUleb(stream, @intCast(addend)),
+        .sub => {
+            const position = try stream.getPos();
+            const value: u64 = try std.leb.readUleb128(u64, stream.reader());
+            try stream.seekTo(position);
+            try overwriteUleb(stream, value -% @as(u64, @intCast(addend)));
+        },
+    }
+}
+
+fn overwriteUleb(stream: *std.io.FixedBufferStream([]u8), addend: u64) !void {
+    var value: u64 = addend;
+    const writer = stream.writer();
+
+    while (true) {
+        const byte = stream.buffer[stream.pos];
+        if (byte & 0x80 == 0) break;
+        try writer.writeByte(0x80 | @as(u8, @truncate(value & 0x7f)));
+        value >>= 7;
+    }
+    stream.buffer[stream.pos] = @truncate(value & 0x7f);
+}
+
 pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },

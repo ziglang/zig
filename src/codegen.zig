@@ -83,8 +83,10 @@ pub fn generateLazyFunction(
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
-    const file = Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(&zcu.intern_pool);
-    const target = zcu.fileByIndex(file).mod.resolved_target.result;
+    const target = if (Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu)) |inst_index|
+        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.resolved_target.result
+    else
+        zcu.getTarget();
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
         inline .stage2_x86_64, .stage2_riscv64 => |backend| {
@@ -421,7 +423,7 @@ pub fn generateSymbol(
 
                     const padding = abi_size -
                         (math.cast(usize, Type.fromInterned(vector_type.child).abiSize(zcu) * vector_type.len) orelse
-                        return error.Overflow);
+                            return error.Overflow);
                     if (padding > 0) try code.appendNTimes(gpa, 0, padding);
                 }
             },

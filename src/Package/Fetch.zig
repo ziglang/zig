@@ -127,7 +127,7 @@ pub const JobQueue = struct {
         // `Fetch` instances are allocated in prior ones' arenas.
         // Sorry, I know it's a bit weird, but it slightly simplifies the
         // critical section.
-        while (jq.all_fetches.popOrNull()) |f| f.deinit();
+        while (jq.all_fetches.pop()) |f| f.deinit();
         jq.all_fetches.deinit(gpa);
         jq.* = undefined;
     }
@@ -1249,7 +1249,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
             .{@errorName(err)},
         ));
         defer zip_file.close();
-        var buf: [std.mem.page_size]u8 = undefined;
+        var buf: [4096]u8 = undefined;
         while (true) {
             const len = reader.readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "read zip stream failed: {s}",

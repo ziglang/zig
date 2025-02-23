@@ -16,5 +16,5 @@ fn foo(a: u32) u32 {
     return a;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

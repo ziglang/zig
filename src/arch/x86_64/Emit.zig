@@ -88,13 +88,32 @@ pub fn emitMir(emit: *Emit) Error!void {
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
             }) switch (lowered_relocs[0].target) {
-                .inst => |target| try relocs.append(emit.lower.allocator, .{
-                    .source = start_offset,
-                    .source_offset = end_offset - 4,
-                    .target = target,
-                    .target_offset = lowered_relocs[0].off,
-                    .length = @intCast(end_offset - start_offset),
-                }),
+                .inst => |target| {
+                    const inst_length: u4 = @intCast(end_offset - start_offset);
+                    const reloc_offset, const reloc_length = reloc_offset_length: {
+                        var reloc_offset = inst_length;
+                        var op_index: usize = lowered_inst.ops.len;
+                        while (true) {
+                            op_index -= 1;
+                            const op = lowered_inst.encoding.data.ops[op_index];
+                            if (op == .none) continue;
+                            const enc_length: u4 = @intCast(
+                                std.math.divCeil(u7, @intCast(op.immBitSize()), 8) catch unreachable,
+                            );
+                            reloc_offset -= enc_length;
+                            if (op_index == lowered_relocs[0].op_index)
+                                break :reloc_offset_length .{ reloc_offset, enc_length };
+                        }
+                    };
+                    try relocs.append(emit.lower.allocator, .{
+                        .inst_offset = start_offset,
+                        .inst_length = inst_length,
+                        .source_offset = reloc_offset,
+                        .source_length = reloc_length,
+                        .target = target,
+                        .target_offset = lowered_relocs[0].off,
+                    });
+                },
                 .table => try table_relocs.append(emit.lower.allocator, .{
                     .source_offset = end_offset - 4,
                     .target_offset = lowered_relocs[0].off,
@@ -409,7 +428,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     } } };
                                 },
                                 .pseudo_dbg_local_am => loc: {
-                                    const mem = emit.lower.mem(mir_inst.data.ax.payload);
+                                    const mem = emit.lower.mem(undefined, mir_inst.data.ax.payload);
                                     break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
                                         base: {
                                             loc_buf[0] = switch (mem.base()) {
@@ -466,15 +485,18 @@ pub fn emitMir(emit: *Emit) Error!void {
             }
         }
     }
-    {
-        // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
-        // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
-        // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
-        // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
-        for (relocs.items) |reloc| {
-            const target = code_offset_mapping[reloc.target];
-            const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length)) + reloc.target_offset;
-            std.mem.writeInt(i32, emit.code.items[reloc.source_offset..][0..4], @intCast(disp), .little);
+    for (relocs.items) |reloc| {
+        const target = code_offset_mapping[reloc.target];
+        const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.inst_offset + reloc.inst_length)) + reloc.target_offset;
+        const inst_bytes = emit.code.items[reloc.inst_offset..][0..reloc.inst_length];
+        switch (reloc.source_length) {
+            else => unreachable,
+            inline 1, 4 => |source_length| std.mem.writeInt(
+                @Type(.{ .int = .{ .signedness = .signed, .bits = @as(u16, 8) * source_length } }),
+                inst_bytes[reloc.source_offset..][0..source_length],
+                @intCast(disp),
+                .little,
+            ),
         }
     }
     if (emit.lower.mir.table.len > 0) {
@@ -511,15 +533,17 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
 
 const Reloc = struct {
     /// Offset of the instruction.
-    source: u32,
+    inst_offset: u32,
+    /// Length of the instruction.
+    inst_length: u4,
     /// Offset of the relocation within the instruction.
-    source_offset: u32,
+    source_offset: u4,
+    /// Length of the relocation.
+    source_length: u4,
     /// Target of the relocation.
     target: Mir.Inst.Index,
-    /// Offset from the target instruction.
+    /// Offset from the target.
     target_offset: i32,
-    /// Length of the instruction.
-    length: u5,
 };
 
 const TableReloc = struct {

@@ -139,6 +139,8 @@ no_implicit_dylibs: bool = false,
 /// Whether the linker should parse and always force load objects containing ObjC in archives.
 // TODO: in Zig we currently take -ObjC as always on
 force_load_objc: bool = true,
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -221,6 +223,7 @@ pub fn createEmpty(
         .lib_directories = options.lib_directories,
         .framework_dirs = options.framework_dirs,
         .force_load_objc = options.force_load_objc,
+        .discard_local_symbols = options.discard_local_symbols,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -718,6 +721,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (self.force_load_objc) {
             try argv.append("-ObjC");
+        }
+
+        if (self.discard_local_symbols) {
+            try argv.append("-x");
         }
 
         if (self.entry_name) |entry_name| {
@@ -1610,14 +1617,14 @@ fn initOutputSections(self: *MachO) !void {
     }
     self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
         try self.addSection("__TEXT", "__text", .{
-        .alignment = switch (self.getTarget().cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable,
-        },
-        .flags = macho.S_REGULAR |
-            macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-    });
+            .alignment = switch (self.getTarget().cpu.arch) {
+                .x86_64 => 0,
+                .aarch64 => 2,
+                else => unreachable,
+            },
+            .flags = macho.S_REGULAR |
+                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
     self.data_sect_index = self.getSectionByName("__DATA", "__data") orelse
         try self.addSection("__DATA", "__data", .{});
 }
@@ -3548,7 +3555,7 @@ pub fn getTarget(self: MachO) std.Target {
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+    if (builtin.target.os.tag.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
 }

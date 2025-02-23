@@ -93,6 +93,7 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const zip = @import("zip.zig");
+pub const zon = @import("zon.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");
@@ -117,6 +118,13 @@ pub const Options = struct {
         comptime format: []const u8,
         args: anytype,
     ) void = log.defaultLog,
+
+    /// Overrides `std.heap.page_size_min`.
+    page_size_min: ?usize = null,
+    /// Overrides `std.heap.page_size_max`.
+    page_size_max: ?usize = null,
+    /// Overrides default implementation for determining OS page size at runtime.
+    queryPageSize: fn () usize = heap.defaultQueryPageSize,
 
     fmt_max_depth: usize = fmt.default_max_depth,
 

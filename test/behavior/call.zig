@@ -21,37 +21,41 @@ test "super basic invocations" {
 
 test "basic invocations" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support tail call modifiers
+
     const foo = struct {
-        fn foo() i32 {
+        fn foo(_: i32) i32 {
             return 1234;
         }
     }.foo;
-    try expect(@call(.auto, foo, .{}) == 1234);
+    try expect(@call(.auto, foo, .{1}) == 1234);
     comptime {
-        // modifiers that allow comptime calls
-        try expect(@call(.auto, foo, .{}) == 1234);
-        try expect(@call(.no_async, foo, .{}) == 1234);
-        try expect(@call(.always_tail, foo, .{}) == 1234);
-        try expect(@call(.always_inline, foo, .{}) == 1234);
+        // comptime calls with supported modifiers
+        try expect(@call(.auto, foo, .{2}) == 1234);
+        try expect(@call(.no_async, foo, .{3}) == 1234);
+        try expect(@call(.always_tail, foo, .{4}) == 1234);
+        try expect(@call(.always_inline, foo, .{5}) == 1234);
     }
-    {
-        // comptime call without comptime keyword
-        const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime assert(result);
-    }
-    {
-        // call of non comptime-known function
+    // comptime call without comptime keyword
+    const result = @call(.compile_time, foo, .{6}) == 1234;
+    comptime assert(result);
+    // runtime calls of comptime-known function
+    try expect(@call(.no_async, foo, .{7}) == 1234);
+    try expect(@call(.never_tail, foo, .{8}) == 1234);
+    try expect(@call(.never_inline, foo, .{9}) == 1234);
+    // CBE does not support attributes on runtime functions
+    if (builtin.zig_backend != .stage2_c) {
+        // runtime calls of non comptime-known function
         var alias_foo = &foo;
         _ = &alias_foo;
-        try expect(@call(.no_async, alias_foo, .{}) == 1234);
-        try expect(@call(.never_tail, alias_foo, .{}) == 1234);
-        try expect(@call(.never_inline, alias_foo, .{}) == 1234);
+        try expect(@call(.no_async, alias_foo, .{10}) == 1234);
+        try expect(@call(.never_tail, alias_foo, .{11}) == 1234);
+        try expect(@call(.never_inline, alias_foo, .{12}) == 1234);
     }
 }
 

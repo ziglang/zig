@@ -613,3 +613,14 @@ test "zero-bit fields in extern struct pad fields appropriately" {
     try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
     try expect(@as(*S, @fieldParentPtr("a", &s.a)) == &s);
 }
+
+test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
+    // This only succeeds on Thumb if we handle the Thumb bit correctly; if not, the `@ptrFromInt`
+    // will incorrectly trip an alignment safety check.
+
+    const nothing_ptr: *const fn () callconv(.c) void = &nothing;
+    const nothing_int: usize = @intFromPtr(nothing_ptr);
+    const nothing_ptr2: *const fn () callconv(.c) void = @ptrFromInt(nothing_int);
+
+    try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
+}

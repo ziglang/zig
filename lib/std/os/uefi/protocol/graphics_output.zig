@@ -53,10 +53,10 @@ pub const GraphicsOutput = extern struct {
     };
 
     pub const PixelFormat = enum(u32) {
-        RedGreenBlueReserved8BitPerColor,
-        BlueGreenRedReserved8BitPerColor,
-        BitMask,
-        BltOnly,
+        red_green_blue_reserved_8_bit_per_color,
+        blue_green_red_reserved_8_bit_per_color,
+        bit_mask,
+        blt_only,
     };
 
     pub const PixelBitmask = extern struct {
@@ -74,10 +74,10 @@ pub const GraphicsOutput = extern struct {
     };
 
     pub const BltOperation = enum(u32) {
-        BltVideoFill,
-        BltVideoToBltBuffer,
-        BltBufferToVideo,
-        BltVideoToVideo,
-        GraphicsOutputBltOperationMax,
+        blt_video_fill,
+        blt_video_to_blt_buffer,
+        blt_buffer_to_video,
+        blt_video_to_video,
+        graphics_output_blt_operation_max,
     };
 };

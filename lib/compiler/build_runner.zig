@@ -733,7 +733,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf, .include_reference_trace = (b.reference_trace orelse 0) > 0 });
             }
         }
 
@@ -1112,7 +1112,11 @@ fn workerMakeOneStep(
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
+        const options: std.zig.ErrorBundle.RenderOptions = .{
+            .ttyconf = run.ttyconf,
+            .include_reference_trace = (b.reference_trace orelse 0) > 0,
+        };
+        printErrorMessages(gpa, s, options, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1168,7 +1172,7 @@ fn workerMakeOneStep(
 pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
-    ttyconf: std.io.tty.Config,
+    options: std.zig.ErrorBundle.RenderOptions,
     stderr: File,
     prominent_compile_errors: bool,
 ) !void {
@@ -1183,9 +1187,10 @@ pub fn printErrorMessages(
     }
 
     // Now, `step_stack` has the subtree that we want to print, in reverse order.
+    const ttyconf = options.ttyconf;
     try ttyconf.setColor(stderr, .dim);
     var indent: usize = 0;
-    while (step_stack.popOrNull()) |s| : (indent += 1) {
+    while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
             try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
@@ -1208,8 +1213,9 @@ pub fn printErrorMessages(
         }
     }
 
-    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
-        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
+        try failing_step.result_error_bundle.renderToWriter(options, stderr.writer());
+    }
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1407,14 +1413,6 @@ fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
         .auto => std.io.tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
-    };
-}
-
-fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
     };
 }
 

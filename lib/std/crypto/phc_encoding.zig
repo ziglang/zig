@@ -75,6 +75,10 @@ pub fn BinValue(comptime max_len: usize) type {
 ///
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
+    if (@hasField(HashResult, version_param_name)) {
+        @compileError("Field name '" ++ version_param_name ++ "'' is reserved for the algorithm version");
+    }
+
     var out = mem.zeroes(HashResult);
     var it = mem.splitScalar(u8, str, fields_delimiter_scalar);
     var set_fields: usize = 0;
@@ -198,6 +202,11 @@ pub fn calcSize(params: anytype) usize {
 
 fn serializeTo(params: anytype, out: anytype) !void {
     const HashResult = @TypeOf(params);
+
+    if (@hasField(HashResult, version_param_name)) {
+        @compileError("Field name '" ++ version_param_name ++ "'' is reserved for the algorithm version");
+    }
+
     try out.writeAll(fields_delimiter);
     try out.writeAll(params.alg_id);
 

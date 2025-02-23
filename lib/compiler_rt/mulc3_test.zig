@@ -9,7 +9,7 @@ const __muldc3 = @import("./muldc3.zig").__muldc3;
 const __mulxc3 = @import("./mulxc3.zig").__mulxc3;
 const __multc3 = @import("./multc3.zig").__multc3;
 
-test {
+test "mulc3" {
     try testMul(f16, __mulhc3);
     try testMul(f32, __mulsc3);
     try testMul(f64, __muldc3);

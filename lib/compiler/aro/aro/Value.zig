@@ -473,7 +473,7 @@ pub fn toInt(v: Value, comptime T: type, comp: *const Compilation) ?T {
     if (comp.interner.get(v.ref()) != .int) return null;
     var space: BigIntSpace = undefined;
     const big_int = v.toBigInt(&space, comp);
-    return big_int.to(T) catch null;
+    return big_int.toInt(T) catch null;
 }
 
 const ComplexOp = enum {

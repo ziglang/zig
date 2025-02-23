@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const c = @This();
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
-const page_size = std.mem.page_size;
+const page_size = std.heap.page_size_min;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
@@ -213,6 +213,24 @@ pub const ARCH = switch (native_os) {
     .linux => linux.ARCH,
     else => void,
 };
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is an integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = switch (native_os) {
+    .freebsd => enum(u32) {
+        REALTIME = 0,
+        MONOTONIC = 4,
+        _,
+    },
+    .linux => linux.timerfd_clockid_t,
+    else => clockid_t,
+};
+
 pub const CLOCK = clockid_t;
 pub const clockid_t = switch (native_os) {
     .linux, .emscripten => linux.clockid_t,
@@ -674,6 +692,7 @@ pub const F = switch (native_os) {
     .linux => linux.F,
     .emscripten => emscripten.F,
     .wasi => struct {
+        // Match `F_*` constants from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         pub const GETFD = 1;
         pub const SETFD = 2;
         pub const GETFL = 3;
@@ -1341,6 +1360,20 @@ pub const KERN = switch (native_os) {
 pub const MADV = switch (native_os) {
     .linux => linux.MADV,
     .emscripten => emscripten.MADV,
+    .macos, .ios, .tvos, .watchos, .visionos => struct {
+        pub const NORMAL = 0;
+        pub const RANDOM = 1;
+        pub const SEQUENTIAL = 2;
+        pub const WILLNEED = 3;
+        pub const DONTNEED = 4;
+        pub const FREE = 5;
+        pub const ZERO_WIRED_PAGES = 6;
+        pub const FREE_REUSABLE = 7;
+        pub const FREE_REUSE = 8;
+        pub const CAN_REUSE = 9;
+        pub const PAGEOUT = 10;
+        pub const ZERO = 11;
+    },
     .freebsd => struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
@@ -1705,17 +1738,43 @@ pub const S = switch (native_os) {
     .linux => linux.S,
     .emscripten => emscripten.S,
     .wasi => struct {
-        pub const IEXEC = @compileError("TODO audit this");
+        // Match `S_*` constants from lib/libc/include/wasm-wasi-musl/__mode_t.h
         pub const IFBLK = 0x6000;
         pub const IFCHR = 0x2000;
         pub const IFDIR = 0x4000;
-        pub const IFIFO = 0xc000;
+        pub const IFIFO = 0x1000;
         pub const IFLNK = 0xa000;
         pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
         pub const IFREG = 0x8000;
-        /// There's no concept of UNIX domain socket but we define this value here
-        /// in order to line with other OSes.
-        pub const IFSOCK = 0x1;
+        pub const IFSOCK = 0xc000;
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISCHR(m: u32) bool {
+            return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
     },
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IFMT = 0o170000;
@@ -2209,6 +2268,39 @@ pub const SC = switch (native_os) {
     .linux => linux.SC,
     else => void,
 };
+
+pub const _SC = switch (native_os) {
+    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => enum(c_int) {
+        PAGESIZE = 29,
+    },
+    .dragonfly => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .freebsd => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .fuchsia => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .haiku => enum(c_int) {
+        PAGESIZE = 27,
+    },
+    .linux => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .netbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .openbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .solaris, .illumos => enum(c_int) {
+        PAGESIZE = 11,
+        NPROCESSORS_ONLN = 15,
+    },
+    else => void,
+};
+
 pub const SEEK = switch (native_os) {
     .linux => linux.SEEK,
     .emscripten => emscripten.SEEK,
@@ -2730,7 +2822,7 @@ pub const Sigaction = switch (native_os) {
         .mipsel,
         .mips64,
         .mips64el,
-        => if (builtin.target.isMusl())
+        => if (builtin.target.abi.isMusl())
             linux.Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
             pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
@@ -5920,7 +6012,7 @@ pub const IFNAMESIZE = switch (native_os) {
 pub const stack_t = switch (native_os) {
     .linux => linux.stack_t,
     .emscripten => emscripten.stack_t,
-    .freebsd => extern struct {
+    .freebsd, .openbsd => extern struct {
         /// Signal stack base.
         sp: *anyopaque,
         /// Signal stack length.
@@ -6623,7 +6715,7 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips, .mipsel => if (builtin.target.isMusl()) extern struct {
+        .mips, .mipsel => if (builtin.target.abi.isMusl()) extern struct {
             dev: dev_t,
             __pad0: [2]i32,
             ino: ino_t,
@@ -6684,7 +6776,7 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips64, .mips64el => if (builtin.target.isMusl()) extern struct {
+        .mips64, .mips64el => if (builtin.target.abi.isMusl()) extern struct {
             dev: dev_t,
             __pad0: [3]i32,
             ino: ino_t,
@@ -6751,6 +6843,7 @@ pub const Stat = switch (native_os) {
     },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
+        // Match wasi-libc's `struct stat` in lib/libc/include/wasm-wasi-musl/__struct_stat.h
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
@@ -7451,9 +7544,11 @@ pub const AT = switch (native_os) {
         pub const RECURSIVE = 0x8000;
     },
     .wasi => struct {
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const SYMLINK_FOLLOW = 0x400;
-        pub const REMOVEDIR: u32 = 0x4;
+        // Match `AT_*` constants in lib/libc/include/wasm-wasi-musl/__header_fcntl.h
+        pub const EACCESS = 0x0;
+        pub const SYMLINK_NOFOLLOW = 0x1;
+        pub const SYMLINK_FOLLOW = 0x2;
+        pub const REMOVEDIR = 0x4;
         /// When linking libc, we follow their convention and use -2 for current working directory.
         /// However, without libc, Zig does a different convention: it assumes the
         /// current working directory is the first preopen. This behavior can be
@@ -7461,7 +7556,6 @@ pub const AT = switch (native_os) {
         /// file.
         pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
     },
-
     else => void,
 };
 
@@ -7490,6 +7584,7 @@ pub const O = switch (native_os) {
         _: u9 = 0,
     },
     .wasi => packed struct(u32) {
+        // Match `O_*` bits from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         APPEND: bool = false,
         DSYNC: bool = false,
         NONBLOCK: bool = false,
@@ -7506,6 +7601,8 @@ pub const O = switch (native_os) {
         read: bool = false,
         SEARCH: bool = false,
         write: bool = false,
+        // O_CLOEXEC, O_TTY_ININT, O_NOCTTY are 0 in wasi-musl, so they're silently
+        // ignored in C code.  Thus no mapping in Zig.
         _: u3 = 0,
     },
     .solaris, .illumos => packed struct(u32) {
@@ -7770,7 +7867,7 @@ pub const MAP = switch (native_os) {
         _7: u2 = 0,
         HASSEMAPHORE: bool = false,
         NOCACHE: bool = false,
-        _11: u1 = 0,
+        JIT: bool = false,
         ANONYMOUS: bool = false,
         _: u19 = 0,
     },
@@ -7813,6 +7910,11 @@ pub const MAP = switch (native_os) {
         @"32BIT": bool = false,
         _: u12 = 0,
     },
+    else => void,
+};
+
+pub const MREMAP = switch (native_os) {
+    .linux => linux.MREMAP,
     else => void,
 };
 
@@ -9214,7 +9316,7 @@ pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
-pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
+pub extern "c" fn mmap64(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
 pub extern "c" fn open64(path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
@@ -9256,7 +9358,7 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 
-pub extern "c" fn timerfd_create(clockid: clockid_t, flags: c_int) c_int;
+pub extern "c" fn timerfd_create(clockid: timerfd_clockid_t, flags: c_int) c_int;
 pub extern "c" fn timerfd_settime(
     fd: c_int,
     flags: c_int,
@@ -9306,13 +9408,13 @@ pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 
 pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
 pub extern "c" fn mincore(
-    addr: *align(std.mem.page_size) anyopaque,
+    addr: *align(page_size) anyopaque,
     length: usize,
     vec: [*]u8,
 ) c_int;
 
 pub extern "c" fn madvise(
-    addr: *align(std.mem.page_size) anyopaque,
+    addr: *align(page_size) anyopaque,
     length: usize,
     advice: u32,
 ) c_int;
@@ -9410,6 +9512,10 @@ pub const posix_memalign = switch (native_os) {
     .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.posix_memalign,
     else => {},
 };
+pub const sysconf = switch (native_os) {
+    .solaris => solaris.sysconf,
+    else => private.sysconf,
+};
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -9453,6 +9559,7 @@ pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
 pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
+pub extern "c" fn mremap(addr: ?*align(page_size) const anyopaque, old_len: usize, new_len: usize, flags: MREMAP, ...) *anyopaque;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
 pub extern "c" fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
@@ -9564,6 +9671,7 @@ pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
+pub extern "c" fn calloc(usize, usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
@@ -9677,11 +9785,11 @@ pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
 pub extern "c" fn getnameinfo(
     noalias addr: *const sockaddr,
     addrlen: socklen_t,
-    noalias host: [*]u8,
+    noalias host: ?[*]u8,
     hostlen: socklen_t,
-    noalias serv: [*]u8,
+    noalias serv: ?[*]u8,
     servlen: socklen_t,
-    flags: u32,
+    flags: NI,
 ) EAI;
 
 pub extern "c" fn gai_strerror(errcode: EAI) [*:0]const u8;
@@ -9769,16 +9877,16 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.isAndroid() or builtin.target.os.tag == .openbsd)
+pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd)
 {} // android bionic and openbsd libc does not implement getcontext
-else if (native_os == .linux and builtin.target.isMusl())
-    linux.getcontext
-else
-    private.getcontext;
+    else if (native_os == .linux and builtin.target.abi.isMusl())
+        linux.getcontext
+    else
+        private.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
-else if (builtin.target.isDarwin())
+else if (native_os.isDarwin())
     c_longdouble
 else
     extern struct {
@@ -9805,7 +9913,6 @@ pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
-pub const _SC = solaris._SC;
 pub const cmsghdr = solaris.cmsghdr;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
@@ -9822,7 +9929,6 @@ pub const priority = solaris.priority;
 pub const procfs = solaris.procfs;
 pub const projid_t = solaris.projid_t;
 pub const signalfd_siginfo = solaris.signalfd_siginfo;
-pub const sysconf = solaris.sysconf;
 pub const taskid_t = solaris.taskid_t;
 pub const zoneid_t = solaris.zoneid_t;
 
@@ -9979,6 +10085,7 @@ pub const host_t = darwin.host_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
+pub const vm_size_t = darwin.vm_size_t;
 pub const kevent64 = darwin.kevent64;
 pub const kevent64_s = darwin.kevent64_s;
 pub const mach_absolute_time = darwin.mach_absolute_time;
@@ -10150,6 +10257,7 @@ const private = struct {
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+    extern "c" fn sysconf(sc: c_int) c_long;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
@@ -10184,7 +10292,7 @@ const private = struct {
     extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
     extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
     extern "c" fn __libc_thr_yield() c_int;
-    extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) void;

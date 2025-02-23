@@ -31,13 +31,25 @@ test "WTF-8 to WTF-16 conversion buffer overflows" {
     try expectError(error.NameTooLong, posix.chdirZ(input_wtf8));
 }
 
-test "chdir smoke test" {
+test "check WASI CWD" {
+    if (native_os == .wasi) {
+        if (std.options.wasiCwd() != 3) {
+            @panic("WASI code that uses cwd (like this test) needs a preopen for cwd (add '--dir=.' to wasmtime)");
+        }
+
+        if (!builtin.link_libc) {
+            // WASI without-libc hardcodes fd 3 as the FDCWD token so it can be passed directly to WASI calls
+            try expectEqual(3, posix.AT.FDCWD);
+        }
+    }
+}
+
+test "chdir absolute parent" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
     // Get current working directory path
     var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
@@ -52,47 +64,46 @@ test "chdir smoke test" {
     }
 
     // Next, change current working directory to one level above
-    if (native_os != .wasi) { // WASI does not support navigating outside of Preopens
-        const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
-        try posix.chdir(parent);
+    const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
+    try posix.chdir(parent);
 
-        // Restore cwd because process may have other tests that do not tolerate chdir.
-        defer posix.chdir(old_cwd) catch unreachable;
+    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+    try expect(mem.eql(u8, parent, new_cwd));
+}
 
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-        try expect(mem.eql(u8, parent, new_cwd));
-    }
+test "chdir relative" {
+    if (native_os == .wasi) return error.SkipZigTest;
 
-    // Next, change current working directory to a temp directory one level below
-    {
-        // Create a tmp directory
-        var tmp_dir_buf: [fs.max_path_bytes]u8 = undefined;
-        const tmp_dir_path = path: {
-            var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
-            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
-        };
-        var tmp_dir = try fs.cwd().makeOpenPath("zig-test-tmp", .{});
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-        // Change current working directory to tmp directory
-        try posix.chdir("zig-test-tmp");
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+    // Use the tmpDir parent_dir as the "base" for the test. Then cd into the child
+    try tmp.parent_dir.setAsCwd();
 
-        // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-        var resolved_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const resolved_cwd = path: {
-            var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
-            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
-        };
-        try expect(mem.eql(u8, tmp_dir_path, resolved_cwd));
+    // Capture base working directory path, to build expected full path
+    var base_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const base_cwd = try posix.getcwd(base_cwd_buf[0..]);
 
-        // Restore cwd because process may have other tests that do not tolerate chdir.
-        tmp_dir.close();
-        posix.chdir(old_cwd) catch unreachable;
-        try fs.cwd().deleteDir("zig-test-tmp");
-    }
+    const dir_name = &tmp.sub_path;
+    const expected_path = try fs.path.resolve(a, &.{ base_cwd, dir_name });
+    defer a.free(expected_path);
+
+    // change current working directory to new directory
+    try posix.chdir(dir_name);
+
+    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+
+    // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
+    const resolved_cwd = try fs.path.resolve(a, &.{new_cwd});
+    defer a.free(resolved_cwd);
+
+    try expect(mem.eql(u8, expected_path, resolved_cwd));
 }
 
 test "open smoke test" {
@@ -151,7 +162,6 @@ test "open smoke test" {
 }
 
 test "openat smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
@@ -200,51 +210,52 @@ test "openat smoke test" {
     }), mode);
     posix.close(fd);
 
-    // Try opening as file which should fail.
-    try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-    }), mode));
+    // Try opening as file which should fail (skip on wasi+libc due to
+    // https://github.com/bytecodealliance/wasmtime/issues/9054)
+    if (native_os != .wasi or !builtin.link_libc) {
+        try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
+            .ACCMODE = .RDWR,
+        }), mode));
+    }
 }
 
 test "symlink with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest; // Can symlink, but can't change into tmpDir
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
-    cwd.deleteFile("file.txt") catch {};
-    cwd.deleteFile("symlinked") catch {};
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    // First, try relative paths in cwd
-    try cwd.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
+    const target_name = "symlink-target";
+    const symlink_name = "symlinker";
+
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
+
+    // Create the target file
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "nonsense" });
+
+    // Want to test relative paths, so cd into the tmpdir for this test
+    try tmp.dir.setAsCwd();
 
     if (native_os == .windows) {
-        std.os.windows.CreateSymbolicLink(
-            cwd.fd,
-            &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
-            &[_:0]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
-            false,
-        ) catch |err| switch (err) {
+        const wtarget_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, target_name);
+        const wsymlink_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, symlink_name);
+        defer a.free(wtarget_name);
+        defer a.free(wsymlink_name);
+
+        std.os.windows.CreateSymbolicLink(tmp.dir.fd, wsymlink_name, wtarget_name, false) catch |err| switch (err) {
             // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => {
-                try cwd.deleteFile("file.txt");
-                try cwd.deleteFile("symlinked");
-                return error.SkipZigTest;
-            },
+            error.AccessDenied => return error.SkipZigTest,
             else => return err,
         };
     } else {
-        try posix.symlink("file.txt", "symlinked");
+        try posix.symlink(target_name, symlink_name);
     }
 
     var buffer: [fs.max_path_bytes]u8 = undefined;
-    const given = try posix.readlink("symlinked", buffer[0..]);
-    try expect(mem.eql(u8, "file.txt", given));
-
-    try cwd.deleteFile("file.txt");
-    try cwd.deleteFile("symlinked");
+    const given = try posix.readlink(symlink_name, buffer[0..]);
+    try expect(mem.eql(u8, target_name, given));
 }
 
 test "readlink on Windows" {
@@ -262,90 +273,95 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest; // Can link, but can't change into tmpDir
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    var cwd = fs.cwd();
 
-    cwd.deleteFile("example.txt") catch {};
-    cwd.deleteFile("new.txt") catch {};
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.link("example.txt", "new.txt");
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
-    const efd = try cwd.openFile("example.txt", .{});
+    const target_name = "link-target";
+    const link_name = "newlink";
+
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
+
+    // Test 1: create the relative link from inside tmp
+    try tmp.dir.setAsCwd();
+    try posix.link(target_name, link_name);
+
+    // Verify
+    const efd = try tmp.dir.openFile(target_name, .{});
     defer efd.close();
 
-    const nfd = try cwd.openFile("new.txt", .{});
+    const nfd = try tmp.dir.openFile(link_name, .{});
     defer nfd.close();
 
     {
         const estat = try posix.fstat(efd.handle);
         const nstat = try posix.fstat(nfd.handle);
-
         try testing.expectEqual(estat.ino, nstat.ino);
         try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
-    try posix.unlink("new.txt");
+    // Test 2: Remove the link and see the stats update
+    try posix.unlink(link_name);
 
     {
         const estat = try posix.fstat(efd.handle);
         try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
-
-    try cwd.deleteFile("example.txt");
 }
 
 test "linkat with different directories" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    var cwd = fs.cwd();
+
     var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    cwd.deleteFile("example.txt") catch {};
-    tmp.dir.deleteFile("new.txt") catch {};
+    const target_name = "link-target";
+    const link_name = "newlink";
 
-    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.linkat(cwd.fd, "example.txt", tmp.dir.fd, "new.txt", 0);
+    const subdir = try tmp.dir.makeOpenPath("subdir", .{});
 
-    const efd = try cwd.openFile("example.txt", .{});
+    defer tmp.dir.deleteFile(target_name) catch {};
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
+
+    // Test 1: link from file in subdir back up to target in parent directory
+    try posix.linkat(tmp.dir.fd, target_name, subdir.fd, link_name, 0);
+
+    const efd = try tmp.dir.openFile(target_name, .{});
     defer efd.close();
 
-    const nfd = try tmp.dir.openFile("new.txt", .{});
+    const nfd = try subdir.openFile(link_name, .{});
+    defer nfd.close();
 
     {
-        defer nfd.close();
         const estat = try posix.fstat(efd.handle);
         const nstat = try posix.fstat(nfd.handle);
-
         try testing.expectEqual(estat.ino, nstat.ino);
         try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
-    try posix.unlinkat(tmp.dir.fd, "new.txt", 0);
+    // Test 2: remove link
+    try posix.unlinkat(subdir.fd, link_name, 0);
 
     {
         const estat = try posix.fstat(efd.handle);
         try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
-
-    try cwd.deleteFile("example.txt");
 }
 
 test "fstatat" {
@@ -366,8 +382,7 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (native_os == .wasi) 0x0 else posix.AT.SYMLINK_NOFOLLOW;
-    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
+    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
 
     // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
     // result, comparing the two structures is doomed to fail.
@@ -965,7 +980,7 @@ test "POSIX file locking with fcntl" {
         return error.SkipZigTest;
     }
 
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
     // Create a temporary lock file
@@ -1308,22 +1323,17 @@ const CommonOpenFlags = packed struct {
     NONBLOCK: bool = false,
 
     pub fn lower(cof: CommonOpenFlags) posix.O {
-        if (native_os == .wasi) return .{
+        var result: posix.O = if (native_os == .wasi) .{
             .read = cof.ACCMODE != .WRONLY,
             .write = cof.ACCMODE != .RDONLY,
-            .CREAT = cof.CREAT,
-            .EXCL = cof.EXCL,
-            .DIRECTORY = cof.DIRECTORY,
-            .NONBLOCK = cof.NONBLOCK,
-        };
-        var result: posix.O = .{
+        } else .{
             .ACCMODE = cof.ACCMODE,
-            .CREAT = cof.CREAT,
-            .EXCL = cof.EXCL,
-            .DIRECTORY = cof.DIRECTORY,
-            .NONBLOCK = cof.NONBLOCK,
-            .CLOEXEC = cof.CLOEXEC,
         };
+        result.CREAT = cof.CREAT;
+        result.EXCL = cof.EXCL;
+        result.DIRECTORY = cof.DIRECTORY;
+        result.NONBLOCK = cof.NONBLOCK;
+        if (@hasField(posix.O, "CLOEXEC")) result.CLOEXEC = cof.CLOEXEC;
         if (@hasField(posix.O, "LARGEFILE")) result.LARGEFILE = cof.LARGEFILE;
         return result;
     }

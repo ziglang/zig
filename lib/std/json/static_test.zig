@@ -916,7 +916,7 @@ test "parse at comptime" {
         uptime: u64,
     };
     const config = comptime x: {
-        var buf: [32]u8 = undefined;
+        var buf: [256]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const res = parseFromSliceLeaky(Config, fba.allocator(), doc, .{});
         // Assert no error can occur since we are

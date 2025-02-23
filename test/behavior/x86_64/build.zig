@@ -58,6 +58,11 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
             .cpu_features_add = std.Target.x86.featureSet(&.{.sse3}),
         },
         .{
@@ -82,6 +87,11 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
             .cpu_features_add = std.Target.x86.featureSet(&.{.avx}),
         },
         .{
@@ -92,6 +102,11 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
         },
         .{
             .cpu_arch = .x86_64,
