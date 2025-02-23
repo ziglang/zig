@@ -1056,6 +1056,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .SUCCESS => return,
             .INVALID_HANDLE => unreachable, // Handle not open for writing
             .ACCESS_DENIED => return error.AccessDenied,
+            .USER_MAPPED_FILE => return error.AccessDenied,
             else => return windows.unexpectedStatus(rc),
         }
     }
