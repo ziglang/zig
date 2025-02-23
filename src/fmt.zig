@@ -214,6 +214,7 @@ const FmtError = error{
     Unseekable,
     NotOpenForWriting,
     UnsupportedEncoding,
+    InvalidEncoding,
     ConnectionResetByPeer,
     SocketNotConnected,
     LockViolation,
