@@ -2647,11 +2647,14 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
         .keyword_for => return try p.parseFor(expectTypeExpr),
         .keyword_while => return try p.parseWhileTypeExpr(),
         .period => switch (p.tokenTag(p.tok_i + 1)) {
-            .identifier => return try p.addNode(.{
-                .tag = .enum_literal,
-                .data = .{ .token = p.nextToken() }, // dot
-                .main_token = p.nextToken(), // identifier
-            }),
+            .identifier => {
+                p.tok_i += 1;
+                return try p.addNode(.{
+                    .tag = .enum_literal,
+                    .main_token = p.nextToken(), // identifier
+                    .data = undefined,
+                });
+            },
             .l_brace => {
                 const lbrace = p.tok_i + 1;
                 p.tok_i = lbrace + 1;
@@ -2772,10 +2775,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
                 return try p.addNode(.{
                     .tag = .error_value,
                     .main_token = main_token,
-                    .data = .{ .opt_token_and_opt_token = .{
-                        .fromOptional(period),
-                        .fromOptional(identifier),
-                    } },
+                    .data = undefined,
                 });
             },
         },

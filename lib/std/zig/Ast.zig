@@ -1000,7 +1000,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .grouped_expression, .asm_input => return tree.nodeData(n).node_and_token[1] + end_offset,
         .multiline_string_literal => return tree.nodeData(n).token_and_token[1] + end_offset,
         .asm_output => return tree.nodeData(n).opt_node_and_token[1] + end_offset,
-        .error_value => return tree.nodeData(n).opt_token_and_opt_token[1].unwrap().? + end_offset,
+        .error_value => return tree.nodeMainToken(n) + 2 + end_offset,
 
         .anyframe_literal,
         .char_literal,
@@ -3713,7 +3713,7 @@ pub const Node = struct {
         identifier,
         /// `.foo`.
         ///
-        /// The `data` field is a `.token` to the `.`.
+        /// The `data` field is unused.
         ///
         /// The `main_token` field is the identifier.
         enum_literal,
@@ -3930,9 +3930,7 @@ pub const Node = struct {
         asm_input,
         /// `error.a`.
         ///
-        /// The `data` field is a `.opt_token_and_opt_token`:
-        ///   1. a `OptionalTokenIndex` of `.`. Can't be `.none` unless a parsing error occured.
-        ///   2. a `OptionalTokenIndex` of `a`. Can't be `.none` unless a parsing error occured.
+        /// The `data` field is unused.
         ///
         /// The `main_token` field is `error` token.
         error_value,

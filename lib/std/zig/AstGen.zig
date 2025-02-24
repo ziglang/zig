@@ -1012,7 +1012,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 .ref_coerced_ty, .ptr, .inferred_ptr, .destructure => return rvalue(gz, ri, res, node),
             }
         } else return simpleStrTok(gz, ri, tree.nodeMainToken(node), node, .enum_literal),
-        .error_value => return simpleStrTok(gz, ri, tree.nodeData(node).opt_token_and_opt_token[1].unwrap().?, node, .error_value),
+        .error_value => return simpleStrTok(gz, ri, tree.nodeMainToken(node) + 2, node, .error_value),
         // TODO restore this when implementing https://github.com/ziglang/zig/issues/6025
         // .anyframe_literal => return rvalue(gz, ri, .anyframe_type, node),
         .anyframe_literal => {
@@ -8184,7 +8184,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     if (tree.nodeTag(operand_node) == .error_value) {
         // Hot path for `return error.Foo`. This bypasses result location logic as well as logic
         // for detecting whether to add something to the function's inferred error set.
-        const ident_token = tree.nodeData(operand_node).opt_token_and_opt_token[1].unwrap().?;
+        const ident_token = tree.nodeMainToken(operand_node) + 2;
         const err_name_str_index = try astgen.identAsString(ident_token);
         const defer_counts = countDefers(defer_outer, scope);
         if (!defer_counts.need_err_code) {
