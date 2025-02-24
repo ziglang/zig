@@ -4637,11 +4637,6 @@ test "read/write(Var)PackedInt" {
         else => {},
     }
 
-    if (builtin.cpu.arch == .powerpc) {
-        // https://github.com/ziglang/zig/issues/16951
-        return error.SkipZigTest;
-    }
-
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
     var prng = std.Random.DefaultPrng.init(1234);
