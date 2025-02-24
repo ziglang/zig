@@ -1859,8 +1859,17 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).branch_hint == .cold)
-            try w.writeAll("zig_cold ");
+
+        if (fn_val.getFunction(zcu)) |func| {
+            const func_analysis = func.analysisUnordered(ip);
+
+            if (func_analysis.branch_hint == .cold)
+                try w.writeAll("zig_cold ");
+
+            if (kind == .complete and func_analysis.disable_intrinsics or dg.mod.no_builtin)
+                try w.writeAll("zig_no_builtin ");
+        }
+
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         var trailing = try renderTypePrefix(dg.pass, &dg.ctype_pool, zcu, w, fn_ctype, .suffix, .{});
