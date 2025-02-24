@@ -3872,8 +3872,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(inst_info.inst),
                     });
-                    const unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
-                    try unit_queue.put(gpa, unit, referencer);
+                    try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
+                    try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
                 }
             }
             for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {
