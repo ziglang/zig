@@ -127,6 +127,7 @@ const Value = extern struct {
     ) !void {
         comptime assert(fmt.len == 0);
 
+        // Work around x86_64 backend limitation.
         if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
             try writer.writeAll("(unknown)");
             return;
@@ -646,6 +647,7 @@ fn exportHandler(
     handler: anytype,
     comptime sym_name: []const u8,
 ) void {
+    // Work around x86_64 backend limitation.
     const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
     const N = "__ubsan_handle_" ++ sym_name;
     @export(handler, .{ .name = N, .linkage = linkage });
@@ -656,6 +658,7 @@ fn exportHandlerWithAbort(
     abort_handler: anytype,
     comptime sym_name: []const u8,
 ) void {
+    // Work around x86_64 backend limitation.
     const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
     {
         const N = "__ubsan_handle_" ++ sym_name;
@@ -697,12 +700,12 @@ comptime {
         exportHandler(&missingReturn, "missing_return");
     }
 
-    // these checks are nearly impossible to duplicate in zig, as they rely on nuances
+    // these checks are nearly impossible to replicate in zig, as they rely on nuances
     // in the Itanium C++ ABI.
-    // exportHelper("dynamic_type_cache_miss", "dynamic-type-cache-miss", true);
-    // exportHelper("vptr_type_cache", "vptr-type-cache", true);
+    // exportHandlerWithAbort(&dynamicTypeCacheMiss, &dynamicTypeCacheMissAbort, "dynamic-type-cache-miss");
+    // exportHandlerWithAbort(&vptrTypeCache, &vptrTypeCacheAbort, "vptr-type-cache");
 
     // we disable -fsanitize=function for reasons explained in src/Compilation.zig
-    // exportHelper("function-type-mismatch", "function_type_mismatch", true);
-    // exportHelper("function-type-mismatch-v1", "function_type_mismatch_v1", true);
+    // exportHandlerWithAbort(&functionTypeMismatch, &functionTypeMismatchAbort, "function-type-mismatch");
+    // exportHandlerWithAbort(&functionTypeMismatchV1, &functionTypeMismatchV1Abort, "function-type-mismatch-v1");
 }

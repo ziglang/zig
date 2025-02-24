@@ -13,7 +13,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     lib.entry = .disabled;
-    // Disabling due to self-hosted wasm linker bug.
+    // Disabled to work around the Wasm linker crashing.
+    // Can be reproduced by commenting out the line below.
     lib.bundle_ubsan_rt = false;
     lib.use_lld = false;
     lib.root_module.export_symbol_names = &.{ "foo", "bar" };
