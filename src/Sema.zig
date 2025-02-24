@@ -20791,7 +20791,7 @@ fn zirReify(
             ).?);
 
             if (!try sema.intFitsInType(alignment_val, align_ty, null)) {
-                return sema.fail(block, src, "alignment must fit in '{}'", .{align_ty.fmt(pt)});
+                return sema.fail(block, src, "alignment must fit in '{f}'", .{align_ty.fmt(pt)});
             }
             const alignment_val_int = try alignment_val.toUnsignedIntSema(pt);
             const abi_align = try sema.validateAlign(block, src, alignment_val_int);
@@ -21809,7 +21809,7 @@ fn reifyStruct(
 
         if (any_aligned_fields) {
             if (!try sema.intFitsInType(field_alignment_val, align_ty, null)) {
-                return sema.fail(block, src, "alignment must fit in '{}'", .{align_ty.fmt(pt)});
+                return sema.fail(block, src, "alignment must fit in '{f}'", .{align_ty.fmt(pt)});
             }
             const byte_align = try field_alignment_val.toUnsignedIntSema(pt);
             if (byte_align == 0) {
