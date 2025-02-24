@@ -5097,18 +5097,16 @@ fn structDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    {
-        const is_tuple = for (container_decl.ast.members) |member_node| {
+    is_tuple: {
+        const tuple_field_node = for (container_decl.ast.members) |member_node| {
             const container_field = tree.fullContainerField(member_node) orelse continue;
-            if (container_field.ast.tuple_like) break true;
-        } else false;
+            if (container_field.ast.tuple_like) break member_node;
+        } else break :is_tuple;
 
-        if (is_tuple) {
-            if (node == 0) {
-                return astgen.failTok(0, "file cannot be a tuple", .{});
-            } else {
-                return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
-            }
+        if (node == 0) {
+            return astgen.failNode(tuple_field_node, "file cannot be a tuple", .{});
+        } else {
+            return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
         }
     }
 
