@@ -6260,7 +6260,7 @@ pub const Alignment = enum(u6) {
         return n + 1;
     }
 
-    const LlvmBuilderAlignment = @import("codegen/llvm/Builder.zig").Alignment;
+    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
 
     pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
         return @enumFromInt(@intFromEnum(this));

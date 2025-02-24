@@ -500,6 +500,11 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/system/NativePaths.zig
     lib/std/zig/system/x86.zig
     lib/std/zig/tokenizer.zig
+    lib/std/zig/llvm.zig
+    lib/std/zig/llvm/BitcodeReader.zig
+    lib/std/zig/llvm/Builder.zig
+    lib/std/zig/llvm/bitcode_writer.zig
+    lib/std/zig/llvm/ir.zig
     src/Air.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -567,11 +572,7 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/c.zig
     src/codegen/c/Type.zig
     src/codegen/llvm.zig
-    src/codegen/llvm/BitcodeReader.zig
-    src/codegen/llvm/Builder.zig
     src/codegen/llvm/bindings.zig
-    src/codegen/llvm/bitcode_writer.zig
-    src/codegen/llvm/ir.zig
     src/codegen/spirv.zig
     src/codegen/spirv/Assembler.zig
     src/codegen/spirv/Module.zig
