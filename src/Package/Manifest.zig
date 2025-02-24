@@ -46,6 +46,8 @@ arena_state: std.heap.ArenaAllocator.State,
 
 pub const ParseOptions = struct {
     allow_missing_paths_field: bool = false,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_name_string: bool = true,
 };
 
 pub const Error = Allocator.Error;
@@ -72,6 +74,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .dependencies_node = 0,
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
+        .allow_name_string = options.allow_name_string,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -144,6 +147,7 @@ const Parse = struct {
     dependencies_node: Ast.Node.Index,
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
+    allow_name_string: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
@@ -175,7 +179,7 @@ const Parse = struct {
                 have_included_paths = true;
                 try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
-                p.name = try parseString(p, field_init);
+                p.name = try parseName(p, field_init);
                 have_name = true;
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
@@ -348,6 +352,30 @@ const Parse = struct {
         } else {
             return fail(p, ident_token, "expected boolean", .{});
         }
+    }
+
+    fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+
+        if (p.allow_name_string and node_tags[node] == .string_literal) {
+            const name = try parseString(p, node);
+            if (!std.zig.isValidId(name))
+                return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
+
+            return name;
+        }
+
+        if (node_tags[node] != .enum_literal)
+            return fail(p, main_token, "expected enum literal", .{});
+
+        const ident_name = ast.tokenSlice(main_token);
+        if (mem.startsWith(u8, ident_name, "@"))
+            return fail(p, main_token, "name must be a valid bare zig identifier", .{});
+
+        return ident_name;
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
