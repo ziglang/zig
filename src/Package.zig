@@ -15,6 +15,9 @@ pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 ///
 /// This data structure can be used to store the legacy hash format too. Legacy
 /// hash format is scheduled to be removed after 0.14.0 is tagged.
+///
+/// There's also a third way this structure is used. When using path rather than
+/// hash, a unique hash is still needed, so one is computed based on the path.
 pub const Hash = struct {
     /// Maximum size of a package hash. Unused bytes at the end are
     /// filled with zeroes.
@@ -99,6 +102,25 @@ pub const Hash = struct {
         var name: [32]u8 = undefined;
         _ = std.base64.url_safe_no_pad.Encoder.encode(&name, digest[5..][0..24]);
         return init(digest, &name, "N", size);
+    }
+
+    /// Produces a unique hash based on the path provided. The result should
+    /// not be user-visible.
+    pub fn initPath(sub_path: []const u8, is_global: bool) Hash {
+        var result: Hash = .{ .bytes = @splat(0) };
+        var i: usize = 0;
+        if (is_global) {
+            result.bytes[0] = '/';
+            i += 1;
+        }
+        if (i + sub_path.len <= result.bytes.len) {
+            @memcpy(result.bytes[i..][0..sub_path.len], sub_path);
+            return result;
+        }
+        var bin_digest: [Algo.digest_length]u8 = undefined;
+        Algo.hash(sub_path, &bin_digest, .{});
+        _ = std.fmt.bufPrint(result.bytes[i..], "{}", .{std.fmt.fmtSliceHexLower(&bin_digest)}) catch unreachable;
+        return result;
     }
 };
 

@@ -775,16 +775,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
 }
 
 pub fn relativePathDigest(pkg_root: Cache.Path, cache_root: Cache.Directory) Package.Hash {
-    var hasher = Package.Hash.Algo.init(.{});
-    // This hash is a tuple of:
-    // * whether it relative to the global cache directory or to the root package
-    // * the relative file path from there to the build root of the package
-    hasher.update(if (pkg_root.root_dir.eql(cache_root))
-        &package_hash_prefix_cached
-    else
-        &package_hash_prefix_project);
-    hasher.update(pkg_root.sub_path);
-    return .fromSlice(&hasher.finalResult());
+    return .initPath(pkg_root.sub_path, pkg_root.root_dir.eql(cache_root));
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
@@ -1792,10 +1783,6 @@ pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifes
         },
     }
 }
-
-// These are random bytes.
-const package_hash_prefix_cached = [8]u8{ 0x53, 0x7e, 0xfa, 0x94, 0x65, 0xe9, 0xf8, 0x73 };
-const package_hash_prefix_project = [8]u8{ 0xe1, 0x25, 0xee, 0xfa, 0xa6, 0x17, 0x38, 0xcc };
 
 const builtin = @import("builtin");
 const std = @import("std");
