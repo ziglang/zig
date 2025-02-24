@@ -8,6 +8,7 @@ EXPORTS
 CapabilitiesRequestAndCapabilitiesReply@12
 DXVA2CreateDirect3DDeviceManager9@8
 DXVA2CreateVideoService@12
+DXVAHD_CreateDevice@20
 DegaussMonitor@4
 DestroyPhysicalMonitor@4
 DestroyPhysicalMonitors@8
