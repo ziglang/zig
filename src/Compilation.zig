@@ -551,7 +551,6 @@ pub const CObject = struct {
             }
 
             pub fn parse(gpa: Allocator, path: []const u8) !*Bundle {
-                const BitcodeReader = @import("codegen/llvm/BitcodeReader.zig");
                 const BlockId = enum(u32) {
                     Meta = 8,
                     Diag,
@@ -588,7 +587,7 @@ pub const CObject = struct {
                 defer file.close();
                 var br = std.io.bufferedReader(file.reader());
                 const reader = br.reader();
-                var bc = BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = reader.any() });
                 defer bc.deinit();
 
                 var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;

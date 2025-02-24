@@ -510,6 +510,6 @@ const Abbrev = struct {
 };
 
 const assert = std.debug.assert;
-const std = @import("std");
+const std = @import("../../std.zig");
 
 const BitcodeReader = @This();

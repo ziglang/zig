@@ -24,6 +24,7 @@ pub const LibCInstallation = @import("zig/LibCInstallation.zig");
 pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
+pub const llvm = @import("zig/llvm.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
