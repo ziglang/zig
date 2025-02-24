@@ -620,6 +620,35 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
+    if (run.env_map) |env_map| {
+        const KV = struct { []const u8, []const u8 };
+        var kv_pairs = try std.ArrayList(KV).initCapacity(arena, env_map.count());
+        var iter = env_map.iterator();
+        while (iter.next()) |entry| {
+            kv_pairs.appendAssumeCapacity(.{ entry.key_ptr.*, entry.value_ptr.* });
+        }
+
+        std.mem.sortUnstable(KV, kv_pairs.items, {}, struct {
+            fn lessThan(_: void, kv1: KV, kv2: KV) bool {
+                const k1 = kv1[0];
+                const k2 = kv2[0];
+
+                if (k1.len != k2.len) return k1.len < k2.len;
+
+                for (k1, k2) |c1, c2| {
+                    if (c1 == c2) continue;
+                    return c1 < c2;
+                }
+                unreachable; // two keys cannot be equal
+            }
+        }.lessThan);
+
+        for (kv_pairs.items) |kv| {
+            man.hash.addBytes(kv[0]);
+            man.hash.addBytes(kv[1]);
+        }
+    }
+
     for (run.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| {
