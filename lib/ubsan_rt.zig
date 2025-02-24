@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const panic = std.debug.panicExtra;
 
 const SourceLocation = extern struct {
     file_name: ?[*:0]const u8,
@@ -175,7 +176,7 @@ fn overflowHandler(
             const fmt = "{s} integer overflow: " ++ "{} " ++
                 operator ++ " {} cannot be represented in type {s}";
 
-            logMessage(fmt, .{
+            panic(@returnAddress(), fmt, .{
                 if (is_signed) "signed" else "unsigned",
                 lhs,
                 rhs,
@@ -199,7 +200,8 @@ fn negationHandler(
     value_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const value: Value = .{ .handle = value_handle, .td = data.td };
-    logMessage(
+    panic(
+        @returnAddress(),
         "negation of {} cannot be represented in type {s}",
         .{ value, data.td.getName() },
     );
@@ -222,11 +224,12 @@ fn divRemHandler(
     const rhs: Value = .{ .handle = rhs_handle, .td = data.td };
 
     if (rhs.isMinusOne()) {
-        logMessage(
+        panic(
+            @returnAddress(),
             "division of {} by -1 cannot be represented in type {s}",
             .{ lhs, data.td.getName() },
         );
-    } else logMessage("division by zero", .{});
+    } else panic(@returnAddress(), "division by zero", .{});
 }
 
 const AlignmentAssumptionData = extern struct {
@@ -263,7 +266,8 @@ fn alignmentAssumptionHandler(
     const alignment: Value = .{ .handle = alignment_handle, .td = data.td };
 
     if (maybe_offset) |offset| {
-        logMessage(
+        panic(
+            @returnAddress(),
             "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed\n" ++
                 "offset address is {} aligned, misalignment offset is {} bytes",
             .{
@@ -275,7 +279,8 @@ fn alignmentAssumptionHandler(
             },
         );
     } else {
-        logMessage(
+        panic(
+            @returnAddress(),
             "assumption of {} byte alignment for pointer of type {s} failed\n" ++
                 "address is {} aligned, misalignment offset is {} bytes",
             .{
@@ -314,18 +319,20 @@ fn shiftOob(
         rhs.getPositiveInteger() >= data.lhs_type.getIntegerSize())
     {
         if (rhs.isNegative()) {
-            logMessage("shift exponent {} is negative", .{rhs});
+            panic(@returnAddress(), "shift exponent {} is negative", .{rhs});
         } else {
-            logMessage(
+            panic(
+                @returnAddress(),
                 "shift exponent {} is too large for {}-bit type {s}",
                 .{ rhs, data.lhs_type.getIntegerSize(), data.lhs_type.getName() },
             );
         }
     } else {
         if (lhs.isNegative()) {
-            logMessage("left shift of negative value {}", .{lhs});
+            panic(@returnAddress(), "left shift of negative value {}", .{lhs});
         } else {
-            logMessage(
+            panic(
+                @returnAddress(),
                 "left shift of {} by {} places cannot be represented in type {s}",
                 .{ lhs, rhs, data.lhs_type.getName() },
             );
@@ -351,7 +358,8 @@ fn outOfBounds(
     index_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const index: Value = .{ .handle = index_handle, .td = data.index_type };
-    logMessage(
+    panic(
+        @returnAddress(),
         "index {} out of bounds for type {s}",
         .{ index, data.array_type.getName() },
     );
@@ -376,13 +384,14 @@ fn pointerOverflow(
 ) callconv(.c) noreturn {
     if (base == 0) {
         if (result == 0) {
-            logMessage("applying zero offset to null pointer", .{});
+            panic(@returnAddress(), "applying zero offset to null pointer", .{});
         } else {
-            logMessage("applying non-zero offset {} to null pointer", .{result});
+            panic(@returnAddress(), "applying non-zero offset {} to null pointer", .{result});
         }
     } else {
         if (result == 0) {
-            logMessage(
+            panic(
+                @returnAddress(),
                 "applying non-zero offset to non-null pointer 0x{x} produced null pointer",
                 .{base},
             );
@@ -391,18 +400,21 @@ fn pointerOverflow(
             const signed_result: isize = @bitCast(result);
             if ((signed_base >= 0) == (signed_result >= 0)) {
                 if (base > result) {
-                    logMessage(
+                    panic(
+                        @returnAddress(),
                         "addition of unsigned offset to 0x{x} overflowed to 0x{x}",
                         .{ base, result },
                     );
                 } else {
-                    logMessage(
+                    panic(
+                        @returnAddress(),
                         "subtraction of unsigned offset to 0x{x} overflowed to 0x{x}",
                         .{ base, result },
                     );
                 }
             } else {
-                logMessage(
+                panic(
+                    @returnAddress(),
                     "pointer index expression with base 0x{x} overflowed to 0x{x}",
                     .{ base, result },
                 );
@@ -462,17 +474,20 @@ fn typeMismatch(
     const handle: usize = @intFromPtr(pointer);
 
     if (pointer == null) {
-        logMessage(
+        panic(
+            @returnAddress(),
             "{s} null pointer of type {s}",
             .{ data.kind.getName(), data.td.getName() },
         );
     } else if (!std.mem.isAligned(handle, alignment)) {
-        logMessage(
+        panic(
+            @returnAddress(),
             "{s} misaligned address 0x{x} for type {s}, which requires {} byte alignment",
             .{ data.kind.getName(), handle, data.td.getName(), alignment },
         );
     } else {
-        logMessage(
+        panic(
+            @returnAddress(),
             "{s} address 0x{x} with insufficient space for an object of type {s}",
             .{ data.kind.getName(), handle, data.td.getName() },
         );
@@ -484,11 +499,11 @@ const UnreachableData = extern struct {
 };
 
 fn builtinUnreachable(_: *const UnreachableData) callconv(.c) noreturn {
-    logMessage("execution reached an unreachable program point", .{});
+    panic(@returnAddress(), "execution reached an unreachable program point", .{});
 }
 
 fn missingReturn(_: *const UnreachableData) callconv(.c) noreturn {
-    logMessage("execution reached the end of a value-returning function without returning a value", .{});
+    panic(@returnAddress(), "execution reached the end of a value-returning function without returning a value", .{});
 }
 
 const NonNullReturnData = extern struct {
@@ -499,7 +514,7 @@ fn nonNullReturnAbort(data: *const NonNullReturnData) callconv(.c) noreturn {
     nonNullReturn(data);
 }
 fn nonNullReturn(_: *const NonNullReturnData) callconv(.c) noreturn {
-    logMessage("null pointer returned from function declared to never return null", .{});
+    panic(@returnAddress(), "null pointer returned from function declared to never return null", .{});
 }
 
 const NonNullArgData = extern struct {
@@ -513,7 +528,8 @@ fn nonNullArgAbort(data: *const NonNullArgData) callconv(.c) noreturn {
 }
 
 fn nonNullArg(data: *const NonNullArgData) callconv(.c) noreturn {
-    logMessage(
+    panic(
+        @returnAddress(),
         "null pointer passed as argument {}, which is declared to never be null",
         .{data.arg_index},
     );
@@ -536,7 +552,8 @@ fn loadInvalidValue(
     value_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const value: Value = .{ .handle = value_handle, .td = data.td };
-    logMessage(
+    panic(
+        @returnAddress(),
         "load of value {}, which is not valid for type {s}",
         .{ value, data.td.getName() },
     );
@@ -554,7 +571,8 @@ fn invalidBuiltinAbort(data: *const InvalidBuiltinData) callconv(.c) noreturn {
 }
 
 fn invalidBuiltin(data: *const InvalidBuiltinData) callconv(.c) noreturn {
-    logMessage(
+    panic(
+        @returnAddress(),
         "passing zero to {s}(), which is not a valid argument",
         .{@tagName(data.kind)},
     );
@@ -577,7 +595,8 @@ fn vlaBoundNotPositive(
     bound_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const bound: Value = .{ .handle = bound_handle, .td = data.td };
-    logMessage(
+    panic(
+        @returnAddress(),
         "variable length array bound evaluates to non-positive value {}",
         .{bound},
     );
@@ -611,20 +630,16 @@ fn floatCastOverflow(
     if (@as(u16, ptr[0]) + @as(u16, ptr[1]) < 2 or ptr[0] == 0xFF or ptr[1] == 0xFF) {
         const data: *const FloatCastOverflowData = @ptrCast(data_handle);
         const from_value: Value = .{ .handle = from_handle, .td = data.from };
-        logMessage("{} is outside the range of representable values of type {s}", .{
+        panic(@returnAddress(), "{} is outside the range of representable values of type {s}", .{
             from_value, data.to.getName(),
         });
     } else {
         const data: *const FloatCastOverflowDataV2 = @ptrCast(data_handle);
         const from_value: Value = .{ .handle = from_handle, .td = data.from };
-        logMessage("{} is outside the range of representable values of type {s}", .{
+        panic(@returnAddress(), "{} is outside the range of representable values of type {s}", .{
             from_value, data.to.getName(),
         });
     }
-}
-
-inline fn logMessage(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.panicExtra(@returnAddress(), fmt, args);
 }
 
 fn exportHandler(
