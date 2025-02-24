@@ -65,24 +65,7 @@ export fn k() void {
     } });
 }
 
-export fn l() void {
-    _ = @Type(.{ .@"struct" = .{
-        .layout = .@"packed",
-        .fields = &.{.{
-            .name = "test",
-            .type = u32,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = 8,
-        }},
-        .decls = &.{},
-        .is_tuple = false,
-    } });
-}
-
 // error
-// backend=stage2
-// target=native
 //
 // :1:27: error: alignment must be >= 1
 // :7:34: error: alignment must be >= 1
@@ -93,6 +76,5 @@ export fn l() void {
 // :29:17: error: alignment must be >= 1
 // :33:35: error: alignment must be >= 1
 // :37:34: error: alignment must be >= 1
-// :41:9: error: alignment can only be 0 on packed struct fields
+// :41:9: error: alignment must be >= 1
 // :56:9: error: alignment must be >= 1
-// :69:9: error: alignment in a packed struct field must be set to 0

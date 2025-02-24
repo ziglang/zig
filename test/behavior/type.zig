@@ -735,7 +735,7 @@ test "struct field names sliced at comptime from larger string" {
         var it = std.mem.tokenizeScalar(u8, text, '\n');
         while (it.next()) |name| {
             fields = fields ++ &[_]Type.StructField{.{
-                .alignment = 0,
+                .alignment = @alignOf(usize),
                 .name = name ++ "",
                 .type = usize,
                 .default_value_ptr = null,
