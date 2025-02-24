@@ -25,9 +25,15 @@ pub const Callback = *const fn (label: []const u8, client_random: []const u8, se
 
 /// Writes tls keys to the file pointed by SSLKEYLOGFILE environment variable.
 pub fn callback(label_: []const u8, client_random: []const u8, secret: []const u8) void {
-    if (std.posix.getenv(key_log_file_env)) |file_name| {
-        fileAppend(file_name, label_, client_random, secret) catch return;
-    }
+    const builtin = @import("builtin");
+    const native_os = builtin.os.tag;
+    const file_name: []const u8 = if (native_os == .windows)
+        return
+    else if (native_os == .wasi and !builtin.link_libc)
+        return
+    else
+        std.posix.getenv(key_log_file_env) orelse return;
+    fileAppend(file_name, label_, client_random, secret) catch return;
 }
 
 pub fn fileAppend(file_name: []const u8, label_: []const u8, client_random: []const u8, secret: []const u8) !void {
