@@ -4,52 +4,71 @@ pub const Error = error{ParseError} || Allocator.Error;
 
 gpa: Allocator,
 source: []const u8,
-token_tags: []const Token.Tag,
-token_starts: []const Ast.ByteOffset,
+tokens: Ast.TokenList.Slice,
 tok_i: TokenIndex,
 errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
-extra_data: std.ArrayListUnmanaged(Node.Index),
+extra_data: std.ArrayListUnmanaged(u32),
 scratch: std.ArrayListUnmanaged(Node.Index),
 
+fn tokenTag(p: *const Parse, token_index: TokenIndex) Token.Tag {
+    return p.tokens.items(.tag)[token_index];
+}
+
+fn tokenStart(p: *const Parse, token_index: TokenIndex) Ast.ByteOffset {
+    return p.tokens.items(.start)[token_index];
+}
+
+fn nodeTag(p: *const Parse, node: Node.Index) Node.Tag {
+    return p.nodes.items(.tag)[@intFromEnum(node)];
+}
+
+fn nodeMainToken(p: *const Parse, node: Node.Index) TokenIndex {
+    return p.nodes.items(.main_token)[@intFromEnum(node)];
+}
+
+fn nodeData(p: *const Parse, node: Node.Index) Node.Data {
+    return p.nodes.items(.data)[@intFromEnum(node)];
+}
+
 const SmallSpan = union(enum) {
-    zero_or_one: Node.Index,
+    zero_or_one: Node.OptionalIndex,
     multi: Node.SubRange,
 };
 
 const Members = struct {
     len: usize,
-    lhs: Node.Index,
-    rhs: Node.Index,
+    /// Must be either `.opt_node_and_opt_node` if `len <= 2` or `.extra_range` otherwise.
+    data: Node.Data,
     trailing: bool,
 
     fn toSpan(self: Members, p: *Parse) !Node.SubRange {
-        if (self.len <= 2) {
-            const nodes = [2]Node.Index{ self.lhs, self.rhs };
-            return p.listToSpan(nodes[0..self.len]);
-        } else {
-            return Node.SubRange{ .start = self.lhs, .end = self.rhs };
-        }
+        return switch (self.len) {
+            0 => p.listToSpan(&.{}),
+            1 => p.listToSpan(&.{self.data.opt_node_and_opt_node[0].unwrap().?}),
+            2 => p.listToSpan(&.{ self.data.opt_node_and_opt_node[0].unwrap().?, self.data.opt_node_and_opt_node[1].unwrap().? }),
+            else => self.data.extra_range,
+        };
     }
 };
 
-fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
-    try p.extra_data.appendSlice(p.gpa, list);
-    return Node.SubRange{
-        .start = @as(Node.Index, @intCast(p.extra_data.items.len - list.len)),
-        .end = @as(Node.Index, @intCast(p.extra_data.items.len)),
+fn listToSpan(p: *Parse, list: []const Node.Index) Allocator.Error!Node.SubRange {
+    try p.extra_data.appendSlice(p.gpa, @ptrCast(list));
+    return .{
+        .start = @enumFromInt(p.extra_data.items.len - list.len),
+        .end = @enumFromInt(p.extra_data.items.len),
     };
 }
 
 fn addNode(p: *Parse, elem: Ast.Node) Allocator.Error!Node.Index {
-    const result = @as(Node.Index, @intCast(p.nodes.len));
+    const result: Node.Index = @enumFromInt(p.nodes.len);
     try p.nodes.append(p.gpa, elem);
     return result;
 }
 
 fn setNode(p: *Parse, i: usize, elem: Ast.Node) Node.Index {
     p.nodes.set(i, elem);
-    return @as(Node.Index, @intCast(i));
+    return @enumFromInt(i);
 }
 
 fn reserveNode(p: *Parse, tag: Ast.Node.Tag) !usize {
@@ -69,13 +88,22 @@ fn unreserveNode(p: *Parse, node_index: usize) void {
     }
 }
 
-fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
+fn addExtra(p: *Parse, extra: anytype) Allocator.Error!ExtraIndex {
     const fields = std.meta.fields(@TypeOf(extra));
     try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
-    const result = @as(u32, @intCast(p.extra_data.items.len));
+    const result: ExtraIndex = @enumFromInt(p.extra_data.items.len);
     inline for (fields) |field| {
-        comptime assert(field.type == Node.Index);
-        p.extra_data.appendAssumeCapacity(@field(extra, field.name));
+        const data: u32 = switch (field.type) {
+            Node.Index,
+            Node.OptionalIndex,
+            OptionalTokenIndex,
+            ExtraIndex,
+            => @intFromEnum(@field(extra, field.name)),
+            TokenIndex,
+            => @field(extra, field.name),
+            else => @compileError("unexpected field type"),
+        };
+        p.extra_data.appendAssumeCapacity(data);
     }
     return result;
 }
@@ -170,13 +198,10 @@ pub fn parseRoot(p: *Parse) !void {
     });
     const root_members = try p.parseContainerMembers();
     const root_decls = try root_members.toSpan(p);
-    if (p.token_tags[p.tok_i] != .eof) {
+    if (p.tokenTag(p.tok_i) != .eof) {
         try p.warnExpected(.eof);
     }
-    p.nodes.items(.data)[0] = .{
-        .lhs = root_decls.start,
-        .rhs = root_decls.end,
-    };
+    p.nodes.items(.data)[0] = .{ .extra_range = root_decls };
 }
 
 /// Parse in ZON mode. Subset of the language.
@@ -196,13 +221,10 @@ pub fn parseZon(p: *Parse) !void {
         },
         else => |e| return e,
     };
-    if (p.token_tags[p.tok_i] != .eof) {
+    if (p.tokenTag(p.tok_i) != .eof) {
         try p.warnExpected(.eof);
     }
-    p.nodes.items(.data)[0] = .{
-        .lhs = node_index,
-        .rhs = undefined,
-    };
+    p.nodes.items(.data)[0] = .{ .node = node_index };
 }
 
 /// ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
@@ -235,13 +257,13 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
     while (true) {
         const doc_comment = try p.eatDocComments();
 
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .keyword_test => {
                 if (doc_comment) |some| {
                     try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
                 }
-                const test_decl_node = try p.expectTestDeclRecoverable();
-                if (test_decl_node != 0) {
+                const maybe_test_decl_node = try p.expectTestDeclRecoverable();
+                if (maybe_test_decl_node) |test_decl_node| {
                     if (field_state == .seen) {
                         field_state = .{ .end = test_decl_node };
                     }
@@ -249,27 +271,24 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 }
                 trailing = false;
             },
-            .keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
+            .keyword_comptime => switch (p.tokenTag(p.tok_i + 1)) {
                 .l_brace => {
                     if (doc_comment) |some| {
                         try p.warnMsg(.{ .tag = .comptime_doc_comment, .token = some });
                     }
                     const comptime_token = p.nextToken();
-                    const block = p.parseBlock() catch |err| switch (err) {
+                    const opt_block = p.parseBlock() catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         error.ParseError => blk: {
                             p.findNextContainerMember();
-                            break :blk null_node;
+                            break :blk null;
                         },
                     };
-                    if (block != 0) {
+                    if (opt_block) |block| {
                         const comptime_node = try p.addNode(.{
                             .tag = .@"comptime",
                             .main_token = comptime_token,
-                            .data = .{
-                                .lhs = block,
-                                .rhs = undefined,
-                            },
+                            .data = .{ .node = block },
                         });
                         if (field_state == .seen) {
                             field_state = .{ .end = comptime_node };
@@ -294,7 +313,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                         .end => |node| {
                             try p.warnMsg(.{
                                 .tag = .decl_between_fields,
-                                .token = p.nodes.items(.main_token)[node],
+                                .token = p.nodeMainToken(node),
                             });
                             try p.warnMsg(.{
                                 .tag = .previous_field,
@@ -311,7 +330,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                         },
                     }
                     try p.scratch.append(p.gpa, container_field);
-                    switch (p.token_tags[p.tok_i]) {
+                    switch (p.tokenTag(p.tok_i)) {
                         .comma => {
                             p.tok_i += 1;
                             trailing = true;
@@ -331,24 +350,24 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
             },
             .keyword_pub => {
                 p.tok_i += 1;
-                const top_level_decl = try p.expectTopLevelDeclRecoverable();
-                if (top_level_decl != 0) {
+                const opt_top_level_decl = try p.expectTopLevelDeclRecoverable();
+                if (opt_top_level_decl) |top_level_decl| {
                     if (field_state == .seen) {
                         field_state = .{ .end = top_level_decl };
                     }
                     try p.scratch.append(p.gpa, top_level_decl);
                 }
-                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
+                trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
             .keyword_usingnamespace => {
-                const node = try p.expectUsingNamespaceRecoverable();
-                if (node != 0) {
+                const opt_node = try p.expectUsingNamespaceRecoverable();
+                if (opt_node) |node| {
                     if (field_state == .seen) {
                         field_state = .{ .end = node };
                     }
                     try p.scratch.append(p.gpa, node);
                 }
-                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
+                trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
             .keyword_const,
             .keyword_var,
@@ -359,14 +378,14 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
             .keyword_noinline,
             .keyword_fn,
             => {
-                const top_level_decl = try p.expectTopLevelDeclRecoverable();
-                if (top_level_decl != 0) {
+                const opt_top_level_decl = try p.expectTopLevelDeclRecoverable();
+                if (opt_top_level_decl) |top_level_decl| {
                     if (field_state == .seen) {
                         field_state = .{ .end = top_level_decl };
                     }
                     try p.scratch.append(p.gpa, top_level_decl);
                 }
-                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
+                trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
             .eof, .r_brace => {
                 if (doc_comment) |tok| {
@@ -399,7 +418,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     .end => |node| {
                         try p.warnMsg(.{
                             .tag = .decl_between_fields,
-                            .token = p.nodes.items(.main_token)[node],
+                            .token = p.nodeMainToken(node),
                         });
                         try p.warnMsg(.{
                             .tag = .previous_field,
@@ -416,7 +435,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     },
                 }
                 try p.scratch.append(p.gpa, container_field);
-                switch (p.token_tags[p.tok_i]) {
+                switch (p.tokenTag(p.tok_i)) {
                     .comma => {
                         p.tok_i += 1;
                         trailing = true;
@@ -431,7 +450,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 // There is not allowed to be a decl after a field with no comma.
                 // Report error but recover parser.
                 try p.warn(.expected_comma_after_field);
-                if (p.token_tags[p.tok_i] == .semicolon and p.token_tags[identifier] == .identifier) {
+                if (p.tokenTag(p.tok_i) == .semicolon and p.tokenTag(identifier) == .identifier) {
                     try p.warnMsg(.{
                         .tag = .var_const_decl,
                         .is_note = true,
@@ -445,34 +464,21 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
     }
 
     const items = p.scratch.items[scratch_top..];
-    switch (items.len) {
-        0 => return Members{
-            .len = 0,
-            .lhs = 0,
-            .rhs = 0,
+    if (items.len <= 2) {
+        return Members{
+            .len = items.len,
+            .data = .{ .opt_node_and_opt_node = .{
+                if (items.len >= 1) items[0].toOptional() else .none,
+                if (items.len >= 2) items[1].toOptional() else .none,
+            } },
             .trailing = trailing,
-        },
-        1 => return Members{
-            .len = 1,
-            .lhs = items[0],
-            .rhs = 0,
+        };
+    } else {
+        return Members{
+            .len = items.len,
+            .data = .{ .extra_range = try p.listToSpan(items) },
             .trailing = trailing,
-        },
-        2 => return Members{
-            .len = 2,
-            .lhs = items[0],
-            .rhs = items[1],
-            .trailing = trailing,
-        },
-        else => {
-            const span = try p.listToSpan(items);
-            return Members{
-                .len = items.len,
-                .lhs = span.start,
-                .rhs = span.end,
-                .trailing = trailing,
-            };
-        },
+        };
     }
 }
 
@@ -481,7 +487,7 @@ fn findNextContainerMember(p: *Parse) void {
     var level: u32 = 0;
     while (true) {
         const tok = p.nextToken();
-        switch (p.token_tags[tok]) {
+        switch (p.tokenTag(tok)) {
             // Any of these can start a new top level declaration.
             .keyword_test,
             .keyword_comptime,
@@ -502,7 +508,7 @@ fn findNextContainerMember(p: *Parse) void {
                 }
             },
             .identifier => {
-                if (p.token_tags[tok + 1] == .comma and level == 0) {
+                if (p.tokenTag(tok + 1) == .comma and level == 0) {
                     p.tok_i -= 1;
                     return;
                 }
@@ -539,7 +545,7 @@ fn findNextStmt(p: *Parse) void {
     var level: u32 = 0;
     while (true) {
         const tok = p.nextToken();
-        switch (p.token_tags[tok]) {
+        switch (p.tokenTag(tok)) {
             .l_brace => level += 1,
             .r_brace => {
                 if (level == 0) {
@@ -563,44 +569,45 @@ fn findNextStmt(p: *Parse) void {
 }
 
 /// TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
-fn expectTestDecl(p: *Parse) !Node.Index {
+fn expectTestDecl(p: *Parse) Error!Node.Index {
     const test_token = p.assertToken(.keyword_test);
-    const name_token = switch (p.token_tags[p.tok_i]) {
-        .string_literal, .identifier => p.nextToken(),
-        else => null,
+    const name_token: OptionalTokenIndex = switch (p.tokenTag(p.tok_i)) {
+        .string_literal, .identifier => .fromToken(p.nextToken()),
+        else => .none,
     };
-    const block_node = try p.parseBlock();
-    if (block_node == 0) return p.fail(.expected_block);
+    const block_node = try p.parseBlock() orelse return p.fail(.expected_block);
     return p.addNode(.{
         .tag = .test_decl,
         .main_token = test_token,
-        .data = .{
-            .lhs = name_token orelse 0,
-            .rhs = block_node,
-        },
+        .data = .{ .opt_token_and_node = .{
+            name_token,
+            block_node,
+        } },
     });
 }
 
-fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
-    return p.expectTestDecl() catch |err| switch (err) {
+fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
+    if (p.expectTestDecl()) |node| {
+        return node;
+    } else |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             p.findNextContainerMember();
-            return null_node;
+            return null;
         },
-    };
+    }
 }
 
 /// Decl
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
-fn expectTopLevelDecl(p: *Parse) !Node.Index {
+fn expectTopLevelDecl(p: *Parse) !?Node.Index {
     const extern_export_inline_token = p.nextToken();
     var is_extern: bool = false;
     var expect_fn: bool = false;
     var expect_var_or_fn: bool = false;
-    switch (p.token_tags[extern_export_inline_token]) {
+    switch (p.tokenTag(extern_export_inline_token)) {
         .keyword_extern => {
             _ = p.eatToken(.string_literal);
             is_extern = true;
@@ -610,9 +617,9 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
         .keyword_inline, .keyword_noinline => expect_fn = true,
         else => p.tok_i -= 1,
     }
-    const fn_proto = try p.parseFnProto();
-    if (fn_proto != 0) {
-        switch (p.token_tags[p.tok_i]) {
+    const opt_fn_proto = try p.parseFnProto();
+    if (opt_fn_proto) |fn_proto| {
+        switch (p.tokenTag(p.tok_i)) {
             .semicolon => {
                 p.tok_i += 1;
                 return fn_proto;
@@ -620,20 +627,19 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
             .l_brace => {
                 if (is_extern) {
                     try p.warnMsg(.{ .tag = .extern_fn_body, .token = extern_export_inline_token });
-                    return null_node;
+                    return null;
                 }
                 const fn_decl_index = try p.reserveNode(.fn_decl);
                 errdefer p.unreserveNode(fn_decl_index);
 
                 const body_block = try p.parseBlock();
-                assert(body_block != 0);
                 return p.setNode(fn_decl_index, .{
                     .tag = .fn_decl,
-                    .main_token = p.nodes.items(.main_token)[fn_proto],
-                    .data = .{
-                        .lhs = fn_proto,
-                        .rhs = body_block,
-                    },
+                    .main_token = p.nodeMainToken(fn_proto),
+                    .data = .{ .node_and_node = .{
+                        fn_proto,
+                        body_block.?,
+                    } },
                 });
             },
             else => {
@@ -641,7 +647,7 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
                 // a missing '}' we can assume this function was
                 // supposed to end here.
                 try p.warn(.expected_semi_or_lbrace);
-                return null_node;
+                return null;
             },
         }
     }
@@ -651,28 +657,25 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
     }
 
     const thread_local_token = p.eatToken(.keyword_threadlocal);
-    const var_decl = try p.parseGlobalVarDecl();
-    if (var_decl != 0) {
-        return var_decl;
-    }
+    if (try p.parseGlobalVarDecl()) |var_decl| return var_decl;
     if (thread_local_token != null) {
         return p.fail(.expected_var_decl);
     }
     if (expect_var_or_fn) {
         return p.fail(.expected_var_decl_or_fn);
     }
-    if (p.token_tags[p.tok_i] != .keyword_usingnamespace) {
+    if (p.tokenTag(p.tok_i) != .keyword_usingnamespace) {
         return p.fail(.expected_pub_item);
     }
-    return p.expectUsingNamespace();
+    return try p.expectUsingNamespace();
 }
 
-fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
+fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             p.findNextContainerMember();
-            return null_node;
+            return null;
         },
     };
 }
@@ -684,26 +687,23 @@ fn expectUsingNamespace(p: *Parse) !Node.Index {
     return p.addNode(.{
         .tag = .@"usingnamespace",
         .main_token = usingnamespace_token,
-        .data = .{
-            .lhs = expr,
-            .rhs = undefined,
-        },
+        .data = .{ .node = expr },
     });
 }
 
-fn expectUsingNamespaceRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
+fn expectUsingNamespaceRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectUsingNamespace() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             p.findNextContainerMember();
-            return null_node;
+            return null;
         },
     };
 }
 
 /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
-fn parseFnProto(p: *Parse) !Node.Index {
-    const fn_token = p.eatToken(.keyword_fn) orelse return null_node;
+fn parseFnProto(p: *Parse) !?Node.Index {
+    const fn_token = p.eatToken(.keyword_fn) orelse return null;
 
     // We want the fn proto node to be before its children in the array.
     const fn_proto_index = try p.reserveNode(.fn_proto);
@@ -718,33 +718,33 @@ fn parseFnProto(p: *Parse) !Node.Index {
     _ = p.eatToken(.bang);
 
     const return_type_expr = try p.parseTypeExpr();
-    if (return_type_expr == 0) {
+    if (return_type_expr == null) {
         // most likely the user forgot to specify the return type.
         // Mark return type as invalid and try to continue.
         try p.warn(.expected_return_type);
     }
 
-    if (align_expr == 0 and section_expr == 0 and callconv_expr == 0 and addrspace_expr == 0) {
+    if (align_expr == null and section_expr == null and callconv_expr == null and addrspace_expr == null) {
         switch (params) {
             .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto_simple,
                 .main_token = fn_token,
-                .data = .{
-                    .lhs = param,
-                    .rhs = return_type_expr,
-                },
+                .data = .{ .opt_node_and_opt_node = .{
+                    param,
+                    .fromOptional(return_type_expr),
+                } },
             }),
             .multi => |span| {
                 return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_multi,
                     .main_token = fn_token,
-                    .data = .{
-                        .lhs = try p.addExtra(Node.SubRange{
+                    .data = .{ .extra_and_opt_node = .{
+                        try p.addExtra(Node.SubRange{
                             .start = span.start,
                             .end = span.end,
                         }),
-                        .rhs = return_type_expr,
-                    },
+                        .fromOptional(return_type_expr),
+                    } },
                 });
             },
         }
@@ -753,109 +753,124 @@ fn parseFnProto(p: *Parse) !Node.Index {
         .zero_or_one => |param| return p.setNode(fn_proto_index, .{
             .tag = .fn_proto_one,
             .main_token = fn_token,
-            .data = .{
-                .lhs = try p.addExtra(Node.FnProtoOne{
+            .data = .{ .extra_and_opt_node = .{
+                try p.addExtra(Node.FnProtoOne{
                     .param = param,
-                    .align_expr = align_expr,
-                    .addrspace_expr = addrspace_expr,
-                    .section_expr = section_expr,
-                    .callconv_expr = callconv_expr,
+                    .align_expr = .fromOptional(align_expr),
+                    .addrspace_expr = .fromOptional(addrspace_expr),
+                    .section_expr = .fromOptional(section_expr),
+                    .callconv_expr = .fromOptional(callconv_expr),
                 }),
-                .rhs = return_type_expr,
-            },
+                .fromOptional(return_type_expr),
+            } },
         }),
         .multi => |span| {
             return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto,
                 .main_token = fn_token,
-                .data = .{
-                    .lhs = try p.addExtra(Node.FnProto{
+                .data = .{ .extra_and_opt_node = .{
+                    try p.addExtra(Node.FnProto{
                         .params_start = span.start,
                         .params_end = span.end,
-                        .align_expr = align_expr,
-                        .addrspace_expr = addrspace_expr,
-                        .section_expr = section_expr,
-                        .callconv_expr = callconv_expr,
+                        .align_expr = .fromOptional(align_expr),
+                        .addrspace_expr = .fromOptional(addrspace_expr),
+                        .section_expr = .fromOptional(section_expr),
+                        .callconv_expr = .fromOptional(callconv_expr),
                     }),
-                    .rhs = return_type_expr,
-                },
+                    .fromOptional(return_type_expr),
+                } },
             });
         },
     }
 }
 
+fn setVarDeclInitExpr(p: *Parse, var_decl: Node.Index, init_expr: Node.OptionalIndex) void {
+    const init_expr_result = switch (p.nodeTag(var_decl)) {
+        .simple_var_decl => &p.nodes.items(.data)[@intFromEnum(var_decl)].opt_node_and_opt_node[1],
+        .aligned_var_decl => &p.nodes.items(.data)[@intFromEnum(var_decl)].node_and_opt_node[1],
+        .local_var_decl, .global_var_decl => &p.nodes.items(.data)[@intFromEnum(var_decl)].extra_and_opt_node[1],
+        else => unreachable,
+    };
+    init_expr_result.* = init_expr;
+}
+
 /// VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection?
-/// Returns a `*_var_decl` node with its rhs (init expression) initialized to 0.
-fn parseVarDeclProto(p: *Parse) !Node.Index {
+/// Returns a `*_var_decl` node with its rhs (init expression) initialized to .none.
+fn parseVarDeclProto(p: *Parse) !?Node.Index {
     const mut_token = p.eatToken(.keyword_const) orelse
         p.eatToken(.keyword_var) orelse
-        return null_node;
+        return null;
 
     _ = try p.expectToken(.identifier);
-    const type_node: Node.Index = if (p.eatToken(.colon) == null) 0 else try p.expectTypeExpr();
-    const align_node = try p.parseByteAlign();
-    const addrspace_node = try p.parseAddrSpace();
-    const section_node = try p.parseLinkSection();
+    const opt_type_node = if (p.eatToken(.colon) == null) null else try p.expectTypeExpr();
+    const opt_align_node = try p.parseByteAlign();
+    const opt_addrspace_node = try p.parseAddrSpace();
+    const opt_section_node = try p.parseLinkSection();
 
-    if (section_node == 0 and addrspace_node == 0) {
-        if (align_node == 0) {
-            return p.addNode(.{
+    if (opt_section_node == null and opt_addrspace_node == null) {
+        const align_node = opt_align_node orelse {
+            return try p.addNode(.{
                 .tag = .simple_var_decl,
                 .main_token = mut_token,
                 .data = .{
-                    .lhs = type_node,
-                    .rhs = 0,
+                    .opt_node_and_opt_node = .{
+                        .fromOptional(opt_type_node),
+                        .none, // set later with `setVarDeclInitExpr
+                    },
                 },
             });
-        }
+        };
 
-        if (type_node == 0) {
-            return p.addNode(.{
+        const type_node = opt_type_node orelse {
+            return try p.addNode(.{
                 .tag = .aligned_var_decl,
                 .main_token = mut_token,
                 .data = .{
-                    .lhs = align_node,
-                    .rhs = 0,
+                    .node_and_opt_node = .{
+                        align_node,
+                        .none, // set later with `setVarDeclInitExpr
+                    },
                 },
             });
-        }
+        };
 
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = .local_var_decl,
             .main_token = mut_token,
             .data = .{
-                .lhs = try p.addExtra(Node.LocalVarDecl{
-                    .type_node = type_node,
-                    .align_node = align_node,
-                }),
-                .rhs = 0,
+                .extra_and_opt_node = .{
+                    try p.addExtra(Node.LocalVarDecl{
+                        .type_node = type_node,
+                        .align_node = align_node,
+                    }),
+                    .none, // set later with `setVarDeclInitExpr
+                },
             },
         });
     } else {
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = .global_var_decl,
             .main_token = mut_token,
             .data = .{
-                .lhs = try p.addExtra(Node.GlobalVarDecl{
-                    .type_node = type_node,
-                    .align_node = align_node,
-                    .addrspace_node = addrspace_node,
-                    .section_node = section_node,
-                }),
-                .rhs = 0,
+                .extra_and_opt_node = .{
+                    try p.addExtra(Node.GlobalVarDecl{
+                        .type_node = .fromOptional(opt_type_node),
+                        .align_node = .fromOptional(opt_align_node),
+                        .addrspace_node = .fromOptional(opt_addrspace_node),
+                        .section_node = .fromOptional(opt_section_node),
+                    }),
+                    .none, // set later with `setVarDeclInitExpr
+                },
             },
         });
     }
 }
 
 /// GlobalVarDecl <- VarDeclProto (EQUAL Expr?) SEMICOLON
-fn parseGlobalVarDecl(p: *Parse) !Node.Index {
-    const var_decl = try p.parseVarDeclProto();
-    if (var_decl == 0) {
-        return null_node;
-    }
+fn parseGlobalVarDecl(p: *Parse) !?Node.Index {
+    const var_decl = try p.parseVarDeclProto() orelse return null;
 
-    const init_node: Node.Index = switch (p.token_tags[p.tok_i]) {
+    const init_node: ?Node.Index = switch (p.tokenTag(p.tok_i)) {
         .equal_equal => blk: {
             try p.warn(.wrong_equal_var_decl);
             p.tok_i += 1;
@@ -865,10 +880,10 @@ fn parseGlobalVarDecl(p: *Parse) !Node.Index {
             p.tok_i += 1;
             break :blk try p.expectExpr();
         },
-        else => 0,
+        else => null,
     };
 
-    p.nodes.items(.data)[var_decl].rhs = init_node;
+    p.setVarDeclInitExpr(var_decl, .fromOptional(init_node));
 
     try p.expectSemicolon(.expected_semi_after_decl, false);
     return var_decl;
@@ -878,40 +893,39 @@ fn parseGlobalVarDecl(p: *Parse) !Node.Index {
 fn expectContainerField(p: *Parse) !Node.Index {
     _ = p.eatToken(.keyword_comptime);
     const main_token = p.tok_i;
-    if (p.token_tags[p.tok_i] == .identifier and p.token_tags[p.tok_i + 1] == .colon) p.tok_i += 2;
+    _ = p.eatTokens(&.{ .identifier, .colon });
     const type_expr = try p.expectTypeExpr();
     const align_expr = try p.parseByteAlign();
-    const value_expr: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
+    const value_expr = if (p.eatToken(.equal) == null) null else try p.expectExpr();
 
-    if (align_expr == 0) {
+    if (align_expr == null) {
         return p.addNode(.{
             .tag = .container_field_init,
             .main_token = main_token,
-            .data = .{
-                .lhs = type_expr,
-                .rhs = value_expr,
-            },
+            .data = .{ .node_and_opt_node = .{
+                type_expr,
+                .fromOptional(value_expr),
+            } },
         });
-    } else if (value_expr == 0) {
+    } else if (value_expr == null) {
         return p.addNode(.{
             .tag = .container_field_align,
             .main_token = main_token,
-            .data = .{
-                .lhs = type_expr,
-                .rhs = align_expr,
-            },
+            .data = .{ .node_and_node = .{
+                type_expr,
+                align_expr.?,
+            } },
         });
     } else {
         return p.addNode(.{
             .tag = .container_field,
             .main_token = main_token,
-            .data = .{
-                .lhs = type_expr,
-                .rhs = try p.addExtra(Node.ContainerField{
-                    .align_expr = align_expr,
-                    .value_expr = value_expr,
+            .data = .{ .node_and_extra = .{
+                type_expr, try p.addExtra(Node.ContainerField{
+                    .align_expr = align_expr.?,
+                    .value_expr = value_expr.?,
                 }),
-            },
+            } },
         });
     }
 }
@@ -927,15 +941,12 @@ fn expectContainerField(p: *Parse) !Node.Index {
 ///      / VarDeclExprStatement
 fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
     if (p.eatToken(.keyword_comptime)) |comptime_token| {
-        const block_expr = try p.parseBlockExpr();
-        if (block_expr != 0) {
+        const opt_block_expr = try p.parseBlockExpr();
+        if (opt_block_expr) |block_expr| {
             return p.addNode(.{
                 .tag = .@"comptime",
                 .main_token = comptime_token,
-                .data = .{
-                    .lhs = block_expr,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = block_expr },
             });
         }
 
@@ -947,23 +958,17 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
             return p.addNode(.{
                 .tag = .@"comptime",
                 .main_token = comptime_token,
-                .data = .{
-                    .lhs = assign,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = assign },
             });
         }
     }
 
-    switch (p.token_tags[p.tok_i]) {
+    switch (p.tokenTag(p.tok_i)) {
         .keyword_nosuspend => {
             return p.addNode(.{
                 .tag = .@"nosuspend",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.expectBlockExprStatement(),
-                    .rhs = undefined,
-                },
+                .data = .{ .node = try p.expectBlockExprStatement() },
             });
         },
         .keyword_suspend => {
@@ -972,27 +977,21 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
             return p.addNode(.{
                 .tag = .@"suspend",
                 .main_token = token,
-                .data = .{
-                    .lhs = block_expr,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = block_expr },
             });
         },
         .keyword_defer => if (allow_defer_var) return p.addNode(.{
             .tag = .@"defer",
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = try p.expectBlockExprStatement(),
-            },
+            .data = .{ .node = try p.expectBlockExprStatement() },
         }),
         .keyword_errdefer => if (allow_defer_var) return p.addNode(.{
             .tag = .@"errdefer",
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = try p.parsePayload(),
-                .rhs = try p.expectBlockExprStatement(),
-            },
+            .data = .{ .opt_token_and_node = .{
+                try p.parsePayload(),
+                try p.expectBlockExprStatement(),
+            } },
         }),
         .keyword_if => return p.expectIfStatement(),
         .keyword_enum, .keyword_struct, .keyword_union => {
@@ -1002,18 +1001,14 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
                 return p.addNode(.{
                     .tag = .identifier,
                     .main_token = identifier,
-                    .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
-                    },
+                    .data = undefined,
                 });
             }
         },
         else => {},
     }
 
-    const labeled_statement = try p.parseLabeledStatement();
-    if (labeled_statement != 0) return labeled_statement;
+    if (try p.parseLabeledStatement()) |labeled_statement| return labeled_statement;
 
     if (allow_defer_var) {
         return p.expectVarDeclExprStatement(null);
@@ -1028,12 +1023,15 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
 ///     <- BlockExpr
 ///      / VarDeclExprStatement
 fn expectComptimeStatement(p: *Parse, comptime_token: TokenIndex) !Node.Index {
-    const block_expr = try p.parseBlockExpr();
-    if (block_expr != 0) {
+    const maybe_block_expr = try p.parseBlockExpr();
+    if (maybe_block_expr) |block_expr| {
         return p.addNode(.{
             .tag = .@"comptime",
             .main_token = comptime_token,
-            .data = .{ .lhs = block_expr, .rhs = undefined },
+            .data = .{
+                .lhs = .{ .node = block_expr },
+                .rhs = undefined,
+            },
         });
     }
     return p.expectVarDeclExprStatement(comptime_token);
@@ -1047,12 +1045,11 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        const var_decl_proto = try p.parseVarDeclProto();
-        if (var_decl_proto != 0) {
-            try p.scratch.append(p.gpa, var_decl_proto);
+        const opt_var_decl_proto = try p.parseVarDeclProto();
+        if (opt_var_decl_proto) |var_decl| {
+            try p.scratch.append(p.gpa, var_decl);
         } else {
-            const expr = try p.parseExpr();
-            if (expr == 0) {
+            const expr = try p.parseExpr() orelse {
                 if (p.scratch.items.len == scratch_top) {
                     // We parsed nothing
                     return p.fail(.expected_statement);
@@ -1060,7 +1057,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
                     // We've had at least one LHS, but had a bad comma
                     return p.fail(.expected_expr_or_var_decl);
                 }
-            }
+            };
             try p.scratch.append(p.gpa, expr);
         }
         _ = p.eatToken(.comma) orelse break;
@@ -1079,7 +1076,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
             return p.failExpected(.equal);
         }
         const lhs = p.scratch.items[scratch_top];
-        switch (p.nodes.items(.tag)[lhs]) {
+        switch (p.nodeTag(lhs)) {
             .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => {
                 // Definitely a var decl, so allow recovering from ==
                 if (p.eatToken(.equal_equal)) |tok| {
@@ -1097,10 +1094,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
             return p.addNode(.{
                 .tag = .@"comptime",
                 .main_token = t,
-                .data = .{
-                    .lhs = expr,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = expr },
             });
         } else {
             return expr;
@@ -1112,9 +1106,9 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 
     if (lhs_count == 1) {
         const lhs = p.scratch.items[scratch_top];
-        switch (p.nodes.items(.tag)[lhs]) {
-            .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => {
-                p.nodes.items(.data)[lhs].rhs = rhs;
+        switch (p.nodeTag(lhs)) {
+            .simple_var_decl, .aligned_var_decl, .local_var_decl, .global_var_decl => {
+                p.setVarDeclInitExpr(lhs, rhs.toOptional());
                 // Don't need to wrap in comptime
                 return lhs;
             },
@@ -1123,16 +1117,16 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
         const expr = try p.addNode(.{
             .tag = .assign,
             .main_token = equal_token,
-            .data = .{ .lhs = lhs, .rhs = rhs },
+            .data = .{ .node_and_node = .{
+                lhs,
+                rhs,
+            } },
         });
         if (comptime_token) |t| {
             return p.addNode(.{
                 .tag = .@"comptime",
                 .main_token = t,
-                .data = .{
-                    .lhs = expr,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = expr },
             });
         } else {
             return expr;
@@ -1141,32 +1135,32 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 
     // An actual destructure! No need for any `comptime` wrapper here.
 
-    const extra_start = p.extra_data.items.len;
+    const extra_start: ExtraIndex = @enumFromInt(p.extra_data.items.len);
     try p.extra_data.ensureUnusedCapacity(p.gpa, lhs_count + 1);
     p.extra_data.appendAssumeCapacity(@intCast(lhs_count));
-    p.extra_data.appendSliceAssumeCapacity(p.scratch.items[scratch_top..]);
+    p.extra_data.appendSliceAssumeCapacity(@ptrCast(p.scratch.items[scratch_top..]));
 
     return p.addNode(.{
         .tag = .assign_destructure,
         .main_token = equal_token,
-        .data = .{
-            .lhs = @intCast(extra_start),
-            .rhs = rhs,
-        },
+        .data = .{ .extra_and_node = .{
+            extra_start,
+            rhs,
+        } },
     });
 }
 
 /// If a parse error occurs, reports an error, but then finds the next statement
 /// and returns that one instead. If a parse error occurs but there is no following
 /// statement, returns 0.
-fn expectStatementRecoverable(p: *Parse) Error!Node.Index {
+fn expectStatementRecoverable(p: *Parse) Error!?Node.Index {
     while (true) {
         return p.expectStatement(true) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
                 p.findNextStmt(); // Try to skip to the next statement.
-                switch (p.token_tags[p.tok_i]) {
-                    .r_brace => return null_node,
+                switch (p.tokenTag(p.tok_i)) {
+                    .r_brace => return null,
                     .eof => return error.ParseError,
                     else => continue,
                 }
@@ -1190,19 +1184,18 @@ fn expectIfStatement(p: *Parse) !Node.Index {
     var else_required = false;
     const then_expr = blk: {
         const block_expr = try p.parseBlockExpr();
-        if (block_expr != 0) break :blk block_expr;
-        const assign_expr = try p.parseAssignExpr();
-        if (assign_expr == 0) {
+        if (block_expr) |block| break :blk block;
+        const assign_expr = try p.parseAssignExpr() orelse {
             return p.fail(.expected_block_or_assignment);
-        }
+        };
         if (p.eatToken(.semicolon)) |_| {
             return p.addNode(.{
                 .tag = .if_simple,
                 .main_token = if_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = assign_expr,
-                },
+                .data = .{ .node_and_node = .{
+                    condition,
+                    assign_expr,
+                } },
             });
         }
         else_required = true;
@@ -1215,10 +1208,10 @@ fn expectIfStatement(p: *Parse) !Node.Index {
         return p.addNode(.{
             .tag = .if_simple,
             .main_token = if_token,
-            .data = .{
-                .lhs = condition,
-                .rhs = then_expr,
-            },
+            .data = .{ .node_and_node = .{
+                condition,
+                then_expr,
+            } },
         });
     };
     _ = try p.parsePayload();
@@ -1226,57 +1219,46 @@ fn expectIfStatement(p: *Parse) !Node.Index {
     return p.addNode(.{
         .tag = .@"if",
         .main_token = if_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = try p.addExtra(Node.If{
+        .data = .{ .node_and_extra = .{
+            condition, try p.addExtra(Node.If{
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
-        },
+        } },
     });
 }
 
 /// LabeledStatement <- BlockLabel? (Block / LoopStatement / SwitchExpr)
-fn parseLabeledStatement(p: *Parse) !Node.Index {
-    const label_token = p.parseBlockLabel();
-    const block = try p.parseBlock();
-    if (block != 0) return block;
+fn parseLabeledStatement(p: *Parse) !?Node.Index {
+    const opt_label_token = p.parseBlockLabel();
 
-    const loop_stmt = try p.parseLoopStatement();
-    if (loop_stmt != 0) return loop_stmt;
+    if (try p.parseBlock()) |block| return block;
+    if (try p.parseLoopStatement()) |loop_stmt| return loop_stmt;
+    if (try p.parseSwitchExpr(opt_label_token != null)) |switch_expr| return switch_expr;
 
-    const switch_expr = try p.parseSwitchExpr(label_token != 0);
-    if (switch_expr != 0) return switch_expr;
+    const label_token = opt_label_token orelse return null;
 
-    if (label_token != 0) {
-        const after_colon = p.tok_i;
-        const node = try p.parseTypeExpr();
-        if (node != 0) {
-            const a = try p.parseByteAlign();
-            const b = try p.parseAddrSpace();
-            const c = try p.parseLinkSection();
-            const d = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
-            if (a != 0 or b != 0 or c != 0 or d != 0) {
-                return p.failMsg(.{ .tag = .expected_var_const, .token = label_token });
-            }
+    const after_colon = p.tok_i;
+    if (try p.parseTypeExpr()) |_| {
+        const a = try p.parseByteAlign();
+        const b = try p.parseAddrSpace();
+        const c = try p.parseLinkSection();
+        const d = if (p.eatToken(.equal) == null) null else try p.expectExpr();
+        if (a != null or b != null or c != null or d != null) {
+            return p.failMsg(.{ .tag = .expected_var_const, .token = label_token });
         }
-        return p.failMsg(.{ .tag = .expected_labelable, .token = after_colon });
     }
-
-    return null_node;
+    return p.failMsg(.{ .tag = .expected_labelable, .token = after_colon });
 }
 
 /// LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
-fn parseLoopStatement(p: *Parse) !Node.Index {
+fn parseLoopStatement(p: *Parse) !?Node.Index {
     const inline_token = p.eatToken(.keyword_inline);
 
-    const for_statement = try p.parseForStatement();
-    if (for_statement != 0) return for_statement;
+    if (try p.parseForStatement()) |for_statement| return for_statement;
+    if (try p.parseWhileStatement()) |while_statement| return while_statement;
 
-    const while_statement = try p.parseWhileStatement();
-    if (while_statement != 0) return while_statement;
-
-    if (inline_token == null) return null_node;
+    if (inline_token == null) return null;
 
     // If we've seen "inline", there should have been a "for" or "while"
     return p.fail(.expected_inlinable);
@@ -1285,8 +1267,8 @@ fn parseLoopStatement(p: *Parse) !Node.Index {
 /// ForStatement
 ///     <- ForPrefix BlockExpr ( KEYWORD_else Statement )?
 ///      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
-fn parseForStatement(p: *Parse) !Node.Index {
-    const for_token = p.eatToken(.keyword_for) orelse return null_node;
+fn parseForStatement(p: *Parse) !?Node.Index {
+    const for_token = p.eatToken(.keyword_for) orelse return null;
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -1296,11 +1278,10 @@ fn parseForStatement(p: *Parse) !Node.Index {
     var seen_semicolon = false;
     const then_expr = blk: {
         const block_expr = try p.parseBlockExpr();
-        if (block_expr != 0) break :blk block_expr;
-        const assign_expr = try p.parseAssignExpr();
-        if (assign_expr == 0) {
+        if (block_expr) |block| break :blk block;
+        const assign_expr = try p.parseAssignExpr() orelse {
             return p.fail(.expected_block_or_assignment);
-        }
+        };
         if (p.eatToken(.semicolon)) |_| {
             seen_semicolon = true;
             break :blk assign_expr;
@@ -1316,28 +1297,25 @@ fn parseForStatement(p: *Parse) !Node.Index {
         has_else = true;
     } else if (inputs == 1) {
         if (else_required) try p.warn(.expected_semi_or_else);
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = .for_simple,
             .main_token = for_token,
-            .data = .{
-                .lhs = p.scratch.items[scratch_top],
-                .rhs = then_expr,
-            },
+            .data = .{ .node_and_node = .{
+                p.scratch.items[scratch_top],
+                then_expr,
+            } },
         });
     } else {
         if (else_required) try p.warn(.expected_semi_or_else);
         try p.scratch.append(p.gpa, then_expr);
     }
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"for",
         .main_token = for_token,
-        .data = .{
-            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @as(u32, @bitCast(Node.For{
-                .inputs = @as(u31, @intCast(inputs)),
-                .has_else = has_else,
-            })),
-        },
+        .data = .{ .@"for" = .{
+            (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .{ .inputs = @intCast(inputs), .has_else = has_else },
+        } },
     });
 }
 
@@ -1346,8 +1324,8 @@ fn parseForStatement(p: *Parse) !Node.Index {
 /// WhileStatement
 ///     <- WhilePrefix BlockExpr ( KEYWORD_else Payload? Statement )?
 ///      / WhilePrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
-fn parseWhileStatement(p: *Parse) !Node.Index {
-    const while_token = p.eatToken(.keyword_while) orelse return null_node;
+fn parseWhileStatement(p: *Parse) !?Node.Index {
+    const while_token = p.eatToken(.keyword_while) orelse return null;
     _ = try p.expectToken(.l_paren);
     const condition = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -1359,32 +1337,31 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
     var else_required = false;
     const then_expr = blk: {
         const block_expr = try p.parseBlockExpr();
-        if (block_expr != 0) break :blk block_expr;
-        const assign_expr = try p.parseAssignExpr();
-        if (assign_expr == 0) {
+        if (block_expr) |block| break :blk block;
+        const assign_expr = try p.parseAssignExpr() orelse {
             return p.fail(.expected_block_or_assignment);
-        }
+        };
         if (p.eatToken(.semicolon)) |_| {
-            if (cont_expr == 0) {
-                return p.addNode(.{
+            if (cont_expr == null) {
+                return try p.addNode(.{
                     .tag = .while_simple,
                     .main_token = while_token,
-                    .data = .{
-                        .lhs = condition,
-                        .rhs = assign_expr,
-                    },
+                    .data = .{ .node_and_node = .{
+                        condition,
+                        assign_expr,
+                    } },
                 });
             } else {
-                return p.addNode(.{
+                return try p.addNode(.{
                     .tag = .while_cont,
                     .main_token = while_token,
-                    .data = .{
-                        .lhs = condition,
-                        .rhs = try p.addExtra(Node.WhileCont{
-                            .cont_expr = cont_expr,
+                    .data = .{ .node_and_extra = .{
+                        condition,
+                        try p.addExtra(Node.WhileCont{
+                            .cont_expr = cont_expr.?,
                             .then_expr = assign_expr,
                         }),
-                    },
+                    } },
                 });
             }
         }
@@ -1395,84 +1372,77 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
         if (else_required) {
             try p.warn(.expected_semi_or_else);
         }
-        if (cont_expr == 0) {
-            return p.addNode(.{
+        if (cont_expr == null) {
+            return try p.addNode(.{
                 .tag = .while_simple,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = then_expr,
-                },
+                .data = .{ .node_and_node = .{
+                    condition,
+                    then_expr,
+                } },
             });
         } else {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .while_cont,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = try p.addExtra(Node.WhileCont{
-                        .cont_expr = cont_expr,
+                .data = .{ .node_and_extra = .{
+                    condition,
+                    try p.addExtra(Node.WhileCont{
+                        .cont_expr = cont_expr.?,
                         .then_expr = then_expr,
                     }),
-                },
+                } },
             });
         }
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectStatement(false);
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"while",
         .main_token = while_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = try p.addExtra(Node.While{
-                .cont_expr = cont_expr,
+        .data = .{ .node_and_extra = .{
+            condition, try p.addExtra(Node.While{
+                .cont_expr = .fromOptional(cont_expr),
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
-        },
+        } },
     });
 }
 
 /// BlockExprStatement
 ///     <- BlockExpr
 ///      / AssignExpr SEMICOLON
-fn parseBlockExprStatement(p: *Parse) !Node.Index {
+fn parseBlockExprStatement(p: *Parse) !?Node.Index {
     const block_expr = try p.parseBlockExpr();
-    if (block_expr != 0) {
-        return block_expr;
-    }
+    if (block_expr) |expr| return expr;
     const assign_expr = try p.parseAssignExpr();
-    if (assign_expr != 0) {
+    if (assign_expr) |expr| {
         try p.expectSemicolon(.expected_semi_after_stmt, true);
-        return assign_expr;
+        return expr;
     }
-    return null_node;
+    return null;
 }
 
 fn expectBlockExprStatement(p: *Parse) !Node.Index {
-    const node = try p.parseBlockExprStatement();
-    if (node == 0) {
-        return p.fail(.expected_block_or_expr);
-    }
-    return node;
+    return try p.parseBlockExprStatement() orelse return p.fail(.expected_block_or_expr);
 }
 
 /// BlockExpr <- BlockLabel? Block
-fn parseBlockExpr(p: *Parse) Error!Node.Index {
-    switch (p.token_tags[p.tok_i]) {
+fn parseBlockExpr(p: *Parse) Error!?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
         .identifier => {
-            if (p.token_tags[p.tok_i + 1] == .colon and
-                p.token_tags[p.tok_i + 2] == .l_brace)
+            if (p.tokenTag(p.tok_i + 1) == .colon and
+                p.tokenTag(p.tok_i + 2) == .l_brace)
             {
                 p.tok_i += 2;
                 return p.parseBlock();
             } else {
-                return null_node;
+                return null;
             }
         },
         .l_brace => return p.parseBlock(),
-        else => return null_node,
+        else => return null,
     }
 }
 
@@ -1497,38 +1467,36 @@ fn parseBlockExpr(p: *Parse) Error!Node.Index {
 ///      / PLUSPERCENTEQUAL
 ///      / MINUSPERCENTEQUAL
 ///      / EQUAL
-fn parseAssignExpr(p: *Parse) !Node.Index {
-    const expr = try p.parseExpr();
-    if (expr == 0) return null_node;
-    return p.finishAssignExpr(expr);
+fn parseAssignExpr(p: *Parse) !?Node.Index {
+    const expr = try p.parseExpr() orelse return null;
+    return try p.finishAssignExpr(expr);
 }
 
 /// SingleAssignExpr <- Expr (AssignOp Expr)?
-fn parseSingleAssignExpr(p: *Parse) !Node.Index {
-    const lhs = try p.parseExpr();
-    if (lhs == 0) return null_node;
-    const tag = assignOpNode(p.token_tags[p.tok_i]) orelse return lhs;
-    return p.addNode(.{
+fn parseSingleAssignExpr(p: *Parse) !?Node.Index {
+    const lhs = try p.parseExpr() orelse return null;
+    const tag = assignOpNode(p.tokenTag(p.tok_i)) orelse return lhs;
+    return try p.addNode(.{
         .tag = tag,
         .main_token = p.nextToken(),
-        .data = .{
-            .lhs = lhs,
-            .rhs = try p.expectExpr(),
-        },
+        .data = .{ .node_and_node = .{
+            lhs,
+            try p.expectExpr(),
+        } },
     });
 }
 
 fn finishAssignExpr(p: *Parse, lhs: Node.Index) !Node.Index {
-    const tok = p.token_tags[p.tok_i];
+    const tok = p.tokenTag(p.tok_i);
     if (tok == .comma) return p.finishAssignDestructureExpr(lhs);
     const tag = assignOpNode(tok) orelse return lhs;
     return p.addNode(.{
         .tag = tag,
         .main_token = p.nextToken(),
-        .data = .{
-            .lhs = lhs,
-            .rhs = try p.expectExpr(),
-        },
+        .data = .{ .node_and_node = .{
+            lhs,
+            try p.expectExpr(),
+        } },
     });
 }
 
@@ -1574,48 +1542,35 @@ fn finishAssignDestructureExpr(p: *Parse, first_lhs: Node.Index) !Node.Index {
     const lhs_count = p.scratch.items.len - scratch_top;
     assert(lhs_count > 1); // we already had first_lhs, and must have at least one more lvalue
 
-    const extra_start = p.extra_data.items.len;
+    const extra_start: ExtraIndex = @enumFromInt(p.extra_data.items.len);
     try p.extra_data.ensureUnusedCapacity(p.gpa, lhs_count + 1);
     p.extra_data.appendAssumeCapacity(@intCast(lhs_count));
-    p.extra_data.appendSliceAssumeCapacity(p.scratch.items[scratch_top..]);
+    p.extra_data.appendSliceAssumeCapacity(@ptrCast(p.scratch.items[scratch_top..]));
 
     return p.addNode(.{
         .tag = .assign_destructure,
         .main_token = equal_token,
-        .data = .{
-            .lhs = @intCast(extra_start),
-            .rhs = rhs,
-        },
+        .data = .{ .extra_and_node = .{
+            extra_start,
+            rhs,
+        } },
     });
 }
 
 fn expectSingleAssignExpr(p: *Parse) !Node.Index {
-    const expr = try p.parseSingleAssignExpr();
-    if (expr == 0) {
-        return p.fail(.expected_expr_or_assignment);
-    }
-    return expr;
+    return try p.parseSingleAssignExpr() orelse return p.fail(.expected_expr_or_assignment);
 }
 
 fn expectAssignExpr(p: *Parse) !Node.Index {
-    const expr = try p.parseAssignExpr();
-    if (expr == 0) {
-        return p.fail(.expected_expr_or_assignment);
-    }
-    return expr;
+    return try p.parseAssignExpr() orelse return p.fail(.expected_expr_or_assignment);
 }
 
-fn parseExpr(p: *Parse) Error!Node.Index {
+fn parseExpr(p: *Parse) Error!?Node.Index {
     return p.parseExprPrecedence(0);
 }
 
 fn expectExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parseExpr();
-    if (node == 0) {
-        return p.fail(.expected_expr);
-    } else {
-        return node;
-    }
+    return try p.parseExpr() orelse return p.fail(.expected_expr);
 }
 
 const Assoc = enum {
@@ -1671,17 +1626,14 @@ const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec
     .asterisk_pipe = .{ .prec = 70, .tag = .mul_sat },
 });
 
-fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
+fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
     assert(min_prec >= 0);
-    var node = try p.parsePrefixExpr();
-    if (node == 0) {
-        return null_node;
-    }
+    var node = try p.parsePrefixExpr() orelse return null;
 
     var banned_prec: i8 = -1;
 
     while (true) {
-        const tok_tag = p.token_tags[p.tok_i];
+        const tok_tag = p.tokenTag(p.tok_i);
         const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
         if (info.prec < min_prec) {
             break;
@@ -1695,16 +1647,15 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
         if (tok_tag == .keyword_catch) {
             _ = try p.parsePayload();
         }
-        const rhs = try p.parseExprPrecedence(info.prec + 1);
-        if (rhs == 0) {
+        const rhs = try p.parseExprPrecedence(info.prec + 1) orelse {
             try p.warn(.expected_expr);
             return node;
-        }
+        };
 
         {
             const tok_len = tok_tag.lexeme().?.len;
-            const char_before = p.source[p.token_starts[oper_token] - 1];
-            const char_after = p.source[p.token_starts[oper_token] + tok_len];
+            const char_before = p.source[p.tokenStart(oper_token) - 1];
+            const char_after = p.source[p.tokenStart(oper_token) + tok_len];
             if (tok_tag == .ampersand and char_after == '&') {
                 // without types we don't know if '&&' was intended as 'bitwise_and address_of', or a c-style logical_and
                 // The best the parser can do is recommend changing it to 'and' or ' & &'
@@ -1717,10 +1668,7 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
         node = try p.addNode(.{
             .tag = info.tag,
             .main_token = oper_token,
-            .data = .{
-                .lhs = node,
-                .rhs = rhs,
-            },
+            .data = .{ .node_and_node = .{ node, rhs } },
         });
 
         if (info.assoc == Assoc.none) {
@@ -1741,8 +1689,8 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
 ///      / AMPERSAND
 ///      / KEYWORD_try
 ///      / KEYWORD_await
-fn parsePrefixExpr(p: *Parse) Error!Node.Index {
-    const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
+fn parsePrefixExpr(p: *Parse) Error!?Node.Index {
+    const tag: Node.Tag = switch (p.tokenTag(p.tok_i)) {
         .bang => .bool_not,
         .minus => .negation,
         .tilde => .bit_not,
@@ -1752,22 +1700,15 @@ fn parsePrefixExpr(p: *Parse) Error!Node.Index {
         .keyword_await => .@"await",
         else => return p.parsePrimaryExpr(),
     };
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = tag,
         .main_token = p.nextToken(),
-        .data = .{
-            .lhs = try p.expectPrefixExpr(),
-            .rhs = undefined,
-        },
+        .data = .{ .node = try p.expectPrefixExpr() },
     });
 }
 
 fn expectPrefixExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parsePrefixExpr();
-    if (node == 0) {
-        return p.fail(.expected_prefix_expr);
-    }
-    return node;
+    return try p.parsePrefixExpr() orelse return p.fail(.expected_prefix_expr);
 }
 
 /// TypeExpr <- PrefixTypeOp* ErrorUnionExpr
@@ -1787,67 +1728,64 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 ///      / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 ///
 /// ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
-fn parseTypeExpr(p: *Parse) Error!Node.Index {
-    switch (p.token_tags[p.tok_i]) {
-        .question_mark => return p.addNode(.{
+fn parseTypeExpr(p: *Parse) Error!?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
+        .question_mark => return try p.addNode(.{
             .tag = .optional_type,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = try p.expectTypeExpr(),
-                .rhs = undefined,
-            },
+            .data = .{ .node = try p.expectTypeExpr() },
         }),
-        .keyword_anyframe => switch (p.token_tags[p.tok_i + 1]) {
-            .arrow => return p.addNode(.{
+        .keyword_anyframe => switch (p.tokenTag(p.tok_i + 1)) {
+            .arrow => return try p.addNode(.{
                 .tag = .anyframe_type,
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = p.nextToken(),
-                    .rhs = try p.expectTypeExpr(),
-                },
+                .data = .{ .token_and_node = .{
+                    p.nextToken(),
+                    try p.expectTypeExpr(),
+                } },
             }),
-            else => return p.parseErrorUnionExpr(),
+            else => return try p.parseErrorUnionExpr(),
         },
         .asterisk => {
             const asterisk = p.nextToken();
             const mods = try p.parsePtrModifiers();
             const elem_type = try p.expectTypeExpr();
-            if (mods.bit_range_start != 0) {
-                return p.addNode(.{
+            if (mods.bit_range_start != .none) {
+                return try p.addNode(.{
                     .tag = .ptr_type_bit_range,
                     .main_token = asterisk,
-                    .data = .{
-                        .lhs = try p.addExtra(Node.PtrTypeBitRange{
-                            .sentinel = 0,
-                            .align_node = mods.align_node,
+                    .data = .{ .extra_and_node = .{
+                        try p.addExtra(Node.PtrTypeBitRange{
+                            .sentinel = .none,
+                            .align_node = mods.align_node.unwrap().?,
                             .addrspace_node = mods.addrspace_node,
-                            .bit_range_start = mods.bit_range_start,
-                            .bit_range_end = mods.bit_range_end,
+                            .bit_range_start = mods.bit_range_start.unwrap().?,
+                            .bit_range_end = mods.bit_range_end.unwrap().?,
                         }),
-                        .rhs = elem_type,
-                    },
+                        elem_type,
+                    } },
                 });
-            } else if (mods.addrspace_node != 0) {
-                return p.addNode(.{
+            } else if (mods.addrspace_node != .none) {
+                return try p.addNode(.{
                     .tag = .ptr_type,
                     .main_token = asterisk,
-                    .data = .{
-                        .lhs = try p.addExtra(Node.PtrType{
-                            .sentinel = 0,
+                    .data = .{ .extra_and_node = .{
+                        try p.addExtra(Node.PtrType{
+                            .sentinel = .none,
                             .align_node = mods.align_node,
                             .addrspace_node = mods.addrspace_node,
                         }),
-                        .rhs = elem_type,
-                    },
+                        elem_type,
+                    } },
                 });
             } else {
-                return p.addNode(.{
+                return try p.addNode(.{
                     .tag = .ptr_type_aligned,
                     .main_token = asterisk,
-                    .data = .{
-                        .lhs = mods.align_node,
-                        .rhs = elem_type,
-                    },
+                    .data = .{ .opt_node_and_node = .{
+                        mods.align_node,
+                        elem_type,
+                    } },
                 });
             }
         },
@@ -1856,61 +1794,61 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
             const mods = try p.parsePtrModifiers();
             const elem_type = try p.expectTypeExpr();
             const inner: Node.Index = inner: {
-                if (mods.bit_range_start != 0) {
+                if (mods.bit_range_start != .none) {
                     break :inner try p.addNode(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = asterisk,
-                        .data = .{
-                            .lhs = try p.addExtra(Node.PtrTypeBitRange{
-                                .sentinel = 0,
-                                .align_node = mods.align_node,
+                        .data = .{ .extra_and_node = .{
+                            try p.addExtra(Node.PtrTypeBitRange{
+                                .sentinel = .none,
+                                .align_node = mods.align_node.unwrap().?,
                                 .addrspace_node = mods.addrspace_node,
-                                .bit_range_start = mods.bit_range_start,
-                                .bit_range_end = mods.bit_range_end,
+                                .bit_range_start = mods.bit_range_start.unwrap().?,
+                                .bit_range_end = mods.bit_range_end.unwrap().?,
                             }),
-                            .rhs = elem_type,
-                        },
+                            elem_type,
+                        } },
                     });
-                } else if (mods.addrspace_node != 0) {
+                } else if (mods.addrspace_node != .none) {
                     break :inner try p.addNode(.{
                         .tag = .ptr_type,
                         .main_token = asterisk,
-                        .data = .{
-                            .lhs = try p.addExtra(Node.PtrType{
-                                .sentinel = 0,
+                        .data = .{ .extra_and_node = .{
+                            try p.addExtra(Node.PtrType{
+                                .sentinel = .none,
                                 .align_node = mods.align_node,
                                 .addrspace_node = mods.addrspace_node,
                             }),
-                            .rhs = elem_type,
-                        },
+                            elem_type,
+                        } },
                     });
                 } else {
                     break :inner try p.addNode(.{
                         .tag = .ptr_type_aligned,
                         .main_token = asterisk,
-                        .data = .{
-                            .lhs = mods.align_node,
-                            .rhs = elem_type,
-                        },
+                        .data = .{ .opt_node_and_node = .{
+                            mods.align_node,
+                            elem_type,
+                        } },
                     });
                 }
             };
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .ptr_type_aligned,
                 .main_token = asterisk,
-                .data = .{
-                    .lhs = 0,
-                    .rhs = inner,
-                },
+                .data = .{ .opt_node_and_node = .{
+                    .none,
+                    inner,
+                } },
             });
         },
-        .l_bracket => switch (p.token_tags[p.tok_i + 1]) {
+        .l_bracket => switch (p.tokenTag(p.tok_i + 1)) {
             .asterisk => {
                 const l_bracket = p.nextToken();
                 _ = p.nextToken();
-                var sentinel: Node.Index = 0;
+                var sentinel: ?Node.Index = null;
                 if (p.eatToken(.identifier)) |ident| {
-                    const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
+                    const ident_slice = p.source[p.tokenStart(ident)..p.tokenStart(ident + 1)];
                     if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
                         p.tok_i -= 1;
                     }
@@ -1920,107 +1858,107 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                 _ = try p.expectToken(.r_bracket);
                 const mods = try p.parsePtrModifiers();
                 const elem_type = try p.expectTypeExpr();
-                if (mods.bit_range_start == 0) {
-                    if (sentinel == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                if (mods.bit_range_start == .none) {
+                    if (sentinel == null and mods.addrspace_node == .none) {
+                        return try p.addNode(.{
                             .tag = .ptr_type_aligned,
                             .main_token = l_bracket,
-                            .data = .{
-                                .lhs = mods.align_node,
-                                .rhs = elem_type,
-                            },
+                            .data = .{ .opt_node_and_node = .{
+                                mods.align_node,
+                                elem_type,
+                            } },
                         });
-                    } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                    } else if (mods.align_node == .none and mods.addrspace_node == .none) {
+                        return try p.addNode(.{
                             .tag = .ptr_type_sentinel,
                             .main_token = l_bracket,
-                            .data = .{
-                                .lhs = sentinel,
-                                .rhs = elem_type,
-                            },
+                            .data = .{ .opt_node_and_node = .{
+                                .fromOptional(sentinel),
+                                elem_type,
+                            } },
                         });
                     } else {
-                        return p.addNode(.{
+                        return try p.addNode(.{
                             .tag = .ptr_type,
                             .main_token = l_bracket,
-                            .data = .{
-                                .lhs = try p.addExtra(Node.PtrType{
-                                    .sentinel = sentinel,
+                            .data = .{ .extra_and_node = .{
+                                try p.addExtra(Node.PtrType{
+                                    .sentinel = .fromOptional(sentinel),
                                     .align_node = mods.align_node,
                                     .addrspace_node = mods.addrspace_node,
                                 }),
-                                .rhs = elem_type,
-                            },
+                                elem_type,
+                            } },
                         });
                     }
                 } else {
-                    return p.addNode(.{
+                    return try p.addNode(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = l_bracket,
-                        .data = .{
-                            .lhs = try p.addExtra(Node.PtrTypeBitRange{
-                                .sentinel = sentinel,
-                                .align_node = mods.align_node,
+                        .data = .{ .extra_and_node = .{
+                            try p.addExtra(Node.PtrTypeBitRange{
+                                .sentinel = .fromOptional(sentinel),
+                                .align_node = mods.align_node.unwrap().?,
                                 .addrspace_node = mods.addrspace_node,
-                                .bit_range_start = mods.bit_range_start,
-                                .bit_range_end = mods.bit_range_end,
+                                .bit_range_start = mods.bit_range_start.unwrap().?,
+                                .bit_range_end = mods.bit_range_end.unwrap().?,
                             }),
-                            .rhs = elem_type,
-                        },
+                            elem_type,
+                        } },
                     });
                 }
             },
             else => {
                 const lbracket = p.nextToken();
                 const len_expr = try p.parseExpr();
-                const sentinel: Node.Index = if (p.eatToken(.colon)) |_|
+                const sentinel: ?Node.Index = if (p.eatToken(.colon)) |_|
                     try p.expectExpr()
                 else
-                    0;
+                    null;
                 _ = try p.expectToken(.r_bracket);
-                if (len_expr == 0) {
+                if (len_expr == null) {
                     const mods = try p.parsePtrModifiers();
                     const elem_type = try p.expectTypeExpr();
-                    if (mods.bit_range_start != 0) {
+                    if (mods.bit_range_start.unwrap()) |bit_range_start| {
                         try p.warnMsg(.{
                             .tag = .invalid_bit_range,
-                            .token = p.nodes.items(.main_token)[mods.bit_range_start],
+                            .token = p.nodeMainToken(bit_range_start),
                         });
                     }
-                    if (sentinel == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                    if (sentinel == null and mods.addrspace_node == .none) {
+                        return try p.addNode(.{
                             .tag = .ptr_type_aligned,
                             .main_token = lbracket,
-                            .data = .{
-                                .lhs = mods.align_node,
-                                .rhs = elem_type,
-                            },
+                            .data = .{ .opt_node_and_node = .{
+                                mods.align_node,
+                                elem_type,
+                            } },
                         });
-                    } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                    } else if (mods.align_node == .none and mods.addrspace_node == .none) {
+                        return try p.addNode(.{
                             .tag = .ptr_type_sentinel,
                             .main_token = lbracket,
-                            .data = .{
-                                .lhs = sentinel,
-                                .rhs = elem_type,
-                            },
+                            .data = .{ .opt_node_and_node = .{
+                                .fromOptional(sentinel),
+                                elem_type,
+                            } },
                         });
                     } else {
-                        return p.addNode(.{
+                        return try p.addNode(.{
                             .tag = .ptr_type,
                             .main_token = lbracket,
-                            .data = .{
-                                .lhs = try p.addExtra(Node.PtrType{
-                                    .sentinel = sentinel,
+                            .data = .{ .extra_and_node = .{
+                                try p.addExtra(Node.PtrType{
+                                    .sentinel = .fromOptional(sentinel),
                                     .align_node = mods.align_node,
                                     .addrspace_node = mods.addrspace_node,
                                 }),
-                                .rhs = elem_type,
-                            },
+                                elem_type,
+                            } },
                         });
                     }
                 } else {
-                    switch (p.token_tags[p.tok_i]) {
+                    switch (p.tokenTag(p.tok_i)) {
                         .keyword_align,
                         .keyword_const,
                         .keyword_volatile,
@@ -2030,26 +1968,25 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                         else => {},
                     }
                     const elem_type = try p.expectTypeExpr();
-                    if (sentinel == 0) {
-                        return p.addNode(.{
+                    if (sentinel == null) {
+                        return try p.addNode(.{
                             .tag = .array_type,
                             .main_token = lbracket,
-                            .data = .{
-                                .lhs = len_expr,
-                                .rhs = elem_type,
-                            },
+                            .data = .{ .node_and_node = .{
+                                len_expr.?,
+                                elem_type,
+                            } },
                         });
                     } else {
-                        return p.addNode(.{
+                        return try p.addNode(.{
                             .tag = .array_type_sentinel,
                             .main_token = lbracket,
-                            .data = .{
-                                .lhs = len_expr,
-                                .rhs = try p.addExtra(Node.ArrayTypeSentinel{
-                                    .sentinel = sentinel,
+                            .data = .{ .node_and_extra = .{
+                                len_expr.?, try p.addExtra(Node.ArrayTypeSentinel{
+                                    .sentinel = sentinel.?,
                                     .elem_type = elem_type,
                                 }),
-                            },
+                            } },
                         });
                     }
                 }
@@ -2060,11 +1997,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
 }
 
 fn expectTypeExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parseTypeExpr();
-    if (node == 0) {
-        return p.fail(.expected_type_expr);
-    }
-    return node;
+    return try p.parseTypeExpr() orelse return p.fail(.expected_type_expr);
 }
 
 /// PrimaryExpr
@@ -2079,169 +2012,135 @@ fn expectTypeExpr(p: *Parse) Error!Node.Index {
 ///      / BlockLabel? LoopExpr
 ///      / Block
 ///      / CurlySuffixExpr
-fn parsePrimaryExpr(p: *Parse) !Node.Index {
-    switch (p.token_tags[p.tok_i]) {
-        .keyword_asm => return p.expectAsmExpr(),
-        .keyword_if => return p.parseIfExpr(),
+fn parsePrimaryExpr(p: *Parse) !?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
+        .keyword_asm => return try p.expectAsmExpr(),
+        .keyword_if => return try p.parseIfExpr(),
         .keyword_break => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"break",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.parseBreakLabel(),
-                    .rhs = try p.parseExpr(),
-                },
+                .data = .{ .opt_token_and_opt_node = .{
+                    try p.parseBreakLabel(),
+                    .fromOptional(try p.parseExpr()),
+                } },
             });
         },
         .keyword_continue => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"continue",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.parseBreakLabel(),
-                    .rhs = try p.parseExpr(),
-                },
+                .data = .{ .opt_token_and_opt_node = .{
+                    try p.parseBreakLabel(),
+                    .fromOptional(try p.parseExpr()),
+                } },
             });
         },
         .keyword_comptime => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"comptime",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.expectExpr(),
-                    .rhs = undefined,
-                },
+                .data = .{ .node = try p.expectExpr() },
             });
         },
         .keyword_nosuspend => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"nosuspend",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.expectExpr(),
-                    .rhs = undefined,
-                },
+                .data = .{ .node = try p.expectExpr() },
             });
         },
         .keyword_resume => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"resume",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.expectExpr(),
-                    .rhs = undefined,
-                },
+                .data = .{ .node = try p.expectExpr() },
             });
         },
         .keyword_return => {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .@"return",
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.parseExpr(),
-                    .rhs = undefined,
-                },
+                .data = .{ .opt_node = .fromOptional(try p.parseExpr()) },
             });
         },
         .identifier => {
-            if (p.token_tags[p.tok_i + 1] == .colon) {
-                switch (p.token_tags[p.tok_i + 2]) {
+            if (p.tokenTag(p.tok_i + 1) == .colon) {
+                switch (p.tokenTag(p.tok_i + 2)) {
                     .keyword_inline => {
                         p.tok_i += 3;
-                        switch (p.token_tags[p.tok_i]) {
-                            .keyword_for => return p.parseFor(expectExpr),
-                            .keyword_while => return p.parseWhileExpr(),
+                        switch (p.tokenTag(p.tok_i)) {
+                            .keyword_for => return try p.parseFor(expectExpr),
+                            .keyword_while => return try p.parseWhileExpr(),
                             else => return p.fail(.expected_inlinable),
                         }
                     },
                     .keyword_for => {
                         p.tok_i += 2;
-                        return p.parseFor(expectExpr);
+                        return try p.parseFor(expectExpr);
                     },
                     .keyword_while => {
                         p.tok_i += 2;
-                        return p.parseWhileExpr();
+                        return try p.parseWhileExpr();
                     },
                     .l_brace => {
                         p.tok_i += 2;
-                        return p.parseBlock();
+                        return try p.parseBlock();
                     },
-                    else => return p.parseCurlySuffixExpr(),
+                    else => return try p.parseCurlySuffixExpr(),
                 }
             } else {
-                return p.parseCurlySuffixExpr();
+                return try p.parseCurlySuffixExpr();
             }
         },
         .keyword_inline => {
             p.tok_i += 1;
-            switch (p.token_tags[p.tok_i]) {
-                .keyword_for => return p.parseFor(expectExpr),
-                .keyword_while => return p.parseWhileExpr(),
+            switch (p.tokenTag(p.tok_i)) {
+                .keyword_for => return try p.parseFor(expectExpr),
+                .keyword_while => return try p.parseWhileExpr(),
                 else => return p.fail(.expected_inlinable),
             }
         },
-        .keyword_for => return p.parseFor(expectExpr),
-        .keyword_while => return p.parseWhileExpr(),
-        .l_brace => return p.parseBlock(),
-        else => return p.parseCurlySuffixExpr(),
+        .keyword_for => return try p.parseFor(expectExpr),
+        .keyword_while => return try p.parseWhileExpr(),
+        .l_brace => return try p.parseBlock(),
+        else => return try p.parseCurlySuffixExpr(),
     }
 }
 
 /// IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
-fn parseIfExpr(p: *Parse) !Node.Index {
-    return p.parseIf(expectExpr);
+fn parseIfExpr(p: *Parse) !?Node.Index {
+    return try p.parseIf(expectExpr);
 }
 
 /// Block <- LBRACE Statement* RBRACE
-fn parseBlock(p: *Parse) !Node.Index {
-    const lbrace = p.eatToken(.l_brace) orelse return null_node;
+fn parseBlock(p: *Parse) !?Node.Index {
+    const lbrace = p.eatToken(.l_brace) orelse return null;
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
     while (true) {
-        if (p.token_tags[p.tok_i] == .r_brace) break;
-        const statement = try p.expectStatementRecoverable();
-        if (statement == 0) break;
+        if (p.tokenTag(p.tok_i) == .r_brace) break;
+        const statement = try p.expectStatementRecoverable() orelse break;
         try p.scratch.append(p.gpa, statement);
     }
     _ = try p.expectToken(.r_brace);
-    const semicolon = (p.token_tags[p.tok_i - 2] == .semicolon);
     const statements = p.scratch.items[scratch_top..];
-    switch (statements.len) {
-        0 => return p.addNode(.{
-            .tag = .block_two,
-            .main_token = lbrace,
-            .data = .{
-                .lhs = 0,
-                .rhs = 0,
-            },
-        }),
-        1 => return p.addNode(.{
+    const semicolon = statements.len != 0 and (p.tokenTag(p.tok_i - 2)) == .semicolon;
+    if (statements.len <= 2) {
+        return try p.addNode(.{
             .tag = if (semicolon) .block_two_semicolon else .block_two,
             .main_token = lbrace,
-            .data = .{
-                .lhs = statements[0],
-                .rhs = 0,
-            },
-        }),
-        2 => return p.addNode(.{
-            .tag = if (semicolon) .block_two_semicolon else .block_two,
+            .data = .{ .opt_node_and_opt_node = .{
+                if (statements.len >= 1) statements[0].toOptional() else .none,
+                if (statements.len >= 2) statements[1].toOptional() else .none,
+            } },
+        });
+    } else {
+        return try p.addNode(.{
+            .tag = if (semicolon) .block_semicolon else .block,
             .main_token = lbrace,
-            .data = .{
-                .lhs = statements[0],
-                .rhs = statements[1],
-            },
-        }),
-        else => {
-            const span = try p.listToSpan(statements);
-            return p.addNode(.{
-                .tag = if (semicolon) .block_semicolon else .block,
-                .main_token = lbrace,
-                .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
-                },
-            });
-        },
+            .data = .{ .extra_range = try p.listToSpan(statements) },
+        });
     }
 }
 
@@ -2260,15 +2159,15 @@ fn forPrefix(p: *Parse) Error!usize {
             input = try p.addNode(.{
                 .tag = .for_range,
                 .main_token = ellipsis,
-                .data = .{
-                    .lhs = input,
-                    .rhs = try p.parseExpr(),
-                },
+                .data = .{ .node_and_opt_node = .{
+                    input,
+                    .fromOptional(try p.parseExpr()),
+                } },
             });
         }
 
         try p.scratch.append(p.gpa, input);
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .r_paren => {
                 p.tok_i += 1;
@@ -2297,7 +2196,7 @@ fn forPrefix(p: *Parse) Error!usize {
             try p.warnMsg(.{ .tag = .extra_for_capture, .token = identifier });
             warned_excess = true;
         }
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .pipe => {
                 p.tok_i += 1;
@@ -2311,7 +2210,7 @@ fn forPrefix(p: *Parse) Error!usize {
 
     if (captures < inputs) {
         const index = p.scratch.items.len - captures;
-        const input = p.nodes.items(.main_token)[p.scratch.items[index]];
+        const input = p.nodeMainToken(p.scratch.items[index]);
         try p.warnMsg(.{ .tag = .for_input_not_captured, .token = input });
     }
     return inputs;
@@ -2320,8 +2219,8 @@ fn forPrefix(p: *Parse) Error!usize {
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
 ///
 /// WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
-fn parseWhileExpr(p: *Parse) !Node.Index {
-    const while_token = p.eatToken(.keyword_while) orelse return null_node;
+fn parseWhileExpr(p: *Parse) !?Node.Index {
+    const while_token = p.eatToken(.keyword_while) orelse return null;
     _ = try p.expectToken(.l_paren);
     const condition = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -2330,42 +2229,42 @@ fn parseWhileExpr(p: *Parse) !Node.Index {
 
     const then_expr = try p.expectExpr();
     _ = p.eatToken(.keyword_else) orelse {
-        if (cont_expr == 0) {
-            return p.addNode(.{
+        if (cont_expr == null) {
+            return try p.addNode(.{
                 .tag = .while_simple,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = then_expr,
-                },
+                .data = .{ .node_and_node = .{
+                    condition,
+                    then_expr,
+                } },
             });
         } else {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .while_cont,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = try p.addExtra(Node.WhileCont{
-                        .cont_expr = cont_expr,
+                .data = .{ .node_and_extra = .{
+                    condition,
+                    try p.addExtra(Node.WhileCont{
+                        .cont_expr = cont_expr.?,
                         .then_expr = then_expr,
                     }),
-                },
+                } },
             });
         }
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectExpr();
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"while",
         .main_token = while_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = try p.addExtra(Node.While{
-                .cont_expr = cont_expr,
+        .data = .{ .node_and_extra = .{
+            condition,
+            try p.addExtra(Node.While{
+                .cont_expr = .fromOptional(cont_expr),
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
-        },
+        } },
     });
 }
 
@@ -2375,9 +2274,8 @@ fn parseWhileExpr(p: *Parse) !Node.Index {
 ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
 ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
 ///      / LBRACE RBRACE
-fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
-    const lhs = try p.parseTypeExpr();
-    if (lhs == 0) return null_node;
+fn parseCurlySuffixExpr(p: *Parse) !?Node.Index {
+    const lhs = try p.parseTypeExpr() orelse return null;
     const lbrace = p.eatToken(.l_brace) orelse return lhs;
 
     // If there are 0 or 1 items, we can use ArrayInitOne/StructInitOne;
@@ -2385,11 +2283,11 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
-    const field_init = try p.parseFieldInit();
-    if (field_init != 0) {
+    const opt_field_init = try p.parseFieldInit();
+    if (opt_field_init) |field_init| {
         try p.scratch.append(p.gpa, field_init);
         while (true) {
-            switch (p.token_tags[p.tok_i]) {
+            switch (p.tokenTag(p.tok_i)) {
                 .comma => p.tok_i += 1,
                 .r_brace => {
                     p.tok_i += 1;
@@ -2403,26 +2301,27 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
             const next = try p.expectFieldInit();
             try p.scratch.append(p.gpa, next);
         }
-        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+        const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
         const inits = p.scratch.items[scratch_top..];
-        switch (inits.len) {
-            0 => unreachable,
-            1 => return p.addNode(.{
+        std.debug.assert(inits.len != 0);
+        if (inits.len <= 1) {
+            return try p.addNode(.{
                 .tag = if (comma) .struct_init_one_comma else .struct_init_one,
                 .main_token = lbrace,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = inits[0],
-                },
-            }),
-            else => return p.addNode(.{
+                .data = .{ .node_and_opt_node = .{
+                    lhs,
+                    inits[0].toOptional(),
+                } },
+            });
+        } else {
+            return try p.addNode(.{
                 .tag = if (comma) .struct_init_comma else .struct_init,
                 .main_token = lbrace,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = try p.addExtra(try p.listToSpan(inits)),
-                },
-            }),
+                .data = .{ .node_and_extra = .{
+                    lhs,
+                    try p.addExtra(try p.listToSpan(inits)),
+                } },
+            });
         }
     }
 
@@ -2430,7 +2329,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
         if (p.eatToken(.r_brace)) |_| break;
         const elem_init = try p.expectExpr();
         try p.scratch.append(p.gpa, elem_init);
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .r_brace => {
                 p.tok_i += 1;
@@ -2441,48 +2340,47 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
             else => try p.warn(.expected_comma_after_initializer),
         }
     }
-    const comma = (p.token_tags[p.tok_i - 2] == .comma);
+    const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
     const inits = p.scratch.items[scratch_top..];
     switch (inits.len) {
-        0 => return p.addNode(.{
+        0 => return try p.addNode(.{
             .tag = .struct_init_one,
             .main_token = lbrace,
-            .data = .{
-                .lhs = lhs,
-                .rhs = 0,
-            },
+            .data = .{ .node_and_opt_node = .{
+                lhs,
+                .none,
+            } },
         }),
-        1 => return p.addNode(.{
+        1 => return try p.addNode(.{
             .tag = if (comma) .array_init_one_comma else .array_init_one,
             .main_token = lbrace,
-            .data = .{
-                .lhs = lhs,
-                .rhs = inits[0],
-            },
+            .data = .{ .node_and_node = .{
+                lhs,
+                inits[0],
+            } },
         }),
-        else => return p.addNode(.{
+        else => return try p.addNode(.{
             .tag = if (comma) .array_init_comma else .array_init,
             .main_token = lbrace,
-            .data = .{
-                .lhs = lhs,
-                .rhs = try p.addExtra(try p.listToSpan(inits)),
-            },
+            .data = .{ .node_and_extra = .{
+                lhs,
+                try p.addExtra(try p.listToSpan(inits)),
+            } },
         }),
     }
 }
 
 /// ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
-fn parseErrorUnionExpr(p: *Parse) !Node.Index {
-    const suffix_expr = try p.parseSuffixExpr();
-    if (suffix_expr == 0) return null_node;
+fn parseErrorUnionExpr(p: *Parse) !?Node.Index {
+    const suffix_expr = try p.parseSuffixExpr() orelse return null;
     const bang = p.eatToken(.bang) orelse return suffix_expr;
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .error_union,
         .main_token = bang,
-        .data = .{
-            .lhs = suffix_expr,
-            .rhs = try p.expectTypeExpr(),
-        },
+        .data = .{ .node_and_node = .{
+            suffix_expr,
+            try p.expectTypeExpr(),
+        } },
     });
 }
 
@@ -2493,13 +2391,11 @@ fn parseErrorUnionExpr(p: *Parse) !Node.Index {
 /// FnCallArguments <- LPAREN ExprList RPAREN
 ///
 /// ExprList <- (Expr COMMA)* Expr?
-fn parseSuffixExpr(p: *Parse) !Node.Index {
+fn parseSuffixExpr(p: *Parse) !?Node.Index {
     if (p.eatToken(.keyword_async)) |_| {
         var res = try p.expectPrimaryTypeExpr();
         while (true) {
-            const node = try p.parseSuffixOp(res);
-            if (node == 0) break;
-            res = node;
+            res = try p.parseSuffixOp(res) orelse break;
         }
         const lparen = p.eatToken(.l_paren) orelse {
             try p.warn(.expected_param_list);
@@ -2511,7 +2407,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
             if (p.eatToken(.r_paren)) |_| break;
             const param = try p.expectExpr();
             try p.scratch.append(p.gpa, param);
-            switch (p.token_tags[p.tok_i]) {
+            switch (p.tokenTag(p.tok_i)) {
                 .comma => p.tok_i += 1,
                 .r_paren => {
                     p.tok_i += 1;
@@ -2522,41 +2418,33 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                 else => try p.warn(.expected_comma_after_arg),
             }
         }
-        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+        const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
         const params = p.scratch.items[scratch_top..];
-        switch (params.len) {
-            0 => return p.addNode(.{
+        if (params.len <= 1) {
+            return try p.addNode(.{
                 .tag = if (comma) .async_call_one_comma else .async_call_one,
                 .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = 0,
-                },
-            }),
-            1 => return p.addNode(.{
-                .tag = if (comma) .async_call_one_comma else .async_call_one,
-                .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = params[0],
-                },
-            }),
-            else => return p.addNode(.{
+                .data = .{ .node_and_opt_node = .{
+                    res,
+                    if (params.len >= 1) params[0].toOptional() else .none,
+                } },
+            });
+        } else {
+            return try p.addNode(.{
                 .tag = if (comma) .async_call_comma else .async_call,
                 .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.addExtra(try p.listToSpan(params)),
-                },
-            }),
+                .data = .{ .node_and_extra = .{
+                    res,
+                    try p.addExtra(try p.listToSpan(params)),
+                } },
+            });
         }
     }
 
-    var res = try p.parsePrimaryTypeExpr();
-    if (res == 0) return res;
+    var res = try p.parsePrimaryTypeExpr() orelse return null;
     while (true) {
-        const suffix_op = try p.parseSuffixOp(res);
-        if (suffix_op != 0) {
+        const opt_suffix_op = try p.parseSuffixOp(res);
+        if (opt_suffix_op) |suffix_op| {
             res = suffix_op;
             continue;
         }
@@ -2567,7 +2455,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
             if (p.eatToken(.r_paren)) |_| break;
             const param = try p.expectExpr();
             try p.scratch.append(p.gpa, param);
-            switch (p.token_tags[p.tok_i]) {
+            switch (p.tokenTag(p.tok_i)) {
                 .comma => p.tok_i += 1,
                 .r_paren => {
                     p.tok_i += 1;
@@ -2578,32 +2466,24 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                 else => try p.warn(.expected_comma_after_arg),
             }
         }
-        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+        const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
         const params = p.scratch.items[scratch_top..];
         res = switch (params.len) {
-            0 => try p.addNode(.{
+            0, 1 => try p.addNode(.{
                 .tag = if (comma) .call_one_comma else .call_one,
                 .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = 0,
-                },
-            }),
-            1 => try p.addNode(.{
-                .tag = if (comma) .call_one_comma else .call_one,
-                .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = params[0],
-                },
+                .data = .{ .node_and_opt_node = .{
+                    res,
+                    if (params.len >= 1) .fromOptional(params[0]) else .none,
+                } },
             }),
             else => try p.addNode(.{
                 .tag = if (comma) .call_comma else .call,
                 .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.addExtra(try p.listToSpan(params)),
-                },
+                .data = .{ .node_and_extra = .{
+                    res,
+                    try p.addExtra(try p.listToSpan(params)),
+                } },
             }),
         };
     }
@@ -2650,153 +2530,126 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
 ///      / BlockLabel? SwitchExpr
 ///
 /// LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
-fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
-    switch (p.token_tags[p.tok_i]) {
-        .char_literal => return p.addNode(.{
+fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
+        .char_literal => return try p.addNode(.{
             .tag = .char_literal,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
-        .number_literal => return p.addNode(.{
+        .number_literal => return try p.addNode(.{
             .tag = .number_literal,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
-        .keyword_unreachable => return p.addNode(.{
+        .keyword_unreachable => return try p.addNode(.{
             .tag = .unreachable_literal,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
-        .keyword_anyframe => return p.addNode(.{
+        .keyword_anyframe => return try p.addNode(.{
             .tag = .anyframe_literal,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .string_literal => {
             const main_token = p.nextToken();
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .string_literal,
                 .main_token = main_token,
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
 
-        .builtin => return p.parseBuiltinCall(),
-        .keyword_fn => return p.parseFnProto(),
-        .keyword_if => return p.parseIf(expectTypeExpr),
-        .keyword_switch => return p.expectSwitchExpr(false),
+        .builtin => return try p.parseBuiltinCall(),
+        .keyword_fn => return try p.parseFnProto(),
+        .keyword_if => return try p.parseIf(expectTypeExpr),
+        .keyword_switch => return try p.expectSwitchExpr(false),
 
         .keyword_extern,
         .keyword_packed,
         => {
             p.tok_i += 1;
-            return p.parseContainerDeclAuto();
+            return try p.parseContainerDeclAuto();
         },
 
         .keyword_struct,
         .keyword_opaque,
         .keyword_enum,
         .keyword_union,
-        => return p.parseContainerDeclAuto(),
+        => return try p.parseContainerDeclAuto(),
 
-        .keyword_comptime => return p.addNode(.{
+        .keyword_comptime => return try p.addNode(.{
             .tag = .@"comptime",
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = try p.expectTypeExpr(),
-                .rhs = undefined,
-            },
+            .data = .{ .node = try p.expectTypeExpr() },
         }),
         .multiline_string_literal_line => {
             const first_line = p.nextToken();
-            while (p.token_tags[p.tok_i] == .multiline_string_literal_line) {
+            while (p.tokenTag(p.tok_i) == .multiline_string_literal_line) {
                 p.tok_i += 1;
             }
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .multiline_string_literal,
                 .main_token = first_line,
-                .data = .{
-                    .lhs = first_line,
-                    .rhs = p.tok_i - 1,
-                },
+                .data = .{ .token_and_token = .{
+                    first_line,
+                    p.tok_i - 1,
+                } },
             });
         },
-        .identifier => switch (p.token_tags[p.tok_i + 1]) {
-            .colon => switch (p.token_tags[p.tok_i + 2]) {
+        .identifier => switch (p.tokenTag(p.tok_i + 1)) {
+            .colon => switch (p.tokenTag(p.tok_i + 2)) {
                 .keyword_inline => {
                     p.tok_i += 3;
-                    switch (p.token_tags[p.tok_i]) {
-                        .keyword_for => return p.parseFor(expectTypeExpr),
-                        .keyword_while => return p.parseWhileTypeExpr(),
+                    switch (p.tokenTag(p.tok_i)) {
+                        .keyword_for => return try p.parseFor(expectTypeExpr),
+                        .keyword_while => return try p.parseWhileTypeExpr(),
                         else => return p.fail(.expected_inlinable),
                     }
                 },
                 .keyword_for => {
                     p.tok_i += 2;
-                    return p.parseFor(expectTypeExpr);
+                    return try p.parseFor(expectTypeExpr);
                 },
                 .keyword_while => {
                     p.tok_i += 2;
-                    return p.parseWhileTypeExpr();
+                    return try p.parseWhileTypeExpr();
                 },
                 .keyword_switch => {
                     p.tok_i += 2;
-                    return p.expectSwitchExpr(true);
+                    return try p.expectSwitchExpr(true);
                 },
                 .l_brace => {
                     p.tok_i += 2;
-                    return p.parseBlock();
+                    return try p.parseBlock();
                 },
-                else => return p.addNode(.{
+                else => return try p.addNode(.{
                     .tag = .identifier,
                     .main_token = p.nextToken(),
-                    .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
-                    },
+                    .data = undefined,
                 }),
             },
-            else => return p.addNode(.{
+            else => return try p.addNode(.{
                 .tag = .identifier,
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             }),
         },
         .keyword_inline => {
             p.tok_i += 1;
-            switch (p.token_tags[p.tok_i]) {
-                .keyword_for => return p.parseFor(expectTypeExpr),
-                .keyword_while => return p.parseWhileTypeExpr(),
+            switch (p.tokenTag(p.tok_i)) {
+                .keyword_for => return try p.parseFor(expectTypeExpr),
+                .keyword_while => return try p.parseWhileTypeExpr(),
                 else => return p.fail(.expected_inlinable),
             }
         },
-        .keyword_for => return p.parseFor(expectTypeExpr),
-        .keyword_while => return p.parseWhileTypeExpr(),
-        .period => switch (p.token_tags[p.tok_i + 1]) {
-            .identifier => return p.addNode(.{
+        .keyword_for => return try p.parseFor(expectTypeExpr),
+        .keyword_while => return try p.parseWhileTypeExpr(),
+        .period => switch (p.tokenTag(p.tok_i + 1)) {
+            .identifier => return try p.addNode(.{
                 .tag = .enum_literal,
-                .data = .{
-                    .lhs = p.nextToken(), // dot
-                    .rhs = undefined,
-                },
+                .data = .{ .token = p.nextToken() }, // dot
                 .main_token = p.nextToken(), // identifier
             }),
             .l_brace => {
@@ -2808,11 +2661,11 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
 
                 const scratch_top = p.scratch.items.len;
                 defer p.scratch.shrinkRetainingCapacity(scratch_top);
-                const field_init = try p.parseFieldInit();
-                if (field_init != 0) {
+                const opt_field_init = try p.parseFieldInit();
+                if (opt_field_init) |field_init| {
                     try p.scratch.append(p.gpa, field_init);
                     while (true) {
-                        switch (p.token_tags[p.tok_i]) {
+                        switch (p.tokenTag(p.tok_i)) {
                             .comma => p.tok_i += 1,
                             .r_brace => {
                                 p.tok_i += 1;
@@ -2826,37 +2679,24 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                         const next = try p.expectFieldInit();
                         try p.scratch.append(p.gpa, next);
                     }
-                    const comma = (p.token_tags[p.tok_i - 2] == .comma);
+                    const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
                     const inits = p.scratch.items[scratch_top..];
-                    switch (inits.len) {
-                        0 => unreachable,
-                        1 => return p.addNode(.{
+                    std.debug.assert(inits.len != 0);
+                    if (inits.len <= 2) {
+                        return try p.addNode(.{
                             .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
                             .main_token = lbrace,
-                            .data = .{
-                                .lhs = inits[0],
-                                .rhs = 0,
-                            },
-                        }),
-                        2 => return p.addNode(.{
-                            .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
+                            .data = .{ .opt_node_and_opt_node = .{
+                                if (inits.len >= 1) .fromOptional(inits[0]) else .none,
+                                if (inits.len >= 2) .fromOptional(inits[1]) else .none,
+                            } },
+                        });
+                    } else {
+                        return try p.addNode(.{
+                            .tag = if (comma) .struct_init_dot_comma else .struct_init_dot,
                             .main_token = lbrace,
-                            .data = .{
-                                .lhs = inits[0],
-                                .rhs = inits[1],
-                            },
-                        }),
-                        else => {
-                            const span = try p.listToSpan(inits);
-                            return p.addNode(.{
-                                .tag = if (comma) .struct_init_dot_comma else .struct_init_dot,
-                                .main_token = lbrace,
-                                .data = .{
-                                    .lhs = span.start,
-                                    .rhs = span.end,
-                                },
-                            });
-                        },
+                            .data = .{ .extra_range = try p.listToSpan(inits) },
+                        });
                     }
                 }
 
@@ -2864,7 +2704,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     if (p.eatToken(.r_brace)) |_| break;
                     const elem_init = try p.expectExpr();
                     try p.scratch.append(p.gpa, elem_init);
-                    switch (p.token_tags[p.tok_i]) {
+                    switch (p.tokenTag(p.tok_i)) {
                         .comma => p.tok_i += 1,
                         .r_brace => {
                             p.tok_i += 1;
@@ -2875,49 +2715,30 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                         else => try p.warn(.expected_comma_after_initializer),
                     }
                 }
-                const comma = (p.token_tags[p.tok_i - 2] == .comma);
+                const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
                 const inits = p.scratch.items[scratch_top..];
-                switch (inits.len) {
-                    0 => return p.addNode(.{
-                        .tag = .struct_init_dot_two,
+                if (inits.len <= 2) {
+                    return try p.addNode(.{
+                        .tag = if (inits.len == 0)
+                            .struct_init_dot_two
+                        else if (comma) .array_init_dot_two_comma else .array_init_dot_two,
                         .main_token = lbrace,
-                        .data = .{
-                            .lhs = 0,
-                            .rhs = 0,
-                        },
-                    }),
-                    1 => return p.addNode(.{
-                        .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
+                        .data = .{ .opt_node_and_opt_node = .{
+                            if (inits.len >= 1) inits[0].toOptional() else .none,
+                            if (inits.len >= 2) inits[1].toOptional() else .none,
+                        } },
+                    });
+                } else {
+                    return try p.addNode(.{
+                        .tag = if (comma) .array_init_dot_comma else .array_init_dot,
                         .main_token = lbrace,
-                        .data = .{
-                            .lhs = inits[0],
-                            .rhs = 0,
-                        },
-                    }),
-                    2 => return p.addNode(.{
-                        .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
-                        .main_token = lbrace,
-                        .data = .{
-                            .lhs = inits[0],
-                            .rhs = inits[1],
-                        },
-                    }),
-                    else => {
-                        const span = try p.listToSpan(inits);
-                        return p.addNode(.{
-                            .tag = if (comma) .array_init_dot_comma else .array_init_dot,
-                            .main_token = lbrace,
-                            .data = .{
-                                .lhs = span.start,
-                                .rhs = span.end,
-                            },
-                        });
-                    },
+                        .data = .{ .extra_range = try p.listToSpan(inits) },
+                    });
                 }
             },
-            else => return null_node,
+            else => return null,
         },
-        .keyword_error => switch (p.token_tags[p.tok_i + 1]) {
+        .keyword_error => switch (p.tokenTag(p.tok_i + 1)) {
             .l_brace => {
                 const error_token = p.tok_i;
                 p.tok_i += 2;
@@ -2925,7 +2746,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     if (p.eatToken(.r_brace)) |_| break;
                     _ = try p.eatDocComments();
                     _ = try p.expectToken(.identifier);
-                    switch (p.token_tags[p.tok_i]) {
+                    switch (p.tokenTag(p.tok_i)) {
                         .comma => p.tok_i += 1,
                         .r_brace => {
                             p.tok_i += 1;
@@ -2936,13 +2757,10 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                         else => try p.warn(.expected_comma_after_field),
                     }
                 }
-                return p.addNode(.{
+                return try p.addNode(.{
                     .tag = .error_set_decl,
                     .main_token = error_token,
-                    .data = .{
-                        .lhs = undefined,
-                        .rhs = p.tok_i - 1, // rbrace
-                    },
+                    .data = .{ .token = p.tok_i - 1 }, // rbrace
                 });
             },
             else => {
@@ -2951,41 +2769,37 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 if (period == null) try p.warnExpected(.period);
                 const identifier = p.eatToken(.identifier);
                 if (identifier == null) try p.warnExpected(.identifier);
-                return p.addNode(.{
+                return try p.addNode(.{
                     .tag = .error_value,
                     .main_token = main_token,
-                    .data = .{
-                        .lhs = period orelse 0,
-                        .rhs = identifier orelse 0,
-                    },
+                    .data = .{ .opt_token_and_opt_token = .{
+                        .fromOptional(period),
+                        .fromOptional(identifier),
+                    } },
                 });
             },
         },
-        .l_paren => return p.addNode(.{
+        .l_paren => return try p.addNode(.{
             .tag = .grouped_expression,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = try p.expectExpr(),
-                .rhs = try p.expectToken(.r_paren),
-            },
+            .data = .{ .node_and_token = .{
+                try p.expectExpr(),
+                try p.expectToken(.r_paren),
+            } },
         }),
-        else => return null_node,
+        else => return null,
     }
 }
 
 fn expectPrimaryTypeExpr(p: *Parse) !Node.Index {
-    const node = try p.parsePrimaryTypeExpr();
-    if (node == 0) {
-        return p.fail(.expected_primary_type_expr);
-    }
-    return node;
+    return try p.parsePrimaryTypeExpr() orelse return p.fail(.expected_primary_type_expr);
 }
 
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
 ///
 /// WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
-fn parseWhileTypeExpr(p: *Parse) !Node.Index {
-    const while_token = p.eatToken(.keyword_while) orelse return null_node;
+fn parseWhileTypeExpr(p: *Parse) !?Node.Index {
+    const while_token = p.eatToken(.keyword_while) orelse return null;
     _ = try p.expectToken(.l_paren);
     const condition = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -2994,54 +2808,52 @@ fn parseWhileTypeExpr(p: *Parse) !Node.Index {
 
     const then_expr = try p.expectTypeExpr();
     _ = p.eatToken(.keyword_else) orelse {
-        if (cont_expr == 0) {
-            return p.addNode(.{
+        if (cont_expr == null) {
+            return try p.addNode(.{
                 .tag = .while_simple,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = then_expr,
-                },
+                .data = .{ .node_and_node = .{
+                    condition,
+                    then_expr,
+                } },
             });
         } else {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .while_cont,
                 .main_token = while_token,
-                .data = .{
-                    .lhs = condition,
-                    .rhs = try p.addExtra(Node.WhileCont{
-                        .cont_expr = cont_expr,
+                .data = .{ .node_and_extra = .{
+                    condition, try p.addExtra(Node.WhileCont{
+                        .cont_expr = cont_expr.?,
                         .then_expr = then_expr,
                     }),
-                },
+                } },
             });
         }
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectTypeExpr();
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"while",
         .main_token = while_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = try p.addExtra(Node.While{
-                .cont_expr = cont_expr,
+        .data = .{ .node_and_extra = .{
+            condition, try p.addExtra(Node.While{
+                .cont_expr = .fromOptional(cont_expr),
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
-        },
+        } },
     });
 }
 
 /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
-fn parseSwitchExpr(p: *Parse, is_labeled: bool) !Node.Index {
-    const switch_token = p.eatToken(.keyword_switch) orelse return null_node;
-    return p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
+fn parseSwitchExpr(p: *Parse, is_labeled: bool) !?Node.Index {
+    const switch_token = p.eatToken(.keyword_switch) orelse return null;
+    return try p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
 }
 
 fn expectSwitchExpr(p: *Parse, is_labeled: bool) !Node.Index {
     const switch_token = p.assertToken(.keyword_switch);
-    return p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
+    return try p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
 }
 
 fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
@@ -3050,19 +2862,19 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
     _ = try p.expectToken(.r_paren);
     _ = try p.expectToken(.l_brace);
     const cases = try p.parseSwitchProngList();
-    const trailing_comma = p.token_tags[p.tok_i - 1] == .comma;
+    const trailing_comma = p.tokenTag(p.tok_i - 1) == .comma;
     _ = try p.expectToken(.r_brace);
 
     return p.addNode(.{
         .tag = if (trailing_comma) .switch_comma else .@"switch",
         .main_token = main_token,
-        .data = .{
-            .lhs = expr_node,
-            .rhs = try p.addExtra(Node.SubRange{
+        .data = .{ .node_and_extra = .{
+            expr_node,
+            try p.addExtra(Node.SubRange{
                 .start = cases.start,
                 .end = cases.end,
             }),
-        },
+        } },
     });
 }
 
@@ -3089,10 +2901,10 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
         return p.addNode(.{
             .tag = .asm_simple,
             .main_token = asm_token,
-            .data = .{
-                .lhs = template,
-                .rhs = rparen,
-            },
+            .data = .{ .node_and_token = .{
+                template,
+                rparen,
+            } },
         });
     }
 
@@ -3102,10 +2914,9 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        const output_item = try p.parseAsmOutputItem();
-        if (output_item == 0) break;
+        const output_item = try p.parseAsmOutputItem() orelse break;
         try p.scratch.append(p.gpa, output_item);
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             // All possible delimiters.
             .colon, .r_paren, .r_brace, .r_bracket => break,
@@ -3115,10 +2926,9 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
     }
     if (p.eatToken(.colon)) |_| {
         while (true) {
-            const input_item = try p.parseAsmInputItem();
-            if (input_item == 0) break;
+            const input_item = try p.parseAsmInputItem() orelse break;
             try p.scratch.append(p.gpa, input_item);
-            switch (p.token_tags[p.tok_i]) {
+            switch (p.tokenTag(p.tok_i)) {
                 .comma => p.tok_i += 1,
                 // All possible delimiters.
                 .colon, .r_paren, .r_brace, .r_bracket => break,
@@ -3128,7 +2938,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
         }
         if (p.eatToken(.colon)) |_| {
             while (p.eatToken(.string_literal)) |_| {
-                switch (p.token_tags[p.tok_i]) {
+                switch (p.tokenTag(p.tok_i)) {
                     .comma => p.tok_i += 1,
                     .colon, .r_paren, .r_brace, .r_bracket => break,
                     // Likely just a missing comma; give error but continue parsing.
@@ -3142,121 +2952,106 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
     return p.addNode(.{
         .tag = .@"asm",
         .main_token = asm_token,
-        .data = .{
-            .lhs = template,
-            .rhs = try p.addExtra(Node.Asm{
+        .data = .{ .node_and_extra = .{
+            template,
+            try p.addExtra(Node.Asm{
                 .items_start = span.start,
                 .items_end = span.end,
                 .rparen = rparen,
             }),
-        },
+        } },
     });
 }
 
 /// AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
-fn parseAsmOutputItem(p: *Parse) !Node.Index {
-    _ = p.eatToken(.l_bracket) orelse return null_node;
+fn parseAsmOutputItem(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.l_bracket) orelse return null;
     const identifier = try p.expectToken(.identifier);
     _ = try p.expectToken(.r_bracket);
     _ = try p.expectToken(.string_literal);
     _ = try p.expectToken(.l_paren);
-    const type_expr: Node.Index = blk: {
+    const type_expr: Node.OptionalIndex = blk: {
         if (p.eatToken(.arrow)) |_| {
-            break :blk try p.expectTypeExpr();
+            break :blk .fromOptional(try p.expectTypeExpr());
         } else {
             _ = try p.expectToken(.identifier);
-            break :blk null_node;
+            break :blk .none;
         }
     };
     const rparen = try p.expectToken(.r_paren);
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .asm_output,
         .main_token = identifier,
-        .data = .{
-            .lhs = type_expr,
-            .rhs = rparen,
-        },
+        .data = .{ .opt_node_and_token = .{
+            type_expr,
+            rparen,
+        } },
     });
 }
 
 /// AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
-fn parseAsmInputItem(p: *Parse) !Node.Index {
-    _ = p.eatToken(.l_bracket) orelse return null_node;
+fn parseAsmInputItem(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.l_bracket) orelse return null;
     const identifier = try p.expectToken(.identifier);
     _ = try p.expectToken(.r_bracket);
     _ = try p.expectToken(.string_literal);
     _ = try p.expectToken(.l_paren);
     const expr = try p.expectExpr();
     const rparen = try p.expectToken(.r_paren);
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .asm_input,
         .main_token = identifier,
-        .data = .{
-            .lhs = expr,
-            .rhs = rparen,
-        },
+        .data = .{ .node_and_token = .{
+            expr,
+            rparen,
+        } },
     });
 }
 
 /// BreakLabel <- COLON IDENTIFIER
-fn parseBreakLabel(p: *Parse) !TokenIndex {
-    _ = p.eatToken(.colon) orelse return null_node;
-    return p.expectToken(.identifier);
+fn parseBreakLabel(p: *Parse) Error!OptionalTokenIndex {
+    _ = p.eatToken(.colon) orelse return .none;
+    const next_token = try p.expectToken(.identifier);
+    return .fromToken(next_token);
 }
 
 /// BlockLabel <- IDENTIFIER COLON
-fn parseBlockLabel(p: *Parse) TokenIndex {
-    if (p.token_tags[p.tok_i] == .identifier and
-        p.token_tags[p.tok_i + 1] == .colon)
-    {
-        const identifier = p.tok_i;
-        p.tok_i += 2;
-        return identifier;
-    }
-    return null_node;
+fn parseBlockLabel(p: *Parse) ?TokenIndex {
+    return p.eatTokens(&.{ .identifier, .colon });
 }
 
 /// FieldInit <- DOT IDENTIFIER EQUAL Expr
-fn parseFieldInit(p: *Parse) !Node.Index {
-    if (p.token_tags[p.tok_i + 0] == .period and
-        p.token_tags[p.tok_i + 1] == .identifier and
-        p.token_tags[p.tok_i + 2] == .equal)
-    {
-        p.tok_i += 3;
-        return p.expectExpr();
-    } else {
-        return null_node;
+fn parseFieldInit(p: *Parse) !?Node.Index {
+    if (p.eatTokens(&.{ .period, .identifier, .equal })) |_| {
+        return try p.expectExpr();
     }
+    return null;
 }
 
 fn expectFieldInit(p: *Parse) !Node.Index {
-    if (p.token_tags[p.tok_i] != .period or
-        p.token_tags[p.tok_i + 1] != .identifier or
-        p.token_tags[p.tok_i + 2] != .equal)
-        return p.fail(.expected_initializer);
-
-    p.tok_i += 3;
-    return p.expectExpr();
+    if (p.eatTokens(&.{ .period, .identifier, .equal })) |_| {
+        return try p.expectExpr();
+    }
+    return p.fail(.expected_initializer);
 }
 
 /// WhileContinueExpr <- COLON LPAREN AssignExpr RPAREN
-fn parseWhileContinueExpr(p: *Parse) !Node.Index {
+fn parseWhileContinueExpr(p: *Parse) !?Node.Index {
     _ = p.eatToken(.colon) orelse {
-        if (p.token_tags[p.tok_i] == .l_paren and
+        if (p.tokenTag(p.tok_i) == .l_paren and
             p.tokensOnSameLine(p.tok_i - 1, p.tok_i))
             return p.fail(.expected_continue_expr);
-        return null_node;
+        return null;
     };
     _ = try p.expectToken(.l_paren);
-    const node = try p.parseAssignExpr();
-    if (node == 0) return p.fail(.expected_expr_or_assignment);
+    const node = try p.parseAssignExpr() orelse return p.fail(.expected_expr_or_assignment);
     _ = try p.expectToken(.r_paren);
     return node;
 }
 
 /// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
-fn parseLinkSection(p: *Parse) !Node.Index {
-    _ = p.eatToken(.keyword_linksection) orelse return null_node;
+fn parseLinkSection(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.keyword_linksection) orelse return null;
     _ = try p.expectToken(.l_paren);
     const expr_node = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -3264,8 +3059,8 @@ fn parseLinkSection(p: *Parse) !Node.Index {
 }
 
 /// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
-fn parseCallconv(p: *Parse) !Node.Index {
-    _ = p.eatToken(.keyword_callconv) orelse return null_node;
+fn parseCallconv(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.keyword_callconv) orelse return null;
     _ = try p.expectToken(.l_paren);
     const expr_node = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -3273,8 +3068,8 @@ fn parseCallconv(p: *Parse) !Node.Index {
 }
 
 /// AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
-fn parseAddrSpace(p: *Parse) !Node.Index {
-    _ = p.eatToken(.keyword_addrspace) orelse return null_node;
+fn parseAddrSpace(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.keyword_addrspace) orelse return null;
     _ = try p.expectToken(.l_paren);
     const expr_node = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -3292,59 +3087,53 @@ fn parseAddrSpace(p: *Parse) !Node.Index {
 /// ParamType
 ///     <- KEYWORD_anytype
 ///      / TypeExpr
-fn expectParamDecl(p: *Parse) !Node.Index {
+fn expectParamDecl(p: *Parse) !?Node.Index {
     _ = try p.eatDocComments();
-    switch (p.token_tags[p.tok_i]) {
+    switch (p.tokenTag(p.tok_i)) {
         .keyword_noalias, .keyword_comptime => p.tok_i += 1,
         .ellipsis3 => {
             p.tok_i += 1;
-            return null_node;
+            return null;
         },
         else => {},
     }
-    if (p.token_tags[p.tok_i] == .identifier and
-        p.token_tags[p.tok_i + 1] == .colon)
-    {
-        p.tok_i += 2;
-    }
-    switch (p.token_tags[p.tok_i]) {
-        .keyword_anytype => {
-            p.tok_i += 1;
-            return null_node;
-        },
-        else => return p.expectTypeExpr(),
+    _ = p.eatTokens(&.{ .identifier, .colon });
+    if (p.eatToken(.keyword_anytype)) |_| {
+        return null;
+    } else {
+        return try p.expectTypeExpr();
     }
 }
 
 /// Payload <- PIPE IDENTIFIER PIPE
-fn parsePayload(p: *Parse) !TokenIndex {
-    _ = p.eatToken(.pipe) orelse return null_node;
+fn parsePayload(p: *Parse) Error!OptionalTokenIndex {
+    _ = p.eatToken(.pipe) orelse return .none;
     const identifier = try p.expectToken(.identifier);
     _ = try p.expectToken(.pipe);
-    return identifier;
+    return .fromToken(identifier);
 }
 
 /// PtrPayload <- PIPE ASTERISK? IDENTIFIER PIPE
-fn parsePtrPayload(p: *Parse) !TokenIndex {
-    _ = p.eatToken(.pipe) orelse return null_node;
+fn parsePtrPayload(p: *Parse) Error!OptionalTokenIndex {
+    _ = p.eatToken(.pipe) orelse return .none;
     _ = p.eatToken(.asterisk);
     const identifier = try p.expectToken(.identifier);
     _ = try p.expectToken(.pipe);
-    return identifier;
+    return .fromToken(identifier);
 }
 
 /// Returns the first identifier token, if any.
 ///
 /// PtrIndexPayload <- PIPE ASTERISK? IDENTIFIER (COMMA IDENTIFIER)? PIPE
-fn parsePtrIndexPayload(p: *Parse) !TokenIndex {
-    _ = p.eatToken(.pipe) orelse return null_node;
+fn parsePtrIndexPayload(p: *Parse) Error!OptionalTokenIndex {
+    _ = p.eatToken(.pipe) orelse return .none;
     _ = p.eatToken(.asterisk);
     const identifier = try p.expectToken(.identifier);
     if (p.eatToken(.comma) != null) {
         _ = try p.expectToken(.identifier);
     }
     _ = try p.expectToken(.pipe);
-    return identifier;
+    return .fromToken(identifier);
 }
 
 /// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
@@ -3352,7 +3141,7 @@ fn parsePtrIndexPayload(p: *Parse) !TokenIndex {
 /// SwitchCase
 ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
 ///      / KEYWORD_else
-fn parseSwitchProng(p: *Parse) !Node.Index {
+fn parseSwitchProng(p: *Parse) !?Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -3360,97 +3149,92 @@ fn parseSwitchProng(p: *Parse) !Node.Index {
 
     if (p.eatToken(.keyword_else) == null) {
         while (true) {
-            const item = try p.parseSwitchItem();
-            if (item == 0) break;
+            const item = try p.parseSwitchItem() orelse break;
             try p.scratch.append(p.gpa, item);
             if (p.eatToken(.comma) == null) break;
         }
         if (scratch_top == p.scratch.items.len) {
             if (is_inline) p.tok_i -= 1;
-            return null_node;
+            return null;
         }
     }
     const arrow_token = try p.expectToken(.equal_angle_bracket_right);
     _ = try p.parsePtrIndexPayload();
 
     const items = p.scratch.items[scratch_top..];
-    switch (items.len) {
-        0 => return p.addNode(.{
+    if (items.len <= 1) {
+        return try p.addNode(.{
             .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
             .main_token = arrow_token,
-            .data = .{
-                .lhs = 0,
-                .rhs = try p.expectSingleAssignExpr(),
-            },
-        }),
-        1 => return p.addNode(.{
-            .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
-            .main_token = arrow_token,
-            .data = .{
-                .lhs = items[0],
-                .rhs = try p.expectSingleAssignExpr(),
-            },
-        }),
-        else => return p.addNode(.{
+            .data = .{ .opt_node_and_node = .{
+                if (items.len >= 1) items[0].toOptional() else .none,
+                try p.expectSingleAssignExpr(),
+            } },
+        });
+    } else {
+        return try p.addNode(.{
             .tag = if (is_inline) .switch_case_inline else .switch_case,
             .main_token = arrow_token,
-            .data = .{
-                .lhs = try p.addExtra(try p.listToSpan(items)),
-                .rhs = try p.expectSingleAssignExpr(),
-            },
-        }),
+            .data = .{ .extra_and_node = .{
+                try p.addExtra(try p.listToSpan(items)),
+                try p.expectSingleAssignExpr(),
+            } },
+        });
     }
 }
 
 /// SwitchItem <- Expr (DOT3 Expr)?
-fn parseSwitchItem(p: *Parse) !Node.Index {
-    const expr = try p.parseExpr();
-    if (expr == 0) return null_node;
+fn parseSwitchItem(p: *Parse) !?Node.Index {
+    const expr = try p.parseExpr() orelse return null;
 
     if (p.eatToken(.ellipsis3)) |token| {
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = .switch_range,
             .main_token = token,
-            .data = .{
-                .lhs = expr,
-                .rhs = try p.expectExpr(),
-            },
+            .data = .{ .node_and_node = .{
+                expr,
+                try p.expectExpr(),
+            } },
         });
     }
     return expr;
 }
 
+/// The following invariant will hold:
+/// - `(bit_range_start == .none) == (bit_range_end == .none)`
+/// - `bit_range_start != .none` implies `align_node != .none`
+/// - `bit_range_end != .none` implies `align_node != .none`
 const PtrModifiers = struct {
-    align_node: Node.Index,
-    addrspace_node: Node.Index,
-    bit_range_start: Node.Index,
-    bit_range_end: Node.Index,
+    align_node: Node.OptionalIndex,
+    addrspace_node: Node.OptionalIndex,
+    bit_range_start: Node.OptionalIndex,
+    bit_range_end: Node.OptionalIndex,
 };
 
 fn parsePtrModifiers(p: *Parse) !PtrModifiers {
     var result: PtrModifiers = .{
-        .align_node = 0,
-        .addrspace_node = 0,
-        .bit_range_start = 0,
-        .bit_range_end = 0,
+        .align_node = .none,
+        .addrspace_node = .none,
+        .bit_range_start = .none,
+        .bit_range_end = .none,
     };
     var saw_const = false;
     var saw_volatile = false;
     var saw_allowzero = false;
     while (true) {
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .keyword_align => {
-                if (result.align_node != 0) {
+                if (result.align_node != .none) {
                     try p.warn(.extra_align_qualifier);
                 }
                 p.tok_i += 1;
                 _ = try p.expectToken(.l_paren);
-                result.align_node = try p.expectExpr();
+                result.align_node = (try p.expectExpr()).toOptional();
 
                 if (p.eatToken(.colon)) |_| {
-                    result.bit_range_start = try p.expectExpr();
+                    result.bit_range_start = (try p.expectExpr()).toOptional();
                     _ = try p.expectToken(.colon);
-                    result.bit_range_end = try p.expectExpr();
+                    result.bit_range_end = (try p.expectExpr()).toOptional();
                 }
 
                 _ = try p.expectToken(.r_paren);
@@ -3477,10 +3261,10 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
                 saw_allowzero = true;
             },
             .keyword_addrspace => {
-                if (result.addrspace_node != 0) {
+                if (result.addrspace_node != .none) {
                     try p.warn(.extra_addrspace_qualifier);
                 }
-                result.addrspace_node = try p.parseAddrSpace();
+                result.addrspace_node = .fromOptional(try p.parseAddrSpace());
             },
             else => return result,
         }
@@ -3492,110 +3276,102 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
-fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
-    switch (p.token_tags[p.tok_i]) {
+fn parseSuffixOp(p: *Parse, lhs: Node.Index) !?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
         .l_bracket => {
             const lbracket = p.nextToken();
             const index_expr = try p.expectExpr();
 
             if (p.eatToken(.ellipsis2)) |_| {
-                const end_expr = try p.parseExpr();
+                const opt_end_expr = try p.parseExpr();
                 if (p.eatToken(.colon)) |_| {
                     const sentinel = try p.expectExpr();
                     _ = try p.expectToken(.r_bracket);
-                    return p.addNode(.{
+                    return try p.addNode(.{
                         .tag = .slice_sentinel,
                         .main_token = lbracket,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = try p.addExtra(Node.SliceSentinel{
+                        .data = .{ .node_and_extra = .{
+                            lhs, try p.addExtra(Node.SliceSentinel{
                                 .start = index_expr,
-                                .end = end_expr,
+                                .end = .fromOptional(opt_end_expr),
                                 .sentinel = sentinel,
                             }),
-                        },
+                        } },
                     });
                 }
                 _ = try p.expectToken(.r_bracket);
-                if (end_expr == 0) {
-                    return p.addNode(.{
+                const end_expr = opt_end_expr orelse {
+                    return try p.addNode(.{
                         .tag = .slice_open,
                         .main_token = lbracket,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = index_expr,
-                        },
+                        .data = .{ .node_and_node = .{
+                            lhs,
+                            index_expr,
+                        } },
                     });
-                }
-                return p.addNode(.{
+                };
+                return try p.addNode(.{
                     .tag = .slice,
                     .main_token = lbracket,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = try p.addExtra(Node.Slice{
+                    .data = .{ .node_and_extra = .{
+                        lhs, try p.addExtra(Node.Slice{
                             .start = index_expr,
                             .end = end_expr,
                         }),
-                    },
+                    } },
                 });
             }
             _ = try p.expectToken(.r_bracket);
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .array_access,
                 .main_token = lbracket,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = index_expr,
-                },
+                .data = .{ .node_and_node = .{
+                    lhs,
+                    index_expr,
+                } },
             });
         },
-        .period_asterisk => return p.addNode(.{
+        .period_asterisk => return try p.addNode(.{
             .tag = .deref,
             .main_token = p.nextToken(),
-            .data = .{
-                .lhs = lhs,
-                .rhs = undefined,
-            },
+            .data = .{ .node = lhs },
         }),
         .invalid_periodasterisks => {
             try p.warn(.asterisk_after_ptr_deref);
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = .deref,
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = undefined,
-                },
+                .data = .{ .node = lhs },
             });
         },
-        .period => switch (p.token_tags[p.tok_i + 1]) {
-            .identifier => return p.addNode(.{
+        .period => switch (p.tokenTag(p.tok_i + 1)) {
+            .identifier => return try p.addNode(.{
                 .tag = .field_access,
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = p.nextToken(),
-                },
+                .data = .{ .node_and_token = .{
+                    lhs,
+                    p.nextToken(),
+                } },
             }),
-            .question_mark => return p.addNode(.{
+            .question_mark => return try p.addNode(.{
                 .tag = .unwrap_optional,
                 .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = p.nextToken(),
-                },
+                .data = .{ .node_and_token = .{
+                    lhs,
+                    p.nextToken(),
+                } },
             }),
             .l_brace => {
                 // this a misplaced `.{`, handle the error somewhere else
-                return null_node;
+                return null;
             },
             else => {
                 p.tok_i += 1;
                 try p.warn(.expected_suffix_op);
-                return null_node;
+                return null;
             },
         },
-        else => return null_node,
+        else => return null,
     }
 }
 
@@ -3608,17 +3384,17 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
 ///      / KEYWORD_opaque
 ///      / KEYWORD_enum (LPAREN Expr RPAREN)?
 ///      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
-fn parseContainerDeclAuto(p: *Parse) !Node.Index {
+fn parseContainerDeclAuto(p: *Parse) !?Node.Index {
     const main_token = p.nextToken();
-    const arg_expr = switch (p.token_tags[main_token]) {
-        .keyword_opaque => null_node,
+    const arg_expr = switch (p.tokenTag(main_token)) {
+        .keyword_opaque => null,
         .keyword_struct, .keyword_enum => blk: {
             if (p.eatToken(.l_paren)) |_| {
                 const expr = try p.expectExpr();
                 _ = try p.expectToken(.r_paren);
                 break :blk expr;
             } else {
-                break :blk null_node;
+                break :blk null;
             }
         },
         .keyword_union => blk: {
@@ -3633,16 +3409,16 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                         const members = try p.parseContainerMembers();
                         const members_span = try members.toSpan(p);
                         _ = try p.expectToken(.r_brace);
-                        return p.addNode(.{
+                        return try p.addNode(.{
                             .tag = switch (members.trailing) {
                                 true => .tagged_union_enum_tag_trailing,
                                 false => .tagged_union_enum_tag,
                             },
                             .main_token = main_token,
-                            .data = .{
-                                .lhs = enum_tag_expr,
-                                .rhs = try p.addExtra(members_span),
-                            },
+                            .data = .{ .node_and_extra = .{
+                                enum_tag_expr,
+                                try p.addExtra(members_span),
+                            } },
                         });
                     } else {
                         _ = try p.expectToken(.r_paren);
@@ -3651,29 +3427,23 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                         const members = try p.parseContainerMembers();
                         _ = try p.expectToken(.r_brace);
                         if (members.len <= 2) {
-                            return p.addNode(.{
+                            return try p.addNode(.{
                                 .tag = switch (members.trailing) {
                                     true => .tagged_union_two_trailing,
                                     false => .tagged_union_two,
                                 },
                                 .main_token = main_token,
-                                .data = .{
-                                    .lhs = members.lhs,
-                                    .rhs = members.rhs,
-                                },
+                                .data = members.data,
                             });
                         } else {
                             const span = try members.toSpan(p);
-                            return p.addNode(.{
+                            return try p.addNode(.{
                                 .tag = switch (members.trailing) {
                                     true => .tagged_union_trailing,
                                     false => .tagged_union,
                                 },
                                 .main_token = main_token,
-                                .data = .{
-                                    .lhs = span.start,
-                                    .rhs = span.end,
-                                },
+                                .data = .{ .extra_range = span },
                             });
                         }
                     }
@@ -3683,7 +3453,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                     break :blk expr;
                 }
             } else {
-                break :blk null_node;
+                break :blk null;
             }
         },
         else => {
@@ -3694,48 +3464,42 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
     _ = try p.expectToken(.l_brace);
     const members = try p.parseContainerMembers();
     _ = try p.expectToken(.r_brace);
-    if (arg_expr == 0) {
+    if (arg_expr == null) {
         if (members.len <= 2) {
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = switch (members.trailing) {
                     true => .container_decl_two_trailing,
                     false => .container_decl_two,
                 },
                 .main_token = main_token,
-                .data = .{
-                    .lhs = members.lhs,
-                    .rhs = members.rhs,
-                },
+                .data = members.data,
             });
         } else {
             const span = try members.toSpan(p);
-            return p.addNode(.{
+            return try p.addNode(.{
                 .tag = switch (members.trailing) {
                     true => .container_decl_trailing,
                     false => .container_decl,
                 },
                 .main_token = main_token,
-                .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
-                },
+                .data = .{ .extra_range = span },
             });
         }
     } else {
         const span = try members.toSpan(p);
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = switch (members.trailing) {
                 true => .container_decl_arg_trailing,
                 false => .container_decl_arg,
             },
             .main_token = main_token,
-            .data = .{
-                .lhs = arg_expr,
-                .rhs = try p.addExtra(Node.SubRange{
+            .data = .{ .node_and_extra = .{
+                arg_expr.?,
+                try p.addExtra(Node.SubRange{
                     .start = span.start,
                     .end = span.end,
                 }),
-            },
+            } },
         });
     }
 }
@@ -3744,24 +3508,24 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
 /// C's 'struct Foo {};' to Zig's 'const Foo = struct {};'.
 fn parseCStyleContainer(p: *Parse) Error!bool {
     const main_token = p.tok_i;
-    switch (p.token_tags[p.tok_i]) {
+    switch (p.tokenTag(p.tok_i)) {
         .keyword_enum, .keyword_union, .keyword_struct => {},
         else => return false,
     }
     const identifier = p.tok_i + 1;
-    if (p.token_tags[identifier] != .identifier) return false;
+    if (p.tokenTag(identifier) != .identifier) return false;
     p.tok_i += 2;
 
     try p.warnMsg(.{
         .tag = .c_style_container,
         .token = identifier,
-        .extra = .{ .expected_tag = p.token_tags[main_token] },
+        .extra = .{ .expected_tag = p.tokenTag(main_token) },
     });
     try p.warnMsg(.{
         .tag = .zig_style_container,
         .is_note = true,
         .token = identifier,
-        .extra = .{ .expected_tag = p.token_tags[main_token] },
+        .extra = .{ .expected_tag = p.tokenTag(main_token) },
     });
 
     _ = try p.expectToken(.l_brace);
@@ -3774,8 +3538,8 @@ fn parseCStyleContainer(p: *Parse) Error!bool {
 /// Holds temporary data until we are ready to construct the full ContainerDecl AST node.
 ///
 /// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
-fn parseByteAlign(p: *Parse) !Node.Index {
-    _ = p.eatToken(.keyword_align) orelse return null_node;
+fn parseByteAlign(p: *Parse) !?Node.Index {
+    _ = p.eatToken(.keyword_align) orelse return null;
     _ = try p.expectToken(.l_paren);
     const expr = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -3788,12 +3552,11 @@ fn parseSwitchProngList(p: *Parse) !Node.SubRange {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        const item = try parseSwitchProng(p);
-        if (item == 0) break;
+        const item = try parseSwitchProng(p) orelse break;
 
         try p.scratch.append(p.gpa, item);
 
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             // All possible delimiters.
             .colon, .r_paren, .r_brace, .r_bracket => break,
@@ -3813,13 +3576,13 @@ fn parseParamDeclList(p: *Parse) !SmallSpan {
     while (true) {
         if (p.eatToken(.r_paren)) |_| break;
         if (varargs == .seen) varargs = .{ .nonfinal = p.tok_i };
-        const param = try p.expectParamDecl();
-        if (param != 0) {
+        const opt_param = try p.expectParamDecl();
+        if (opt_param) |param| {
             try p.scratch.append(p.gpa, param);
-        } else if (p.token_tags[p.tok_i - 1] == .ellipsis3) {
+        } else if (p.tokenTag(p.tok_i - 1) == .ellipsis3) {
             if (varargs == .none) varargs = .seen;
         }
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .r_paren => {
                 p.tok_i += 1;
@@ -3835,9 +3598,9 @@ fn parseParamDeclList(p: *Parse) !SmallSpan {
     }
     const params = p.scratch.items[scratch_top..];
     return switch (params.len) {
-        0 => SmallSpan{ .zero_or_one = 0 },
-        1 => SmallSpan{ .zero_or_one = params[0] },
-        else => SmallSpan{ .multi = try p.listToSpan(params) },
+        0 => .{ .zero_or_one = .none },
+        1 => .{ .zero_or_one = params[0].toOptional() },
+        else => .{ .multi = try p.listToSpan(params) },
     };
 }
 
@@ -3852,10 +3615,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
         return p.addNode(.{
             .tag = .identifier,
             .main_token = builtin_token,
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         });
     };
     const scratch_top = p.scratch.items.len;
@@ -3864,7 +3624,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
         if (p.eatToken(.r_paren)) |_| break;
         const param = try p.expectExpr();
         try p.scratch.append(p.gpa, param);
-        switch (p.token_tags[p.tok_i]) {
+        switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .r_paren => {
                 p.tok_i += 1;
@@ -3874,88 +3634,66 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
             else => try p.warn(.expected_comma_after_arg),
         }
     }
-    const comma = (p.token_tags[p.tok_i - 2] == .comma);
+    const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
     const params = p.scratch.items[scratch_top..];
-    switch (params.len) {
-        0 => return p.addNode(.{
-            .tag = .builtin_call_two,
-            .main_token = builtin_token,
-            .data = .{
-                .lhs = 0,
-                .rhs = 0,
-            },
-        }),
-        1 => return p.addNode(.{
+    if (params.len <= 2) {
+        return p.addNode(.{
             .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
             .main_token = builtin_token,
-            .data = .{
-                .lhs = params[0],
-                .rhs = 0,
-            },
-        }),
-        2 => return p.addNode(.{
-            .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
+            .data = .{ .opt_node_and_opt_node = .{
+                if (params.len >= 1) .fromOptional(params[0]) else .none,
+                if (params.len >= 2) .fromOptional(params[1]) else .none,
+            } },
+        });
+    } else {
+        const span = try p.listToSpan(params);
+        return p.addNode(.{
+            .tag = if (comma) .builtin_call_comma else .builtin_call,
             .main_token = builtin_token,
-            .data = .{
-                .lhs = params[0],
-                .rhs = params[1],
-            },
-        }),
-        else => {
-            const span = try p.listToSpan(params);
-            return p.addNode(.{
-                .tag = if (comma) .builtin_call_comma else .builtin_call,
-                .main_token = builtin_token,
-                .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
-                },
-            });
-        },
+            .data = .{ .extra_range = span },
+        });
     }
 }
 
 /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
-fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !Node.Index {
-    const if_token = p.eatToken(.keyword_if) orelse return null_node;
+fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !?Node.Index {
+    const if_token = p.eatToken(.keyword_if) orelse return null;
     _ = try p.expectToken(.l_paren);
     const condition = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
     _ = try p.parsePtrPayload();
 
     const then_expr = try bodyParseFn(p);
-    assert(then_expr != 0);
 
-    _ = p.eatToken(.keyword_else) orelse return p.addNode(.{
+    _ = p.eatToken(.keyword_else) orelse return try p.addNode(.{
         .tag = .if_simple,
         .main_token = if_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = then_expr,
-        },
+        .data = .{ .node_and_node = .{
+            condition,
+            then_expr,
+        } },
     });
     _ = try p.parsePayload();
     const else_expr = try bodyParseFn(p);
-    assert(else_expr != 0);
 
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"if",
         .main_token = if_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = try p.addExtra(Node.If{
+        .data = .{ .node_and_extra = .{
+            condition,
+            try p.addExtra(Node.If{
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
-        },
+        } },
     });
 }
 
 /// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
 ///
 /// ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
-fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !Node.Index {
-    const for_token = p.eatToken(.keyword_for) orelse return null_node;
+fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !?Node.Index {
+    const for_token = p.eatToken(.keyword_for) orelse return null;
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -3969,27 +3707,24 @@ fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !N
         try p.scratch.append(p.gpa, else_expr);
         has_else = true;
     } else if (inputs == 1) {
-        return p.addNode(.{
+        return try p.addNode(.{
             .tag = .for_simple,
             .main_token = for_token,
-            .data = .{
-                .lhs = p.scratch.items[scratch_top],
-                .rhs = then_expr,
-            },
+            .data = .{ .node_and_node = .{
+                p.scratch.items[scratch_top],
+                then_expr,
+            } },
         });
     } else {
         try p.scratch.append(p.gpa, then_expr);
     }
-    return p.addNode(.{
+    return try p.addNode(.{
         .tag = .@"for",
         .main_token = for_token,
-        .data = .{
-            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @as(u32, @bitCast(Node.For{
-                .inputs = @as(u31, @intCast(inputs)),
-                .has_else = has_else,
-            })),
-        },
+        .data = .{ .@"for" = .{
+            (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .{ .inputs = @intCast(inputs), .has_else = has_else },
+        } },
     });
 }
 
@@ -4011,21 +3746,29 @@ fn eatDocComments(p: *Parse) Allocator.Error!?TokenIndex {
 }
 
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
-    return std.mem.indexOfScalar(u8, p.source[p.token_starts[token1]..p.token_starts[token2]], '\n') == null;
+    return std.mem.indexOfScalar(u8, p.source[p.tokenStart(token1)..p.tokenStart(token2)], '\n') == null;
 }
 
 fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
-    return if (p.token_tags[p.tok_i] == tag) p.nextToken() else null;
+    return if (p.tokenTag(p.tok_i) == tag) p.nextToken() else null;
+}
+
+fn eatTokens(p: *Parse, tags: []const Token.Tag) ?TokenIndex {
+    const available_tags = p.tokens.items(.tag)[p.tok_i..];
+    if (!std.mem.startsWith(Token.Tag, available_tags, tags)) return null;
+    const result = p.tok_i;
+    p.tok_i += @intCast(tags.len);
+    return result;
 }
 
 fn assertToken(p: *Parse, tag: Token.Tag) TokenIndex {
     const token = p.nextToken();
-    assert(p.token_tags[token] == tag);
+    assert(p.tokenTag(token) == tag);
     return token;
 }
 
 fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
-    if (p.token_tags[p.tok_i] != tag) {
+    if (p.tokenTag(p.tok_i) != tag) {
         return p.failMsg(.{
             .tag = .expected_token,
             .token = p.tok_i,
@@ -4036,7 +3779,7 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
 }
 
 fn expectSemicolon(p: *Parse, error_tag: AstError.Tag, recoverable: bool) Error!void {
-    if (p.token_tags[p.tok_i] == .semicolon) {
+    if (p.tokenTag(p.tok_i) == .semicolon) {
         _ = p.nextToken();
         return;
     }
@@ -4050,8 +3793,6 @@ fn nextToken(p: *Parse) TokenIndex {
     return result;
 }
 
-const null_node: Node.Index = 0;
-
 const Parse = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
@@ -4060,6 +3801,8 @@ const Ast = std.zig.Ast;
 const Node = Ast.Node;
 const AstError = Ast.Error;
 const TokenIndex = Ast.TokenIndex;
+const OptionalTokenIndex = Ast.OptionalTokenIndex;
+const ExtraIndex = Ast.ExtraIndex;
 const Token = std.zig.Token;
 
 test {
