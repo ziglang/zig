@@ -996,9 +996,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .unwrap_optional,
         .asm_simple,
         => return tree.nodeData(n).node_and_token[1] + end_offset,
-        .error_set_decl => return tree.nodeData(n).token + end_offset,
         .grouped_expression, .asm_input => return tree.nodeData(n).node_and_token[1] + end_offset,
-        .multiline_string_literal => return tree.nodeData(n).token_and_token[1] + end_offset,
+        .multiline_string_literal, .error_set_decl => return tree.nodeData(n).token_and_token[1] + end_offset,
         .asm_output => return tree.nodeData(n).opt_node_and_token[1] + end_offset,
         .error_value => return tree.nodeMainToken(n) + 2 + end_offset,
 
@@ -3758,7 +3757,9 @@ pub const Node = struct {
         builtin_call_comma,
         /// `error{a, b}`.
         ///
-        /// The `data` field is a `.token` to the '}'.
+        /// The `data` field is a `.token_and_token`:
+        ///   1. a `TokenIndex` to the `{` token.
+        ///   2. a `TokenIndex` to the `}` token.
         ///
         /// The `main_token` field is the `error`.
         error_set_decl,

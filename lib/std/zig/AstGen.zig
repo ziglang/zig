@@ -5974,9 +5974,9 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
         var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty;
         defer idents.deinit(gpa);
 
-        const error_token = tree.nodeMainToken(node);
-        var tok_i = error_token + 2;
-        while (true) : (tok_i += 1) {
+        const lbrace, const rbrace = tree.nodeData(node).token_and_token;
+        for (lbrace + 1..rbrace) |i| {
+            const tok_i: Ast.TokenIndex = @intCast(i);
             switch (tree.tokenTag(tok_i)) {
                 .doc_comment, .comma => {},
                 .identifier => {
@@ -6003,7 +6003,6 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
                     try astgen.extra.append(gpa, @intFromEnum(str_index));
                     fields_len += 1;
                 },
-                .r_brace => break,
                 else => unreachable,
             }
         }
