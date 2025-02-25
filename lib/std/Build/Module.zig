@@ -18,6 +18,7 @@ frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
 strip: ?bool,
+soname: ?std.zig.SoName,
 unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
@@ -251,6 +252,7 @@ pub const CreateOptions = struct {
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
+    soname: ?std.zig.SoName = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
@@ -300,6 +302,7 @@ pub fn init(
                 .frameworks = .{},
                 .link_objects = .{},
                 .strip = options.strip,
+                .soname = options.soname,
                 .unwind_tables = options.unwind_tables,
                 .single_threaded = options.single_threaded,
                 .stack_protector = options.stack_protector,
@@ -565,6 +568,14 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+
+    if (m.soname) |soname| {
+        try zig_args.append(switch (soname) {
+            .no => "-fno-soname",
+            .yes_default_value => "-fsoname",
+            .yes => |value| b.fmt("-fsoname={s}", .{value}),
+        });
+    }
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {
