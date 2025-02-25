@@ -68,13 +68,18 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         if (rec.getFde(macho_file)) |fde| {
-            // The unwinder will start looking for a matching CFI at the offset we specify here; it
-            // isn't actually an offset to the exact CFI for this record. A consequence of this is
-            // that if the offset doesn't fit in 24 bits, we can just leave it as zero so the
-            // unwinder starts searching at the beginning of the section.
-            if (std.math.cast(u24, fde.out_offset)) |off| {
-                rec.enc.setDwarfSectionOffset(off);
-            }
+            // The unwinder will look for the DWARF entry starting at the hint,
+            // assuming the hint points to a valid CFI record start. If it
+            // fails to find the record, it proceeds in a linear search through
+            // the contiguous CFI records from the hint until the end of the
+            // section. Ideally, in the case where the offset is too large to
+            // be encoded, we would instead encode the largest possible offset
+            // to a valid CFI record, but since we don't keep track of that,
+            // just encode zero -- the start of the section is always the start
+            // of a CFI record.
+            const hint = std.math.cast(u24, fde.out_offset) orelse 0;
+            rec.enc.setDwarfSectionOffset(hint);
+
             if (fde.getLsdaAtom(macho_file)) |lsda| {
                 rec.lsda = lsda.atom_index;
                 rec.lsda_offset = fde.lsda_offset;
