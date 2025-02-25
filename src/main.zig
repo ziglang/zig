@@ -4773,20 +4773,34 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 }
 
 fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
-    if (bytes.len == 0) return "foo";
     var result: std.ArrayListUnmanaged(u8) = .empty;
-    try result.append(arena, switch (bytes[0]) {
-        '_', 'a'...'z', 'A'...'Z' => |c| c,
-        else => '_',
-    });
-    for (bytes[1..]) |byte| switch (byte) {
-        '_', 'a'...'z', 'A'...'Z', '0'...'9' => try result.append(arena, byte),
+    for (bytes, 0..) |byte, i| switch (byte) {
+        '0'...'9' => {
+            if (i == 0) try result.append(arena, '_');
+            try result.append(arena, byte);
+        },
+        '_', 'a'...'z', 'A'...'Z' => try result.append(arena, byte),
+        '-', '.', ' ' => try result.append(arena, '_'),
         else => continue,
     };
+    if (result.items.len == 0) return "foo";
     if (result.items.len > Package.Manifest.max_name_len)
         result.shrinkRetainingCapacity(Package.Manifest.max_name_len);
 
     return result.toOwnedSlice(arena);
+}
+
+test sanitizeExampleName {
+    var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    try std.testing.expectEqualStrings("foo_bar", try sanitizeExampleName(arena, "foo bar+"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, ""));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "!"));
+    try std.testing.expectEqualStrings("a", try sanitizeExampleName(arena, "!a"));
+    try std.testing.expectEqualStrings("a_b", try sanitizeExampleName(arena, "a.b!"));
+    try std.testing.expectEqualStrings("_01234", try sanitizeExampleName(arena, "01234"));
 }
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
