@@ -1179,10 +1179,17 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     }
 
                     // By this time, we depend on these libs being dynamically linked
-                    // libraries and not static libraries (the check for that needs to be earlier),
-                    // but they could be full paths to .so files, in which case we
-                    // want to avoid prepending "-l".
-                    argv.appendAssumeCapacity(try dso.path.toString(arena));
+                    // libraries and not static libraries (the check for that needs to be earlier).
+                    if (dso.name) |name| {
+                        if (dso.lib_directory.path) |path| {
+                            argv.appendAssumeCapacity("-L");
+                            argv.appendAssumeCapacity(path);
+                        }
+                        argv.appendAssumeCapacity(if (dso.weak) "-weak-l" else "-l");
+                        argv.appendAssumeCapacity(name);
+                    } else {
+                        argv.appendAssumeCapacity(try dso.path.toString(arena));
+                    }
                 },
             };
 
