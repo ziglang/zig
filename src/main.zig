@@ -4741,6 +4741,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     const cwd_path = try process.getCwdAlloc(arena);
     const cwd_basename = fs.path.basename(cwd_path);
+    const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
 
     const s = fs.path.sep_str;
     const template_paths = [_][]const u8{
@@ -4754,7 +4755,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const id = Package.randomId();
 
     for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), cwd_basename, template_path, id)) |_| {
+        if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, id)) |_| {
             std.log.info("created {s}", .{template_path});
             ok_count += 1;
         } else |err| switch (err) {
@@ -4769,6 +4770,23 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         std.log.info("see `zig build --help` for a menu of options", .{});
     }
     return cleanExit();
+}
+
+fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
+    if (bytes.len == 0) return "foo";
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    try result.append(arena, switch (bytes[0]) {
+        '_', 'a'...'z', 'A'...'Z' => |c| c,
+        else => '_',
+    });
+    for (bytes[1..]) |byte| switch (byte) {
+        '_', 'a'...'z', 'A'...'Z', '0'...'9' => try result.append(arena, byte),
+        else => continue,
+    };
+    if (result.items.len > Package.Manifest.max_name_len)
+        result.shrinkRetainingCapacity(Package.Manifest.max_name_len);
+
+    return result.toOwnedSlice(arena);
 }
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
@@ -7148,7 +7166,7 @@ fn cmdFetch(
     // The name to use in case the manifest file needs to be created now.
     const init_root_name = fs.path.basename(build_root.directory.path orelse cwd_path);
     var manifest, var ast = try loadManifest(gpa, arena, .{
-        .root_name = init_root_name,
+        .root_name = try sanitizeExampleName(arena, init_root_name),
         .dir = build_root.directory.handle,
         .color = color,
     });
