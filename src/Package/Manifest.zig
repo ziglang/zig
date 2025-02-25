@@ -10,6 +10,7 @@ const Package = @import("../Package.zig");
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const max_name_len = 32;
+pub const max_version_len = 32;
 
 pub const Dependency = struct {
     location: Location,
@@ -185,6 +186,9 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
+                if (version_text.len > max_version_len) {
+                    try appendError(p, main_tokens[field_init], "version string length {d} exceeds maximum of {d}", .{ version_text.len, max_version_len });
+                }
                 p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v undefined;
