@@ -3277,6 +3277,40 @@ const InitMetadataOptions = struct {
     program_code_size_hint: u64,
 };
 
+pub fn closeDebugInfo(self: *MachO) bool {
+    const d_sym = &(self.d_sym orelse return false);
+    d_sym.deinit();
+    self.d_sym = null;
+    return true;
+}
+
+pub fn reopenDebugInfo(self: *MachO) !void {
+    assert(self.d_sym == null);
+
+    assert(!self.base.comp.config.use_llvm);
+    assert(self.base.comp.config.debug_format == .dwarf);
+
+    const gpa = self.base.comp.gpa;
+    const sep = fs.path.sep_str;
+    const d_sym_path = try std.fmt.allocPrint(
+        gpa,
+        "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+        .{self.base.emit.sub_path},
+    );
+    defer gpa.free(d_sym_path);
+
+    var d_sym_bundle = try self.base.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
+    defer d_sym_bundle.close();
+
+    const d_sym_file = try d_sym_bundle.createFile(self.base.emit.sub_path, .{
+        .truncate = false,
+        .read = true,
+    });
+
+    self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
+    try self.d_sym.?.initMetadata(self);
+}
+
 // TODO: move to ZigObject
 fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     if (!self.base.isRelocatable()) {
@@ -3333,26 +3367,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         if (options.zo.dwarf) |*dwarf| {
             // Create dSYM bundle.
             log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
-
-            const gpa = self.base.comp.gpa;
-            const sep = fs.path.sep_str;
-            const d_sym_path = try std.fmt.allocPrint(
-                gpa,
-                "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
-                .{options.emit.sub_path},
-            );
-            defer gpa.free(d_sym_path);
-
-            var d_sym_bundle = try options.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
-            defer d_sym_bundle.close();
-
-            const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
-                .truncate = false,
-                .read = true,
-            });
-
-            self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
-            try self.d_sym.?.initMetadata(self);
+            try self.reopenDebugInfo();
             try dwarf.initMetadata();
         }
     }
