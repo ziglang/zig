@@ -36,6 +36,7 @@ pub const ErrorMessage = struct {
 };
 
 name: []const u8,
+id: u16,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -50,6 +51,8 @@ pub const ParseOptions = struct {
     allow_missing_paths_field: bool = false,
     /// Deprecated, to be removed after 0.14.0 is tagged.
     allow_name_string: bool = true,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_missing_id: bool = true,
 };
 
 pub const Error = Allocator.Error;
@@ -70,6 +73,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .errors = .{},
 
         .name = undefined,
+        .id = 0,
         .version = undefined,
         .version_node = 0,
         .dependencies = .{},
@@ -77,6 +81,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
         .allow_name_string = options.allow_name_string,
+        .allow_missing_id = options.allow_missing_id,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -92,6 +97,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
 
     return .{
         .name = p.name,
+        .id = p.id,
         .version = p.version,
         .version_node = p.version_node,
         .dependencies = try p.dependencies.clone(p.arena),
@@ -143,6 +149,7 @@ const Parse = struct {
     errors: std.ArrayListUnmanaged(ErrorMessage),
 
     name: []const u8,
+    id: u16,
     version: std.SemanticVersion,
     version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -150,6 +157,7 @@ const Parse = struct {
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
     allow_name_string: bool,
+    allow_missing_id: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
@@ -167,6 +175,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
+        var have_id = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -183,6 +192,9 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseName(p, field_init);
                 have_name = true;
+            } else if (mem.eql(u8, field_name, "id")) {
+                p.id = try parseId(p, field_init);
+                have_id = true;
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
@@ -204,6 +216,12 @@ const Parse = struct {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
             }
+        }
+
+        if (!have_id and !p.allow_missing_id) {
+            try appendError(p, main_token, "missing top-level 'id' field; suggested value: 0x{x}", .{
+                Package.randomId(),
+            });
         }
 
         if (!have_name) {
@@ -359,6 +377,33 @@ const Parse = struct {
         }
     }
 
+    fn parseId(p: *Parse, node: Ast.Node.Index) !u16 {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+        if (node_tags[node] != .number_literal) {
+            return fail(p, main_token, "expected integer literal", .{});
+        }
+        const token_bytes = ast.tokenSlice(main_token);
+        const parsed = std.zig.parseNumberLiteral(token_bytes);
+        const n = switch (parsed) {
+            .int => |n| n,
+            .big_int, .float => return fail(p, main_token, "expected u16 integer literal, found {s}", .{
+                @tagName(parsed),
+            }),
+            .failure => |err| return fail(p, main_token, "bad integer literal: {s}", .{@tagName(err)}),
+        };
+        const casted = std.math.cast(u16, n) orelse
+            return fail(p, main_token, "integer value {d} does not fit into u16", .{n});
+        switch (casted) {
+            0x0000, 0xffff => return fail(p, main_token, "id value 0x{x} reserved; use 0x{x} instead", .{
+                casted, Package.randomId(),
+            }),
+            else => return casted,
+        }
+    }
+
     fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
@@ -371,7 +416,7 @@ const Parse = struct {
                 return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
 
             if (name.len > max_name_len)
-                return fail(p, main_token, "name '{s}' exceeds max length of {d}", .{
+                return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
                     std.zig.fmtId(name), max_name_len,
                 });
 
@@ -386,7 +431,7 @@ const Parse = struct {
             return fail(p, main_token, "name must be a valid bare zig identifier", .{});
 
         if (ident_name.len > max_name_len)
-            return fail(p, main_token, "name '{s}' exceeds max length of {d}", .{
+            return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
                 std.zig.fmtId(ident_name), max_name_len,
             });
 

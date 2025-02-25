@@ -586,9 +586,11 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
     if (f.manifest) |man| {
         var version_buffer: [32]u8 = undefined;
         const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
-        return .init(f.computed_hash.digest, man.name, version, saturated_size);
+        return .init(f.computed_hash.digest, man.name, version, man.id, saturated_size);
     }
-    return .initNaked(f.computed_hash.digest, saturated_size);
+    // In the future build.zig.zon fields will be added to allow overriding these values
+    // for naked tarballs.
+    return .init(f.computed_hash.digest, "N", "V", 0xffff, saturated_size);
 }
 
 /// `computeHash` gets a free check for the existence of `build.zig`, but when
@@ -645,11 +647,13 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 
     f.manifest = try Manifest.parse(arena, ast.*, .{
         .allow_missing_paths_field = f.allow_missing_paths_field,
+        .allow_missing_id = f.allow_missing_paths_field,
+        .allow_name_string = f.allow_missing_paths_field,
     });
     const manifest = &f.manifest.?;
 
     if (manifest.errors.len > 0) {
-        const src_path = try eb.printString("{}{s}", .{ pkg_root, Manifest.basename });
+        const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
         try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }

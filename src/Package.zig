@@ -10,8 +10,16 @@ pub const multihash_len = 1 + 1 + Hash.Algo.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
+pub fn randomId() u16 {
+    return std.crypto.random.intRangeLessThan(u16, 0x0001, 0xffff);
+}
+
 /// A user-readable, file system safe hash that identifies an exact package
 /// snapshot, including file contents.
+///
+/// The hash is not only to prevent collisions but must resist attacks where
+/// the adversary fully controls the contents being hashed. Thus, it contains
+/// a full SHA-256 digest.
 ///
 /// This data structure can be used to store the legacy hash format too. Legacy
 /// hash format is scheduled to be removed after 0.14.0 is tagged.
@@ -26,7 +34,8 @@ pub const Hash = struct {
     pub const Algo = std.crypto.hash.sha2.Sha256;
     pub const Digest = [Algo.digest_length]u8;
 
-    pub const max_len = 32 + 1 + 32 + 1 + 12;
+    /// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+    pub const max_len = 32 + 1 + 32 + 1 + (16 + 32 + 192) / 6;
 
     pub fn fromSlice(s: []const u8) Hash {
         assert(s.len <= max_len);
@@ -62,46 +71,33 @@ pub const Hash = struct {
         try std.testing.expect(h.isOld());
     }
 
-    /// Produces "$name-$semver-$sizedhash".
+    /// Produces "$name-$semver-$hashplus".
     /// * name is the name field from build.zig.zon, truncated at 32 bytes and must
     ///   be a valid zig identifier
     /// * semver is the version field from build.zig.zon, truncated at 32 bytes
-    /// * sizedhash is the following 9-byte array, base64 encoded using -_ to make
+    /// * hashplus is the following 39-byte array, base64 encoded using -_ to make
     ///   it filesystem safe:
-    ///   - (4 bytes) LE u32 total decompressed size in bytes
-    ///   - (5 bytes) truncated SHA-256 of hashed files of the package
+    ///   - (2 bytes) LE u16 Package ID
+    ///   - (4 bytes) LE u32 total decompressed size in bytes, overflow saturated
+    ///   - (24 bytes) truncated SHA-256 digest of hashed files of the package
     ///
-    /// example: "nasm-2.16.1-2-BWdcABvF_jM1"
-    pub fn init(digest: Digest, name: []const u8, ver: []const u8, size: u32) Hash {
+    /// example: "nasm-2.16.1-3-AAD_ZlwACpGU-c3QXp_yNyn07Q5U9Rq-Cb1ur2G1"
+    pub fn init(digest: Digest, name: []const u8, ver: []const u8, id: u16, size: u32) Hash {
+        assert(name.len <= 32);
+        assert(ver.len <= 32);
         var result: Hash = undefined;
         var buf: std.ArrayListUnmanaged(u8) = .initBuffer(&result.bytes);
-        buf.appendSliceAssumeCapacity(name[0..@min(name.len, 32)]);
+        buf.appendSliceAssumeCapacity(name);
         buf.appendAssumeCapacity('-');
-        buf.appendSliceAssumeCapacity(ver[0..@min(ver.len, 32)]);
+        buf.appendSliceAssumeCapacity(ver);
         buf.appendAssumeCapacity('-');
-        var sizedhash: [9]u8 = undefined;
-        std.mem.writeInt(u32, sizedhash[0..4], size, .little);
-        sizedhash[4..].* = digest[0..5].*;
-        _ = std.base64.url_safe_no_pad.Encoder.encode(buf.addManyAsArrayAssumeCapacity(12), &sizedhash);
+        var hashplus: [30]u8 = undefined;
+        std.mem.writeInt(u16, hashplus[0..2], id, .little);
+        std.mem.writeInt(u32, hashplus[2..6], size, .little);
+        hashplus[6..].* = digest[0..24].*;
+        _ = std.base64.url_safe_no_pad.Encoder.encode(buf.addManyAsArrayAssumeCapacity(40), &hashplus);
         @memset(buf.unusedCapacitySlice(), 0);
         return result;
-    }
-
-    /// Produces "$hashiname-N-$sizedhash". For packages that lack "build.zig.zon" metadata.
-    /// * hashiname is [5..][0..24] bytes of the SHA-256, urlsafe-base64-encoded, for a total of 32 bytes encoded
-    /// * the semver section is replaced with a hardcoded N which stands for
-    ///   "naked". It acts as a version number so that any future updates to the
-    ///   hash format can tell this hash format apart. Note that "N" is an
-    ///   invalid semver.
-    /// * sizedhash is the same as in `init`.
-    ///
-    /// The hash is broken up this way so that "sizedhash" can be calculated
-    /// exactly the same way in both cases, and so that "name" and "hashiname" can
-    /// be used interchangeably in both cases.
-    pub fn initNaked(digest: Digest, size: u32) Hash {
-        var name: [32]u8 = undefined;
-        _ = std.base64.url_safe_no_pad.Encoder.encode(&name, digest[5..][0..24]);
-        return init(digest, &name, "N", size);
     }
 
     /// Produces a unique hash based on the path provided. The result should
@@ -144,7 +140,7 @@ pub const MultihashFunction = enum(u16) {
 
 pub const multihash_function: MultihashFunction = switch (Hash.Algo) {
     std.crypto.hash.sha2.Sha256 => .@"sha2-256",
-    else => @compileError("unreachable"),
+    else => unreachable,
 };
 
 pub fn multiHashHexDigest(digest: Hash.Digest) MultiHashHexDigest {

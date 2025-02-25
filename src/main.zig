@@ -4751,8 +4751,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     var ok_count: usize = 0;
 
+    const id = Package.randomId();
+
     for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
+        if (templates.write(arena, fs.cwd(), cwd_basename, template_path, id)) |_| {
             std.log.info("created {s}", .{template_path});
             ok_count += 1;
         } else |err| switch (err) {
@@ -7430,10 +7432,10 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
+                const id = Package.randomId();
                 var templates = findTemplates(gpa, arena);
                 defer templates.deinit();
-
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
+                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, id) catch |e| {
                     fatal("unable to write {s}: {s}", .{
                         Package.Manifest.basename, @errorName(e),
                     });
@@ -7491,6 +7493,7 @@ const Templates = struct {
         out_dir: fs.Dir,
         root_name: []const u8,
         template_path: []const u8,
+        id: u16,
     ) !void {
         if (fs.path.dirname(template_path)) |dirname| {
             out_dir.makePath(dirname) catch |err| {
@@ -7504,13 +7507,28 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
-        for (contents) |c| {
-            if (c == '$') {
-                try templates.buffer.appendSlice(root_name);
-            } else {
-                try templates.buffer.append(c);
-            }
-        }
+        var state: enum { start, dollar } = .start;
+        for (contents) |c| switch (state) {
+            .start => switch (c) {
+                '$' => state = .dollar,
+                else => try templates.buffer.append(c),
+            },
+            .dollar => switch (c) {
+                'n' => {
+                    try templates.buffer.appendSlice(root_name);
+                    state = .start;
+                },
+                'i' => {
+                    try templates.buffer.writer().print("0x{x}", .{id});
+                    state = .start;
+                },
+                'v' => {
+                    try templates.buffer.appendSlice(build_options.version);
+                    state = .start;
+                },
+                else => fatal("unknown substitution: ${c}", .{c}),
+            },
+        };
 
         return out_dir.writeFile(.{
             .sub_path = template_path,

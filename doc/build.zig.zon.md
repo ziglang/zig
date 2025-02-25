@@ -10,7 +10,7 @@ build.zig.
 
 ### `name`
 
-String. Required.
+Enum literal. Required.
 
 This is the default name used by packages depending on this one. For example,
 when a user runs `zig fetch --save <url>`, this field is used as the key in the
@@ -20,11 +20,30 @@ will stick with this provided value.
 It is redundant to include "zig" in this name because it is already within the
 Zig package namespace.
 
+Must be a valid bare Zig identifier (don't `@` me), limited to 32 bytes.
+
+### `id`
+
+Together with name, this represents a globally unique package identifier. This
+field should be initialized with a 16-bit random number when the package is
+first created, and then *never change*. This allows Zig to unambiguously detect
+when one package is an updated version of another.
+
+When forking a Zig project, this id should be regenerated with a new random
+number if the upstream project is still maintained. Otherwise, the fork is
+*hostile*, attempting to take control over the original project's identity.
+
+`0x0000` is invalid because it obviously means a random number wasn't used.
+
+`0xffff` is reserved to represent "naked" packages.
+
 ### `version`
 
 String. Required.
 
 [semver](https://semver.org/)
+
+Limited to 32 bytes.
 
 ### `minimum_zig_version`
 
