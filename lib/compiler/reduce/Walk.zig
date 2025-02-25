@@ -444,9 +444,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         },
 
         .error_set_decl => {
-            const error_token = ast.nodeMainToken(node);
-            const lbrace = error_token + 1;
-            const rbrace = ast.nodeData(node).token;
+            const lbrace, const rbrace = ast.nodeData(node).token_and_token;
 
             var i = lbrace + 1;
             while (i < rbrace) : (i += 1) {

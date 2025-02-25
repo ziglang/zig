@@ -739,8 +739,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .error_set_decl => {
             const error_token = tree.nodeMainToken(node);
-            const lbrace = error_token + 1;
-            const rbrace = tree.nodeData(node).token;
+            const lbrace, const rbrace = tree.nodeData(node).token_and_token;
 
             try renderToken(r, error_token, .none);
 

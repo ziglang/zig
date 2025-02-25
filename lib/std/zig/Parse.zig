@@ -2763,7 +2763,12 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
                 return try p.addNode(.{
                     .tag = .error_set_decl,
                     .main_token = error_token,
-                    .data = .{ .token = p.tok_i - 1 }, // rbrace
+                    .data = .{
+                        .token_and_token = .{
+                            error_token + 1, // lbrace
+                            p.tok_i - 1, // rbrace
+                        },
+                    },
                 });
             },
             else => {
