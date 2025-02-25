@@ -345,7 +345,7 @@ var is_fuzz_test: bool = undefined;
 extern fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void;
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
+extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void, usize, usize) void;
 extern fn fuzzer_coverage_id() u64;
 
 pub fn fuzz(
@@ -398,6 +398,26 @@ pub fn fuzz(
             }
         }
     };
+
+    if (options.len_range.min > options.len_range.max) {
+        std.debug.lockStdErr();
+        std.debug.print("input length range minimum greater than maximum\n", .{});
+        std.process.exit(1);
+    }
+
+    for (options.corpus, 0..) |input, i| {
+        if (input.len < options.len_range.min) {
+            std.debug.lockStdErr();
+            std.debug.print("length of corpus entry {} is less than minimum size\n", .{i});
+            std.process.exit(1);
+        }
+        if (input.len > options.len_range.max) {
+            std.debug.lockStdErr();
+            std.debug.print("length of corpus entry {} is greater than maximum size\n", .{i});
+            std.process.exit(1);
+        }
+    }
+
     if (builtin.fuzz) {
         const prev_allocator_state = testing.allocator_instance;
         testing.allocator_instance = .{};
@@ -406,7 +426,11 @@ pub fn fuzz(
         for (options.corpus) |elem| fuzzer_init_corpus_elem(elem.ptr, elem.len);
 
         global.ctx = context;
-        fuzzer_start(&global.fuzzer_one);
+        fuzzer_start(
+            &global.fuzzer_one,
+            options.len_range.min,
+            options.len_range.max,
+        );
         return;
     }
 
@@ -416,7 +440,12 @@ pub fn fuzz(
         try testOne(context, input);
     }
 
-    // In case there is no provided corpus, also use an empty
+    // In case there is no provided corpus, also use a random
     // string as a smoke test.
-    try testOne(context, "");
+    var random = std.Random.DefaultPrng.init(0);
+    const rng = random.random();
+    const input = try testing.allocator.alloc(u8, options.len_range.min);
+    defer testing.allocator.free(input);
+    rng.bytes(input);
+    try testOne(context, input);
 }
