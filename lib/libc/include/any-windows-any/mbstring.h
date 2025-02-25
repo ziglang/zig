@@ -31,7 +31,14 @@ extern "C" {
 
 #ifndef _MBSTRING_DEFINED
 #define _MBSTRING_DEFINED
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma push_macro("_mbsdup")
+#undef _mbsdup
+#endif
   _CRTIMP unsigned char *__cdecl _mbsdup(const unsigned char *_Str);
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma pop_macro("_mbsdup")
+#endif
   _CRTIMP unsigned int __cdecl _mbbtombc(unsigned int _Ch);
   _CRTIMP unsigned int __cdecl _mbbtombc_l(unsigned int _Ch,_locale_t _Locale);
   _CRTIMP int __cdecl _mbbtype(unsigned char _Ch,int _CType);

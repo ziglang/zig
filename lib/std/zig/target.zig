@@ -242,6 +242,8 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
             return true;
+        if (eqlIgnoreCase(ignore_case, name, "wiaguid"))
+            return true;
         if (eqlIgnoreCase(ignore_case, name, "winpthread"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "wmcodecdspuuid"))
