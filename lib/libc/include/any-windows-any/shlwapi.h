@@ -438,8 +438,8 @@ extern "C" {
   LWSTDAPI_(WINBOOL) PathMatchSpecW(LPCWSTR pszFile,LPCWSTR pszSpec);
   LWSTDAPI_(int) PathParseIconLocationA(LPSTR pszIconFile);
   LWSTDAPI_(int) PathParseIconLocationW(LPWSTR pszIconFile);
-  LWSTDAPI_(void) PathQuoteSpacesA(LPSTR lpsz);
-  LWSTDAPI_(void) PathQuoteSpacesW(LPWSTR lpsz);
+  LWSTDAPI_(WINBOOL) PathQuoteSpacesA(LPSTR lpsz);
+  LWSTDAPI_(WINBOOL) PathQuoteSpacesW(LPWSTR lpsz);
   LWSTDAPI_(WINBOOL) PathRelativePathToA(LPSTR pszPath,LPCSTR pszFrom,DWORD dwAttrFrom,LPCSTR pszTo,DWORD dwAttrTo);
   LWSTDAPI_(WINBOOL) PathRelativePathToW(LPWSTR pszPath,LPCWSTR pszFrom,DWORD dwAttrFrom,LPCWSTR pszTo,DWORD dwAttrTo);
   LWSTDAPI_(void) PathRemoveArgsA(LPSTR pszPath);
