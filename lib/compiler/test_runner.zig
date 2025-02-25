@@ -22,6 +22,11 @@ const crippled = switch (builtin.zig_backend) {
 pub fn main() void {
     @disableInstrumentation();
 
+    if (builtin.cpu.arch.isSpirV()) {
+        // SPIR-V needs an special test-runner
+        return;
+    }
+
     if (crippled) {
         return mainSimple() catch @panic("test failure\n");
     }

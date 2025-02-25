@@ -3463,7 +3463,15 @@ fn clearCachedResolvedReferences(zcu: *Zcu) void {
 }
 
 pub fn errorSetBits(zcu: *const Zcu) u16 {
+    const target = zcu.getTarget();
+
     if (zcu.error_limit == 0) return 0;
+    if (target.cpu.arch == .spirv64) {
+        if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
+            return 32;
+        }
+    }
+
     return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
 }
 

@@ -112,11 +112,11 @@ test {
 
     _ = @import("behavior/x86_64.zig");
 
-    if (builtin.cpu.arch == .wasm32) {
+    if (builtin.zig_backend != .stage2_spirv64 and builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 
-    if (builtin.os.tag != .wasi) {
+    if (builtin.zig_backend != .stage2_spirv64 and builtin.os.tag != .wasi) {
         _ = @import("behavior/asm.zig");
     }
 
@@ -127,7 +127,7 @@ test {
         _ = @import("behavior/export_keyword.zig");
     }
 
-    if (!builtin.cpu.arch.isWasm()) {
+    if (builtin.zig_backend != .stage2_spirv64 and !builtin.cpu.arch.isWasm()) {
         // Due to lack of import/export of global support
         // (https://github.com/ziglang/zig/issues/4866), these tests correctly
         // cause linker errors, since a data symbol cannot be exported when

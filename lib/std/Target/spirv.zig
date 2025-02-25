@@ -17,6 +17,7 @@ pub const Feature = enum {
     float64,
     addresses,
     matrix,
+    storage_push_constant16,
     kernel,
     generic_pointer,
     vector16,
@@ -35,92 +36,97 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.v1_0)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.0",
+        .description = "Enable version 1.0",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v1_1)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.1",
+        .description = "Enable version 1.1",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.v1_2)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.2",
+        .description = "Enable version 1.2",
         .dependencies = featureSet(&[_]Feature{.v1_1}),
     };
     result[@intFromEnum(Feature.v1_3)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.3",
+        .description = "Enable version 1.3",
         .dependencies = featureSet(&[_]Feature{.v1_2}),
     };
     result[@intFromEnum(Feature.v1_4)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.4",
+        .description = "Enable version 1.4",
         .dependencies = featureSet(&[_]Feature{.v1_3}),
     };
     result[@intFromEnum(Feature.v1_5)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.5",
+        .description = "Enable version 1.5",
         .dependencies = featureSet(&[_]Feature{.v1_4}),
     };
     result[@intFromEnum(Feature.v1_6)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.6",
+        .description = "Enable version 1.6",
         .dependencies = featureSet(&[_]Feature{.v1_5}),
     };
     result[@intFromEnum(Feature.int8)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Int8",
+        .description = "Enable Int8 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.int16)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Int16",
+        .description = "Enable Int16 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.int64)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Int64",
+        .description = "Enable Int64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.float16)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Float16",
+        .description = "Enable Float16 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.float64)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Float64",
+        .description = "Enable Float64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.addresses)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Addresses",
+        .description = "Enable either the Addresses capability or, SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.matrix)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Matrix",
+        .description = "Enable Matrix capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
+    result[@intFromEnum(Feature.storage_push_constant16)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
+        .dependencies = featureSet(&[_]Feature{.v1_3}),
     };
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Kernel",
+        .description = "Enable Kernel capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.generic_pointer)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability GenericPointer",
+        .description = "Enable GenericPointer capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .addresses }),
     };
     result[@intFromEnum(Feature.vector16)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Vector16",
+        .description = "Enable Vector16 capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .kernel }),
     };
     result[@intFromEnum(Feature.shader)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Shader",
+        .description = "Enable Shader capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .matrix }),
     };
     const ti = @typeInfo(Feature);
