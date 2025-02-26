@@ -4745,36 +4745,36 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@deprecated(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <pre>{#syntax#}@deprecated() void{#endsyntax#}</pre>
       <p>
-      Used to mark a given code path as deprecated. It evaluates to the same value
-      passed in as argument, or the void value when given none.
+      Marks a given code path as scheduled for removal. Evaluates to the same
+      value passed in as argument, or the {#syntax#}void{#endsyntax#} value
+      when given none.
       </p>
       <p>
-      As an example, a library that wishes to move or rename a declaration, while
-      deprecating usage of the old name can use {#syntax#}@deprecated{#endsyntax#} like so:
+      When a public declaration has been moved to a new location, the old
+      location can be marked {#syntax#}@deprecated{#endsyntax#}:
       </p>
       {#syntax_block|zig|root.zig#}
 pub const fooToBar = @deprecated(bar.fromFoo); // moved
       {#end_syntax_block#}
-
       <p>
-      By default it is a <b>compile error</b> to reference deprecated code in
-      a module defined by the root package, while it is not in modules defined
-      by dependencies. This behavior can be overridden for the entire dependency
-      tree by passing {#syntax#}-fallow-deprecated{#endsyntax#} or
-      {#syntax#}-fno-allow-deprecated{#endsyntax#} to {#syntax#}zig build{#endsyntax#}.
+      By default deprecated code paths are disallowed in a module defined by
+      the root package but allowed in modules defined by the rest of the
+      dependency tree. This behavior can be overridden by passing
+      <code>-fallow-deprecated</code> or <code>-fno-allow-deprecated</code> to
+      <code>zig build</code>.
       </p>
       <p>
-      Usage of this builtin is meant to help <i>direct</i> consumers discover (and remove)
-      their dependance on deprecated code during the grace period before a deprecated
-      functionality is turned into a {#syntax#}@compileError{#endsyntax#} or
-      removed entirely.
+      The purpose of {#syntax#}@deprecated{#endsyntax#} is to provide at least
+      one version (a "grace period") of a package that supports both old and new APIs
+      simultaneously, while providing tooling for programmers to discover what needs
+      to be upgraded to migrate to the new API. Such a grace period has the key property
+      that it allows a project's dependency tree to be upgraded <em>one package at a time</em>.
       </p>
-
       <p>
-      Using {#syntax#}@deprecated{#endsyntax#} without an argument can be useful inside of blocks:
+      Using {#syntax#}@deprecated{#endsyntax#} without an argument can be
+      useful inside of conditionally compiled blocks:
       </p>
       {#code|test_deprecated_builtin.zig#}
-
       {#header_close#}
 
       {#header_open|@divExact#}
