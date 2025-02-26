@@ -1195,7 +1195,7 @@ pub fn addCliTests(b: *std.Build) *Step {
                 \\}
                 \\
                 \\test {
-                \\   if (bad != 42) return error.Bad;   
+                \\   if (bad != 42) return error.Bad;
                 \\}
             ;
 

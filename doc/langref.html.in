@@ -2288,7 +2288,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the `==` and `!=` operators.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -4086,7 +4086,7 @@ fn performFn(start_value: i32) i32 {
       special-case syntax.
       </p>
       <p>
-			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
+      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
       {#code|generic_data_structure.zig#}
 
@@ -4291,10 +4291,10 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       <pre>{#syntax#}@addrSpaceCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts a pointer from one address space to another. The new address space is inferred
-			based on the result type. Depending on the current target and address spaces, this cast
-			may be a no-op, a complex operation, or illegal. If the cast is legal, then the resulting
-			pointer points to the same memory location as the pointer operand. It is always valid to
-			cast a pointer between the same address spaces.
+      based on the result type. Depending on the current target and address spaces, this cast
+      may be a no-op, a complex operation, or illegal. If the cast is legal, then the resulting
+      pointer points to the same memory location as the pointer operand. It is always valid to
+      cast a pointer between the same address spaces.
       </p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
@@ -4307,7 +4307,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       <pre>{#syntax#}@alignCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}?*T{#endsyntax#}, or {#syntax#}[]T{#endsyntax#}.
-			Changes the alignment of a pointer. The alignment to use is inferred based on the result type.
+      Changes the alignment of a pointer. The alignment to use is inferred based on the result type.
       </p>
       <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
       to the generated code to make sure the pointer is aligned as promised.</p>
@@ -4384,7 +4384,7 @@ comptime {
       <pre>{#syntax#}@bitCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts a value of one type to another type. The return type is the
-			inferred result type.
+      inferred result type.
       </p>
       <p>
       Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
@@ -4740,41 +4740,41 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#see_also|@cVaArg|@cVaCopy|@cVaEnd#}
       {#header_close#}
-	
+
       {#header_open|@deprecated#}
       <pre>{#syntax#}@deprecated(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <pre>{#syntax#}@deprecated() void{#endsyntax#}</pre>
       <p>
-	  Used to mark a given code path as deprecated. It evaluates to the same value
-	  passed in as argument, or the void value when given none.
+      Used to mark a given code path as deprecated. It evaluates to the same value
+      passed in as argument, or the void value when given none.
       </p>
       <p>
       As an example, a library that wishes to move or rename a declaration, while
-	  deprecating usage of the old name can use {#syntax#}@deprecated{#endsyntax#} like so:
-	  </p>
+      deprecating usage of the old name can use {#syntax#}@deprecated{#endsyntax#} like so:
+      </p>
       {#syntax_block|zig|root.zig#}
 pub const fooToBar = @deprecated(bar.fromFoo); // moved
       {#end_syntax_block#}
 
       <p>
       By default it is a <b>compile error</b> to reference deprecated code in
-	  a module defined by the root package, while it is not in modules defined
-	  by dependencies. This behavior can be overridden for the entire dependency
-	  tree by passing {#syntax#}-fallow-deprecated{#endsyntax#} or
-	  {#syntax#}-fno-allow-deprecated{#endsyntax#} to {#syntax#}zig build{#endsyntax#}.
+      a module defined by the root package, while it is not in modules defined
+      by dependencies. This behavior can be overridden for the entire dependency
+      tree by passing {#syntax#}-fallow-deprecated{#endsyntax#} or
+      {#syntax#}-fno-allow-deprecated{#endsyntax#} to {#syntax#}zig build{#endsyntax#}.
       </p>
       <p>
-	  Usage of this builtin is meant to help <i>direct</i> consumers discover (and remove)
-	  their dependance on deprecated code during the grace period before a deprecated
-	  functionality is turned into a {#syntax#}@compileError{#endsyntax#} or
-	  removed entirely.   
+      Usage of this builtin is meant to help <i>direct</i> consumers discover (and remove)
+      their dependance on deprecated code during the grace period before a deprecated
+      functionality is turned into a {#syntax#}@compileError{#endsyntax#} or
+      removed entirely.
       </p>
 
-	  <p>
+      <p>
       Using {#syntax#}@deprecated{#endsyntax#} without an argument can be useful inside of blocks:
-	  </p>
+      </p>
       {#code|test_deprecated_builtin.zig#}
-	
+
       {#header_close#}
 
       {#header_open|@divExact#}
@@ -4891,8 +4891,8 @@ pub const fooToBar = @deprecated(bar.fromFoo); // moved
       <pre>{#syntax#}@errorCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an error set or error union value from one error set to another error set. The return type is the
-			inferred result type. Attempting to convert an error which is not in the destination error
-			set results in safety-checked {#link|Illegal Behavior#}.
+      inferred result type. Attempting to convert an error which is not in the destination error
+      set results in safety-checked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -4971,7 +4971,7 @@ pub const fooToBar = @deprecated(bar.fromFoo); // moved
       <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromFloat#}. This operation is legal
+      To convert the other way, use {#link|@intFromFloat#}. This operation is legal
       for all values of all integer types.
       </p>
       {#header_close#}
@@ -5063,7 +5063,7 @@ pub const fooToBar = @deprecated(bar.fromFoo); // moved
       <pre>{#syntax#}@intCast(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
-			The return type is the inferred result type.
+      The return type is the inferred result type.
       Attempting to convert a number which is out of range of the destination type results in
       safety-checked {#link|Illegal Behavior#}.
       </p>
@@ -5316,7 +5316,7 @@ pub const fooToBar = @deprecated(bar.fromFoo); // moved
       <pre>{#syntax#}@ptrFromInt(address: usize) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to a {#link|pointer|Pointers#}. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
+      To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
       which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
       {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
       </p>
