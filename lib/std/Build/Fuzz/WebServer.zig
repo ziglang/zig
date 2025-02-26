@@ -628,17 +628,9 @@ fn prepareTables(
         return error.AlreadyReported;
     };
 
-    // Account for bit-size mismatch between fs.getEndPos() and posix.mmap() ideas about file length
-    if (file_size >= std.math.maxInt(usize)) {
-        // maxInt(usize) may be too large a ceiling for some libc's
-        log.err("coverage file '{}' is too large to mmap", .{coverage_file_path});
-        return error.OutOfMemory;
-    }
-    const file_usize: usize = @truncate(file_size);
-
     const mapped_memory = std.posix.mmap(
         null,
-        file_usize,
+        file_size,
         std.posix.PROT.READ,
         .{ .TYPE = .SHARED },
         coverage_file.handle,
