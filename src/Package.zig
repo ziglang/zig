@@ -11,20 +11,19 @@ pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
 pub const Nonce = packed struct(u64) {
-    id: u16,
-    reserved: u16 = 0,
+    id: u32,
     checksum: u32,
 
     pub fn generate(name: []const u8) Nonce {
         return .{
-            .id = std.crypto.random.intRangeLessThan(u16, 0x0001, 0xffff),
+            .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
             .checksum = std.hash.Crc32.hash(name),
         };
     }
 
     pub fn validate(n: Nonce, name: []const u8) bool {
         switch (n.id) {
-            0x0000, 0xffff => return false,
+            0x00000000, 0xffffffff => return false,
             else => return std.hash.Crc32.hash(name) == n.checksum,
         }
     }
@@ -54,8 +53,8 @@ pub const Hash = struct {
     pub const Algo = std.crypto.hash.sha2.Sha256;
     pub const Digest = [Algo.digest_length]u8;
 
-    /// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
-    pub const max_len = 32 + 1 + 32 + 1 + (16 + 32 + 192) / 6;
+    /// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+    pub const max_len = 32 + 1 + 32 + 1 + (32 + 32 + 200) / 6;
 
     pub fn fromSlice(s: []const u8) Hash {
         assert(s.len <= max_len);
@@ -96,14 +95,12 @@ pub const Hash = struct {
     ///   bytes and assumed be a valid zig identifier
     /// * semver is the version field from build.zig.zon, asserted to be at
     ///   most 32 bytes
-    /// * hashplus is the following 39-byte array, base64 encoded using -_ to make
+    /// * hashplus is the following 33-byte array, base64 encoded using -_ to make
     ///   it filesystem safe:
-    ///   - (2 bytes) LE u16 Package ID
+    ///   - (4 bytes) LE u32 Package ID
     ///   - (4 bytes) LE u32 total decompressed size in bytes, overflow saturated
-    ///   - (24 bytes) truncated SHA-256 digest of hashed files of the package
-    ///
-    /// example: "nasm-2.16.1-3-AAD_ZlwACpGU-c3QXp_yNyn07Q5U9Rq-Cb1ur2G1"
-    pub fn init(digest: Digest, name: []const u8, ver: []const u8, id: u16, size: u32) Hash {
+    ///   - (25 bytes) truncated SHA-256 digest of hashed files of the package
+    pub fn init(digest: Digest, name: []const u8, ver: []const u8, id: u32, size: u32) Hash {
         assert(name.len <= 32);
         assert(ver.len <= 32);
         var result: Hash = undefined;
@@ -112,11 +109,11 @@ pub const Hash = struct {
         buf.appendAssumeCapacity('-');
         buf.appendSliceAssumeCapacity(ver);
         buf.appendAssumeCapacity('-');
-        var hashplus: [30]u8 = undefined;
-        std.mem.writeInt(u16, hashplus[0..2], id, .little);
-        std.mem.writeInt(u32, hashplus[2..6], size, .little);
-        hashplus[6..].* = digest[0..24].*;
-        _ = std.base64.url_safe_no_pad.Encoder.encode(buf.addManyAsArrayAssumeCapacity(40), &hashplus);
+        var hashplus: [33]u8 = undefined;
+        std.mem.writeInt(u32, hashplus[0..4], id, .little);
+        std.mem.writeInt(u32, hashplus[4..8], size, .little);
+        hashplus[8..].* = digest[0..25].*;
+        _ = std.base64.url_safe_no_pad.Encoder.encode(buf.addManyAsArrayAssumeCapacity(44), &hashplus);
         @memset(buf.unusedCapacitySlice(), 0);
         return result;
     }
@@ -194,8 +191,8 @@ test Hash {
         0xc7, 0xf5, 0x71, 0xb7, 0xb4, 0xe7, 0x6f, 0x3c, 0xdb, 0x87, 0x7a, 0x7f, 0xdd, 0xf9, 0x77, 0x87,
         0x9d, 0xd3, 0x86, 0xfa, 0x73, 0x57, 0x9a, 0xf7, 0x9d, 0x1e, 0xdb, 0x8f, 0x3a, 0xd9, 0xbd, 0x9f,
     };
-    const result: Hash = .init(example_digest, "nasm", "2.16.1-2", 0xcafe, 10 * 1024 * 1024);
-    try std.testing.expectEqualStrings("nasm-2.16.1-2-_soAAKAAx_Vxt7Tnbzzbh3p_3fl3h53ThvpzV5r3", result.toSlice());
+    const result: Hash = .init(example_digest, "nasm", "2.16.1-3", 0xcafebabe, 10 * 1024 * 1024);
+    try std.testing.expectEqualStrings("nasm-2.16.1-3-vrr-ygAAoADH9XG3tOdvPNuHen_d-XeHndOG-nNXmved", result.toSlice());
 }
 
 test {

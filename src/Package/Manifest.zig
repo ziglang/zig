@@ -36,7 +36,7 @@ pub const ErrorMessage = struct {
 };
 
 name: []const u8,
-id: u16,
+id: u32,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -149,7 +149,7 @@ const Parse = struct {
     errors: std.ArrayListUnmanaged(ErrorMessage),
 
     name: []const u8,
-    id: u16,
+    id: u32,
     version: std.SemanticVersion,
     version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),

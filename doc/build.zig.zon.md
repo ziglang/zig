@@ -22,9 +22,11 @@ Zig package namespace.
 
 Must be a valid bare Zig identifier (don't `@` me), limited to 32 bytes.
 
+Together with `nonce`, this represents a globally unique package identifier.
+
 ### `nonce`
 
-Together with name, this represents a globally unique package identifier. This
+Together with `name`, this represents a globally unique package identifier. This
 field is auto-initialized by the toolchain when the package is first created,
 and then *never changes*. This allows Zig to unambiguously detect when one
 package is an updated version of another.
@@ -34,14 +36,14 @@ project is still maintained. Otherwise, the fork is *hostile*, attempting to
 take control over the original project's identity. The nonce can be regenerated
 by deleting the field and running `zig build`.
 
-This 64-bit integer is the combination of a 16-bit id component, a 32-bit
-checksum, and 16 bits of reserved zeroes.
+This 64-bit integer is the combination of a 32-bit id component and a 32-bit
+checksum.
 
 The id component within the nonce has these restrictions:
 
-`0x0000` is reserved for legacy packages.
+`0x00000000` is reserved for legacy packages.
 
-`0xffff` is reserved to represent "naked" packages.
+`0xffffffff` is reserved to represent "naked" packages.
 
 The checksum is computed from `name` and serves to protect Zig users from
 accidental id collisions.
