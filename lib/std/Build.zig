@@ -94,9 +94,6 @@ available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
 
-/// `true` only for the root `Build`; `false` for any `Build` belonging to a dependency.
-is_root: bool = false,
-
 pub const ReleaseMode = enum {
     off,
     any,
@@ -121,10 +118,11 @@ pub const Graph = struct {
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     incremental: ?bool = null,
-    allow_deprecated: ?bool = null,
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    allow_deprecated: ?bool = null,
+    root_builder: *std.Build,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -308,7 +306,6 @@ pub fn create(
         .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
-        .is_root = true,
     };
     try b.top_level_steps.put(arena, b.install_tls.step.name, &b.install_tls);
     try b.top_level_steps.put(arena, b.uninstall_tls.step.name, &b.uninstall_tls);

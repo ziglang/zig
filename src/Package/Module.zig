@@ -238,7 +238,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
     const allow_deprecated = b: {
         if (options.inherited.allow_deprecated) |x| break :b x;
-        if (options.parent) |p| break :b p.allow_deprecated;
         break :b false;
     };
 

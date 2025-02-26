@@ -80,6 +80,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .root_builder = undefined, // populated below
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -94,6 +95,7 @@ pub fn main() !void {
         local_cache_directory,
         dependencies.root_deps,
     );
+    graph.root_builder = builder;
 
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
