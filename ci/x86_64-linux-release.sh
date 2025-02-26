@@ -76,7 +76,7 @@ stage3-release/bin/zig build \
   -Denable-llvm \
   -Dno-lib \
   -Doptimize=ReleaseFast \
-  -Dstrip \
+  -Dstrip=all \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \
   -Dversion-string="$(stage3-release/bin/zig version)"
