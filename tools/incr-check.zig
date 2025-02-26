@@ -108,6 +108,7 @@ pub fn main() !void {
             "build-exe",
             case.root_source_file,
             "-fincremental",
+            "-fno-ubsan-rt",
             "-target",
             target.query,
             "--cache-dir",

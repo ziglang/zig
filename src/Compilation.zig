@@ -78,7 +78,8 @@ implib_emit: ?Path,
 /// This is non-null when `-femit-docs` is provided.
 docs_emit: ?Path,
 root_name: [:0]const u8,
-include_compiler_rt: bool,
+compiler_rt_strat: RtStrat,
+ubsan_rt_strat: RtStrat,
 /// Resolved into known paths, any GNU ld scripts already resolved.
 link_inputs: []const link.Input,
 /// Needed only for passing -F args to clang.
@@ -226,6 +227,12 @@ libunwind_static_lib: ?CrtFile = null,
 /// Populated when we build the TSAN library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 tsan_lib: ?CrtFile = null,
+/// Populated when we build the UBSAN library. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+ubsan_rt_lib: ?CrtFile = null,
+/// Populated when we build the UBSAN object. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+ubsan_rt_obj: ?CrtFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CrtFile = null,
@@ -283,6 +290,8 @@ digest: ?[Cache.bin_digest_len]u8 = null,
 const QueuedJobs = struct {
     compiler_rt_lib: bool = false,
     compiler_rt_obj: bool = false,
+    ubsan_rt_lib: bool = false,
+    ubsan_rt_obj: bool = false,
     fuzzer_lib: bool = false,
     update_builtin_zig: bool,
     musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = @splat(false),
@@ -789,6 +798,7 @@ pub const MiscTask = enum {
     libcxx,
     libcxxabi,
     libtsan,
+    libubsan,
     libfuzzer,
     wasi_libc_crt_file,
     compiler_rt,
@@ -1064,6 +1074,7 @@ pub const CreateOptions = struct {
     /// Position Independent Executable. If the output mode is not an
     /// executable this field is ignored.
     want_compiler_rt: ?bool = null,
+    want_ubsan_rt: ?bool = null,
     want_lto: ?bool = null,
     function_sections: bool = false,
     data_sections: bool = false,
@@ -1245,6 +1256,8 @@ fn addModuleTableToCacheHash(
     }
 }
 
+const RtStrat = enum { none, lib, obj, zcu };
+
 pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compilation {
     const output_mode = options.config.output_mode;
     const is_dyn_lib = switch (output_mode) {
@@ -1276,6 +1289,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables != .none;
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
+        const any_sanitize_c = options.config.any_sanitize_c or options.root_mod.sanitize_c;
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
@@ -1294,10 +1308,16 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
-        const include_compiler_rt = options.want_compiler_rt orelse
-            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
+        const compiler_rt_strat: RtStrat = s: {
+            if (options.skip_linker_dependencies) break :s .none;
+            const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
+            if (!want) break :s .none;
+            if (have_zcu and output_mode == .Obj) break :s .zcu;
+            if (is_exe_or_dyn_lib) break :s .lib;
+            break :s .obj;
+        };
 
-        if (include_compiler_rt and output_mode == .Obj) {
+        if (compiler_rt_strat == .zcu) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
             // injected into the object.
             const compiler_rt_mod = try Package.Module.create(arena, .{
@@ -1321,6 +1341,38 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .builtin_modules = null, // `builtin_mod` is set
             });
             try options.root_mod.deps.putNoClobber(arena, "compiler_rt", compiler_rt_mod);
+        }
+
+        // unlike compiler_rt, we always want to go through the `_ = @import("ubsan-rt")`
+        // approach, since the ubsan runtime uses quite a lot of the standard library
+        // and this reduces unnecessary bloat.
+        const ubsan_rt_strat: RtStrat = s: {
+            const want_ubsan_rt = options.want_ubsan_rt orelse (any_sanitize_c and is_exe_or_dyn_lib);
+            if (!want_ubsan_rt) break :s .none;
+            if (options.skip_linker_dependencies) break :s .none;
+            if (have_zcu) break :s .zcu;
+            if (is_exe_or_dyn_lib) break :s .lib;
+            break :s .obj;
+        };
+
+        if (ubsan_rt_strat == .zcu) {
+            const ubsan_rt_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = options.global_cache_directory,
+                .paths = .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                    },
+                    .root_src_path = "ubsan_rt.zig",
+                },
+                .fully_qualified_name = "ubsan_rt",
+                .cc_argv = &.{},
+                .inherited = .{},
+                .global = options.config,
+                .parent = options.root_mod,
+                .builtin_mod = options.root_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is set
+            });
+            try options.root_mod.deps.putNoClobber(arena, "ubsan_rt", ubsan_rt_mod);
         }
 
         if (options.verbose_llvm_cpu_features) {
@@ -1499,7 +1551,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .windows_libs = windows_libs,
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
-            .include_compiler_rt = include_compiler_rt,
+            .compiler_rt_strat = compiler_rt_strat,
+            .ubsan_rt_strat = ubsan_rt_strat,
             .link_inputs = options.link_inputs,
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
@@ -1525,6 +1578,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         comp.config.any_unwind_tables = any_unwind_tables;
         comp.config.any_non_single_threaded = any_non_single_threaded;
         comp.config.any_sanitize_thread = any_sanitize_thread;
+        comp.config.any_sanitize_c = any_sanitize_c;
         comp.config.any_fuzz = any_fuzz;
 
         const lf_open_opts: link.File.OpenOptions = .{
@@ -1871,24 +1925,34 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-            if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
+            if (capable_of_building_compiler_rt) {
+                if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
                     comp.remaining_prelink_tasks += 1;
-                } else if (output_mode != .Obj) {
+                } else if (comp.compiler_rt_strat == .obj) {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
                     comp.remaining_prelink_tasks += 1;
                 }
-            }
 
-            if (is_exe_or_dyn_lib and comp.config.any_fuzz and capable_of_building_compiler_rt) {
-                log.debug("queuing a job to build libfuzzer", .{});
-                comp.queued_jobs.fuzzer_lib = true;
-                comp.remaining_prelink_tasks += 1;
+                if (comp.ubsan_rt_strat == .lib) {
+                    log.debug("queuing a job to build ubsan_rt_lib", .{});
+                    comp.queued_jobs.ubsan_rt_lib = true;
+                    comp.remaining_prelink_tasks += 1;
+                } else if (comp.ubsan_rt_strat == .obj) {
+                    log.debug("queuing a job to build ubsan_rt_obj", .{});
+                    comp.queued_jobs.ubsan_rt_obj = true;
+                    comp.remaining_prelink_tasks += 1;
+                }
+
+                if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
+                    log.debug("queuing a job to build libfuzzer", .{});
+                    comp.queued_jobs.fuzzer_lib = true;
+                    comp.remaining_prelink_tasks += 1;
+                }
             }
         }
 
@@ -1937,9 +2001,16 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
+    if (comp.ubsan_rt_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (comp.ubsan_rt_obj) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
     if (comp.fuzzer_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
+
     if (comp.libc_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
@@ -2207,6 +2278,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             _ = try pt.importPkg(zcu.main_mod);
         }
 
+        if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
+            _ = try pt.importPkg(ubsan_rt_mod);
+        }
+
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             _ = try pt.importPkg(compiler_rt_mod);
         }
@@ -2247,6 +2322,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             try comp.queueJob(.{ .analyze_mod = compiler_rt_mod });
             zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
+        }
+
+        if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
+            try comp.queueJob(.{ .analyze_mod = ubsan_rt_mod });
+            zcu.analysis_roots.appendAssumeCapacity(ubsan_rt_mod);
         }
     }
 
@@ -2592,7 +2672,8 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(comp.version);
     man.hash.add(comp.link_eh_frame_hdr);
     man.hash.add(comp.skip_linker_dependencies);
-    man.hash.add(comp.include_compiler_rt);
+    man.hash.add(comp.compiler_rt_strat);
+    man.hash.add(comp.ubsan_rt_strat);
     man.hash.add(comp.rc_includes);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
@@ -3681,6 +3762,14 @@ fn performAllTheWorkInner(
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, true, &comp.fuzzer_lib, main_progress_node });
+    }
+
+    if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Lib, false, &comp.ubsan_rt_lib, main_progress_node });
+    }
+
+    if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Obj, false, &comp.ubsan_rt_obj, main_progress_node });
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
@@ -5916,7 +6005,11 @@ pub fn addCCArgs(
                     // These args have to be added after the `-fsanitize` arg or
                     // they won't take effect.
                     if (mod.sanitize_c) {
-                        try argv.append("-fsanitize-trap=undefined");
+                        // This check requires implementing the Itanium C++ ABI.
+                        // We would make it `-fsanitize-trap=vptr`, however this check requires
+                        // a full runtime due to the type hashing involved.
+                        try argv.append("-fno-sanitize=vptr");
+
                         // It is very common, and well-defined, for a pointer on one side of a C ABI
                         // to have a different but compatible element type. Examples include:
                         // `char*` vs `uint8_t*` on a system with 8-bit bytes
@@ -5925,6 +6018,19 @@ pub fn addCCArgs(
                         // Without this flag, Clang would invoke UBSAN when such an extern
                         // function was called.
                         try argv.append("-fno-sanitize=function");
+
+                        // It's recommended to use the minimal runtime in production environments
+                        // due to the security implications of the full runtime. The minimal runtime
+                        // doesn't provide much benefit over simply trapping.
+                        if (mod.optimize_mode == .ReleaseSafe) {
+                            try argv.append("-fsanitize-trap=undefined");
+                        }
+
+                        // This is necessary because, by default, Clang instructs LLVM to embed a COFF link
+                        // dependency on `libclang_rt.ubsan_standalone.a` when the UBSan runtime is used.
+                        if (target.os.tag == .windows) {
+                            try argv.append("-fno-rtlib-defaultlib");
+                        }
                     }
                 }
 

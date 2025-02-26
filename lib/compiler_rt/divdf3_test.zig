@@ -31,4 +31,5 @@ fn test__divdf3(a: f64, b: f64, expected: u64) !void {
 test "divdf3" {
     try test__divdf3(1.0, 3.0, 0x3fd5555555555555);
     try test__divdf3(4.450147717014403e-308, 2.0, 0x10000000000000);
+    try test__divdf3(1.0, 0x1.fffffffffffffp-1, 0x3ff0000000000001);
 }

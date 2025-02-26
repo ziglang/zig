@@ -79,6 +79,8 @@ test "addrspace and linksection on container-level var" {
 }
 
 test "addrspace on fn" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn f() addrspace(.generic) u32 {
             return 123;

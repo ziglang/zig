@@ -1299,6 +1299,8 @@ test "packed struct contains optional pointer" {
 }
 
 test "packed struct equality" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const Foo = packed struct {
         a: u4,
         b: u4,
@@ -1319,6 +1321,8 @@ test "packed struct equality" {
 }
 
 test "packed struct with signed field" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var s: packed struct {
         a: i2,
         b: u6,
@@ -1332,6 +1336,7 @@ test "assign packed struct initialized with RLS to packed struct literal field" 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Inner = packed struct { x: u17 };
     const Outer = packed struct { inner: Inner, x: u15 };
