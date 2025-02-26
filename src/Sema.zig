@@ -1409,7 +1409,7 @@ fn analyzeBodyInner(
                         if (!mod.allow_deprecated) {
                             const src_node: i32 = @bitCast(extended.operand);
                             const src = block.nodeOffset(src_node);
-                            return sema.fail(block, src, "found deprecated code", .{});
+                            return sema.fail(block, src, "reached deprecated code", .{});
                         }
 
                         i += 1;

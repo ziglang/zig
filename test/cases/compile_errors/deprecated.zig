@@ -6,4 +6,4 @@ pub export fn foo() usize {
 
 // error
 //
-// :1:13: error: found deprecated code
+// :1:13: error: reached deprecated code

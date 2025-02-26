@@ -1180,7 +1180,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig build -fallow-deprecated`.
 
         const deprecated_check: std.Build.Step.Run.StdIo.Check = .{
-            .expect_stderr_match = "found deprecated code",
+            .expect_stderr_match = "reached deprecated code",
         };
 
         const tmp_path = b.makeTempPath();
