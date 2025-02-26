@@ -1347,7 +1347,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const want_ubsan_rt = options.want_ubsan_rt orelse (any_sanitize_c and is_exe_or_dyn_lib);
+            const is_spirv = options.root_mod.resolved_target.result.cpu.arch.isSpirV();
+            const want_ubsan_rt = options.want_ubsan_rt orelse (!is_spirv and any_sanitize_c and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
             if (have_zcu) break :s .zcu;
