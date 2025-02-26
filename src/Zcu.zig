@@ -2751,7 +2751,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         },
         .{
             .base = @ptrCast(zoir.limbs),
-            .len = zoir.limbs.len * 4,
+            .len = zoir.limbs.len * @sizeOf(std.math.big.Limb),
         },
         .{
             .base = zoir.string_bytes.ptr,

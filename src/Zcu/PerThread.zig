@@ -234,6 +234,7 @@ pub fn updateFile(
             error.FileTooBig => unreachable, // 0 is not too big
             else => |e| return e,
         };
+        try cache_file.seekTo(0);
 
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
