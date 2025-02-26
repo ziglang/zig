@@ -7543,28 +7543,31 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
-        var state: enum { start, dollar } = .start;
-        for (contents) |c| switch (state) {
-            .start => switch (c) {
-                '$' => state = .dollar,
-                else => try templates.buffer.append(c),
-            },
-            .dollar => switch (c) {
-                'n' => {
+        var i: usize = 0;
+        while (i < contents.len) {
+            if (contents[i] == '.') {
+                if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
+                    try templates.buffer.append('.');
                     try templates.buffer.appendSlice(root_name);
-                    state = .start;
-                },
-                'i' => {
+                    i += ".LITNAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".NAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += ".NAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".NONCE")) {
                     try templates.buffer.writer().print("0x{x}", .{nonce.int()});
-                    state = .start;
-                },
-                'v' => {
+                    i += ".NONCE".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".ZIGVER")) {
                     try templates.buffer.appendSlice(build_options.version);
-                    state = .start;
-                },
-                else => fatal("unknown substitution: ${c}", .{c}),
-            },
-        };
+                    i += ".ZIGVER".len;
+                    continue;
+                }
+            }
+            try templates.buffer.append(contents[i]);
+            i += 1;
+        }
 
         return out_dir.writeFile(.{
             .sub_path = template_path,
