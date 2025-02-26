@@ -10,9 +10,29 @@ pub const multihash_len = 1 + 1 + Hash.Algo.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
-pub fn randomId() u16 {
-    return std.crypto.random.intRangeLessThan(u16, 0x0001, 0xffff);
-}
+pub const Nonce = packed struct(u64) {
+    id: u16,
+    reserved: u16 = 0,
+    checksum: u32,
+
+    pub fn generate(name: []const u8) Nonce {
+        return .{
+            .id = std.crypto.random.intRangeLessThan(u16, 0x0001, 0xffff),
+            .checksum = std.hash.Crc32.hash(name),
+        };
+    }
+
+    pub fn validate(n: Nonce, name: []const u8) bool {
+        switch (n.id) {
+            0x0000, 0xffff => return false,
+            else => return std.hash.Crc32.hash(name) == n.checksum,
+        }
+    }
+
+    pub fn int(n: Nonce) u64 {
+        return @bitCast(n);
+    }
+};
 
 /// A user-readable, file system safe hash that identifies an exact package
 /// snapshot, including file contents.
@@ -72,9 +92,10 @@ pub const Hash = struct {
     }
 
     /// Produces "$name-$semver-$hashplus".
-    /// * name is the name field from build.zig.zon, truncated at 32 bytes and must
-    ///   be a valid zig identifier
-    /// * semver is the version field from build.zig.zon, truncated at 32 bytes
+    /// * name is the name field from build.zig.zon, asserted to be at most 32
+    ///   bytes and assumed be a valid zig identifier
+    /// * semver is the version field from build.zig.zon, asserted to be at
+    ///   most 32 bytes
     /// * hashplus is the following 39-byte array, base64 encoded using -_ to make
     ///   it filesystem safe:
     ///   - (2 bytes) LE u16 Package ID

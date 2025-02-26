@@ -52,7 +52,7 @@ pub const ParseOptions = struct {
     /// Deprecated, to be removed after 0.14.0 is tagged.
     allow_name_string: bool = true,
     /// Deprecated, to be removed after 0.14.0 is tagged.
-    allow_missing_id: bool = true,
+    allow_missing_nonce: bool = true,
 };
 
 pub const Error = Allocator.Error;
@@ -81,7 +81,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
         .allow_name_string = options.allow_name_string,
-        .allow_missing_id = options.allow_missing_id,
+        .allow_missing_nonce = options.allow_missing_nonce,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -157,7 +157,7 @@ const Parse = struct {
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
     allow_name_string: bool,
-    allow_missing_id: bool,
+    allow_missing_nonce: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
@@ -175,7 +175,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
-        var have_id = false;
+        var nonce: ?Package.Nonce = null;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -192,9 +192,8 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseName(p, field_init);
                 have_name = true;
-            } else if (mem.eql(u8, field_name, "id")) {
-                p.id = try parseId(p, field_init);
-                have_id = true;
+            } else if (mem.eql(u8, field_name, "nonce")) {
+                nonce = try parseNonce(p, field_init);
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
@@ -218,14 +217,23 @@ const Parse = struct {
             }
         }
 
-        if (!have_id and !p.allow_missing_id) {
-            try appendError(p, main_token, "missing top-level 'id' field; suggested value: 0x{x}", .{
-                Package.randomId(),
-            });
-        }
-
         if (!have_name) {
             try appendError(p, main_token, "missing top-level 'name' field", .{});
+        } else {
+            if (nonce) |n| {
+                if (!n.validate(p.name)) {
+                    return fail(p, main_token, "invalid nonce: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
+                        n.int(), Package.Nonce.generate(p.name).int(),
+                    });
+                }
+                p.id = n.id;
+            } else if (!p.allow_missing_nonce) {
+                try appendError(p, main_token, "missing top-level 'nonce' field; suggested value: 0x{x}", .{
+                    Package.Nonce.generate(p.name).int(),
+                });
+            } else {
+                p.id = 0;
+            }
         }
 
         if (!have_version) {
@@ -377,7 +385,7 @@ const Parse = struct {
         }
     }
 
-    fn parseId(p: *Parse, node: Ast.Node.Index) !u16 {
+    fn parseNonce(p: *Parse, node: Ast.Node.Index) !Package.Nonce {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
         const main_tokens = ast.nodes.items(.main_token);
@@ -387,20 +395,12 @@ const Parse = struct {
         }
         const token_bytes = ast.tokenSlice(main_token);
         const parsed = std.zig.parseNumberLiteral(token_bytes);
-        const n = switch (parsed) {
-            .int => |n| n,
-            .big_int, .float => return fail(p, main_token, "expected u16 integer literal, found {s}", .{
+        switch (parsed) {
+            .int => |n| return @bitCast(n),
+            .big_int, .float => return fail(p, main_token, "expected u64 integer literal, found {s}", .{
                 @tagName(parsed),
             }),
             .failure => |err| return fail(p, main_token, "bad integer literal: {s}", .{@tagName(err)}),
-        };
-        const casted = std.math.cast(u16, n) orelse
-            return fail(p, main_token, "integer value {d} does not fit into u16", .{n});
-        switch (casted) {
-            0x0000, 0xffff => return fail(p, main_token, "id value 0x{x} reserved; use 0x{x} instead", .{
-                casted, Package.randomId(),
-            }),
-            else => return casted,
         }
     }
 

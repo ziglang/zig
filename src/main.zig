@@ -4752,10 +4752,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     var ok_count: usize = 0;
 
-    const id = Package.randomId();
+    const nonce: Package.Nonce = .generate(sanitized_root_name);
 
     for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, id)) |_| {
+        if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, nonce)) |_| {
             std.log.info("created {s}", .{template_path});
             ok_count += 1;
         } else |err| switch (err) {
@@ -5225,6 +5225,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
+                    .allow_missing_nonce = false,
+                    .allow_name_string = false,
                     .use_latest_commit = false,
 
                     .package_root = undefined,
@@ -7125,6 +7127,8 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
+        .allow_missing_nonce = true,
+        .allow_name_string = true,
         .use_latest_commit = true,
 
         .package_root = undefined,
@@ -7464,10 +7468,10 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                const id = Package.randomId();
+                const nonce: Package.Nonce = .generate(options.root_name);
                 var templates = findTemplates(gpa, arena);
                 defer templates.deinit();
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, id) catch |e| {
+                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, nonce) catch |e| {
                     fatal("unable to write {s}: {s}", .{
                         Package.Manifest.basename, @errorName(e),
                     });
@@ -7525,7 +7529,7 @@ const Templates = struct {
         out_dir: fs.Dir,
         root_name: []const u8,
         template_path: []const u8,
-        id: u16,
+        nonce: Package.Nonce,
     ) !void {
         if (fs.path.dirname(template_path)) |dirname| {
             out_dir.makePath(dirname) catch |err| {
@@ -7551,7 +7555,7 @@ const Templates = struct {
                     state = .start;
                 },
                 'i' => {
-                    try templates.buffer.writer().print("0x{x}", .{id});
+                    try templates.buffer.writer().print("0x{x}", .{nonce.int()});
                     state = .start;
                 },
                 'v' => {

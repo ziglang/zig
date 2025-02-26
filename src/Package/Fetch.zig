@@ -44,6 +44,8 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+allow_missing_nonce: bool,
+allow_name_string: bool,
 /// If true and URL points to a Git repository, will use the latest commit.
 use_latest_commit: bool,
 
@@ -372,7 +374,7 @@ pub fn run(f: *Fetch) RunError!void {
     };
 
     if (remote.hash) |expected_hash| {
-        var prefixed_pkg_sub_path_buffer: [100]u8 = undefined;
+        var prefixed_pkg_sub_path_buffer: [Package.Hash.max_len + 2]u8 = undefined;
         prefixed_pkg_sub_path_buffer[0] = 'p';
         prefixed_pkg_sub_path_buffer[1] = fs.path.sep;
         const hash_slice = expected_hash.toSlice();
@@ -647,8 +649,8 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 
     f.manifest = try Manifest.parse(arena, ast.*, .{
         .allow_missing_paths_field = f.allow_missing_paths_field,
-        .allow_missing_id = f.allow_missing_paths_field,
-        .allow_name_string = f.allow_missing_paths_field,
+        .allow_missing_nonce = f.allow_missing_nonce,
+        .allow_name_string = f.allow_name_string,
     });
     const manifest = &f.manifest.?;
 
@@ -750,6 +752,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .allow_missing_nonce = true,
+                .allow_name_string = true,
                 .use_latest_commit = false,
 
                 .package_root = undefined,
@@ -2319,6 +2323,8 @@ const TestFetchBuilder = struct {
             .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
+            .allow_missing_nonce = true, // so we can keep using the old testdata .tar.gz
+            .allow_name_string = true, // so we can keep using the old testdata .tar.gz
             .use_latest_commit = true,
 
             .package_root = undefined,
