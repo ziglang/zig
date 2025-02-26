@@ -2049,6 +2049,9 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // Disabled to work around the ELF linker crashing.
+    // Can be reproduced on a x86_64-linux host by commenting out the line below.
+    exe.root_module.sanitize_c = false;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -3552,6 +3555,9 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // Disabled to work around the ELF linker crashing.
+    // Can be reproduced on a x86_64-linux host by commenting out the line below.
+    exe.root_module.sanitize_c = false;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");

@@ -1098,12 +1098,12 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
-                const page_size = std.heap.pageSize();
+                const page_size = std.heap.page_size_min;
                 const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime assert(std.heap.page_size_max % @sizeOf(Block) == 0);
+                comptime assert(std.heap.page_size_min % @sizeOf(Block) == 0);
                 assert(page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
@@ -1119,6 +1119,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 
                     i += @divExact(std.mem.alignForward(usize, start_addr, block_size) - start_addr, @sizeOf(T));
                 } else {
+                    @branchHint(.unlikely);
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
@@ -1152,7 +1153,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 test "indexOfSentinel vector paths" {
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
-    const page_size = std.heap.pageSize();
+    const page_size = std.heap.page_size_min;
 
     inline for (Types) |T| {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
