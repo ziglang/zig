@@ -10,25 +10,25 @@ pub const multihash_len = 1 + 1 + Hash.Algo.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
-pub const Nonce = packed struct(u64) {
+pub const Fingerprint = packed struct(u64) {
     id: u32,
     checksum: u32,
 
-    pub fn generate(name: []const u8) Nonce {
+    pub fn generate(name: []const u8) Fingerprint {
         return .{
             .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
             .checksum = std.hash.Crc32.hash(name),
         };
     }
 
-    pub fn validate(n: Nonce, name: []const u8) bool {
+    pub fn validate(n: Fingerprint, name: []const u8) bool {
         switch (n.id) {
             0x00000000, 0xffffffff => return false,
             else => return std.hash.Crc32.hash(name) == n.checksum,
         }
     }
 
-    pub fn int(n: Nonce) u64 {
+    pub fn int(n: Fingerprint) u64 {
         return @bitCast(n);
     }
 };

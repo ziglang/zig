@@ -52,7 +52,7 @@ pub const ParseOptions = struct {
     /// Deprecated, to be removed after 0.14.0 is tagged.
     allow_name_string: bool = true,
     /// Deprecated, to be removed after 0.14.0 is tagged.
-    allow_missing_nonce: bool = true,
+    allow_missing_fingerprint: bool = true,
 };
 
 pub const Error = Allocator.Error;
@@ -81,7 +81,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
         .allow_name_string = options.allow_name_string,
-        .allow_missing_nonce = options.allow_missing_nonce,
+        .allow_missing_fingerprint = options.allow_missing_fingerprint,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -157,7 +157,7 @@ const Parse = struct {
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
     allow_name_string: bool,
-    allow_missing_nonce: bool,
+    allow_missing_fingerprint: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
@@ -175,7 +175,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
-        var nonce: ?Package.Nonce = null;
+        var fingerprint: ?Package.Fingerprint = null;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -192,8 +192,8 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseName(p, field_init);
                 have_name = true;
-            } else if (mem.eql(u8, field_name, "nonce")) {
-                nonce = try parseNonce(p, field_init);
+            } else if (mem.eql(u8, field_name, "fingerprint")) {
+                fingerprint = try parseFingerprint(p, field_init);
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
@@ -220,16 +220,16 @@ const Parse = struct {
         if (!have_name) {
             try appendError(p, main_token, "missing top-level 'name' field", .{});
         } else {
-            if (nonce) |n| {
+            if (fingerprint) |n| {
                 if (!n.validate(p.name)) {
-                    return fail(p, main_token, "invalid nonce: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
-                        n.int(), Package.Nonce.generate(p.name).int(),
+                    return fail(p, main_token, "invalid fingerprint: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
+                        n.int(), Package.Fingerprint.generate(p.name).int(),
                     });
                 }
                 p.id = n.id;
-            } else if (!p.allow_missing_nonce) {
-                try appendError(p, main_token, "missing top-level 'nonce' field; suggested value: 0x{x}", .{
-                    Package.Nonce.generate(p.name).int(),
+            } else if (!p.allow_missing_fingerprint) {
+                try appendError(p, main_token, "missing top-level 'fingerprint' field; suggested value: 0x{x}", .{
+                    Package.Fingerprint.generate(p.name).int(),
                 });
             } else {
                 p.id = 0;
@@ -385,7 +385,7 @@ const Parse = struct {
         }
     }
 
-    fn parseNonce(p: *Parse, node: Ast.Node.Index) !Package.Nonce {
+    fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Package.Fingerprint {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
         const main_tokens = ast.nodes.items(.main_token);

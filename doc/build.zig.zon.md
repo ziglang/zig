@@ -22,24 +22,24 @@ Zig package namespace.
 
 Must be a valid bare Zig identifier (don't `@` me), limited to 32 bytes.
 
-Together with `nonce`, this represents a globally unique package identifier.
+Together with `fingerprint`, this represents a globally unique package identifier.
 
-### `nonce`
+### `fingerprint`
 
 Together with `name`, this represents a globally unique package identifier. This
 field is auto-initialized by the toolchain when the package is first created,
 and then *never changes*. This allows Zig to unambiguously detect when one
 package is an updated version of another.
 
-When forking a Zig project, this nonce should be regenerated if the upstream
+When forking a Zig project, this fingerprint should be regenerated if the upstream
 project is still maintained. Otherwise, the fork is *hostile*, attempting to
-take control over the original project's identity. The nonce can be regenerated
+take control over the original project's identity. The fingerprint can be regenerated
 by deleting the field and running `zig build`.
 
 This 64-bit integer is the combination of a 32-bit id component and a 32-bit
 checksum.
 
-The id component within the nonce has these restrictions:
+The id component within the fingerprint has these restrictions:
 
 `0x00000000` is reserved for legacy packages.
 
