@@ -68,9 +68,12 @@
 #include <signal.h>
 #include <time.h>
 
-#include <sys/timeb.h>
-
 #include "pthread_compat.h"
+#include "sched.h"
+
+#ifdef _MSC_VER
+#include "pthread_time.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,35 +86,10 @@ extern "C" {
 /* MSB 8-bit major version, 8-bit minor version, 16-bit patch level.  */
 #define __WINPTHREADS_VERSION 0x00050000
 
-#if defined(IN_WINPTHREAD)
-#  if defined(DLL_EXPORT)
-#    define WINPTHREAD_API  __declspec(dllexport)  /* building the DLL  */
-#  else
-#    define WINPTHREAD_API  /* building the static library  */
-#  endif
-#else
-#  if defined(WINPTHREADS_USE_DLLIMPORT)
-#    define WINPTHREAD_API  __declspec(dllimport)  /* user wants explicit `dllimport`  */
-#  else
-#    define WINPTHREAD_API  /* the default; auto imported in case of DLL  */
-#  endif
-#endif
-
 /* #define WINPTHREAD_DBG 1 */
 
 /* Compatibility stuff: */
 #define RWLS_PER_THREAD						8
-
-/* Error-codes.  */
-#ifndef ETIMEDOUT
-#define ETIMEDOUT	138
-#endif
-#ifndef ENOTSUP
-#define ENOTSUP		129
-#endif
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK	140
-#endif
 
 /* pthread specific defines.  */
 
@@ -233,26 +211,6 @@ struct _pthread_cleanup
         *pthread_getclean() = _pthread_cup.next;                        \
         if ((E)) _pthread_cup.func((pthread_once_t *)_pthread_cup.arg); \
     } while (0)
-
-#ifndef SCHED_OTHER
-/* Some POSIX realtime extensions, mostly stubbed */
-#define SCHED_OTHER     0
-#define SCHED_FIFO      1
-#define SCHED_RR        2
-#define SCHED_MIN       SCHED_OTHER
-#define SCHED_MAX       SCHED_RR
-
-struct sched_param {
-  int sched_priority;
-};
-
-WINPTHREAD_API int sched_yield(void);
-WINPTHREAD_API int sched_get_priority_min(int pol);
-WINPTHREAD_API int sched_get_priority_max(int pol);
-WINPTHREAD_API int sched_getscheduler(pid_t pid);
-WINPTHREAD_API int sched_setscheduler(pid_t pid, int pol, const struct sched_param *param);
-
-#endif
 
 typedef struct pthread_attr_t pthread_attr_t;
 struct pthread_attr_t
@@ -392,11 +350,6 @@ WINPTHREAD_API int pthread_condattr_destroy(pthread_condattr_t *a);
 WINPTHREAD_API int pthread_condattr_init(pthread_condattr_t *a);
 WINPTHREAD_API int pthread_condattr_getpshared(const pthread_condattr_t *a, int *s);
 WINPTHREAD_API int pthread_condattr_setpshared(pthread_condattr_t *a, int s);
-
-#ifndef __clockid_t_defined
-typedef int clockid_t;
-#define __clockid_t_defined 1
-#endif  /* __clockid_t_defined */
 
 WINPTHREAD_API int pthread_condattr_getclock (const pthread_condattr_t *attr,
        clockid_t *clock_id);

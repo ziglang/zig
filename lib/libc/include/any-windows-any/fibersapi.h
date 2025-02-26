@@ -25,6 +25,11 @@ extern "C" {
   WINBASEAPI WINBOOL WINAPI FlsFree (DWORD dwFlsIndex);
   WINBASEAPI WINBOOL WINAPI IsThreadAFiber (VOID);
 #endif
+
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN10)
+  WINBASEAPI PVOID WINAPI FlsGetValue2(DWORD dwTlsIndex);
+#endif
+
 #endif
 
 #ifdef __cplusplus

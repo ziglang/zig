@@ -130,6 +130,77 @@ pub fn get_child(decl: *const Decl, name: []const u8) ?Decl.Index {
             const child_node = scope.get_child(name) orelse return null;
             return file.node_decls.get(child_node);
         },
+        .type_function => {
+            // Find a decl with this function as the parent, with a name matching `name`
+            for (Walk.decls.items, 0..) |*candidate, i| {
+                if (candidate.parent != .none and candidate.parent.get() == decl and std.mem.eql(u8, candidate.extra_info().name, name)) {
+                    return @enumFromInt(i);
+                }
+            }
+
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// If the type function returns another type function, return the index of that type function.
+pub fn get_type_fn_return_type_fn(decl: *const Decl) ?Decl.Index {
+    if (decl.get_type_fn_return_expr()) |return_expr| {
+        const ast = decl.file.get_ast();
+        const node_tags = ast.nodes.items(.tag);
+
+        switch (node_tags[return_expr]) {
+            .call, .call_comma, .call_one, .call_one_comma => {
+                const node_data = ast.nodes.items(.data);
+                const function = node_data[return_expr].lhs;
+                const token = ast.nodes.items(.main_token)[function];
+                const name = ast.tokenSlice(token);
+                if (decl.lookup(name)) |function_decl| {
+                    return function_decl;
+                }
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// Gets the expression after the `return` keyword in a type function declaration.
+pub fn get_type_fn_return_expr(decl: *const Decl) ?Ast.Node.Index {
+    switch (decl.categorize()) {
+        .type_function => {
+            const ast = decl.file.get_ast();
+            const node_tags = ast.nodes.items(.tag);
+            const node_data = ast.nodes.items(.data);
+            const body_node = node_data[decl.ast_node].rhs;
+            if (body_node == 0) return null;
+
+            switch (node_tags[body_node]) {
+                .block, .block_semicolon => {
+                    const statements = ast.extra_data[node_data[body_node].lhs..node_data[body_node].rhs];
+                    // Look for the return statement
+                    for (statements) |stmt| {
+                        if (node_tags[stmt] == .@"return") {
+                            return node_data[stmt].lhs;
+                        }
+                    }
+                    return null;
+                },
+                .block_two, .block_two_semicolon => {
+                    if (node_tags[node_data[body_node].lhs] == .@"return") {
+                        return node_data[node_data[body_node].lhs].lhs;
+                    }
+                    if (node_data[body_node].rhs != 0 and
+                        node_tags[node_data[body_node].rhs] == .@"return")
+                    {
+                        return node_data[node_data[body_node].rhs].lhs;
+                    }
+                    return null;
+                },
+                else => return null,
+            }
+        },
         else => return null,
     }
 }

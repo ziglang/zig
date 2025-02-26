@@ -12,10 +12,6 @@
 #include <objbase.h>
 #endif
 
-#ifndef __wia_h__
-#error Please include in front wia.h instead.
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif

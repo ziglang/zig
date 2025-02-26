@@ -1015,11 +1015,14 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_800);
+    const ModrmExt = u3;
+    const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
+    const encodings: []const Entry = @import("encodings.zon");
+
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
-    const encodings = @import("encodings.zig");
-    for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
-    var data_storage: [encodings.table.len]Data = undefined;
+    for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
+    var data_storage: [encodings.len]Data = undefined;
     var storage_i: usize = 0;
     for (&mnemonic_map) |*value| {
         value.ptr = data_storage[storage_i..].ptr;
@@ -1028,7 +1031,7 @@ const mnemonic_to_encodings_map = init: {
     var mnemonic_i: [mnemonic_count]usize = @splat(0);
     const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
     const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
-    for (encodings.table) |entry| {
+    for (encodings) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
             .op_en = entry[1],

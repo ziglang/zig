@@ -72,13 +72,20 @@
 
 # define __printf         __mingw_wprintf
 # define __fprintf        __mingw_fwprintf
-# define __sprintf        __mingw_swprintf
+#ifdef __BUILD_WIDEAPI_ISO
+# define __snprintf       __mingw_swprintf
+#else
 # define __snprintf       __mingw_snwprintf
+#endif
 
 # define __vprintf        __mingw_vwprintf
 # define __vfprintf       __mingw_vfwprintf
-# define __vsprintf       __mingw_vswprintf
+#ifdef __BUILD_WIDEAPI_ISO
+# define __vsnprintf      __mingw_vswprintf
+#else
 # define __vsnprintf      __mingw_vsnwprintf
+#endif
+
 #else
 # define __pformat        __mingw_pformat
 #define __fputc(X,STR) fputc((X), (STR))

@@ -2162,6 +2162,15 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
+        const ubsan_rt_path: ?Path = blk: {
+            if (comp.ubsan_rt_lib) |x| break :blk x.full_object_path;
+            if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
+            break :blk null;
+        };
+        if (ubsan_rt_path) |path| {
+            try argv.append(try path.toString(arena));
+        }
+
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
             if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {
@@ -3821,38 +3830,38 @@ const msdos_stub: [120]u8 = .{
     0x40, 0x00, // Absolute offset to relocation table. 64 matches the header size (all bytes before the MS-DOS stub program).
     0x00, 0x00, // Overlay number. Zero means this is the main executable.
 }
-// Reserved words.
-++ .{ 0x00, 0x00 } ** 4
-// OEM-related fields.
-++ .{
-    0x00, 0x00, // OEM identifier.
-    0x00, 0x00, // OEM information.
-}
-// Reserved words.
-++ .{ 0x00, 0x00 } ** 10
-// Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
-++ .{ 0x78, 0x00, 0x00, 0x00 }
-// What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
-++ .{
-    // Set the value of the data segment to the same value as the code segment.
-    0x0e, // push cs
-    0x1f, // pop ds
-    // Set the DX register to the address of the message.
-    // If you count all bytes of these 7 instructions you get 14, so that's the address of what's after these instructions.
-    0xba, 14, 0x00, // mov dx, 14
-    // Set AH to the system call code for printing a message.
-    0xb4, 0x09, // mov ah, 0x09
-    // Perform the system call to print the message.
-    0xcd, 0x21, // int 0x21
-    // Set AH to 0x4c which is the system call code for exiting, and set AL to 0x01 which is the exit code.
-    0xb8, 0x01, 0x4c, // mov ax, 0x4c01
-    // Peform the system call to exit the program with exit code 1.
-    0xcd, 0x21, // int 0x21
-}
-// Message to print.
-++ "This program cannot be run in DOS mode.".*
-// Message terminators.
-++ .{
-    '$', // We do not pass a length to the print system call; the string is terminated by this character.
-    0x00, 0x00, // Terminating zero bytes.
-};
+    // Reserved words.
+    ++ .{ 0x00, 0x00 } ** 4
+        // OEM-related fields.
+    ++ .{
+        0x00, 0x00, // OEM identifier.
+        0x00, 0x00, // OEM information.
+    }
+    // Reserved words.
+    ++ .{ 0x00, 0x00 } ** 10
+        // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
+    ++ .{ 0x78, 0x00, 0x00, 0x00 }
+    // What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
+    ++ .{
+        // Set the value of the data segment to the same value as the code segment.
+        0x0e, // push cs
+        0x1f, // pop ds
+        // Set the DX register to the address of the message.
+        // If you count all bytes of these 7 instructions you get 14, so that's the address of what's after these instructions.
+        0xba, 14, 0x00, // mov dx, 14
+        // Set AH to the system call code for printing a message.
+        0xb4, 0x09, // mov ah, 0x09
+        // Perform the system call to print the message.
+        0xcd, 0x21, // int 0x21
+        // Set AH to 0x4c which is the system call code for exiting, and set AL to 0x01 which is the exit code.
+        0xb8, 0x01, 0x4c, // mov ax, 0x4c01
+        // Peform the system call to exit the program with exit code 1.
+        0xcd, 0x21, // int 0x21
+    }
+    // Message to print.
+    ++ "This program cannot be run in DOS mode.".*
+    // Message terminators.
+    ++ .{
+        '$', // We do not pass a length to the print system call; the string is terminated by this character.
+        0x00, 0x00, // Terminating zero bytes.
+    };

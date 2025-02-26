@@ -344,11 +344,21 @@ pub fn deinit(self: *MachO) void {
     self.thunks.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     try self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -407,6 +417,16 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     if (comp.config.any_fuzz) {
         try positionals.append(try link.openObjectInput(diags, comp.fuzzer_lib.?.full_object_path));
+    }
+
+    if (comp.ubsan_rt_lib) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openArchiveInput(diags, path, false, false)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
+    } else if (comp.ubsan_rt_obj) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openObjectInput(diags, path)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
     }
 
     for (positionals.items) |link_input| {
@@ -813,6 +833,8 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
+        if (comp.ubsan_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
+        if (comp.ubsan_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -1617,14 +1639,14 @@ fn initOutputSections(self: *MachO) !void {
     }
     self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
         try self.addSection("__TEXT", "__text", .{
-        .alignment = switch (self.getTarget().cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable,
-        },
-        .flags = macho.S_REGULAR |
-            macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-    });
+            .alignment = switch (self.getTarget().cpu.arch) {
+                .x86_64 => 0,
+                .aarch64 => 2,
+                else => unreachable,
+            },
+            .flags = macho.S_REGULAR |
+                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
     self.data_sect_index = self.getSectionByName("__DATA", "__data") orelse
         try self.addSection("__DATA", "__data", .{});
 }

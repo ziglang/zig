@@ -107,6 +107,7 @@ test "cmpxchg with ignored result" {
 }
 
 test "128-bit cmpxchg" {
+    // TODO: this must appear first
     if (!supports_128_bit_atomics) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -284,6 +285,7 @@ fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usi
 }
 
 test "atomicrmw with 128-bit ints" {
+    // TODO: this must appear first
     if (!supports_128_bit_atomics) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

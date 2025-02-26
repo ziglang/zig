@@ -24,6 +24,7 @@ AddVectoredContinueHandler
 AddVectoredExceptionHandler
 AdjustCalendarDate
 AllocConsole
+AllocConsoleWithOptions
 AllocateUserPhysicalPages
 AllocateUserPhysicalPagesNuma
 AppPolicyGetClrCompat
@@ -446,6 +447,7 @@ FindVolumeMountPointClose
 FlsAlloc
 FlsFree
 FlsGetValue
+FlsGetValue2
 FlsSetValue
 FlushConsoleInputBuffer
 FlushFileBuffers
@@ -625,6 +627,7 @@ GetFileAttributesW
 GetFileBandwidthReservation
 GetFileInformationByHandle
 GetFileInformationByHandleEx
+GetFileInformationByName
 GetFileMUIInfo
 GetFileMUIPath
 GetFileSize
@@ -1281,6 +1284,7 @@ ReleaseActCtxWorker
 ReleaseMutex
 ReleaseMutexWhenCallbackReturns
 ReleasePackageVirtualizationContext
+ReleasePseudoConsole
 ReleaseSRWLockExclusive
 ReleaseSRWLockShared
 ReleaseSemaphore
@@ -1542,6 +1546,7 @@ Thread32Next
 TlsAlloc
 TlsFree
 TlsGetValue
+TlsGetValue2
 TlsSetValue
 Toolhelp32ReadProcessMemory
 TransactNamedPipe

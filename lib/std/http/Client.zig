@@ -959,14 +959,14 @@ pub const Request = struct {
 
     pub const WaitError = RequestError || SendError || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
-        error{ // TODO: file zig fmt issue for this bad indentation
-        TooManyHttpRedirects,
-        RedirectRequiresResend,
-        HttpRedirectLocationMissing,
-        HttpRedirectLocationInvalid,
-        CompressionInitializationFailed,
-        CompressionUnsupported,
-    };
+        error{
+            TooManyHttpRedirects,
+            RedirectRequiresResend,
+            HttpRedirectLocationMissing,
+            HttpRedirectLocationInvalid,
+            CompressionInitializationFailed,
+            CompressionUnsupported,
+        };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
@@ -1539,13 +1539,13 @@ pub fn connect(
 
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
     std.fmt.ParseIntError || Connection.WriteError ||
-    error{ // TODO: file a zig fmt issue for this bad indentation
-    UnsupportedUriScheme,
-    UriMissingHost,
+    error{
+        UnsupportedUriScheme,
+        UriMissingHost,
 
-    CertificateBundleLoadFailure,
-    UnsupportedTransferEncoding,
-};
+        CertificateBundleLoadFailure,
+        UnsupportedTransferEncoding,
+    };
 
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",

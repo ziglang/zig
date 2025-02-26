@@ -30,6 +30,7 @@ AddVectoredContinueHandler@8
 AddVectoredExceptionHandler@8
 AdjustCalendarDate@12
 AllocConsole@0
+AllocConsoleWithOptions@8
 AllocateUserPhysicalPages@12
 AllocateUserPhysicalPagesNuma@16
 AppPolicyGetClrCompat@8
@@ -440,6 +441,7 @@ FindVolumeClose@4
 FindVolumeMountPointClose@4
 FlsAlloc@4
 FlsFree@4
+FlsGetValue2@4
 FlsGetValue@4
 FlsSetValue@8
 FlushConsoleInputBuffer@4
@@ -616,6 +618,7 @@ GetFileAttributesW@4
 GetFileBandwidthReservation@24
 GetFileInformationByHandle@8
 GetFileInformationByHandleEx@16
+GetFileInformationByName@16
 GetFileMUIInfo@16
 GetFileMUIPath@28
 GetFileSize@8
@@ -1270,6 +1273,7 @@ ReleaseActCtxWorker@4
 ReleaseMutex@4
 ReleaseMutexWhenCallbackReturns@8
 ReleasePackageVirtualizationContext@4
+ReleasePseudoConsole@4
 ReleaseSRWLockExclusive@4
 ReleaseSRWLockShared@4
 ReleaseSemaphore@12
@@ -1518,6 +1522,7 @@ Thread32First@8
 Thread32Next@8
 TlsAlloc@0
 TlsFree@4
+TlsGetValue2@4
 TlsGetValue@4
 TlsSetValue@8
 Toolhelp32ReadProcessMemory@20
@@ -1605,7 +1610,7 @@ WerRegisterRuntimeExceptionModuleWorker@8
 WerSetFlags@4
 WerSetFlagsWorker@4
 WerUnregisterAdditionalProcess@4
-WerUnregisterAppLocalDump
+WerUnregisterAppLocalDump@0
 WerUnregisterCustomMetadata@4
 WerUnregisterExcludedMemoryBlock@4
 WerUnregisterFile@4

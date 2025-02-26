@@ -31,4 +31,5 @@ fn test__divsf3(a: f32, b: f32, expected: u32) !void {
 test "divsf3" {
     try test__divsf3(1.0, 3.0, 0x3EAAAAAB);
     try test__divsf3(2.3509887e-38, 2.0, 0x00800000);
+    try test__divsf3(1.0, 0x1.fffffep-1, 0x3f800001);
 }

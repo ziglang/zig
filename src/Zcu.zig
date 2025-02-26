@@ -175,7 +175,7 @@ nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, voi
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
-analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
+analysis_roots: std.BoundedArray(*Package.Module, 4) = .{},
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
@@ -276,6 +276,7 @@ pub const BuiltinDecl = enum {
     @"panic.outOfBounds",
     @"panic.startGreaterThanEnd",
     @"panic.inactiveUnionField",
+    @"panic.sliceCastLenRemainder",
     @"panic.reachedUnreachable",
     @"panic.unwrapNull",
     @"panic.castToNull",
@@ -352,6 +353,7 @@ pub const BuiltinDecl = enum {
             .@"panic.outOfBounds",
             .@"panic.startGreaterThanEnd",
             .@"panic.inactiveUnionField",
+            .@"panic.sliceCastLenRemainder",
             .@"panic.reachedUnreachable",
             .@"panic.unwrapNull",
             .@"panic.castToNull",
@@ -1496,8 +1498,8 @@ pub const SrcLoc = struct {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                        node_tags[case.ast.values[0]] == .identifier and
-                        mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
+                            node_tags[case.ast.values[0]] == .identifier and
+                            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (!is_special) continue;
 
                     return tree.nodeToSpan(case_node);
@@ -1516,8 +1518,8 @@ pub const SrcLoc = struct {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                        node_tags[case.ast.values[0]] == .identifier and
-                        mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
+                            node_tags[case.ast.values[0]] == .identifier and
+                            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (is_special) continue;
 
                     for (case.ast.values) |item_node| {
@@ -3461,7 +3463,15 @@ fn clearCachedResolvedReferences(zcu: *Zcu) void {
 }
 
 pub fn errorSetBits(zcu: *const Zcu) u16 {
+    const target = zcu.getTarget();
+
     if (zcu.error_limit == 0) return 0;
+    if (target.cpu.arch == .spirv64) {
+        if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
+            return 32;
+        }
+    }
+
     return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
 }
 
@@ -3870,8 +3880,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(inst_info.inst),
                     });
-                    const unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
-                    try unit_queue.put(gpa, unit, referencer);
+                    try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
+                    try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
                 }
             }
             for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {

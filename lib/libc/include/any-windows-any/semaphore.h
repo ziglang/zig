@@ -23,22 +23,10 @@
 #ifndef WIN_PTHREADS_SEMAPHORE_H
 #define WIN_PTHREADS_SEMAPHORE_H
 
+#include "pthread_compat.h"
+
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#if defined(IN_WINPTHREAD)
-#  if defined(DLL_EXPORT) && !defined(WINPTHREAD_EXPORT_ALL_DEBUG)
-#    define WINPTHREAD_SEMA_API  __declspec(dllexport)  /* building the DLL  */
-#  else
-#    define WINPTHREAD_SEMA_API  /* building the static library  */
-#  endif
-#else
-#  if defined(WINPTHREADS_USE_DLLIMPORT)
-#    define WINPTHREAD_SEMA_API  __declspec(dllimport)  /* user wants explicit `dllimport`  */
-#  else
-#    define WINPTHREAD_SEMA_API  /* the default; auto imported in case of DLL  */
-#  endif
 #endif
 
 /* Set this to 0 to disable it */
@@ -46,37 +34,32 @@ extern "C" {
 
 #define SEM_VALUE_MAX   INT_MAX
 
-#ifndef _MODE_T_
-#define	_MODE_T_
-typedef unsigned short mode_t;
-#endif
-
 typedef void		*sem_t;
 
 #define SEM_FAILED 		NULL
 
-WINPTHREAD_SEMA_API int sem_init(sem_t * sem, int pshared, unsigned int value);
+WINPTHREAD_API int sem_init(sem_t * sem, int pshared, unsigned int value);
 
-WINPTHREAD_SEMA_API int sem_destroy(sem_t *sem);
+WINPTHREAD_API int sem_destroy(sem_t *sem);
 
-WINPTHREAD_SEMA_API int sem_trywait(sem_t *sem);
+WINPTHREAD_API int sem_trywait(sem_t *sem);
 
-WINPTHREAD_SEMA_API int sem_wait(sem_t *sem);
+WINPTHREAD_API int sem_wait(sem_t *sem);
 
-WINPTHREAD_SEMA_API int sem_timedwait(sem_t * sem, const struct timespec *t);
+WINPTHREAD_API int sem_timedwait(sem_t * sem, const struct timespec *t);
 
-WINPTHREAD_SEMA_API int sem_post(sem_t *sem);
+WINPTHREAD_API int sem_post(sem_t *sem);
 
-WINPTHREAD_SEMA_API int sem_post_multiple(sem_t *sem, int count);
+WINPTHREAD_API int sem_post_multiple(sem_t *sem, int count);
 
 /* yes, it returns a semaphore (or SEM_FAILED) */
-WINPTHREAD_SEMA_API sem_t * sem_open(const char * name, int oflag, mode_t mode, unsigned int value);
+WINPTHREAD_API sem_t * sem_open(const char * name, int oflag, mode_t mode, unsigned int value);
 
-WINPTHREAD_SEMA_API int sem_close(sem_t * sem);
+WINPTHREAD_API int sem_close(sem_t * sem);
 
-WINPTHREAD_SEMA_API int sem_unlink(const char * name);
+WINPTHREAD_API int sem_unlink(const char * name);
 
-WINPTHREAD_SEMA_API int sem_getvalue(sem_t * sem, int * sval);
+WINPTHREAD_API int sem_getvalue(sem_t * sem, int * sval);
 
 #ifdef __cplusplus
 }

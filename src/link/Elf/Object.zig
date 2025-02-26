@@ -236,11 +236,11 @@ pub fn validateEFlags(
 
             const fabi: riscv.Eflags.FloatAbi =
                 if (std.Target.riscv.featureSetHas(features, .d))
-                .double
-            else if (std.Target.riscv.featureSetHas(features, .f))
-                .single
-            else
-                .soft;
+                    .double
+                else if (std.Target.riscv.featureSetHas(features, .f))
+                    .single
+                else
+                    .soft;
 
             if (flags.fabi != fabi) {
                 any_errors = true;

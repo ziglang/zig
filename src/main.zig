@@ -561,6 +561,8 @@ const usage_build_generic =
     \\  -fno-lld                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
     \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
+    \\  -fubsan-rt                     Always include ubsan-rt symbols in the output
+    \\  -fno-ubsan-rt                  Prevent including ubsan-rt symbols in the output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
@@ -849,6 +851,7 @@ fn buildOutputType(
     var emit_h: Emit = .no;
     var soname: SOName = undefined;
     var want_compiler_rt: ?bool = null;
+    var want_ubsan_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var linker_repro: ?bool = null;
@@ -1376,6 +1379,10 @@ fn buildOutputType(
                         want_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
                         want_compiler_rt = false;
+                    } else if (mem.eql(u8, arg, "-fubsan-rt")) {
+                        want_ubsan_rt = true;
+                    } else if (mem.eql(u8, arg, "-fno-ubsan-rt")) {
+                        want_ubsan_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         create_module.each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -3504,6 +3511,7 @@ fn buildOutputType(
         .windows_lib_names = create_module.windows_libs.keys(),
         .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
+        .want_ubsan_rt = want_ubsan_rt,
         .hash_style = hash_style,
         .linker_script = linker_script,
         .version_script = version_script,
@@ -5919,8 +5927,8 @@ pub const ClangArgIterator = struct {
 
             self.arg_iterator_response_file =
                 initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
-                fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
-            };
+                    fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
+                };
             // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
             // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
 
@@ -6233,8 +6241,8 @@ fn cmdAstCheck(
                     file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
                 const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
-                    @sizeOf(Ast.Node.Data) +
-                    @sizeOf(Ast.TokenIndex));
+                        @sizeOf(Ast.Node.Data) +
+                        @sizeOf(Ast.TokenIndex));
                 const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.

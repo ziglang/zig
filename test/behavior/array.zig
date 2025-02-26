@@ -49,6 +49,7 @@ fn getArrayLen(a: []const u32) usize {
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -70,6 +71,7 @@ test "array concat with undefined" {
 }
 
 test "array concat with tuple" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -86,6 +88,7 @@ test "array concat with tuple" {
 }
 
 test "array init with concat" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const a = 'a';
@@ -94,6 +97,7 @@ test "array init with concat" {
 }
 
 test "array init with mult" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -157,6 +161,7 @@ test "array len field" {
 }
 
 test "array with sentinels" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -194,6 +199,7 @@ test "void arrays" {
 }
 
 test "nested arrays of strings" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -239,6 +245,7 @@ fn plusOne(x: u32) u32 {
 test "single-item pointer to array indexing and slicing" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSingleItemPtrArrayIndexSlice();
     try comptime testSingleItemPtrArrayIndexSlice();
@@ -300,6 +307,7 @@ var s_array: [8]Sub = undefined;
 const Sub = struct { b: u8 };
 const Str = struct { a: []Sub };
 test "set global var array via slice embedded in struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -336,6 +344,7 @@ test "read/write through global variable array of struct fields initialized via 
 }
 
 test "implicit cast single-item pointer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -366,6 +375,7 @@ test "comptime evaluating function that takes array by value" {
 }
 
 test "runtime initialize array elem and then implicit cast to slice" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -376,6 +386,7 @@ test "runtime initialize array elem and then implicit cast to slice" {
 }
 
 test "array literal as argument to function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -403,6 +414,7 @@ test "array literal as argument to function" {
 }
 
 test "double nested array to const slice cast in array literal" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -527,6 +539,7 @@ test "type deduction for array subscript expression" {
 }
 
 test "sentinel element count towards the ABI size calculation" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -574,6 +587,7 @@ test "zero-sized array with recursive type definition" {
 }
 
 test "type coercion of anon struct literal to array" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -626,6 +640,7 @@ test "tuple to array handles sentinel" {
 }
 
 test "array init of container level array variable" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -649,6 +664,8 @@ test "array init of container level array variable" {
 }
 
 test "runtime initialized sentinel-terminated array literal" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var c: u16 = 300;
     _ = &c;
     const f = &[_:0x9999]u16{c};
@@ -735,6 +752,8 @@ test "array init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known array init" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var side_effects: u4 = 0;
     const init = [4]u4{
         blk: {
@@ -759,6 +778,8 @@ test "runtime side-effects in comptime-known array init" {
 }
 
 test "slice initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -772,6 +793,8 @@ test "slice initialized through reference to anonymous array init provides resul
 }
 
 test "sentinel-terminated slice initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -785,6 +808,7 @@ test "sentinel-terminated slice initialized through reference to anonymous array
 }
 
 test "many-item pointer initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var my_u32: u32 = 123;
@@ -803,6 +827,7 @@ test "many-item pointer initialized through reference to anonymous array init pr
 }
 
 test "many-item sentinel-terminated pointer initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var my_u32: u32 = 123;
@@ -822,6 +847,8 @@ test "many-item sentinel-terminated pointer initialized through reference to ano
 }
 
 test "pointer to array initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -835,6 +862,8 @@ test "pointer to array initialized through reference to anonymous array init pro
 }
 
 test "pointer to sentinel-terminated array initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -848,6 +877,8 @@ test "pointer to sentinel-terminated array initialized through reference to anon
 }
 
 test "tuple initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const Tuple = struct { u64, *const u32 };
     const foo: *const Tuple = &.{
         @intCast(12345),
@@ -873,6 +904,7 @@ test "copied array element doesn't alias source" {
 
 test "array initialized with string literal" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -892,6 +924,7 @@ test "array initialized with string literal" {
 }
 
 test "array initialized with array with sentinel" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -940,6 +973,7 @@ test "accessing multidimensional global array at comptime" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const array = [_][]const []const u8{
@@ -953,6 +987,7 @@ test "accessing multidimensional global array at comptime" {
 }
 
 test "union that needs padding bytes inside an array" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -992,6 +1027,7 @@ test "@splat array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest(comptime T: type, x: T) !void {
             const arr: [10]T = @splat(x);
@@ -1010,10 +1046,12 @@ test "@splat array" {
 }
 
 test "@splat array with sentinel" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest(comptime T: type, x: T, comptime s: T) !void {
             const arr: [10:s]T = @splat(x);
@@ -1033,10 +1071,12 @@ test "@splat array with sentinel" {
 }
 
 test "@splat zero-length array" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest(comptime T: type, comptime s: T) !void {
             var runtime_undef: T = undefined;

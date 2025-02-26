@@ -99,8 +99,8 @@ pub fn main() anyerror!void {
 
     const version = Version.parse(parsed_json.value.DefaultProperties.MACOSX_DEPLOYMENT_TARGET) orelse
         fatal("don't know how to parse SDK version: {s}", .{
-        parsed_json.value.DefaultProperties.MACOSX_DEPLOYMENT_TARGET,
-    });
+            parsed_json.value.DefaultProperties.MACOSX_DEPLOYMENT_TARGET,
+        });
     const os_ver: OsVer = switch (version.major) {
         10 => .catalina,
         11 => .big_sur,

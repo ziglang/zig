@@ -40,6 +40,7 @@ compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
+bundle_ubsan_rt: ?bool = null,
 rdynamic: bool,
 import_memory: bool = false,
 export_memory: bool = false,
@@ -1563,6 +1564,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
+    try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
     try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
         try zig_args.append("-rdynamic");

@@ -2434,14 +2434,17 @@ pub const ElfModule = struct {
         const end_pos = elf_file.getEndPos() catch return bad();
         const file_len = cast(usize, end_pos) orelse return error.Overflow;
 
-        const mapped_mem = try std.posix.mmap(
+        const mapped_mem = std.posix.mmap(
             null,
             file_len,
             std.posix.PROT.READ,
             .{ .TYPE = .SHARED },
             elf_file.handle,
             0,
-        );
+        ) catch |err| switch (err) {
+            error.MappingAlreadyExists => unreachable,
+            else => |e| return e,
+        };
         errdefer std.posix.munmap(mapped_mem);
 
         return load(

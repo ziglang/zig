@@ -7,6 +7,9 @@
 #ifndef _INC_CRTDEFS_MACRO
 #define _INC_CRTDEFS_MACRO
 
+#define __MINGW64_PASTE2(x, y) x ## y
+#define __MINGW64_PASTE(x, y) __MINGW64_PASTE2(x, y)
+
 #define __STRINGIFY(x) #x
 #define __MINGW64_STRINGIFY(x) \
   __STRINGIFY(x)
@@ -88,6 +91,13 @@
 #  endif
 #endif
 
+#if defined(__arm64ec__) && !defined(_M_ARM64EC)
+#  define _M_ARM64EC 1
+#  ifndef _ARM64EC_
+#    define _ARM64EC_ 1
+#  endif
+#endif
+
 #ifndef _X86_
    /* MS does not prefix symbols by underscores for 64-bit.  */
 #  ifndef __MINGW_USE_UNDERSCORE_PREFIX
@@ -116,14 +126,14 @@
 #endif /* ifndef _X86_ */
 
 #if __MINGW_USE_UNDERSCORE_PREFIX == 0
-#  define __MINGW_IMP_SYMBOL(sym) __imp_##sym
-#  define __MINGW_IMP_LSYMBOL(sym) __imp_##sym
+#  define __MINGW_IMP_SYMBOL(sym) __MINGW64_PASTE(__imp_,sym)
+#  define __MINGW_IMP_LSYMBOL(sym) __MINGW64_PASTE(__imp_,sym)
 #  define __MINGW_USYMBOL(sym) sym
-#  define __MINGW_LSYMBOL(sym) _##sym
+#  define __MINGW_LSYMBOL(sym) __MINGW64_PASTE(_,sym)
 #else /* ! if __MINGW_USE_UNDERSCORE_PREFIX == 0 */
-#  define __MINGW_IMP_SYMBOL(sym) _imp__##sym
-#  define __MINGW_IMP_LSYMBOL(sym) __imp__##sym
-#  define __MINGW_USYMBOL(sym) _##sym
+#  define __MINGW_IMP_SYMBOL(sym) __MINGW64_PASTE(_imp__,sym)
+#  define __MINGW_IMP_LSYMBOL(sym) __MINGW64_PASTE(__imp__,sym)
+#  define __MINGW_USYMBOL(sym) __MINGW64_PASTE(_,sym)
 #  define __MINGW_LSYMBOL(sym) sym
 #endif /* if __MINGW_USE_UNDERSCORE_PREFIX == 0 */
 

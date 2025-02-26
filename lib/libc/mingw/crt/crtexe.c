@@ -58,11 +58,9 @@ extern void __main(void);
 static _TCHAR **argv;
 static _TCHAR **envp;
 
-static int argret;
 static int mainret=0;
 static int managedapp;
 static int has_cctor = 0;
-static _startupinfo startinfo;
 extern LPTOP_LEVEL_EXCEPTION_FILTER __mingw_oldexcpt_handler;
 
 extern void _pei386_runtime_relocator (void);
@@ -97,6 +95,7 @@ __mingw_invalidParameterHandler (const wchar_t * __UNUSED_PARAM_1(expression),
 static int __cdecl
 pre_c_init (void)
 {
+  int ret;
   managedapp = check_managed_app ();
   if (__mingw_app_type)
     __set_app_type(_GUI_APP);
@@ -107,10 +106,12 @@ pre_c_init (void)
   * __p__commode() = _commode;
 
 #ifdef _UNICODE
-  _wsetargv();
+  ret = _wsetargv();
 #else
-  _setargv();
+  ret = _setargv();
 #endif
+  if (ret < 0)
+    _amsg_exit(8); /* _RT_SPACEARG */
   if (_MINGW_INSTALL_DEBUG_MATHERR == 1)
     {
       __setusermatherr (_matherr);
@@ -125,6 +126,9 @@ pre_c_init (void)
 static void __cdecl
 pre_cpp_init (void)
 {
+  _startupinfo startinfo;
+  int argret;
+
   startinfo.newmode = _newmode;
 
 #ifdef _UNICODE
@@ -132,6 +136,8 @@ pre_cpp_init (void)
 #else
   argret = __getmainargs(&argc,&argv,&envp,_dowildcard,&startinfo);
 #endif
+  if (argret < 0)
+    _amsg_exit(8); /* _RT_SPACEARG */
 }
 
 static int __tmainCRTStartup (void);
@@ -197,7 +203,7 @@ int mainCRTStartup (void)
 static
 #if defined(__i386__) || defined(_X86_)
 /* We need to make sure that we align the stack to 16 bytes for the sake of SSE
-   opts in main or in functions called main.  */
+   opts in main or in functions called from main.  */
 __attribute__((force_align_arg_pointer))
 #endif
 __declspec(noinline) int
@@ -223,7 +229,8 @@ __tmainCRTStartup (void)
     else if (__native_startup_state == __uninitialized)
       {
 	__native_startup_state = __initializing;
-	_initterm ((_PVFV *)(void *)__xi_a, (_PVFV *)(void *) __xi_z);
+	if (_initterm_e (__xi_a, __xi_z) != 0)
+	  return 255;
       }
     else
       has_cctor = 1;

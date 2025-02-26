@@ -140,6 +140,15 @@ const test_targets = blk: {
             .use_llvm = false,
             .use_lld = false,
         },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "spirv64-vulkan",
+                .cpu_features = "vulkan_v1_2+int8+int16+int64+float16+float64",
+            }) catch unreachable,
+            .use_llvm = false,
+            .use_lld = false,
+            .skip_modules = &.{ "c-import", "universal-libc", "std" },
+        },
         // https://github.com/ziglang/zig/issues/13623
         //.{
         //    .target = .{
@@ -1583,6 +1592,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             run.setName(b.fmt("run test {s}", .{qualified_name}));
 
             step.dependOn(&run.step);
+        } else if (target.cpu.arch.isSpirV()) {
+            // Don't run spirv binaries
+            _ = these_tests.getEmittedBin();
+            step.dependOn(&these_tests.step);
         } else {
             const run = b.addRunArtifact(these_tests);
             run.skip_foreign_checks = true;

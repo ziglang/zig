@@ -19,6 +19,8 @@
    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
    DEALINGS IN THE SOFTWARE.
 */
+#ifndef WIN_PTHREADS_SCHED_H
+#define WIN_PTHREADS_SCHED_H
 
 #include <stddef.h>
 #include <errno.h>
@@ -28,14 +30,8 @@
 #include <limits.h>
 #include <signal.h>
 
-#include <sys/timeb.h>
-
 #include "pthread_compat.h"
 
-#ifndef WIN_PTHREADS_SCHED_H
-#define WIN_PTHREADS_SCHED_H
-
-#ifndef SCHED_OTHER
 /* Some POSIX realtime extensions, mostly stubbed */
 #define SCHED_OTHER     0
 #define SCHED_FIFO      1
@@ -51,30 +47,14 @@ struct sched_param {
 extern "C" {
 #endif
 
-#if defined(IN_WINPTHREAD)
-#  if defined(DLL_EXPORT) && !defined(WINPTHREAD_EXPORT_ALL_DEBUG)
-#    define WINPTHREAD_SCHED_API  __declspec(dllexport)  /* building the DLL  */
-#  else
-#    define WINPTHREAD_SCHED_API  /* building the static library  */
-#  endif
-#else
-#  if defined(WINPTHREADS_USE_DLLIMPORT)
-#    define WINPTHREAD_SCHED_API  __declspec(dllimport)  /* user wants explicit `dllimport`  */
-#  else
-#    define WINPTHREAD_SCHED_API  /* the default; auto imported in case of DLL  */
-#  endif
-#endif
-
-WINPTHREAD_SCHED_API int sched_yield(void);
-WINPTHREAD_SCHED_API int sched_get_priority_min(int pol);
-WINPTHREAD_SCHED_API int sched_get_priority_max(int pol);
-WINPTHREAD_SCHED_API int sched_getscheduler(pid_t pid);
-WINPTHREAD_SCHED_API int sched_setscheduler(pid_t pid, int pol, const struct sched_param *param);
+WINPTHREAD_API int sched_yield(void);
+WINPTHREAD_API int sched_get_priority_min(int pol);
+WINPTHREAD_API int sched_get_priority_max(int pol);
+WINPTHREAD_API int sched_getscheduler(pid_t pid);
+WINPTHREAD_API int sched_setscheduler(pid_t pid, int pol, const struct sched_param *param);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif
 
 #ifndef sched_rr_get_interval

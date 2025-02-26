@@ -21,19 +21,6 @@ const IdResultType = spec.IdResultType;
 
 const Section = @import("Section.zig");
 
-/// Helper HashMap type to hash deeply
-fn DeepHashMap(K: type, V: type) type {
-    return std.HashMapUnmanaged(K, V, struct {
-        pub fn hash(ctx: @This(), key: K) u64 {
-            _ = ctx;
-            var hasher = Wyhash.init(0);
-            autoHashStrat(&hasher, key, .Deep);
-            return hasher.final();
-        }
-        pub const eql = std.hash_map.getAutoEqlFn(K, @This());
-    }, std.hash_map.default_max_load_percentage);
-}
-
 /// This structure represents a function that isc in-progress of being emitted.
 /// Commonly, the contents of this structure will be merged with the appropriate
 /// sections of the module and re-used. Note that the SPIR-V module system makes
@@ -181,7 +168,6 @@ cache: struct {
     // same ID as @Vector(X, bool) in indirect representation.
     vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
     array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
-    function_types: DeepHashMap(struct { IdRef, []const IdRef }, IdRef) = .empty,
 
     capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
     extensions: std.StringHashMapUnmanaged(void) = .empty,
@@ -241,7 +227,6 @@ pub fn deinit(self: *Module) void {
     self.cache.float_types.deinit(self.gpa);
     self.cache.vector_types.deinit(self.gpa);
     self.cache.array_types.deinit(self.gpa);
-    self.cache.function_types.deinit(self.gpa);
     self.cache.capabilities.deinit(self.gpa);
     self.cache.extensions.deinit(self.gpa);
     self.cache.extended_instruction_set.deinit(self.gpa);
@@ -345,22 +330,30 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
         if (self.target.cpu.features.isEnabled(feature.index)) {
             const feature_tag: std.Target.spirv.Feature = @enumFromInt(feature.index);
             switch (feature_tag) {
+                // Versions
                 .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
+                // Features with no dependencies
                 .int8 => try self.addCapability(.Int8),
                 .int16 => try self.addCapability(.Int16),
                 .int64 => try self.addCapability(.Int64),
                 .float16 => try self.addCapability(.Float16),
                 .float64 => try self.addCapability(.Float64),
+                .matrix => try self.addCapability(.Matrix),
+                .storage_push_constant16 => {
+                    try self.addExtension("SPV_KHR_16bit_storage");
+                    try self.addCapability(.StoragePushConstant16);
+                },
                 .addresses => if (self.hasFeature(.shader)) {
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
                     try self.addExtension("SPV_KHR_physical_storage_buffer");
+                    try self.addCapability(.PhysicalStorageBufferAddresses);
                 } else {
                     try self.addCapability(.Addresses);
                 },
-                .matrix => try self.addCapability(.Matrix),
+                // Kernel
                 .kernel => try self.addCapability(.Kernel),
                 .generic_pointer => try self.addCapability(.GenericPointer),
                 .vector16 => try self.addCapability(.Vector16),
+                // Shader
                 .shader => try self.addCapability(.Shader),
             }
         }
@@ -608,17 +601,13 @@ pub fn arrayType(self: *Module, len_id: IdRef, child_ty_id: IdRef) !IdRef {
 }
 
 pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const IdRef) !IdRef {
-    const entry = try self.cache.function_types.getOrPut(self.gpa, .{ return_ty_id, param_type_ids });
-    if (!entry.found_existing) {
-        const result_id = self.allocId();
-        entry.value_ptr.* = result_id;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFunction, .{
-            .id_result = result_id,
-            .return_type = return_ty_id,
-            .id_ref_2 = param_type_ids,
-        });
-    }
-    return entry.value_ptr.*;
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFunction, .{
+        .id_result = result_id,
+        .return_type = return_ty_id,
+        .id_ref_2 = param_type_ids,
+    });
+    return result_id;
 }
 
 pub fn constBool(self: *Module, value: bool) !IdRef {

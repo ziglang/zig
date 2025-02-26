@@ -134,7 +134,7 @@ __INTRINSICS_USEINLINE
    FunctionName: Any valid function name
    DataType: __LONG32 or __int64
    OffsetConstraint: either "I" for 32bit data types or "J" for 64. */
-#if defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_)
+#if (defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_)) || defined(__i386__) || defined(_X86_)
 #define __buildbittesti(x, y, z, a) unsigned char x(y volatile *Base, y Offset) \
 { \
    unsigned char old; \
@@ -162,7 +162,7 @@ __INTRINSICS_USEINLINE
       : "memory", "cc"); \
    return (old >> Offset) & 1; \
 }
-#elif defined(__aarch64__) || defined(_ARM64_)
+#elif defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
 #define __buildbittesti(x, y, z, a) unsigned char x(y volatile *Base, y Offset) \
 { \
    unsigned int old, tmp1, tmp2; \
@@ -198,7 +198,7 @@ __INTRINSICS_USEINLINE
       : "memory", "cc"); \
    return (old >> Offset) & 1; \
 }
-#endif /* defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_) */
+#endif /* (defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_)) || defined(__i386__) || defined(_X86_) */
 
 /* This macro is used by YieldProcessor when compiling x86 w/o SSE2.
 It generates the same opcodes as _mm_pause.  */
@@ -668,8 +668,7 @@ unsigned short _rotr16(unsigned short __X, unsigned char __C)
 #define __INTRINSIC_DEFINED__rotr16
 #endif /* __INTRINSIC_PROLOG */
 
-#if defined(__x86_64__) || defined(_AMD64_)
-
+#if (defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_))
 #if __INTRINSIC_PROLOG(__faststorefence)
 void __faststorefence(void);
 #if !__has_builtin(__faststorefence)
@@ -1103,7 +1102,7 @@ unsigned __int64 __shiftright128 (unsigned __int64  LowPart, unsigned __int64 Hi
 #define __INTRINSIC_DEFINED___shiftright128
 #endif /* __INTRINSIC_PROLOG */
 
-#endif /* defined(__x86_64__) || defined(_AMD64_) */
+#endif /* #(defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_)) */
 
 /* ***************************************************** */
 
@@ -1195,7 +1194,7 @@ unsigned char _BitScanReverse(unsigned __LONG32 *Index, unsigned __LONG32 Mask)
 
 #endif /* defined(__arm__) || defined(_ARM_) */
 
-#if defined(__aarch64__) || defined(_ARM64_)
+#if defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
 
 #if __INTRINSIC_PROLOG(_interlockedbittestandset)
 unsigned char _interlockedbittestandset(__LONG32 volatile *a, __LONG32 b);
@@ -1436,9 +1435,9 @@ unsigned char _BitScanReverse64(unsigned __LONG32 *Index, unsigned __int64 Mask)
 #define __INTRINSIC_DEFINED__BitScanReverse64
 #endif /* __INTRINSIC_PROLOG */
 
-#endif /* defined(__aarch64__) || define(_ARM64_) */
+#endif /* defined(__aarch64__) || define(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_) */
 
-#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
 
 #if __INTRINSIC_PROLOG(_bittest)
 unsigned char _bittest(const __LONG32 *__a, __LONG32 __b);
@@ -1494,9 +1493,9 @@ unsigned char _bittestandcomplement(__LONG32 *__a, __LONG32 __b)
 #define __INTRINSIC_DEFINED__bittestandcomplement
 #endif /* __INTRINSIC_PROLOG */
 
-#endif /* defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) */
+#endif /* defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_) */
 
-#if defined(__aarch64__) || defined(_ARM64_)
+#if defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
 
 #if __INTRINSIC_PROLOG(_bittest64)
 unsigned char _bittest64(const __int64 *__a, __int64 __b);
@@ -1552,7 +1551,7 @@ unsigned char _bittestandcomplement64(__int64 *__a, __int64 __b)
 #define __INTRINSIC_DEFINED__bittestandcomplement64
 #endif /* __INTRINSIC_PROLOG */
 
-#endif /* defined(__aarch64__) || define(_ARM64_) */
+#endif /* defined(__aarch64__) || define(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_) */
 
 /* ***************************************************** */
 
@@ -1777,7 +1776,7 @@ void *_InterlockedExchangePointer(void *volatile *Target,void *Value) {
 
 #endif /* defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) */
 
-#if defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_)
+#if (defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_)) || defined(__i386__) || defined(_X86_)
 
 #if __INTRINSIC_PROLOG(__int2c)
 void __int2c(void);
@@ -2157,7 +2156,7 @@ unsigned __int64 _xgetbv(unsigned int index)
 #endif /* __INTRINSIC_PROLOG */
 #endif /* __GNUC__ < 8 */
 
-#endif /* defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_) */
+#endif /* (defined(__x86_64__) && !defined(__arm64ec__)) || (defined(_AMD64_) && !defined(_ARM64EC_)) || defined(__i386__) || defined(_X86_) */
 
 /* ***************************************************** */
 

@@ -42,11 +42,12 @@ pub fn main() !void {
 
             src_crt_dir.copyFile(entry.path, dest_crt_dir, entry.path, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
-                    const whitelisted = for (whitelist) |item| {
+                    const keep = for (kept_crt_files) |item| {
                         if (std.mem.eql(u8, entry.path, item)) break true;
+                        if (std.mem.startsWith(u8, entry.path, "winpthreads/")) break true;
                     } else false;
 
-                    if (!whitelisted) {
+                    if (!keep) {
                         std.log.warn("deleting {s}", .{entry.path});
                         try dest_crt_dir.deleteFile(entry.path);
                     }
@@ -62,6 +63,51 @@ pub fn main() !void {
     }
 
     {
+        const dest_mingw_winpthreads_path = try std.fs.path.join(arena, &.{
+            zig_src_lib_path, "libc", "mingw", "winpthreads",
+        });
+        const src_mingw_libraries_winpthreads_src_path = try std.fs.path.join(arena, &.{
+            mingw_src_path, "mingw-w64-libraries", "winpthreads", "src",
+        });
+
+        var dest_winpthreads_dir = std.fs.cwd().openDir(dest_mingw_winpthreads_path, .{ .iterate = true }) catch |err| {
+            std.log.err("unable to open directory '{s}': {s}", .{ dest_mingw_winpthreads_path, @errorName(err) });
+            std.process.exit(1);
+        };
+        defer dest_winpthreads_dir.close();
+
+        var src_winpthreads_dir = std.fs.cwd().openDir(src_mingw_libraries_winpthreads_src_path, .{ .iterate = true }) catch |err| {
+            std.log.err("unable to open directory '{s}': {s}", .{ src_mingw_libraries_winpthreads_src_path, @errorName(err) });
+            std.process.exit(1);
+        };
+        defer src_winpthreads_dir.close();
+
+        {
+            var walker = try dest_winpthreads_dir.walk(arena);
+            defer walker.deinit();
+
+            var fail = false;
+
+            while (try walker.next()) |entry| {
+                if (entry.kind != .file) continue;
+
+                src_winpthreads_dir.copyFile(entry.path, dest_winpthreads_dir, entry.path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        std.log.warn("deleting {s}", .{entry.path});
+                        try dest_winpthreads_dir.deleteFile(entry.path);
+                    },
+                    else => {
+                        std.log.err("unable to copy {s}: {s}", .{ entry.path, @errorName(err) });
+                        fail = true;
+                    },
+                };
+            }
+
+            if (fail) std.process.exit(1);
+        }
+    }
+
+    {
         // Also add all new def and def.in files.
         var walker = try src_crt_dir.walk(arena);
         defer walker.deinit();
@@ -71,19 +117,19 @@ pub fn main() !void {
         while (try walker.next()) |entry| {
             if (entry.kind != .file) continue;
 
-            const ok_ext = for (ok_exts) |ext| {
+            const ok_ext = for (def_exts) |ext| {
                 if (std.mem.endsWith(u8, entry.path, ext)) break true;
             } else false;
 
             if (!ok_ext) continue;
 
-            const ok_prefix = for (ok_prefixes) |p| {
+            const ok_prefix = for (def_dirs) |p| {
                 if (std.mem.startsWith(u8, entry.path, p)) break true;
             } else false;
 
             if (!ok_prefix) continue;
 
-            const blacklisted = for (blacklist) |item| {
+            const blacklisted = for (blacklisted_defs) |item| {
                 if (std.mem.eql(u8, entry.basename, item)) break true;
             } else false;
 
@@ -106,17 +152,17 @@ pub fn main() !void {
     return std.process.cleanExit();
 }
 
-const whitelist = [_][]const u8{
+const kept_crt_files = [_][]const u8{
     "COPYING",
     "include" ++ std.fs.path.sep_str ++ "config.h",
 };
 
-const ok_exts = [_][]const u8{
+const def_exts = [_][]const u8{
     ".def",
     ".def.in",
 };
 
-const ok_prefixes = [_][]const u8{
+const def_dirs = [_][]const u8{
     "lib32" ++ std.fs.path.sep_str,
     "lib64" ++ std.fs.path.sep_str,
     "libarm32" ++ std.fs.path.sep_str,
@@ -125,7 +171,7 @@ const ok_prefixes = [_][]const u8{
     "def-include" ++ std.fs.path.sep_str,
 };
 
-const blacklist = [_][]const u8{
+const blacklisted_defs = [_][]const u8{
     "crtdll.def.in",
 
     "msvcp60.def",

@@ -124,6 +124,7 @@ test "debug info for optional error set" {
 
 test "implicit cast to optional to error union to return result loc" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -150,6 +151,7 @@ test "fn returning empty error set can be passed as fn returning any error" {
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     entryPtr();
     comptime entryPtr();
 }

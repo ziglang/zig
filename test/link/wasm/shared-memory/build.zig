@@ -31,6 +31,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     exe.shared_memory = true;
     exe.max_memory = 67108864;
     exe.root_module.export_symbol_names = &.{"foo"};
+    // Don't pull in ubsan, since we're just expecting a very minimal executable.
+    exe.bundle_ubsan_rt = false;
 
     const check_exe = exe.checkObject();
 
