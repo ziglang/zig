@@ -120,7 +120,7 @@ pub const RangeDecoder = struct {
 
 pub fn BitTree(comptime num_bits: usize) type {
     return struct {
-        probs: [1 << num_bits]u16 = .{0x400} ** (1 << num_bits),
+        probs: [1 << num_bits]u16 = @splat(0x400),
 
         const Self = @This();
 
@@ -151,8 +151,8 @@ pub fn BitTree(comptime num_bits: usize) type {
 pub const LenDecoder = struct {
     choice: u16 = 0x400,
     choice2: u16 = 0x400,
-    low_coder: [16]BitTree(3) = .{.{}} ** 16,
-    mid_coder: [16]BitTree(3) = .{.{}} ** 16,
+    low_coder: [16]BitTree(3) = @splat(.{}),
+    mid_coder: [16]BitTree(3) = @splat(.{}),
     high_coder: BitTree(8) = .{},
 
     pub fn decode(
