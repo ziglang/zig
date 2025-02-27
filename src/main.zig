@@ -480,6 +480,7 @@ const usage_build_generic =
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  -municode                 (Windows) Use wmain/wWinMain as entry point
+    \\  -mwindows                 (Windows) Specify that a GUI application is to be generated
     \\
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -1563,6 +1564,8 @@ fn buildOutputType(
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
+                    } else if (mem.eql(u8, arg, "-gcodeview")) {
+                        create_module.opts.debug_format = .code_view;
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
                         // Remove this after 0.15.0 is tagged.
                         warn("-fformatted-panics is deprecated and does nothing", .{});
@@ -1766,6 +1769,8 @@ fn buildOutputType(
                         create_module.opts.wasi_exec_model = parseWasiExecModel(arg["-mexec-model=".len..]);
                     } else if (mem.eql(u8, arg, "-municode")) {
                         mingw_unicode_entry_point = true;
+                    } else if (mem.eql(u8, arg, "-mwindows")) {
+                        subsystem = .Windows;
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -2197,6 +2202,10 @@ fn buildOutputType(
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
+                    .gcodeview => {
+                        mod_opts.strip = false;
+                        create_module.opts.debug_format = .code_view;
+                    },
                     .gdwarf32 => {
                         mod_opts.strip = false;
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
@@ -2276,6 +2285,7 @@ fn buildOutputType(
                     },
                     .force_load_objc => force_load_objc = true,
                     .mingw_unicode_entry_point => mingw_unicode_entry_point = true,
+                    .mingw_subsystem_windows => subsystem = .Windows,
                     .weak_library => try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                         .name = it.only_arg,
                         .query = .{
@@ -2597,6 +2607,8 @@ fn buildOutputType(
                             minor, @errorName(err),
                         });
                     };
+                } else if (mem.eql(u8, arg, "-mwindows")) {
+                    subsystem = .Windows;
                 } else if (mem.eql(u8, arg, "-framework")) {
                     try create_module.frameworks.put(arena, linker_args_it.nextOrFatal(), .{});
                 } else if (mem.eql(u8, arg, "-weak_framework")) {
@@ -3319,18 +3331,20 @@ fn buildOutputType(
         .Lib => create_module.resolved_options.link_mode == .dynamic,
         .Exe => true,
     };
-    // Note that cmake when targeting Windows will try to execute
-    // zig cc to make an executable and output an implib too.
     const implib_eligible = is_exe_or_dyn_lib and
         emit_bin_loc != null and target.os.tag == .windows;
-    if (!implib_eligible) {
-        if (!emit_implib_arg_provided) {
-            emit_implib = .no;
-        } else if (emit_implib != .no) {
+    if (emit_implib_arg_provided) {
+        if (emit_implib != .no and !implib_eligible) {
             fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
         }
+    } else if (!implib_eligible or target.abi.isGnu() or create_module.resolved_options.output_mode == .Exe) {
+        emit_implib = .no;
     }
-    const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
+
+    const default_implib_basename = if (target.abi.isGnu())
+        try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{root_name})
+    else
+        try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
     var emit_implib_resolved = switch (emit_implib) {
         .no => Emit.Resolved{ .data = null, .dir = null },
         .yes => |p| emit_implib.resolve(default_implib_basename, output_to_cache) catch |err| {
@@ -5836,6 +5850,7 @@ pub const ClangArgIterator = struct {
         asm_only,
         optimize,
         debug,
+        gcodeview,
         gdwarf32,
         gdwarf64,
         sanitize,
@@ -5881,6 +5896,7 @@ pub const ClangArgIterator = struct {
         undefined,
         force_load_objc,
         mingw_unicode_entry_point,
+        mingw_subsystem_windows,
         san_cov_trace_pc_guard,
         san_cov,
         no_san_cov,
