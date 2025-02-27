@@ -25,6 +25,7 @@ pub const Dependency = struct {
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
+    unpack: bool,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -302,6 +303,7 @@ const Parse = struct {
             .node = node,
             .name_tok = 0,
             .lazy = false,
+            .unpack = true,
         };
         var has_location = false;
 
@@ -350,6 +352,12 @@ const Parse = struct {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
+            } else if (mem.eql(u8, field_name, "unpack")) {
+                dep.unpack = parseBool(p, field_init) catch |err| switch (err) {
+                    error.ParseFailure => continue,
+                    else => |e| return e,
+                };
+                if (dep.unpack) return fail(p, main_tokens[field_init], "unpack cannot be set to true, omit it instead", .{});
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.

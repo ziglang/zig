@@ -79,6 +79,13 @@ Boolean.
 When this is set to `true`, a package is declared to be lazily fetched. This
 makes the dependency only get fetched if it is actually used.
 
+#### `unpack`
+
+Boolean.
+
+When this is set to `false`, the package is not unpacked but kept as a single
+file.
+
 ### `paths`
 
 List. Required.
