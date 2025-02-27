@@ -4418,6 +4418,59 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
+fn AbsorbSentinelReturnType(comptime Slice: type) type {
+    const info = @typeInfo(Slice).pointer;
+    assert(info.size == .slice);
+    return @Type(.{
+        .pointer = .{
+            .size = info.size,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .is_allowzero = info.is_allowzero,
+            .alignment = info.alignment,
+            .address_space = info.address_space,
+            .child = info.child,
+            .sentinel_ptr = null,
+        },
+    });
+}
+
+/// If the provided slice is not sentinel terminated, do nothing and return that slice.
+/// If it is sentinel-terminated, return a non-sentinel-terminated slice with the
+/// length increased by one to include the absorbed sentinel element.
+pub fn absorbSentinel(slice: anytype) AbsorbSentinelReturnType(@TypeOf(slice)) {
+    const info = @typeInfo(@TypeOf(slice)).pointer;
+    assert(info.size == .slice);
+    if (info.sentinel_ptr == null) {
+        return slice;
+    } else {
+        return slice.ptr[0 .. slice.len + 1];
+    }
+}
+
+test absorbSentinel {
+    {
+        var buffer: [3:0]u8 = .{ 1, 2, 3 };
+        const foo: [:0]const u8 = &buffer;
+        const bar: []const u8 = &buffer;
+        try testing.expectEqual([]const u8, @TypeOf(absorbSentinel(foo)));
+        try testing.expectEqual([]const u8, @TypeOf(absorbSentinel(bar)));
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 0 }, absorbSentinel(foo));
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, absorbSentinel(bar));
+    }
+    {
+        var buffer: [3:0]u8 = .{ 1, 2, 3 };
+        const foo: [:0]u8 = &buffer;
+        const bar: []u8 = &buffer;
+        try testing.expectEqual([]u8, @TypeOf(absorbSentinel(foo)));
+        try testing.expectEqual([]u8, @TypeOf(absorbSentinel(bar)));
+        var expected_foo = [_]u8{ 1, 2, 3, 0 };
+        try testing.expectEqualSlices(u8, &expected_foo, absorbSentinel(foo));
+        var expected_bar = [_]u8{ 1, 2, 3 };
+        try testing.expectEqualSlices(u8, &expected_bar, absorbSentinel(bar));
+    }
+}
+
 /// Round an address down to the next (or current) aligned address.
 /// Unlike `alignForward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignForwardAnyAlign(comptime T: type, addr: T, alignment: T) T {
