@@ -2361,29 +2361,32 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
         .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                return cg.store(lhs, rhs, Type.anyerror, 0);
+                return cg.store(lhs, rhs, Type.anyerror, offset);
             }
 
             const len = @as(u32, @intCast(abi_size));
+            assert(offset == 0);
             return cg.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
-                return cg.store(lhs, rhs, Type.usize, 0);
+                return cg.store(lhs, rhs, Type.usize, offset);
             }
             const pl_ty = ty.optionalChild(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                return cg.store(lhs, rhs, Type.u8, 0);
+                return cg.store(lhs, rhs, Type.u8, offset);
             }
             if (pl_ty.zigTypeTag(zcu) == .error_set) {
-                return cg.store(lhs, rhs, Type.anyerror, 0);
+                return cg.store(lhs, rhs, Type.anyerror, offset);
             }
 
             const len = @as(u32, @intCast(abi_size));
+            assert(offset == 0);
             return cg.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .@"struct", .array, .@"union" => if (isByRef(ty, zcu, cg.target)) {
             const len = @as(u32, @intCast(abi_size));
+            assert(offset == 0);
             return cg.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .vector => switch (determineSimdStoreStrategy(ty, zcu, cg.target)) {
@@ -2407,6 +2410,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
         },
         .pointer => {
             if (ty.isSlice(zcu)) {
+                assert(offset == 0);
                 // store pointer first
                 // lower it to the stack so we do not have to store rhs into a local first
                 try cg.emitWValue(lhs);
@@ -2421,6 +2425,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             }
         },
         .int, .@"enum", .float => if (abi_size > 8 and abi_size <= 16) {
+            assert(offset == 0);
             try cg.emitWValue(lhs);
             const lsb = try cg.load(rhs, Type.u64, 0);
             try cg.store(.stack, lsb, Type.u64, 0 + lhs.offset());
@@ -2430,6 +2435,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             try cg.store(.stack, msb, Type.u64, 8 + lhs.offset());
             return;
         } else if (abi_size > 16) {
+            assert(offset == 0);
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
         },
         else => if (abi_size > 8) {
@@ -4438,9 +4444,6 @@ fn airOptionalPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
     const operand = try cg.resolveInst(ty_op.operand);
     const opt_ty = cg.typeOf(ty_op.operand).childType(zcu);
     const payload_ty = opt_ty.optionalChild(zcu);
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-        return cg.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty.fmtDebug()});
-    }
 
     if (opt_ty.optionalReprIsPayload(zcu)) {
         return cg.finishAir(inst, operand, &.{ty_op.operand});
@@ -5407,31 +5410,40 @@ fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: st
     assert(operand_ty.hasRuntimeBitsIgnoreComptime(zcu));
     assert(op == .eq or op == .neq);
     const payload_ty = operand_ty.optionalChild(zcu);
+    assert(!isByRef(payload_ty, zcu, cg.target));
 
-    // We store the final result in here that will be validated
-    // if the optional is truly equal.
-    var result = try cg.ensureAllocLocal(Type.i32);
+    var result = try cg.allocLocal(Type.i32);
     defer result.free(cg);
 
+    var lhs_null = try cg.allocLocal(Type.i32);
+    defer lhs_null.free(cg);
+
     try cg.startBlock(.block, .empty);
+
+    try cg.addImm32(if (op == .eq) 0 else 1);
+    try cg.addLocal(.local_set, result.local.value);
+
     _ = try cg.isNull(lhs, operand_ty, .i32_eq);
+    try cg.addLocal(.local_tee, lhs_null.local.value);
     _ = try cg.isNull(rhs, operand_ty, .i32_eq);
-    try cg.addTag(.i32_ne); // inverse so we can exit early
-    try cg.addLabel(.br_if, 0);
+    try cg.addTag(.i32_ne);
+    try cg.addLabel(.br_if, 0); // only one is null
+
+    try cg.addImm32(if (op == .eq) 1 else 0);
+    try cg.addLocal(.local_set, result.local.value);
+
+    try cg.addLocal(.local_get, lhs_null.local.value);
+    try cg.addLabel(.br_if, 0); // both are null
 
     _ = try cg.load(lhs, payload_ty, 0);
     _ = try cg.load(rhs, payload_ty, 0);
-    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, zcu, cg.target) });
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
-    try cg.addLabel(.br_if, 0);
-
-    try cg.addImm32(1);
+    _ = try cg.cmp(.stack, .stack, payload_ty, op);
     try cg.addLocal(.local_set, result.local.value);
+
     try cg.endBlock();
 
-    try cg.emitWValue(result);
-    try cg.addImm32(0);
-    try cg.addTag(if (op == .eq) .i32_ne else .i32_eq);
+    try cg.addLocal(.local_get, result.local.value);
+
     return .stack;
 }
 
