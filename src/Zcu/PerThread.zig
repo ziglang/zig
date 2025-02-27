@@ -479,36 +479,39 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             };
             if (!has_namespace) continue;
 
-            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
+            // Value is whether the declaration is `pub`.
+            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, bool) = .empty;
             defer old_names.deinit(zcu.gpa);
             {
                 var it = old_zir.declIterator(old_inst);
                 while (it.next()) |decl_inst| {
-                    const name_zir = old_zir.getDeclaration(decl_inst).name;
-                    if (name_zir == .empty) continue;
+                    const old_decl = old_zir.getDeclaration(decl_inst);
+                    if (old_decl.name == .empty) continue;
                     const name_ip = try zcu.intern_pool.getOrPutString(
                         zcu.gpa,
                         pt.tid,
-                        old_zir.nullTerminatedString(name_zir),
+                        old_zir.nullTerminatedString(old_decl.name),
                         .no_embedded_nulls,
                     );
-                    try old_names.put(zcu.gpa, name_ip, {});
+                    try old_names.put(zcu.gpa, name_ip, old_decl.is_pub);
                 }
             }
             var any_change = false;
             {
                 var it = new_zir.declIterator(new_inst);
                 while (it.next()) |decl_inst| {
-                    const name_zir = new_zir.getDeclaration(decl_inst).name;
-                    if (name_zir == .empty) continue;
+                    const new_decl = new_zir.getDeclaration(decl_inst);
+                    if (new_decl.name == .empty) continue;
                     const name_ip = try zcu.intern_pool.getOrPutString(
                         zcu.gpa,
                         pt.tid,
-                        new_zir.nullTerminatedString(name_zir),
+                        new_zir.nullTerminatedString(new_decl.name),
                         .no_embedded_nulls,
                     );
-                    if (old_names.swapRemove(name_ip)) continue;
-                    // Name added
+                    if (old_names.fetchSwapRemove(name_ip)) |kv| {
+                        if (kv.value == new_decl.is_pub) continue;
+                    }
+                    // Name added, or changed whether it's pub
                     any_change = true;
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .namespace_name = .{
                         .namespace = tracked_inst_index,
