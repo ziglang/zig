@@ -1091,6 +1091,7 @@ fn analyzeBodyInner(
     const map = &sema.inst_map;
     const tags = sema.code.instructions.items(.tag);
     const datas = sema.code.instructions.items(.data);
+    const mod = block.ownerModule();
 
     var crash_info = crash_report.prepAnalyzeBody(sema, block, body);
     crash_info.push();
@@ -1401,6 +1402,16 @@ fn analyzeBodyInner(
                         if (!block.isComptime()) {
                             _ = try block.addNoOp(.breakpoint);
                         }
+                        i += 1;
+                        continue;
+                    },
+                    .deprecated => {
+                        if (!mod.allow_deprecated) {
+                            const src_node: i32 = @bitCast(extended.operand);
+                            const src = block.nodeOffset(src_node);
+                            return sema.fail(block, src, "reached deprecated code", .{});
+                        }
+
                         i += 1;
                         continue;
                     },

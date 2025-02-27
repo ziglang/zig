@@ -1176,6 +1176,100 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
+    {
+        // Test `zig build -fallow-deprecated`.
+
+        const deprecated_check: std.Build.Step.Run.StdIo.Check = .{
+            .expect_stderr_match = "reached deprecated code",
+        };
+
+        const tmp_path = b.makeTempPath();
+
+        // create custom main.zig file containing a deprecated decl
+        {
+            const new_main_src =
+                \\const bad = @deprecated(42);
+                \\
+                \\pub fn main() u8 {
+                \\   return bad;
+                \\}
+                \\
+                \\test {
+                \\   if (bad != 42) return error.Bad;
+                \\}
+            ;
+
+            var src_dir = std.fs.cwd().makeOpenPath(b.pathJoin(&.{ tmp_path, "src" }), .{}) catch @panic("unable to create tmp path");
+            defer src_dir.close();
+
+            var main = src_dir.createFile("main.zig", .{}) catch @panic("unable to create main.zig");
+            defer main.close();
+
+            main.writeAll(new_main_src) catch @panic("unable to write to main.zig");
+        }
+
+        const init_exe = b.addSystemCommand(&.{ b.graph.zig_exe, "init" });
+        init_exe.setCwd(.{ .cwd_relative = tmp_path });
+        init_exe.setName("zig init");
+        init_exe.expectStdOutEqual("");
+        init_exe.expectStdErrEqual("info: created build.zig\n" ++
+            "info: created build.zig.zon\n" ++
+            "info: preserving already existing file: src" ++ s ++ "main.zig\n" ++
+            "info: created src" ++ s ++ "root.zig\n");
+
+        const run_test_bad = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "test", "--color", "off" });
+        run_test_bad.setCwd(.{ .cwd_relative = tmp_path });
+        run_test_bad.setName("zig build test");
+        run_test_bad.expectExitCode(1);
+        run_test_bad.expectStdOutEqual("");
+        run_test_bad.addCheck(deprecated_check);
+        run_test_bad.step.dependOn(&init_exe.step);
+
+        const run_test = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "build",
+            "test",
+            "--color",
+            "off",
+            "-fallow-deprecated",
+        });
+        run_test.setCwd(.{ .cwd_relative = tmp_path });
+        run_test.setName("zig build test");
+        run_test.expectExitCode(0);
+        run_test.expectStdOutEqual("");
+        run_test.expectStdErrEqual("");
+        run_test.step.dependOn(&init_exe.step);
+
+        const run_build_bad = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "--color", "off" });
+        run_build_bad.setCwd(.{ .cwd_relative = tmp_path });
+        run_build_bad.setName("zig build test");
+        run_build_bad.expectExitCode(1);
+        run_build_bad.expectStdOutEqual("");
+        run_build_bad.addCheck(deprecated_check);
+        run_build_bad.step.dependOn(&init_exe.step);
+
+        const run_build = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "build",
+            "--color",
+            "off",
+            "-fallow-deprecated",
+        });
+        run_build.setCwd(.{ .cwd_relative = tmp_path });
+        run_build.setName("zig build test");
+        run_build.expectExitCode(0);
+        run_build.expectStdOutEqual("");
+        run_build.expectStdErrEqual("");
+        run_build.step.dependOn(&init_exe.step);
+
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
+        cleanup.step.dependOn(&run_test.step);
+        cleanup.step.dependOn(&run_test_bad.step);
+        cleanup.step.dependOn(&run_build.step);
+        cleanup.step.dependOn(&run_build_bad.step);
+
+        step.dependOn(&cleanup.step);
+    }
     // Test Godbolt API
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();

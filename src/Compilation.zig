@@ -869,6 +869,7 @@ pub const cache_helpers = struct {
         hh.add(mod.sanitize_c);
         hh.add(mod.sanitize_thread);
         hh.add(mod.fuzz);
+        hh.add(mod.allow_deprecated);
         hh.add(mod.unwind_tables);
         hh.add(mod.structured_cfg);
         hh.add(mod.no_builtin);

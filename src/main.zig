@@ -520,6 +520,8 @@ const usage_build_generic =
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
     \\  -ffuzz                    Enable fuzz testing instrumentation
     \\  -fno-fuzz                 Disable fuzz testing instrumentation
+    \\  -fallow-deprecated        Allow usage of deprecated code
+    \\  -fno-allow-deprecated     Disallow usage of deprecated code
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
@@ -1454,6 +1456,10 @@ fn buildOutputType(
                         mod_opts.fuzz = true;
                     } else if (mem.eql(u8, arg, "-fno-fuzz")) {
                         mod_opts.fuzz = false;
+                    } else if (mem.eql(u8, arg, "-fallow-deprecated")) {
+                        mod_opts.allow_deprecated = true;
+                    } else if (mem.eql(u8, arg, "-fno-allow-deprecated")) {
+                        mod_opts.allow_deprecated = false;
                     } else if (mem.eql(u8, arg, "-fllvm")) {
                         create_module.opts.use_llvm = true;
                     } else if (mem.eql(u8, arg, "-fno-llvm")) {
