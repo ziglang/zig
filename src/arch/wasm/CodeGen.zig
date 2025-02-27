@@ -1588,12 +1588,18 @@ fn toWasmBits(bits: u16) ?u16 {
 /// Performs a copy of bytes for a given type. Copying all bytes
 /// from rhs to lhs.
 fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
+    const len_known_neq_0 = switch (len) {
+        .imm32 => |val| if (val != 0) true else return,
+        .imm64 => |val| if (val != 0) true else return,
+        else => false,
+    };
     // When bulk_memory is enabled, we lower it to wasm's memcpy instruction.
     // If not, we lower it ourselves manually
     if (std.Target.wasm.featureSetHas(cg.target.cpu.features, .bulk_memory)) {
         const len0_ok = std.Target.wasm.featureSetHas(cg.target.cpu.features, .nontrapping_bulk_memory_len0);
+        const emit_check = !(len0_ok or len_known_neq_0);
 
-        if (!len0_ok) {
+        if (emit_check) {
             try cg.startBlock(.block, .empty);
 
             // Even if `len` is zero, the spec requires an implementation to trap if `src + len` or
@@ -1616,7 +1622,7 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
         try cg.emitWValue(len);
         try cg.addExtended(.memory_copy);
 
-        if (!len0_ok) {
+        if (emit_check) {
             try cg.endBlock();
         }
 
@@ -5196,9 +5202,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const result = try cg.allocStack(result_ty);
                 const elem_ty = result_ty.childType(zcu);
                 const elem_size = @as(u32, @intCast(elem_ty.abiSize(zcu)));
-                const sentinel = if (result_ty.sentinel(zcu)) |sent| blk: {
-                    break :blk try cg.lowerConstant(sent, elem_ty);
-                } else null;
+                const sentinel = result_ty.sentinel(zcu);
 
                 // When the element type is by reference, we must copy the entire
                 // value. It is therefore safer to move the offset pointer and store
@@ -5211,12 +5215,13 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         const elem_val = try cg.resolveInst(elem);
                         try cg.store(offset, elem_val, elem_ty, 0);
 
-                        if (elem_index < elements.len - 1 and sentinel == null) {
+                        if (elem_index < elements.len - 1 or sentinel != null) {
                             _ = try cg.buildPointerOffset(offset, elem_size, .modify);
                         }
                     }
-                    if (sentinel) |sent| {
-                        try cg.store(offset, sent, elem_ty, 0);
+                    if (sentinel) |s| {
+                        const val = try cg.resolveInst(Air.internedToRef(s.toIntern()));
+                        try cg.store(offset, val, elem_ty, 0);
                     }
                 } else {
                     var offset: u32 = 0;
@@ -5225,8 +5230,9 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         try cg.store(result, elem_val, elem_ty, offset);
                         offset += elem_size;
                     }
-                    if (sentinel) |sent| {
-                        try cg.store(result, sent, elem_ty, offset);
+                    if (sentinel) |s| {
+                        const val = try cg.resolveInst(Air.internedToRef(s.toIntern()));
+                        try cg.store(result, val, elem_ty, offset);
                     }
                 }
                 break :result_value result;
