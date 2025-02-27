@@ -14,6 +14,8 @@
 
 #include "sanitizer_allocator_interface.h"
 #include "sanitizer_atomic.h"
+#include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_flags.h"
 #include "sanitizer_platform_interceptors.h"
 
@@ -66,7 +68,7 @@ static DTLS::DTVBlock *DTLS_NextBlock(atomic_uintptr_t *cur) {
 }
 
 static DTLS::DTV *DTLS_Find(uptr id) {
-  VReport(2, "__tls_get_addr: DTLS_Find %p %zd\n", (void *)&dtls, id);
+  VReport(3, "__tls_get_addr: DTLS_Find %p %zd\n", (void *)&dtls, id);
   static constexpr uptr kPerBlock = ARRAY_SIZE(DTLS::DTVBlock::dtvs);
   DTLS::DTVBlock *cur = DTLS_NextBlock(&dtls.dtv_block);
   if (!cur)
@@ -110,6 +112,21 @@ SANITIZER_WEAK_ATTRIBUTE
 const void *__sanitizer_get_allocated_begin(const void *p);
 }
 
+SANITIZER_INTERFACE_WEAK_DEF(uptr, __sanitizer_get_dtls_size,
+                             const void *tls_begin) {
+  const void *start = __sanitizer_get_allocated_begin(tls_begin);
+  if (!start)
+    return 0;
+  CHECK_LE(start, tls_begin);
+  uptr tls_size = __sanitizer_get_allocated_size(start);
+  VReport(2, "__tls_get_addr: glibc DTLS suspected; tls={%p,0x%zx}\n",
+          tls_begin, tls_size);
+  uptr offset =
+      (reinterpret_cast<uptr>(tls_begin) - reinterpret_cast<uptr>(start));
+  CHECK_LE(offset, tls_size);
+  return tls_size - offset;
+}
+
 DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
                                 uptr static_tls_begin, uptr static_tls_end) {
   if (!common_flags()->intercept_tls_get_addr) return 0;
@@ -117,8 +134,8 @@ DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
   uptr dso_id = arg->dso_id;
   DTLS::DTV *dtv = DTLS_Find(dso_id);
   if (!dtv || dtv->beg)
-    return 0;
-  uptr tls_size = 0;
+    return nullptr;
+  CHECK_LE(static_tls_begin, static_tls_end);
   uptr tls_beg = reinterpret_cast<uptr>(res) - arg->offset - kDtvOffset;
   VReport(2,
           "__tls_get_addr: %p {0x%zx,0x%zx} => %p; tls_beg: %p; sp: %p "
@@ -126,36 +143,33 @@ DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
           (void *)arg, arg->dso_id, arg->offset, res, (void *)tls_beg,
           (void *)&tls_beg,
           atomic_load(&number_of_live_dtls, memory_order_relaxed));
-  if (dtls.last_memalign_ptr == tls_beg) {
-    tls_size = dtls.last_memalign_size;
-    VReport(2, "__tls_get_addr: glibc <=2.24 suspected; tls={%p,0x%zx}\n",
-            (void *)tls_beg, tls_size);
-  } else if (tls_beg >= static_tls_begin && tls_beg < static_tls_end) {
+  if (tls_beg >= static_tls_begin && tls_beg < static_tls_end) {
     // This is the static TLS block which was initialized / unpoisoned at thread
     // creation.
     VReport(2, "__tls_get_addr: static tls: %p\n", (void *)tls_beg);
-    tls_size = 0;
-  } else if (const void *start =
-                 __sanitizer_get_allocated_begin((void *)tls_beg)) {
-    tls_beg = (uptr)start;
-    tls_size = __sanitizer_get_allocated_size(start);
-    VReport(2, "__tls_get_addr: glibc >=2.25 suspected; tls={%p,0x%zx}\n",
-            (void *)tls_beg, tls_size);
-  } else {
-    VReport(2, "__tls_get_addr: Can't guess glibc version\n");
-    // This may happen inside the DTOR of main thread, so just ignore it.
-    tls_size = 0;
+    dtv->beg = tls_beg;
+    dtv->size = 0;
+    return nullptr;
   }
+  if (uptr tls_size =
+          __sanitizer_get_dtls_size(reinterpret_cast<void *>(tls_beg))) {
+    dtv->beg = tls_beg;
+    dtv->size = tls_size;
+    return dtv;
+  }
+  VReport(2, "__tls_get_addr: Can't guess glibc version\n");
+  // This may happen inside the DTOR a thread, or async signal handlers before
+  // thread initialization, so just ignore it.
+  //
+  // If the unknown block is dynamic TLS, unlikely we will be able to recognize
+  // it in future, mark it as done with '{tls_beg, 0}'.
+  //
+  // If the block is static TLS, possible reason of failed detection is nullptr
+  // in `static_tls_begin`. Regardless of reasons, the future handling of static
+  // TLS is still '{tls_beg, 0}'.
   dtv->beg = tls_beg;
-  dtv->size = tls_size;
-  return dtv;
-}
-
-void DTLS_on_libc_memalign(void *ptr, uptr size) {
-  if (!common_flags()->intercept_tls_get_addr) return;
-  VReport(2, "DTLS_on_libc_memalign: %p 0x%zx\n", ptr, size);
-  dtls.last_memalign_ptr = reinterpret_cast<uptr>(ptr);
-  dtls.last_memalign_size = size;
+  dtv->size = 0;
+  return nullptr;
 }
 
 DTLS *DTLS_Get() { return &dtls; }
@@ -166,7 +180,9 @@ bool DTLSInDestruction(DTLS *dtls) {
 }
 
 #else
-void DTLS_on_libc_memalign(void *ptr, uptr size) {}
+SANITIZER_INTERFACE_WEAK_DEF(uptr, __sanitizer_get_dtls_size, const void *) {
+  return 0;
+}
 DTLS::DTV *DTLS_on_tls_get_addr(void *arg, void *res,
   unsigned long, unsigned long) { return 0; }
 DTLS *DTLS_Get() { return 0; }

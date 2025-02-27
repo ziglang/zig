@@ -50,12 +50,29 @@ typedef __bf16 __m256bh __attribute__((__vector_size__(32), __aligned__(32)));
 #endif
 
 /* Define the default attributes for the functions in this file. */
+#if defined(__EVEX512__) && !defined(__AVX10_1_512__)
 #define __DEFAULT_FN_ATTRS                                                     \
   __attribute__((__always_inline__, __nodebug__, __target__("avx,no-evex512"), \
                  __min_vector_width__(256)))
 #define __DEFAULT_FN_ATTRS128                                                  \
   __attribute__((__always_inline__, __nodebug__, __target__("avx,no-evex512"), \
                  __min_vector_width__(128)))
+#else
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx"),            \
+                 __min_vector_width__(256)))
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx"),            \
+                 __min_vector_width__(128)))
+#endif
+
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS constexpr
+#define __DEFAULT_FN_ATTRS128_CONSTEXPR __DEFAULT_FN_ATTRS128 constexpr
+#else
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS128
+#define __DEFAULT_FN_ATTRS128_CONSTEXPR __DEFAULT_FN_ATTRS
+#endif
 
 /* Arithmetic */
 /// Adds two 256-bit vectors of [4 x double].
@@ -3689,7 +3706,7 @@ _mm256_undefined_si256(void)
 ///    A double-precision floating-point value used to initialize bits [63:0]
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
-static __inline __m256d __DEFAULT_FN_ATTRS
+static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_set_pd(double __a, double __b, double __c, double __d)
 {
   return __extension__ (__m256d){ __d, __c, __b, __a };
@@ -3728,7 +3745,7 @@ _mm256_set_pd(double __a, double __b, double __c, double __d)
 ///    A single-precision floating-point value used to initialize bits [31:0]
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
-static __inline __m256 __DEFAULT_FN_ATTRS
+static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_set_ps(float __a, float __b, float __c, float __d,
               float __e, float __f, float __g, float __h)
 {
@@ -3955,7 +3972,7 @@ _mm256_set_epi64x(long long __a, long long __b, long long __c, long long __d)
 ///    A double-precision floating-point value used to initialize bits [255:192]
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
-static __inline __m256d __DEFAULT_FN_ATTRS
+static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_setr_pd(double __a, double __b, double __c, double __d)
 {
   return _mm256_set_pd(__d, __c, __b, __a);
@@ -3995,7 +4012,7 @@ _mm256_setr_pd(double __a, double __b, double __c, double __d)
 ///    A single-precision floating-point value used to initialize bits [255:224]
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
-static __inline __m256 __DEFAULT_FN_ATTRS
+static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_setr_ps(float __a, float __b, float __c, float __d,
                float __e, float __f, float __g, float __h)
 {
@@ -4212,7 +4229,7 @@ _mm256_setr_epi64x(long long __a, long long __b, long long __c, long long __d)
 ///    A double-precision floating-point value used to initialize each vector
 ///    element of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
-static __inline __m256d __DEFAULT_FN_ATTRS
+static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_set1_pd(double __w)
 {
   return _mm256_set_pd(__w, __w, __w, __w);
@@ -4231,7 +4248,7 @@ _mm256_set1_pd(double __w)
 ///    A single-precision floating-point value used to initialize each vector
 ///    element of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
-static __inline __m256 __DEFAULT_FN_ATTRS
+static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm256_set1_ps(float __w)
 {
   return _mm256_set_ps(__w, __w, __w, __w, __w, __w, __w, __w);
@@ -4322,10 +4339,8 @@ _mm256_set1_epi64x(long long __q)
 /// This intrinsic corresponds to the <c> VXORPS </c> instruction.
 ///
 /// \returns A 256-bit vector of [4 x double] with all elements set to zero.
-static __inline __m256d __DEFAULT_FN_ATTRS
-_mm256_setzero_pd(void)
-{
-  return __extension__ (__m256d){ 0.0, 0.0, 0.0, 0.0 };
+static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR _mm256_setzero_pd(void) {
+  return __extension__(__m256d){0.0, 0.0, 0.0, 0.0};
 }
 
 /// Constructs a 256-bit floating-point vector of [8 x float] with all
@@ -4336,9 +4351,7 @@ _mm256_setzero_pd(void)
 /// This intrinsic corresponds to the <c> VXORPS </c> instruction.
 ///
 /// \returns A 256-bit vector of [8 x float] with all elements set to zero.
-static __inline __m256 __DEFAULT_FN_ATTRS
-_mm256_setzero_ps(void)
-{
+static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR _mm256_setzero_ps(void) {
   return __extension__ (__m256){ 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 }
 
@@ -4349,9 +4362,8 @@ _mm256_setzero_ps(void)
 /// This intrinsic corresponds to the <c> VXORPS </c> instruction.
 ///
 /// \returns A 256-bit integer vector initialized to zero.
-static __inline __m256i __DEFAULT_FN_ATTRS
-_mm256_setzero_si256(void)
-{
+static __inline __m256i __DEFAULT_FN_ATTRS_CONSTEXPR
+_mm256_setzero_si256(void) {
   return __extension__ (__m256i)(__v4di){ 0, 0, 0, 0 };
 }
 
@@ -5121,6 +5133,8 @@ _mm256_storeu2_m128i(__m128i_u *__addr_hi, __m128i_u *__addr_lo, __m256i __a)
 }
 
 #undef __DEFAULT_FN_ATTRS
+#undef __DEFAULT_FN_ATTRS_CONSTEXPR
 #undef __DEFAULT_FN_ATTRS128
+#undef __DEFAULT_FN_ATTRS128_CONSTEXPR
 
 #endif /* __AVXINTRIN_H */

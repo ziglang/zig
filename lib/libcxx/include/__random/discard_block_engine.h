@@ -10,11 +10,11 @@
 #define _LIBCPP___RANDOM_DISCARD_BLOCK_ENGINE_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__random/is_seed_sequence.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
-#include <cstddef>
 #include <iosfwd>
 #include <limits>
 
@@ -43,8 +43,8 @@ public:
   typedef typename _Engine::result_type result_type;
 
   // engine characteristics
-  static _LIBCPP_CONSTEXPR const size_t block_size = __p;
-  static _LIBCPP_CONSTEXPR const size_t used_block = __r;
+  static inline _LIBCPP_CONSTEXPR const size_t block_size = __p;
+  static inline _LIBCPP_CONSTEXPR const size_t used_block = __r;
 
 #ifdef _LIBCPP_CXX03_LANG
   static const result_type _Min = _Engine::_Min;
@@ -109,12 +109,6 @@ public:
   friend basic_istream<_CharT, _Traits>&
   operator>>(basic_istream<_CharT, _Traits>& __is, discard_block_engine<_Eng, _Pp, _Rp>& __x);
 };
-
-template <class _Engine, size_t __p, size_t __r>
-_LIBCPP_CONSTEXPR const size_t discard_block_engine<_Engine, __p, __r>::block_size;
-
-template <class _Engine, size_t __p, size_t __r>
-_LIBCPP_CONSTEXPR const size_t discard_block_engine<_Engine, __p, __r>::used_block;
 
 template <class _Engine, size_t __p, size_t __r>
 typename discard_block_engine<_Engine, __p, __r>::result_type discard_block_engine<_Engine, __p, __r>::operator()() {

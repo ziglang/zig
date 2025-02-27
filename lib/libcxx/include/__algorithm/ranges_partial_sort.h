@@ -41,9 +41,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __partial_sort {
-
-struct __fn {
+struct __partial_sort {
   template <class _Iter, class _Sent, class _Comp, class _Proj>
   _LIBCPP_HIDE_FROM_ABI constexpr static _Iter
   __partial_sort_fn_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp& __comp, _Proj& __proj) {
@@ -66,10 +64,8 @@ struct __fn {
   }
 };
 
-} // namespace __partial_sort
-
 inline namespace __cpo {
-inline constexpr auto partial_sort = __partial_sort::__fn{};
+inline constexpr auto partial_sort = __partial_sort{};
 } // namespace __cpo
 } // namespace ranges
 

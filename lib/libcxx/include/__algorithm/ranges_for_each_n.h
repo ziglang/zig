@@ -36,8 +36,7 @@ namespace ranges {
 template <class _Iter, class _Func>
 using for_each_n_result = in_fun_result<_Iter, _Func>;
 
-namespace __for_each_n {
-struct __fn {
+struct __for_each_n {
   template <input_iterator _Iter, class _Proj = identity, indirectly_unary_invocable<projected<_Iter, _Proj>> _Func>
   _LIBCPP_HIDE_FROM_ABI constexpr for_each_n_result<_Iter, _Func>
   operator()(_Iter __first, iter_difference_t<_Iter> __count, _Func __func, _Proj __proj = {}) const {
@@ -48,10 +47,9 @@ struct __fn {
     return {std::move(__first), std::move(__func)};
   }
 };
-} // namespace __for_each_n
 
 inline namespace __cpo {
-inline constexpr auto for_each_n = __for_each_n::__fn{};
+inline constexpr auto for_each_n = __for_each_n{};
 } // namespace __cpo
 } // namespace ranges
 

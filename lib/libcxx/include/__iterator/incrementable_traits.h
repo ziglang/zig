@@ -12,13 +12,13 @@
 
 #include <__concepts/arithmetic.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/is_object.h>
 #include <__type_traits/is_primary_template.h>
 #include <__type_traits/make_signed.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/declval.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

@@ -21,11 +21,11 @@
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_pointer.h>
-#include <cstddef>
+#include <__utility/move.h>
 #include <string>
 #include <string_view>
 
-#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#if _LIBCPP_HAS_LOCALIZATION
 #  include <iomanip> // for quoted
 #  include <locale>
 #endif
@@ -51,30 +51,30 @@ template <class _Tp>
 struct __can_convert_char<const _Tp> : public __can_convert_char<_Tp> {};
 template <>
 struct __can_convert_char<char> {
-  static const bool value = true;
-  using __char_type       = char;
+  static const bool value           = true;
+  using __char_type _LIBCPP_NODEBUG = char;
 };
 template <>
 struct __can_convert_char<wchar_t> {
-  static const bool value = true;
-  using __char_type       = wchar_t;
+  static const bool value           = true;
+  using __char_type _LIBCPP_NODEBUG = wchar_t;
 };
-#  ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 template <>
 struct __can_convert_char<char8_t> {
-  static const bool value = true;
-  using __char_type       = char8_t;
+  static const bool value           = true;
+  using __char_type _LIBCPP_NODEBUG = char8_t;
 };
 #  endif
 template <>
 struct __can_convert_char<char16_t> {
-  static const bool value = true;
-  using __char_type       = char16_t;
+  static const bool value           = true;
+  using __char_type _LIBCPP_NODEBUG = char16_t;
 };
 template <>
 struct __can_convert_char<char32_t> {
-  static const bool value = true;
-  using __char_type       = char32_t;
+  static const bool value           = true;
+  using __char_type _LIBCPP_NODEBUG = char32_t;
 };
 
 template <class _ECharT, __enable_if_t<__can_convert_char<_ECharT>::value, int> = 0>
@@ -86,7 +86,7 @@ _LIBCPP_HIDE_FROM_ABI bool __is_separator(_ECharT __e) {
 #  endif
 }
 
-#  ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 typedef u8string __u8_string;
 #  else
 typedef string __u8_string;
@@ -95,7 +95,7 @@ typedef string __u8_string;
 struct _NullSentinel {};
 
 template <class _Tp>
-using _Void = void;
+using _Void _LIBCPP_NODEBUG = void;
 
 template <class _Tp, class = void>
 struct __is_pathable_string : public false_type {};
@@ -104,7 +104,7 @@ template <class _ECharT, class _Traits, class _Alloc>
 struct __is_pathable_string< basic_string<_ECharT, _Traits, _Alloc>,
                              _Void<typename __can_convert_char<_ECharT>::__char_type> >
     : public __can_convert_char<_ECharT> {
-  using _Str = basic_string<_ECharT, _Traits, _Alloc>;
+  using _Str _LIBCPP_NODEBUG = basic_string<_ECharT, _Traits, _Alloc>;
 
   _LIBCPP_HIDE_FROM_ABI static _ECharT const* __range_begin(_Str const& __s) { return __s.data(); }
 
@@ -117,7 +117,7 @@ template <class _ECharT, class _Traits>
 struct __is_pathable_string< basic_string_view<_ECharT, _Traits>,
                              _Void<typename __can_convert_char<_ECharT>::__char_type> >
     : public __can_convert_char<_ECharT> {
-  using _Str = basic_string_view<_ECharT, _Traits>;
+  using _Str _LIBCPP_NODEBUG = basic_string_view<_ECharT, _Traits>;
 
   _LIBCPP_HIDE_FROM_ABI static _ECharT const* __range_begin(_Str const& __s) { return __s.data(); }
 
@@ -157,7 +157,7 @@ struct __is_pathable_iter<
     true,
     _Void<typename __can_convert_char< typename iterator_traits<_Iter>::value_type>::__char_type> >
     : __can_convert_char<typename iterator_traits<_Iter>::value_type> {
-  using _ECharT = typename iterator_traits<_Iter>::value_type;
+  using _ECharT _LIBCPP_NODEBUG = typename iterator_traits<_Iter>::value_type;
 
   _LIBCPP_HIDE_FROM_ABI static _Iter __range_begin(_Iter __b) { return __b; }
 
@@ -199,7 +199,7 @@ _LIBCPP_EXPORTED_FROM_ABI size_t __char_to_wide(const string&, wchar_t*, size_t)
 template <class _ECharT>
 struct _PathCVT;
 
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#  if _LIBCPP_HAS_LOCALIZATION
 template <class _ECharT>
 struct _PathCVT {
   static_assert(__can_convert_char<_ECharT>::value, "Char type not convertible");
@@ -258,7 +258,7 @@ struct _PathCVT {
     __append_range(__dest, _Traits::__range_begin(__s), _Traits::__range_end(__s));
   }
 };
-#  endif // !_LIBCPP_HAS_NO_LOCALIZATION
+#  endif // _LIBCPP_HAS_LOCALIZATION
 
 template <>
 struct _PathCVT<__path_value> {
@@ -365,7 +365,7 @@ struct _PathExport<char16_t> {
   }
 };
 
-#    ifndef _LIBCPP_HAS_NO_CHAR8_T
+#    if _LIBCPP_HAS_CHAR8_T
 template <>
 struct _PathExport<char8_t> {
   typedef __narrow_to_utf8<sizeof(wchar_t) * __CHAR_BIT__> _Narrower;
@@ -375,18 +375,18 @@ struct _PathExport<char8_t> {
     _Narrower()(back_inserter(__dest), __src.data(), __src.data() + __src.size());
   }
 };
-#    endif /* !_LIBCPP_HAS_NO_CHAR8_T */
+#    endif // _LIBCPP_HAS_CHAR8_T
 #  endif   /* _LIBCPP_WIN32API */
 
 class _LIBCPP_EXPORTED_FROM_ABI path {
   template <class _SourceOrIter, class _Tp = path&>
-  using _EnableIfPathable = __enable_if_t<__is_pathable<_SourceOrIter>::value, _Tp>;
+  using _EnableIfPathable _LIBCPP_NODEBUG = __enable_if_t<__is_pathable<_SourceOrIter>::value, _Tp>;
 
   template <class _Tp>
-  using _SourceChar = typename __is_pathable<_Tp>::__char_type;
+  using _SourceChar _LIBCPP_NODEBUG = typename __is_pathable<_Tp>::__char_type;
 
   template <class _Tp>
-  using _SourceCVT = _PathCVT<_SourceChar<_Tp> >;
+  using _SourceCVT _LIBCPP_NODEBUG = _PathCVT<_SourceChar<_Tp> >;
 
 public:
 #  if defined(_LIBCPP_WIN32API)
@@ -420,7 +420,7 @@ public:
   }
 
   /*
-  #if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+  #if _LIBCPP_HAS_LOCALIZATION
     // TODO Implement locale conversions.
     template <class _Source, class = _EnableIfPathable<_Source, void> >
     path(const _Source& __src, const locale& __loc, format = format::auto_format);
@@ -682,7 +682,7 @@ public:
     return __s;
   }
 
-#    if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    if _LIBCPP_HAS_LOCALIZATION
   template <class _ECharT, class _Traits = char_traits<_ECharT>, class _Allocator = allocator<_ECharT> >
   _LIBCPP_HIDE_FROM_ABI basic_string<_ECharT, _Traits, _Allocator> string(const _Allocator& __a = _Allocator()) const {
     using _Str = basic_string<_ECharT, _Traits, _Allocator>;
@@ -725,17 +725,17 @@ public:
     std::replace(__s.begin(), __s.end(), '\\', '/');
     return __s;
   }
-#    endif /* !_LIBCPP_HAS_NO_LOCALIZATION */
+#    endif // _LIBCPP_HAS_LOCALIZATION
 #  else    /* _LIBCPP_WIN32API */
 
   _LIBCPP_HIDE_FROM_ABI std::string string() const { return __pn_; }
-#    ifndef _LIBCPP_HAS_NO_CHAR8_T
+#    if _LIBCPP_HAS_CHAR8_T
   _LIBCPP_HIDE_FROM_ABI std::u8string u8string() const { return std::u8string(__pn_.begin(), __pn_.end()); }
 #    else
   _LIBCPP_HIDE_FROM_ABI std::string u8string() const { return __pn_; }
 #    endif
 
-#    if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    if _LIBCPP_HAS_LOCALIZATION
   template <class _ECharT, class _Traits = char_traits<_ECharT>, class _Allocator = allocator<_ECharT> >
   _LIBCPP_HIDE_FROM_ABI basic_string<_ECharT, _Traits, _Allocator> string(const _Allocator& __a = _Allocator()) const {
     using _CVT = __widen_from_utf8<sizeof(_ECharT) * __CHAR_BIT__>;
@@ -746,34 +746,34 @@ public:
     return __s;
   }
 
-#      ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
   _LIBCPP_HIDE_FROM_ABI std::wstring wstring() const { return string<wchar_t>(); }
 #      endif
   _LIBCPP_HIDE_FROM_ABI std::u16string u16string() const { return string<char16_t>(); }
   _LIBCPP_HIDE_FROM_ABI std::u32string u32string() const { return string<char32_t>(); }
-#    endif /* !_LIBCPP_HAS_NO_LOCALIZATION */
+#    endif // _LIBCPP_HAS_LOCALIZATION
 
   // generic format observers
   _LIBCPP_HIDE_FROM_ABI std::string generic_string() const { return __pn_; }
-#    ifndef _LIBCPP_HAS_NO_CHAR8_T
+#    if _LIBCPP_HAS_CHAR8_T
   _LIBCPP_HIDE_FROM_ABI std::u8string generic_u8string() const { return std::u8string(__pn_.begin(), __pn_.end()); }
 #    else
   _LIBCPP_HIDE_FROM_ABI std::string generic_u8string() const { return __pn_; }
 #    endif
 
-#    if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    if _LIBCPP_HAS_LOCALIZATION
   template <class _ECharT, class _Traits = char_traits<_ECharT>, class _Allocator = allocator<_ECharT> >
   _LIBCPP_HIDE_FROM_ABI basic_string<_ECharT, _Traits, _Allocator>
   generic_string(const _Allocator& __a = _Allocator()) const {
     return string<_ECharT, _Traits, _Allocator>(__a);
   }
 
-#      ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
   _LIBCPP_HIDE_FROM_ABI std::wstring generic_wstring() const { return string<wchar_t>(); }
 #      endif
   _LIBCPP_HIDE_FROM_ABI std::u16string generic_u16string() const { return string<char16_t>(); }
   _LIBCPP_HIDE_FROM_ABI std::u32string generic_u32string() const { return string<char32_t>(); }
-#    endif /* !_LIBCPP_HAS_NO_LOCALIZATION */
+#    endif // _LIBCPP_HAS_LOCALIZATION
 #  endif   /* !_LIBCPP_WIN32API */
 
 private:
@@ -811,7 +811,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI path extension() const { return string_type(__extension()); }
 
   // query
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const noexcept { return __pn_.empty(); }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI bool empty() const noexcept { return __pn_.empty(); }
 
   _LIBCPP_HIDE_FROM_ABI bool has_root_name() const { return !__root_name().empty(); }
   _LIBCPP_HIDE_FROM_ABI bool has_root_directory() const { return !__root_directory().empty(); }
@@ -866,7 +866,7 @@ public:
   iterator begin() const;
   iterator end() const;
 
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#  if _LIBCPP_HAS_LOCALIZATION
   template <
       class _CharT,
       class _Traits,
@@ -895,7 +895,7 @@ public:
     __p = __tmp;
     return __is;
   }
-#  endif // !_LIBCPP_HAS_NO_LOCALIZATION
+#  endif // _LIBCPP_HAS_LOCALIZATION
 
 private:
   inline _LIBCPP_HIDE_FROM_ABI path& __assign_view(__string_view const& __s) {
