@@ -619,4 +619,51 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
         sqe.splice_fd_in = @bitCast(options);
     }
+
+    pub fn prep_bind(
+        sqe: *linux.io_uring_sqe,
+        fd: linux.fd_t,
+        addr: *const linux.sockaddr,
+        addrlen: linux.socklen_t,
+        flags: u32,
+    ) void {
+        sqe.prep_rw(.BIND, fd, @intFromPtr(addr), 0, addrlen);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_listen(
+        sqe: *linux.io_uring_sqe,
+        fd: linux.fd_t,
+        backlog: usize,
+        flags: u32,
+    ) void {
+        sqe.prep_rw(.LISTEN, fd, 0, backlog, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_cmd_sock(
+        sqe: *linux.io_uring_sqe,
+        cmd_op: linux.IO_URING_SOCKET_OP,
+        fd: linux.fd_t,
+        level: u32,
+        optname: u32,
+        optval: u64,
+        optlen: u32,
+    ) void {
+        sqe.prep_rw(.URING_CMD, fd, 0, 0, 0);
+        // off is overloaded with cmd_op, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L39
+        sqe.off = @intFromEnum(cmd_op);
+        // addr is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L46
+        sqe.addr = @bitCast(packed struct {
+            level: u32,
+            optname: u32,
+        }{
+            .level = level,
+            .optname = optname,
+        });
+        // splice_fd_in if overloaded u32 -> i32
+        sqe.splice_fd_in = @bitCast(optlen);
+        // addr3 is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L102
+        sqe.addr3 = optval;
+    }
 };
