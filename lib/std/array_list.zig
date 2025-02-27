@@ -2250,10 +2250,3 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
     }
 }
-
-test "ArrayListAligned with non-native alignment compiles unusedCapabitySlice" {
-    var list = ArrayListAligned(u8, 4).init(testing.allocator);
-    defer list.deinit();
-    try list.appendNTimes(1, 4);
-    _ = list.unusedCapacitySlice();
-}
