@@ -3130,7 +3130,13 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
         .nav => |nav| return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } },
         .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset), .orig_ptr_ty = uav.orig_ty } },
         .int => return cg.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
-        .eu_payload => return cg.fail("Wasm TODO: lower error union payload pointer", .{}),
+        .eu_payload => |eu_ptr| try cg.lowerPtr(
+            eu_ptr,
+            offset + codegen.errUnionPayloadOffset(
+                Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu),
+                zcu,
+            ),
+        ),
         .opt_payload => |opt_ptr| return cg.lowerPtr(opt_ptr, offset),
         .field => |field| {
             const base_ptr = Value.fromInterned(field.base);
@@ -4179,52 +4185,62 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerEr
     return cg.finishAir(inst, result, &.{un_op});
 }
 
+/// E!T -> T op_is_ptr == false
+/// *(E!T) -> *T op_is_prt == true
 fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
     const op_ty = cg.typeOf(ty_op.operand);
-    const err_ty = if (op_is_ptr) op_ty.childType(zcu) else op_ty;
-    const payload_ty = err_ty.errorUnionPayload(zcu);
+    const eu_ty = if (op_is_ptr) op_ty.childType(zcu) else op_ty;
+    const payload_ty = eu_ty.errorUnionPayload(zcu);
 
     const result: WValue = result: {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             if (op_is_ptr) {
                 break :result cg.reuseOperand(ty_op.operand, operand);
+            } else {
+                break :result .none;
             }
-            break :result .none;
         }
 
-        const pl_offset = @as(u32, @intCast(errUnionPayloadOffset(payload_ty, zcu)));
+        const pl_offset: u32 = @intCast(errUnionPayloadOffset(payload_ty, zcu));
         if (op_is_ptr or isByRef(payload_ty, zcu, cg.target)) {
             break :result try cg.buildPointerOffset(operand, pl_offset, .new);
+        } else {
+            assert(isByRef(eu_ty, zcu, cg.target));
+            break :result try cg.load(operand, payload_ty, pl_offset);
         }
 
-        break :result try cg.load(operand, payload_ty, pl_offset);
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
 
+/// E!T -> E op_is_ptr == false
+/// *(E!T) -> E op_is_prt == true
+/// NOTE: op_is_ptr will not change return type
 fn airUnwrapErrUnionError(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
     const op_ty = cg.typeOf(ty_op.operand);
-    const err_ty = if (op_is_ptr) op_ty.childType(zcu) else op_ty;
-    const payload_ty = err_ty.errorUnionPayload(zcu);
+    const eu_ty = if (op_is_ptr) op_ty.childType(zcu) else op_ty;
+    const payload_ty = eu_ty.errorUnionPayload(zcu);
 
     const result: WValue = result: {
-        if (err_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
+        if (eu_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
             break :result .{ .imm32 = 0 };
         }
 
-        if (op_is_ptr or !payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        const err_offset: u32 = @intCast(errUnionErrorOffset(payload_ty, zcu));
+        if (op_is_ptr or isByRef(eu_ty, zcu, cg.target)) {
+            break :result try cg.load(operand, Type.anyerror, err_offset);
+        } else {
+            assert(!payload_ty.hasRuntimeBitsIgnoreComptime(zcu));
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
-
-        break :result try cg.load(operand, Type.anyerror, @intCast(errUnionErrorOffset(payload_ty, zcu)));
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
