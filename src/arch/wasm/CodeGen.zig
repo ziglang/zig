@@ -6272,11 +6272,21 @@ fn airClz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (wasm_bits) {
         32 => {
-            try cg.emitWValue(operand);
+            if (int_info.signedness == .signed) {
+                const mask = ~@as(u32, 0) >> @intCast(32 - int_info.bits);
+                _ = try cg.binOp(operand, .{ .imm32 = mask }, ty, .@"and");
+            } else {
+                try cg.emitWValue(operand);
+            }
             try cg.addTag(.i32_clz);
         },
         64 => {
-            try cg.emitWValue(operand);
+            if (int_info.signedness == .signed) {
+                const mask = ~@as(u64, 0) >> @intCast(64 - int_info.bits);
+                _ = try cg.binOp(operand, .{ .imm64 = mask }, ty, .@"and");
+            } else {
+                try cg.emitWValue(operand);
+            }
             try cg.addTag(.i64_clz);
             try cg.addTag(.i32_wrap_i64);
         },
