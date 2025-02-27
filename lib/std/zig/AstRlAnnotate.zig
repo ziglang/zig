@@ -817,6 +817,8 @@ fn blockExpr(astrl: *AstRlAnnotate, parent_block: ?*Block, ri: ResultInfo, node:
 }
 
 fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.Node.Index, args: []const Ast.Node.Index) !bool {
+    _ = ri; // Currently, no builtin consumes its result location.
+
     const tree = astrl.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const builtin_token = main_tokens[node];
@@ -826,11 +828,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         if (expected != args.len) return false;
     }
     switch (info.tag) {
-        .deprecated => if (args.len >= 1) {
-            return astrl.expr(args[0], block, ri);
-        } else {
-            return false;
-        },
         .import => return false,
         .branch_hint => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);

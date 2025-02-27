@@ -121,7 +121,6 @@ pub const Tag = enum {
     work_item_id,
     work_group_size,
     work_group_id,
-    deprecated,
 };
 
 pub const EvalToError = enum {
@@ -1015,14 +1014,6 @@ pub const list = list: {
                 .tag = .work_group_id,
                 .param_count = 1,
                 .illegal_outside_function = true,
-            },
-        },
-        .{
-            "@deprecated",
-            .{
-                .tag = .deprecated,
-                .param_count = null,
-                .eval_to_error = .maybe,
             },
         },
     });

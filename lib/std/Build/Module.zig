@@ -557,10 +557,6 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
 
-    // -fno-allow-deprecated is the CLI default, and not inherited, so only pass the flag if true.
-    const allow_deprecated = m.owner.graph.allow_deprecated orelse (m.owner.graph.root_builder != m.owner);
-    if (allow_deprecated == true) try zig_args.append("-fallow-deprecated");
-
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {
             .@"32" => "-gdwarf32",

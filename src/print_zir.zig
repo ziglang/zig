@@ -535,7 +535,6 @@ const Writer = struct {
             .c_va_start,
             .in_comptime,
             .value_placeholder,
-            .deprecated,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
