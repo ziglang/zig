@@ -5806,6 +5806,9 @@ pub const IORING_OP = enum(u8) {
     FUTEX_WAITV,
     FIXED_FD_INSTALL,
     FTRUNCATE,
+    BIND,
+    LISTEN,
+    RECV_ZC,
 
     _,
 };
@@ -6188,6 +6191,13 @@ pub const IORING_RESTRICTION = enum(u16) {
     SQE_FLAGS_REQUIRED = 3,
 
     _,
+};
+
+pub const IO_URING_SOCKET_OP = enum(u16) {
+    SIOCIN = 0,
+    SIOCOUTQ = 1,
+    GETSOCKOPT = 2,
+    SETSOCKOPT = 3,
 };
 
 pub const io_uring_buf = extern struct {
