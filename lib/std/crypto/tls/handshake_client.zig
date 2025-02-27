@@ -46,7 +46,12 @@ pub const Options = struct {
     /// List of named groups to use.
     /// To use specific named group:
     ///   .named_groups = &[_]tls.NamedGroup{.secp384r1},
-    named_groups: []const proto.NamedGroup = supported_named_groups,
+    named_groups: []const proto.NamedGroup = &[_]proto.NamedGroup{
+        .x25519,
+        .secp256r1,
+        .secp384r1,
+        .x25519_ml_kem768,
+    },
 
     /// Client authentication certificates and private key.
     auth: ?*CertKeyPair = null,
@@ -73,6 +78,7 @@ const supported_named_groups = &[_]proto.NamedGroup{
     .secp256r1,
     .secp384r1,
     .x25519_kyber768d00,
+    .x25519_ml_kem768,
 };
 
 /// Handshake parses tls server message and creates client messages. Collects
@@ -96,7 +102,7 @@ pub fn Handshake(comptime Stream: type) type {
         cipher: Cipher = undefined,
         cert: CertificateParser = undefined,
         client_certificate_requested: bool = false,
-        // public key len: x25519 = 32, secp256r1 = 65, secp384r1 = 97, x25519_kyber768d00 = 1120
+        // public key len: x25519 = 32, secp256r1 = 65, secp384r1 = 97, x25519_ml_kem768 = 64, x25519_kyber768d00 = 1120
         server_pub_key_buf: [2048]u8 = undefined,
         server_pub_key: []const u8 = undefined,
 
