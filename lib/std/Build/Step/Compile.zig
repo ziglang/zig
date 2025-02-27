@@ -1681,7 +1681,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
-    if (compile.build_id) |build_id| {
+    if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
             .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
                 std.fmt.fmtSliceHexLower(hs.toSlice()),
