@@ -514,7 +514,6 @@ test Options {
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
         .zig_lib_directory = std.Build.Cache.Directory.cwd(),
-        .root_builder = undefined,
     };
 
     var builder = try std.Build.create(
@@ -523,8 +522,6 @@ test Options {
         .{ .path = "test", .handle = std.fs.cwd() },
         &.{},
     );
-
-    graph.root_builder = builder;
 
     const options = builder.addOptions();
 

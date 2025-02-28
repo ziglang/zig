@@ -9695,19 +9695,6 @@ fn builtinCall(
         .volatile_cast,
         => return ptrCast(gz, scope, ri, node),
 
-        .deprecated => {
-            _ = try gz.addExtendedNodeSmall(.deprecated, node, 0);
-            switch (params.len) {
-                0 => return .void_value,
-                1 => return expr(gz, scope, ri, params[0]),
-                else => return astgen.failNode(
-                    node,
-                    "expected 0 or 1 argument, found {}",
-                    .{params.len},
-                ),
-            }
-        },
-
         // zig fmt: off
         .has_decl  => return hasDeclOrField(gz, scope, ri, node, params[0], params[1], .has_decl),
         .has_field => return hasDeclOrField(gz, scope, ri, node, params[0], params[1], .has_field),

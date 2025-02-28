@@ -2112,9 +2112,6 @@ pub const Inst = struct {
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
 
-        /// `operand` is `src_node: i32`.
-        deprecated,
-
         pub const InstData = struct {
             opcode: Extended,
             small: u16,
@@ -4366,7 +4363,6 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
-                .deprecated,
                 => return,
 
                 // `@TypeOf` has a body.

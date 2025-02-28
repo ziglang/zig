@@ -80,7 +80,6 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
-        .root_builder = undefined, // populated below
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -95,7 +94,6 @@ pub fn main() !void {
         local_cache_directory,
         dependencies.root_deps,
     );
-    graph.root_builder = builder;
 
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
@@ -262,10 +260,6 @@ pub fn main() !void {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
                 graph.incremental = false;
-            } else if (mem.eql(u8, arg, "-fallow-deprecated")) {
-                graph.allow_deprecated = true;
-            } else if (mem.eql(u8, arg, "-fno-allow-deprecated")) {
-                graph.allow_deprecated = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -1296,8 +1290,6 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\    new                        Omit cached steps
         \\    failures                   (Default) Only print failed steps
         \\    none                       Do not print the build summary
-        \\  -fallow-deprecated           Allow usage of deprecated code for the entire build graph
-        \\  -fno-allow-deprecated        Disallow usage of deprecated code for the entire build graph
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
