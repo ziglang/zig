@@ -433,7 +433,7 @@ pub const DhKeyPair = struct {
         };
     }
 
-    // Returns 32, 65, 97 or 1216 bytes (keyber and ml_kem)
+    // Returns 32, 65, 97 or 1216 bytes (kyber and ml_kem)
     pub inline fn publicKey(self: DhKeyPair, named_group: proto.NamedGroup) ![]const u8 {
         return switch (named_group) {
             .x25519 => &self.x25519_kp.public_key,
