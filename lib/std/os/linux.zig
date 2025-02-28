@@ -6138,26 +6138,28 @@ pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
 pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
-
     resv: u8,
-
-    /// IO_URING_OP_* flags
-    flags: u16,
-
+    flags: u16, // IO_URING_OP_* flags
     resv2: u32,
+
+    pub fn is_supported(self: @This()) bool {
+        return self.flags & IO_URING_OP_SUPPORTED != 0;
+    }
 };
 
 pub const io_uring_probe = extern struct {
-    /// last opcode supported
-    last_op: IORING_OP,
-
-    /// Number of io_uring_probe_op following
-    ops_len: u8,
-
+    last_op: IORING_OP, // last opcode supported
+    ops_len: u8, // length of ops[] array below
     resv: u16,
     resv2: [3]u32,
+    ops: [256]io_uring_probe_op,
 
-    // Followed by up to `ops_len` io_uring_probe_op structures
+    pub fn is_supported(self: @This(), op: IORING_OP) bool {
+        const i = @intFromEnum(op);
+        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
+            return false;
+        return self.ops[i].is_supported();
+    }
 };
 
 pub const io_uring_restriction = extern struct {
