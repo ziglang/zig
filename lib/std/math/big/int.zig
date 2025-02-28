@@ -3698,7 +3698,7 @@ fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
 }
 
 /// Knuth 4.3.1, Algorithm A.
-fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
+fn lladdcarrysmall(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
@@ -3722,6 +3722,85 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     }
 
     return carry;
+}
+
+// same as `lladdcarrysmall`, but with manual unroll for better code generation
+fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
+    const Big = @import("std").meta.Int(.unsigned, @bitSizeOf(Limb) + 1);
+
+    if (@import("builtin").mode == .ReleaseSmall)
+        return lladdcarrysmall(r, a, b);
+
+    @setRuntimeSafety(debug_safety);
+    assert(a.len != 0 and b.len != 0);
+    assert(a.len >= b.len);
+    assert(r.len >= a.len);
+
+    var i: usize = 0;
+    var carry: Big = 0;
+    while (i + 8 < b.len) : (i += 8) {
+        // allows to generate add with carry instructions on targets which support it (`adc` on x86_64)
+        const r0: Big = @as(Big, std.math.maxInt(Limb)) + (carry >> limb_bits);
+        const r1: Big = @as(Big, a[i + 0]) + @as(Big, b[i + 0]) + (r0 >> limb_bits);
+        const r2: Big = @as(Big, a[i + 1]) + @as(Big, b[i + 1]) + (r1 >> limb_bits);
+        const r3: Big = @as(Big, a[i + 2]) + @as(Big, b[i + 2]) + (r2 >> limb_bits);
+        const r4: Big = @as(Big, a[i + 3]) + @as(Big, b[i + 3]) + (r3 >> limb_bits);
+        const r5: Big = @as(Big, a[i + 4]) + @as(Big, b[i + 4]) + (r4 >> limb_bits);
+        const r6: Big = @as(Big, a[i + 5]) + @as(Big, b[i + 5]) + (r5 >> limb_bits);
+        const r7: Big = @as(Big, a[i + 6]) + @as(Big, b[i + 6]) + (r6 >> limb_bits);
+        const r8: Big = @as(Big, a[i + 7]) + @as(Big, b[i + 7]) + (r7 >> limb_bits);
+        r[i + 0] = @truncate(r1);
+        r[i + 1] = @truncate(r2);
+        r[i + 2] = @truncate(r3);
+        r[i + 3] = @truncate(r4);
+        r[i + 4] = @truncate(r5);
+        r[i + 5] = @truncate(r6);
+        r[i + 6] = @truncate(r7);
+        r[i + 7] = @truncate(r8);
+
+        carry = r8;
+    }
+    while (i + 4 < b.len) : (i += 4) {
+        const r0: Big = @as(Big, std.math.maxInt(Limb)) + (carry >> limb_bits);
+        const r1: Big = @as(Big, a[i + 0]) + @as(Big, b[i + 0]) + (r0 >> limb_bits);
+        const r2: Big = @as(Big, a[i + 1]) + @as(Big, b[i + 1]) + (r1 >> limb_bits);
+        const r3: Big = @as(Big, a[i + 2]) + @as(Big, b[i + 2]) + (r2 >> limb_bits);
+        const r4: Big = @as(Big, a[i + 3]) + @as(Big, b[i + 3]) + (r3 >> limb_bits);
+        r[i + 0] = @truncate(r1);
+        r[i + 1] = @truncate(r2);
+        r[i + 2] = @truncate(r3);
+        r[i + 3] = @truncate(r4);
+
+        carry = r4;
+    }
+    while (i < b.len) : (i += 1) {
+        const r0: Big = @as(Big, std.math.maxInt(Limb)) + (carry >> limb_bits);
+        const r1: Big = @as(Big, a[i]) + @as(Big, b[i]) + (r0 >> limb_bits);
+        r[i] = @truncate(r1);
+
+        carry = r1;
+    }
+
+    while (i + 4 < a.len) : (i += 4) {
+        const r1: Big = @as(Big, a[i + 0]) + (carry >> limb_bits);
+        const r2: Big = @as(Big, a[i + 1]) + (r1 >> limb_bits);
+        const r3: Big = @as(Big, a[i + 2]) + (r2 >> limb_bits);
+        const r4: Big = @as(Big, a[i + 3]) + (r3 >> limb_bits);
+        r[i + 0] = @truncate(r1);
+        r[i + 1] = @truncate(r2);
+        r[i + 2] = @truncate(r3);
+        r[i + 3] = @truncate(r4);
+
+        carry = r4;
+    }
+    while (i < a.len) : (i += 1) {
+        const r1: Big = @as(Big, a[i]) + (carry >> limb_bits);
+        r[i] = @truncate(r1);
+
+        carry = r1;
+    }
+
+    return @truncate(carry >> limb_bits);
 }
 
 fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
