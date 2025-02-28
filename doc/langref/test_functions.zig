@@ -27,9 +27,9 @@ const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86) .Stdcall 
 extern "kernel32" fn ExitProcess(exit_code: u32) callconv(WINAPI) noreturn;
 extern "c" fn atan2(a: f64, b: f64) f64;
 
-// The @setCold builtin tells the optimizer that a function is rarely called.
+// The @branchHint builtin can be used to tell the optimizer that a function is rarely called ("cold").
 fn abort() noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     while (true) {}
 }
 

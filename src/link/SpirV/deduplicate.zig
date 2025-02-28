@@ -155,7 +155,7 @@ const ModuleInfo = struct {
             }
         }
 
-        return ModuleInfo{
+        return .{
             .entities = entities.unmanaged,
             .operand_is_id = operand_is_id,
             // There may be unrelated decorations at the end, so make sure to
@@ -178,8 +178,8 @@ const ModuleInfo = struct {
 
 const EntityContext = struct {
     a: Allocator,
-    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
-    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
+    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
+    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
     info: *const ModuleInfo,
     binary: *const BinaryModule,
 
@@ -511,6 +511,14 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
             }
 
             if (maybe_result_id_offset == null or maybe_result_id_offset.? != i) {
+                // Only emit forward pointers before type, constant, and global instructions.
+                // Debug and Annotation instructions don't need the forward pointer, and it
+                // messes up the logical layout of the module.
+                switch (inst.opcode.class()) {
+                    .TypeDeclaration, .ConstantCreation, .Memory => {},
+                    else => continue,
+                }
+
                 const id: ResultId = @enumFromInt(operand.*);
                 const index = info.entities.getIndex(id) orelse continue;
                 const entity = info.entities.values()[index];

@@ -105,28 +105,23 @@ _mm_cvtm64_si64(__m64 __m)
     return (long long)__m;
 }
 
-/// Converts 16-bit signed integers from both 64-bit integer vector
-///    parameters of [4 x i16] into 8-bit signed integer values, and constructs
-///    a 64-bit integer vector of [8 x i8] as the result. Positive values
-///    greater than 0x7F are saturated to 0x7F. Negative values less than 0x80
-///    are saturated to 0x80.
+/// Converts, with saturation, 16-bit signed integers from both 64-bit integer
+///    vector parameters of [4 x i16] into 8-bit signed integer values, and
+///    constructs a 64-bit integer vector of [8 x i8] as the result.
+///
+///    Positive values greater than 0x7F are saturated to 0x7F. Negative values
+///    less than 0x80 are saturated to 0x80.
 ///
 /// \headerfile <x86intrin.h>
 ///
 /// This intrinsic corresponds to the <c> PACKSSWB </c> instruction.
 ///
 /// \param __m1
-///    A 64-bit integer vector of [4 x i16]. Each 16-bit element is treated as a
-///    16-bit signed integer and is converted to an 8-bit signed integer with
-///    saturation. Positive values greater than 0x7F are saturated to 0x7F.
-///    Negative values less than 0x80 are saturated to 0x80. The converted
-///    [4 x i8] values are written to the lower 32 bits of the result.
+///    A 64-bit integer vector of [4 x i16]. The converted [4 x i8] values are
+///    written to the lower 32 bits of the result.
 /// \param __m2
-///    A 64-bit integer vector of [4 x i16]. Each 16-bit element is treated as a
-///    16-bit signed integer and is converted to an 8-bit signed integer with
-///    saturation. Positive values greater than 0x7F are saturated to 0x7F.
-///    Negative values less than 0x80 are saturated to 0x80. The converted
-///    [4 x i8] values are written to the upper 32 bits of the result.
+///    A 64-bit integer vector of [4 x i16]. The converted [4 x i8] values are
+///    written to the upper 32 bits of the result.
 /// \returns A 64-bit integer vector of [8 x i8] containing the converted
 ///    values.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
@@ -135,28 +130,23 @@ _mm_packs_pi16(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_packsswb((__v4hi)__m1, (__v4hi)__m2);
 }
 
-/// Converts 32-bit signed integers from both 64-bit integer vector
-///    parameters of [2 x i32] into 16-bit signed integer values, and constructs
-///    a 64-bit integer vector of [4 x i16] as the result. Positive values
-///    greater than 0x7FFF are saturated to 0x7FFF. Negative values less than
-///    0x8000 are saturated to 0x8000.
+/// Converts, with saturation, 32-bit signed integers from both 64-bit integer
+///    vector parameters of [2 x i32] into 16-bit signed integer values, and
+///    constructs a 64-bit integer vector of [4 x i16] as the result.
+///
+///    Positive values greater than 0x7FFF are saturated to 0x7FFF. Negative
+///    values less than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
 /// This intrinsic corresponds to the <c> PACKSSDW </c> instruction.
 ///
 /// \param __m1
-///    A 64-bit integer vector of [2 x i32]. Each 32-bit element is treated as a
-///    32-bit signed integer and is converted to a 16-bit signed integer with
-///    saturation. Positive values greater than 0x7FFF are saturated to 0x7FFF.
-///    Negative values less than 0x8000 are saturated to 0x8000. The converted
-///    [2 x i16] values are written to the lower 32 bits of the result.
+///    A 64-bit integer vector of [2 x i32]. The converted [2 x i16] values are
+///    written to the lower 32 bits of the result.
 /// \param __m2
-///    A 64-bit integer vector of [2 x i32]. Each 32-bit element is treated as a
-///    32-bit signed integer and is converted to a 16-bit signed integer with
-///    saturation. Positive values greater than 0x7FFF are saturated to 0x7FFF.
-///    Negative values less than 0x8000 are saturated to 0x8000. The converted
-///    [2 x i16] values are written to the upper 32 bits of the result.
+///    A 64-bit integer vector of [2 x i32]. The converted [2 x i16] values are
+///    written to the upper 32 bits of the result.
 /// \returns A 64-bit integer vector of [4 x i16] containing the converted
 ///    values.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
@@ -165,28 +155,23 @@ _mm_packs_pi32(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_packssdw((__v2si)__m1, (__v2si)__m2);
 }
 
-/// Converts 16-bit signed integers from both 64-bit integer vector
-///    parameters of [4 x i16] into 8-bit unsigned integer values, and
-///    constructs a 64-bit integer vector of [8 x i8] as the result. Values
-///    greater than 0xFF are saturated to 0xFF. Values less than 0 are saturated
-///    to 0.
+/// Converts, with saturation, 16-bit signed integers from both 64-bit integer
+///    vector parameters of [4 x i16] into 8-bit unsigned integer values, and
+///    constructs a 64-bit integer vector of [8 x i8] as the result.
+///
+///    Values greater than 0xFF are saturated to 0xFF. Values less than 0 are
+///    saturated to 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
 /// This intrinsic corresponds to the <c> PACKUSWB </c> instruction.
 ///
 /// \param __m1
-///    A 64-bit integer vector of [4 x i16]. Each 16-bit element is treated as a
-///    16-bit signed integer and is converted to an 8-bit unsigned integer with
-///    saturation. Values greater than 0xFF are saturated to 0xFF. Values less
-///    than 0 are saturated to 0. The converted [4 x i8] values are written to
-///    the lower 32 bits of the result.
+///    A 64-bit integer vector of [4 x i16]. The converted [4 x i8] values are
+///    written to the lower 32 bits of the result.
 /// \param __m2
-///    A 64-bit integer vector of [4 x i16]. Each 16-bit element is treated as a
-///    16-bit signed integer and is converted to an 8-bit unsigned integer with
-///    saturation. Values greater than 0xFF are saturated to 0xFF. Values less
-///    than 0 are saturated to 0. The converted [4 x i8] values are written to
-///    the upper 32 bits of the result.
+///    A 64-bit integer vector of [4 x i16]. The converted [4 x i8] values are
+///    written to the upper 32 bits of the result.
 /// \returns A 64-bit integer vector of [8 x i8] containing the converted
 ///    values.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
@@ -400,11 +385,13 @@ _mm_add_pi32(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_paddd((__v2si)__m1, (__v2si)__m2);
 }
 
-/// Adds each 8-bit signed integer element of the first 64-bit integer
-///    vector of [8 x i8] to the corresponding 8-bit signed integer element of
-///    the second 64-bit integer vector of [8 x i8]. Positive sums greater than
-///    0x7F are saturated to 0x7F. Negative sums less than 0x80 are saturated to
-///    0x80. The results are packed into a 64-bit integer vector of [8 x i8].
+/// Adds, with saturation, each 8-bit signed integer element of the first
+///    64-bit integer vector of [8 x i8] to the corresponding 8-bit signed
+///    integer element of the second 64-bit integer vector of [8 x i8].
+///
+///    Positive sums greater than 0x7F are saturated to 0x7F. Negative sums
+///    less than 0x80 are saturated to 0x80. The results are packed into a
+///    64-bit integer vector of [8 x i8].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -422,12 +409,13 @@ _mm_adds_pi8(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_paddsb((__v8qi)__m1, (__v8qi)__m2);
 }
 
-/// Adds each 16-bit signed integer element of the first 64-bit integer
-///    vector of [4 x i16] to the corresponding 16-bit signed integer element of
-///    the second 64-bit integer vector of [4 x i16]. Positive sums greater than
-///    0x7FFF are saturated to 0x7FFF. Negative sums less than 0x8000 are
-///    saturated to 0x8000. The results are packed into a 64-bit integer vector
-///    of [4 x i16].
+/// Adds, with saturation, each 16-bit signed integer element of the first
+///    64-bit integer vector of [4 x i16] to the corresponding 16-bit signed
+///    integer element of the second 64-bit integer vector of [4 x i16].
+///
+///    Positive sums greater than 0x7FFF are saturated to 0x7FFF. Negative sums
+///    less than 0x8000 are saturated to 0x8000. The results are packed into a
+///    64-bit integer vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -445,11 +433,12 @@ _mm_adds_pi16(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_paddsw((__v4hi)__m1, (__v4hi)__m2);
 }
 
-/// Adds each 8-bit unsigned integer element of the first 64-bit integer
-///    vector of [8 x i8] to the corresponding 8-bit unsigned integer element of
-///    the second 64-bit integer vector of [8 x i8]. Sums greater than 0xFF are
-///    saturated to 0xFF. The results are packed into a 64-bit integer vector of
-///    [8 x i8].
+/// Adds, with saturation, each 8-bit unsigned integer element of the first
+///    64-bit integer vector of [8 x i8] to the corresponding 8-bit unsigned
+///    integer element of the second 64-bit integer vector of [8 x i8].
+///
+///    Sums greater than 0xFF are saturated to 0xFF. The results are packed
+///    into a 64-bit integer vector of [8 x i8].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -467,11 +456,12 @@ _mm_adds_pu8(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_paddusb((__v8qi)__m1, (__v8qi)__m2);
 }
 
-/// Adds each 16-bit unsigned integer element of the first 64-bit integer
-///    vector of [4 x i16] to the corresponding 16-bit unsigned integer element
-///    of the second 64-bit integer vector of [4 x i16]. Sums greater than
-///    0xFFFF are saturated to 0xFFFF. The results are packed into a 64-bit
-///    integer vector of [4 x i16].
+/// Adds, with saturation, each 16-bit unsigned integer element of the first
+///    64-bit integer vector of [4 x i16] to the corresponding 16-bit unsigned
+///    integer element of the second 64-bit integer vector of [4 x i16].
+///
+///    Sums greater than 0xFFFF are saturated to 0xFFFF. The results are packed
+///    into a 64-bit integer vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -552,12 +542,13 @@ _mm_sub_pi32(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_psubd((__v2si)__m1, (__v2si)__m2);
 }
 
-/// Subtracts each 8-bit signed integer element of the second 64-bit
-///    integer vector of [8 x i8] from the corresponding 8-bit signed integer
-///    element of the first 64-bit integer vector of [8 x i8]. Positive results
-///    greater than 0x7F are saturated to 0x7F. Negative results less than 0x80
-///    are saturated to 0x80. The results are packed into a 64-bit integer
-///    vector of [8 x i8].
+/// Subtracts, with saturation, each 8-bit signed integer element of the second
+///    64-bit integer vector of [8 x i8] from the corresponding 8-bit signed
+///    integer element of the first 64-bit integer vector of [8 x i8].
+///
+///    Positive results greater than 0x7F are saturated to 0x7F. Negative
+///    results less than 0x80 are saturated to 0x80. The results are packed
+///    into a 64-bit integer vector of [8 x i8].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -575,12 +566,13 @@ _mm_subs_pi8(__m64 __m1, __m64 __m2)
     return (__m64)__builtin_ia32_psubsb((__v8qi)__m1, (__v8qi)__m2);
 }
 
-/// Subtracts each 16-bit signed integer element of the second 64-bit
-///    integer vector of [4 x i16] from the corresponding 16-bit signed integer
-///    element of the first 64-bit integer vector of [4 x i16]. Positive results
-///    greater than 0x7FFF are saturated to 0x7FFF. Negative results less than
-///    0x8000 are saturated to 0x8000. The results are packed into a 64-bit
-///    integer vector of [4 x i16].
+/// Subtracts, with saturation, each 16-bit signed integer element of the
+///    second 64-bit integer vector of [4 x i16] from the corresponding 16-bit
+///    signed integer element of the first 64-bit integer vector of [4 x i16].
+///
+///    Positive results greater than 0x7FFF are saturated to 0x7FFF. Negative
+///    results less than 0x8000 are saturated to 0x8000. The results are packed
+///    into a 64-bit integer vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1149,7 +1141,7 @@ _mm_xor_si64(__m64 __m1, __m64 __m2)
 ///    [8 x i8] to determine if the element of the first vector is equal to the
 ///    corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFF for true.
+///    Each comparison returns 0 for false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1171,7 +1163,7 @@ _mm_cmpeq_pi8(__m64 __m1, __m64 __m2)
 ///    [4 x i16] to determine if the element of the first vector is equal to the
 ///    corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFFFF for true.
+///    Each comparison returns 0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1193,7 +1185,7 @@ _mm_cmpeq_pi16(__m64 __m1, __m64 __m2)
 ///    [2 x i32] to determine if the element of the first vector is equal to the
 ///    corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFFFFFFFF for true.
+///    Each comparison returns 0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1215,7 +1207,7 @@ _mm_cmpeq_pi32(__m64 __m1, __m64 __m2)
 ///    [8 x i8] to determine if the element of the first vector is greater than
 ///    the corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFF for true.
+///    Each comparison returns 0 for false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1237,7 +1229,7 @@ _mm_cmpgt_pi8(__m64 __m1, __m64 __m2)
 ///    [4 x i16] to determine if the element of the first vector is greater than
 ///    the corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFFFF for true.
+///    Each comparison returns 0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1259,7 +1251,7 @@ _mm_cmpgt_pi16(__m64 __m1, __m64 __m2)
 ///    [2 x i32] to determine if the element of the first vector is greater than
 ///    the corresponding element of the second vector.
 ///
-///    The comparison yields 0 for false, 0xFFFFFFFF for true.
+///    Each comparison returns 0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///

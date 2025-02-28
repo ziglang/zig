@@ -10,7 +10,6 @@ const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 const Dwarf = std.debug.Dwarf;
-const page_size = std.mem.page_size;
 const assert = std.debug.assert;
 const Coverage = std.debug.Coverage;
 const SourceLocation = std.debug.Coverage.SourceLocation;
@@ -27,7 +26,7 @@ pub const LoadError = Dwarf.ElfModule.LoadError;
 pub fn load(gpa: Allocator, path: Path, coverage: *Coverage) LoadError!Info {
     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
     var elf_module = try Dwarf.ElfModule.loadPath(gpa, path, null, null, &sections, null);
-    try elf_module.dwarf.sortCompileUnits();
+    try elf_module.dwarf.populateRanges(gpa);
     var info: Info = .{
         .address_map = .{},
         .coverage = coverage,
@@ -51,6 +50,7 @@ pub const ResolveAddressesError = Coverage.ResolveAddressesDwarfError;
 pub fn resolveAddresses(
     info: *Info,
     gpa: Allocator,
+    /// Asserts the addresses are in ascending order.
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []SourceLocation,

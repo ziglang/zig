@@ -15,6 +15,592 @@
 extern "C" {
 #endif
   
+/*  MARK: - C and Objective-C _Float16 interfaces                                */
+
+/*! @abstract Constructs a quaternion from four scalar values.
+ *
+ *  @param ix The first component of the imaginary (vector) part.
+ *  @param iy The second component of the imaginary (vector) part.
+ *  @param iz The third component of the imaginary (vector) part.
+ *
+ *  @param r The real (scalar) part.                                          */
+static inline SIMD_CFUNC simd_quath simd_quaternion(_Float16 ix, _Float16 iy, _Float16 iz, _Float16 r) {
+  return (simd_quath){ { ix, iy, iz, r } };
+}
+  
+/*! @abstract Constructs a quaternion from an array of four scalars.
+ *
+ *  @discussion Note that the imaginary part of the quaternion comes from 
+ *  array elements 0, 1, and 2, and the real part comes from element 3.       */
+static inline SIMD_NONCONST simd_quath simd_quaternion(const _Float16 xyzr[4]) {
+  return (simd_quath){ *(const simd_packed_half4 *)xyzr };
+}
+  
+/*! @abstract Constructs a quaternion from a four-element vector.
+ *
+ *  @discussion Note that the imaginary (vector) part of the quaternion comes
+ *  from lanes 0, 1, and 2 of the vector, and the real (scalar) part comes from
+ *  lane 3.                                                                   */
+static inline SIMD_CFUNC simd_quath simd_quaternion(simd_half4 xyzr) {
+  return (simd_quath){ xyzr };
+}
+  
+/*! @abstract Constructs a quaternion that rotates by `angle` radians about
+ *  `axis`.                                                                   */
+static inline SIMD_CFUNC simd_quath simd_quaternion(_Float16 angle, simd_half3 axis);
+  
+/*! @abstract Construct a quaternion that rotates from one vector to another.
+ *
+ *  @param from A normalized three-element vector.
+ *  @param to A normalized three-element vector.
+ *
+ *  @discussion The rotation axis is `simd_cross(from, to)`. If `from` and
+ *  `to` point in opposite directions (to within machine precision), an
+ *  arbitrary rotation axis is chosen, and the angle is pi radians.           */
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half3 from, simd_half3 to);
+
+/*! @abstract Construct a quaternion from a 3x3 rotation `matrix`.
+ *
+ *  @discussion If `matrix` is not orthogonal with determinant 1, the result
+ *  is undefined.                                                             */
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half3x3 matrix);
+
+/*! @abstract Construct a quaternion from a 4x4 rotation `matrix`.
+ *
+ *  @discussion The last row and column of the matrix are ignored. This
+ *  function is equivalent to calling simd_quaternion with the upper-left 3x3
+ *  submatrix                .                                                */
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half4x4 matrix);
+  
+/*! @abstract The real (scalar) part of the quaternion `q`.                   */
+static inline SIMD_CFUNC _Float16 simd_real(simd_quath q) {
+  return q.vector.w;
+}
+  
+/*! @abstract The imaginary (vector) part of the quaternion `q`.              */
+static inline SIMD_CFUNC simd_half3 simd_imag(simd_quath q) {
+  return q.vector.xyz;
+}
+  
+/*! @abstract The angle (in radians) of rotation represented by `q`.          */
+static inline SIMD_CFUNC _Float16 simd_angle(simd_quath q);
+  
+/*! @abstract The normalized axis (a 3-element vector) around which the
+ *  action of the quaternion `q` rotates.                                     */
+static inline SIMD_CFUNC simd_half3 simd_axis(simd_quath q);
+  
+/*! @abstract The sum of the quaternions `p` and `q`.                         */
+static inline SIMD_CFUNC simd_quath simd_add(simd_quath p, simd_quath q);
+  
+/*! @abstract The difference of the quaternions `p` and `q`.                  */
+static inline SIMD_CFUNC simd_quath simd_sub(simd_quath p, simd_quath q);
+  
+/*! @abstract The product of the quaternions `p` and `q`.                     */
+static inline SIMD_CFUNC simd_quath simd_mul(simd_quath p, simd_quath q);
+  
+/*! @abstract The quaternion `q` scaled by the real value `a`.                */
+static inline SIMD_CFUNC simd_quath simd_mul(simd_quath q, _Float16 a);
+  
+/*! @abstract The quaternion `q` scaled by the real value `a`.                */
+static inline SIMD_CFUNC simd_quath simd_mul(_Float16 a, simd_quath q);
+  
+/*! @abstract The conjugate of the quaternion `q`.                            */
+static inline SIMD_CFUNC simd_quath simd_conjugate(simd_quath q);
+  
+/*! @abstract The (multiplicative) inverse of the quaternion `q`.             */
+static inline SIMD_CFUNC simd_quath simd_inverse(simd_quath q);
+  
+/*! @abstract The negation (additive inverse) of the quaternion `q`.          */
+static inline SIMD_CFUNC simd_quath simd_negate(simd_quath q);
+  
+/*! @abstract The dot product of the quaternions `p` and `q` interpreted as
+ *  four-dimensional vectors.                                                 */
+static inline SIMD_CFUNC _Float16 simd_dot(simd_quath p, simd_quath q);
+  
+/*! @abstract The length of the quaternion `q`.                               */
+static inline SIMD_CFUNC _Float16 simd_length(simd_quath q);
+  
+/*! @abstract The unit quaternion obtained by normalizing `q`.                */
+static inline SIMD_CFUNC simd_quath simd_normalize(simd_quath q);
+  
+/*! @abstract Rotates the vector `v` by the quaternion `q`.                   */
+static inline SIMD_CFUNC simd_half3 simd_act(simd_quath q, simd_half3 v);
+  
+/*! @abstract Logarithm of the quaternion `q`.
+ *  @discussion Do not call this function directly; use `log(q)` instead.
+ *
+ *  We can write a quaternion `q` in the form: `r(cos(t) + sin(t)v)` where
+ *  `r` is the length of `q`, `t` is an angle, and `v` is a unit 3-vector.
+ *  The logarithm of `q` is `log(r) + tv`, just like the logarithm of the
+ *  complex number `r*(cos(t) + i sin(t))` is `log(r) + it`.
+ *
+ *  Note that this function is not robust against poorly-scaled non-unit
+ *  quaternions, because it is primarily used for spline interpolation of
+ *  unit quaternions. If you need to compute a robust logarithm of general
+ *  quaternions, you can use the following approach:
+ *
+ *    scale = simd_reduce_max(simd_abs(q.vector));
+ *    logq = log(simd_recip(scale)*q);
+ *    logq.real += log(scale);
+ *    return logq;                                                            */
+static SIMD_NOINLINE simd_quath __tg_log(simd_quath q);
+    
+/*! @abstract Inverse of `log( )`; the exponential map on quaternions.
+ *  @discussion Do not call this function directly; use `exp(q)` instead.     */
+static SIMD_NOINLINE simd_quath __tg_exp(simd_quath q);
+  
+/*! @abstract Spherical linear interpolation along the shortest arc between
+ *  quaternions `q0` and `q1`.                                                */
+static SIMD_NOINLINE simd_quath simd_slerp(simd_quath q0, simd_quath q1, _Float16 t);
+
+/*! @abstract Spherical linear interpolation along the longest arc between
+ *  quaternions `q0` and `q1`.                                                */
+static SIMD_NOINLINE simd_quath simd_slerp_longest(simd_quath q0, simd_quath q1, _Float16 t);
+
+/*! @abstract Interpolate between quaternions along a spherical cubic spline.
+ *
+ *  @discussion The function interpolates between q1 and q2. q0 is the left
+ *  endpoint of the previous interval, and q3 is the right endpoint of the next
+ *  interval. Use this function to smoothly interpolate between a sequence of
+ *  rotations.                                                                */
+static SIMD_NOINLINE simd_quath simd_spline(simd_quath q0, simd_quath q1, simd_quath q2, simd_quath q3, _Float16 t);
+
+/*! @abstract Spherical cubic Bezier interpolation between quaternions.
+ *
+ *  @discussion The function treats q0 ... q3 as control points and uses slerp
+ *  in place of lerp in the De Castlejeau algorithm. The endpoints of
+ *  interpolation are thus q0 and q3, and the curve will not generally pass
+ *  through q1 or q2. Note that the convex hull property of "standard" Bezier
+ *  curve does not hold on the sphere.                                        */
+static SIMD_NOINLINE simd_quath simd_bezier(simd_quath q0, simd_quath q1, simd_quath q2, simd_quath q3, _Float16 t);
+  
+#ifdef __cplusplus
+} /* extern "C" */
+/*  MARK: - C++ _Float16 interfaces                                              */
+
+namespace simd {
+  struct quath : ::simd_quath {
+    /*! @abstract The identity quaternion.                                    */
+    quath( ) : ::simd_quath(::simd_quaternion((half4){0,0,0,1})) { }
+    
+    /*! @abstract Constructs a C++ quaternion from a C quaternion.            */
+    quath(::simd_quath q) : ::simd_quath(q) { }
+    
+    /*! @abstract Constructs a quaternion from components.                    */
+    quath(_Float16 ix, _Float16 iy, _Float16 iz, _Float16 r) : ::simd_quath(::simd_quaternion(ix, iy, iz, r)) { }
+    
+    /*! @abstract Constructs a quaternion from an array of scalars.           */
+    quath(const _Float16 xyzr[4]) : ::simd_quath(::simd_quaternion(xyzr)) { }
+    
+    /*! @abstract Constructs a quaternion from a vector.                      */
+    quath(half4 xyzr) : ::simd_quath(::simd_quaternion(xyzr)) { }
+    
+    /*! @abstract Quaternion representing rotation about `axis` by `angle` 
+     *  radians.                                                              */
+    quath(_Float16 angle, half3 axis) : ::simd_quath(::simd_quaternion(angle, axis)) { }
+    
+    /*! @abstract Quaternion that rotates `from` into `to`.                   */
+    quath(half3 from, half3 to) : ::simd_quath(::simd_quaternion(from, to)) { }
+    
+    /*! @abstract Constructs a quaternion from a rotation matrix.             */
+    quath(::simd_half3x3 matrix) : ::simd_quath(::simd_quaternion(matrix)) { }
+    
+    /*! @abstract Constructs a quaternion from a rotation matrix.             */
+    quath(::simd_half4x4 matrix) : ::simd_quath(::simd_quaternion(matrix)) { }
+  
+    /*! @abstract The real (scalar) part of the quaternion.                   */
+    _Float16 real(void) const { return ::simd_real(*this); }
+    
+    /*! @abstract The imaginary (vector) part of the quaternion.              */
+    half3 imag(void) const { return ::simd_imag(*this); }
+    
+    /*! @abstract The angle the quaternion rotates by.                        */
+    _Float16 angle(void) const { return ::simd_angle(*this); }
+    
+    /*! @abstract The axis the quaternion rotates about.                      */
+    half3 axis(void) const { return ::simd_axis(*this); }
+    
+    /*! @abstract The length of the quaternion.                               */
+    _Float16 length(void) const { return ::simd_length(*this); }
+    
+    /*! @abstract Act on the vector `v` by rotation.                          */
+    half3  operator()(const ::simd_half3 v) const { return ::simd_act(*this, v); }
+  };
+  
+  static SIMD_CPPFUNC quath operator+(const ::simd_quath p, const ::simd_quath q) { return ::simd_add(p, q); }
+  static SIMD_CPPFUNC quath operator-(const ::simd_quath p, const ::simd_quath q) { return ::simd_sub(p, q); }
+  static SIMD_CPPFUNC quath operator-(const ::simd_quath p) { return ::simd_negate(p); }
+  static SIMD_CPPFUNC quath operator*(const _Float16 r, const ::simd_quath p) { return ::simd_mul(r, p); }
+  static SIMD_CPPFUNC quath operator*(const ::simd_quath p, const _Float16 r) { return ::simd_mul(p, r); }
+  static SIMD_CPPFUNC quath operator*(const ::simd_quath p, const ::simd_quath q) { return ::simd_mul(p, q); }
+  static SIMD_CPPFUNC quath operator/(const ::simd_quath p, const ::simd_quath q) { return ::simd_mul(p, ::simd_inverse(q)); }
+  static SIMD_INLINE SIMD_NODEBUG quath operator+=(quath &p, const ::simd_quath q) { return p = p+q; }
+  static SIMD_INLINE SIMD_NODEBUG quath operator-=(quath &p, const ::simd_quath q) { return p = p-q; }
+  static SIMD_INLINE SIMD_NODEBUG quath operator*=(quath &p, const _Float16 r) { return p = p*r; }
+  static SIMD_INLINE SIMD_NODEBUG quath operator*=(quath &p, const ::simd_quath q) { return p = p*q; }
+  static SIMD_INLINE SIMD_NODEBUG quath operator/=(quath &p, const ::simd_quath q) { return p = p/q; }
+  
+  /*! @abstract The conjugate of the quaternion `q`.                          */
+  static SIMD_CPPFUNC quath conjugate(const ::simd_quath p) { return ::simd_conjugate(p); }
+  
+  /*! @abstract The (multiplicative) inverse of the quaternion `q`.           */
+  static SIMD_CPPFUNC quath inverse(const ::simd_quath p) { return ::simd_inverse(p); }
+
+  /*! @abstract The dot product of the quaternions `p` and `q` interpreted as
+   *  four-dimensional vectors.                                               */
+  static SIMD_CPPFUNC _Float16 dot(const ::simd_quath p, const ::simd_quath q) { return ::simd_dot(p, q); }
+  
+  /*! @abstract The unit quaternion obtained by normalizing `q`.              */
+  static SIMD_CPPFUNC quath normalize(const ::simd_quath p) { return ::simd_normalize(p); }
+
+  /*! @abstract logarithm of the quaternion `q`.                              */
+  static SIMD_CPPFUNC quath log(const ::simd_quath q) { return ::__tg_log(q); }
+
+  /*! @abstract exponential map of quaterion `q`.                             */
+  static SIMD_CPPFUNC quath exp(const ::simd_quath q) { return ::__tg_exp(q); }
+  
+  /*! @abstract Spherical linear interpolation along the shortest arc between
+   *  quaternions `q0` and `q1`.                                              */
+  static SIMD_CPPFUNC quath slerp(const ::simd_quath p0, const ::simd_quath p1, _Float16 t) { return ::simd_slerp(p0, p1, t); }
+  
+  /*! @abstract Spherical linear interpolation along the longest arc between
+   *  quaternions `q0` and `q1`.                                              */
+  static SIMD_CPPFUNC quath slerp_longest(const ::simd_quath p0, const ::simd_quath p1, _Float16 t) { return ::simd_slerp_longest(p0, p1, t); }
+  
+  /*! @abstract Interpolate between quaternions along a spherical cubic spline.
+   *
+   *  @discussion The function interpolates between q1 and q2. q0 is the left
+   *  endpoint of the previous interval, and q3 is the right endpoint of the next
+   *  interval. Use this function to smoothly interpolate between a sequence of
+   *  rotations.                                                              */
+  static SIMD_CPPFUNC quath spline(const ::simd_quath p0, const ::simd_quath p1, const ::simd_quath p2, const ::simd_quath p3, _Float16 t) { return ::simd_spline(p0, p1, p2, p3, t); }
+  
+  /*! @abstract Spherical cubic Bezier interpolation between quaternions.
+   *
+   *  @discussion The function treats q0 ... q3 as control points and uses slerp
+   *  in place of lerp in the De Castlejeau algorithm. The endpoints of
+   *  interpolation are thus q0 and q3, and the curve will not generally pass
+   *  through q1 or q2. Note that the convex hull property of "standard" Bezier
+   *  curve does not hold on the sphere.                                      */
+  static SIMD_CPPFUNC quath bezier(const ::simd_quath p0, const ::simd_quath p1, const ::simd_quath p2, const ::simd_quath p3, _Float16 t) { return ::simd_bezier(p0, p1, p2, p3, t); }
+}
+
+extern "C" {
+#endif /* __cplusplus */
+  
+/*  MARK: - _Float16 implementations                                             */
+
+#include <simd/math.h>
+#include <simd/geometry.h>
+  
+/*  tg_promote is implementation gobbledygook that enables the compile-time
+ *  dispatching in tgmath.h to work its magic.                                */
+static simd_quath __attribute__((__overloadable__)) __tg_promote(simd_quath);
+  
+/*! @abstract Constructs a quaternion from imaginary and real parts.
+ *  @discussion This function is hidden behind an underscore to avoid confusion
+ *  with the angle-axis constructor.                                          */
+static inline SIMD_CFUNC simd_quath _simd_quaternion(simd_half3 imag, _Float16 real) {
+  return simd_quaternion(simd_make_half4(imag, real));
+}
+  
+static inline SIMD_CFUNC simd_quath simd_quaternion(_Float16 angle, simd_half3 axis) {
+  return _simd_quaternion((_Float16)sinf(angle/2) * axis, (_Float16)cosf(angle/2));
+}
+  
+static inline SIMD_CFUNC _Float16 simd_angle(simd_quath q) {
+  return 2*(_Float16)atan2f(simd_length(q.vector.xyz), q.vector.w);
+}
+  
+static inline SIMD_CFUNC simd_half3 simd_axis(simd_quath q) {
+  return simd_normalize(q.vector.xyz);
+}
+  
+static inline SIMD_CFUNC simd_quath simd_add(simd_quath p, simd_quath q) {
+  return simd_quaternion(p.vector + q.vector);
+}
+  
+static inline SIMD_CFUNC simd_quath simd_sub(simd_quath p, simd_quath q) {
+  return simd_quaternion(p.vector - q.vector);
+}
+
+static inline SIMD_CFUNC simd_quath simd_mul(simd_quath p, simd_quath q) {
+  #pragma STDC FP_CONTRACT ON
+  return simd_quaternion((p.vector.x * __builtin_shufflevector(q.vector, -q.vector, 3,6,1,4) +
+                          p.vector.y * __builtin_shufflevector(q.vector, -q.vector, 2,3,4,5)) +
+                         (p.vector.z * __builtin_shufflevector(q.vector, -q.vector, 5,0,3,6) +
+                          p.vector.w * q.vector));
+}
+
+static inline SIMD_CFUNC simd_quath simd_mul(simd_quath q, _Float16 a) {
+  return simd_quaternion(a * q.vector);
+}
+
+static inline SIMD_CFUNC simd_quath simd_mul(_Float16 a, simd_quath q) {
+  return simd_mul(q,a);
+}
+  
+static inline SIMD_CFUNC simd_quath simd_conjugate(simd_quath q) {
+  return simd_quaternion(q.vector * (simd_half4){-1,-1,-1, 1});
+}
+  
+static inline SIMD_CFUNC simd_quath simd_inverse(simd_quath q) {
+  return simd_quaternion(simd_conjugate(q).vector * simd_recip(simd_length_squared(q.vector)));
+}
+  
+static inline SIMD_CFUNC simd_quath simd_negate(simd_quath q) {
+  return simd_quaternion(-q.vector);
+}
+  
+static inline SIMD_CFUNC _Float16 simd_dot(simd_quath p, simd_quath q) {
+  return simd_dot(p.vector, q.vector);
+}
+  
+static inline SIMD_CFUNC _Float16 simd_length(simd_quath q) {
+  return simd_length(q.vector);
+}
+  
+static inline SIMD_CFUNC simd_quath simd_normalize(simd_quath q) {
+  _Float16 length_squared = simd_length_squared(q.vector);
+  if (length_squared == 0) {
+    return simd_quaternion((simd_half4){0,0,0,1});
+  }
+  return simd_quaternion(q.vector * simd_rsqrt(length_squared));
+}
+
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
+/*! @abstract Multiplies the vector `v` by the quaternion `q`.
+ *  
+ *  @discussion This IS NOT the action of `q` on `v` (i.e. this is not rotation
+ *  by `q`. That operation is provided by `simd_act(q, v)`. This function is an
+ *  implementation detail and you should not call it directly. It may be
+ *  removed or modified in future versions of the simd module.                */
+static inline SIMD_CFUNC simd_quath _simd_mul_vq(simd_half3 v, simd_quath q) {
+  #pragma STDC FP_CONTRACT ON
+  return simd_quaternion(v.x * __builtin_shufflevector(q.vector, -q.vector, 3,6,1,4) +
+                         v.y * __builtin_shufflevector(q.vector, -q.vector, 2,3,4,5) +
+                         v.z * __builtin_shufflevector(q.vector, -q.vector, 5,0,3,6));
+}
+#endif
+  
+static inline SIMD_CFUNC simd_half3 simd_act(simd_quath q, simd_half3 v) {
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
+  return simd_mul(q, _simd_mul_vq(v, simd_conjugate(q))).vector.xyz;
+#else
+  #pragma STDC FP_CONTRACT ON
+  simd_half3 t = 2*simd_cross(simd_imag(q),v);
+  return v + simd_real(q)*t + simd_cross(simd_imag(q), t);
+#endif
+}
+
+static SIMD_NOINLINE simd_quath __tg_log(simd_quath q) {
+  _Float16 real = (_Float16)logf(simd_length_squared(q.vector))/2;
+  if (simd_equal(simd_imag(q), 0)) return _simd_quaternion(0, real);
+  simd_half3 imag = (_Float16)acosf(simd_real(q)/simd_length(q)) * simd_normalize(simd_imag(q));
+  return _simd_quaternion(imag, real);
+}
+  
+static SIMD_NOINLINE simd_quath __tg_exp(simd_quath q) {
+  //  angle is actually *twice* the angle of the rotation corresponding to
+  //  the resulting quaternion, which is why we don't simply use the (angle,
+  //  axis) constructor to generate `unit`.
+  _Float16 angle = simd_length(simd_imag(q));
+  if (angle == 0) return _simd_quaternion((simd_half3)0, (_Float16)expf(simd_real(q)));
+  simd_half3 axis = simd_normalize(simd_imag(q));
+  simd_quath unit = _simd_quaternion((_Float16)sinf(angle)*axis, (_Float16)cosf(angle));
+  return simd_mul((_Float16)expf(simd_real(q)), unit);
+}
+ 
+/*! @abstract Implementation detail of the `simd_quaternion(from, to)`
+ *  initializer.
+ *
+ *  @discussion Computes the quaternion rotation `from` to `to` if they are
+ *  separated by less than 90 degrees. Not numerically stable for larger
+ *  angles. This function is an implementation detail and you should not
+ *  call it directly. It may be removed or modified in future versions of the
+ *  simd module.                                                              */
+static inline SIMD_CFUNC simd_quath _simd_quaternion_reduced(simd_half3 from, simd_half3 to) {
+  simd_half3 half = simd_normalize(from + to);
+  return _simd_quaternion(simd_cross(from, half), simd_dot(from, half));
+}
+
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half3 from, simd_half3 to) {
+  
+  //  If the angle between from and to is not too big, we can compute the
+  //  rotation accurately using a simple implementation.
+  if (simd_dot(from, to) >= 0) {
+    return _simd_quaternion_reduced(from, to);
+  }
+  
+  //  Because from and to are more than 90 degrees apart, we compute the
+  //  rotation in two stages (from -> half), (half -> to) to preserve numerical
+  //  accuracy.
+  simd_half3 half = simd_normalize(from) + simd_normalize(to);
+  
+  if (simd_length_squared(half) <= 0x1p-46f) {
+    //  half is nearly zero, so from and to point in nearly opposite directions
+    //  and the rotation is numerically underspecified. Pick an axis orthogonal
+    //  to the vectors, and use an angle of pi radians.
+    simd_half3 abs_from = simd_abs(from);
+    if (abs_from.x <= abs_from.y && abs_from.x <= abs_from.z)
+      return _simd_quaternion(simd_normalize(simd_cross(from, (simd_half3){1,0,0})), 0.f);
+    else if (abs_from.y <= abs_from.z)
+      return _simd_quaternion(simd_normalize(simd_cross(from, (simd_half3){0,1,0})), 0.f);
+    else
+      return _simd_quaternion(simd_normalize(simd_cross(from, (simd_half3){0,0,1})), 0.f);
+  }
+
+  //  Compute the two-step rotation.                         */
+  half = simd_normalize(half);
+  return simd_mul(_simd_quaternion_reduced(from, half),
+                  _simd_quaternion_reduced(half, to));
+}
+
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half3x3 matrix) {
+  const simd_half3 *mat = matrix.columns;
+  _Float16 trace = mat[0][0] + mat[1][1] + mat[2][2];
+  if (trace >= 0.0) {
+    _Float16 r = 2*__sqrtf16(1 + trace);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[1][2] - mat[2][1]),
+                           rinv*(mat[2][0] - mat[0][2]),
+                           rinv*(mat[0][1] - mat[1][0]),
+                           r/4);
+  } else if (mat[0][0] >= mat[1][1] && mat[0][0] >= mat[2][2]) {
+    _Float16 r = 2*__sqrtf16(1 - mat[1][1] - mat[2][2] + mat[0][0]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(r/4,
+                           rinv*(mat[0][1] + mat[1][0]),
+                           rinv*(mat[0][2] + mat[2][0]),
+                           rinv*(mat[1][2] - mat[2][1]));
+  } else if (mat[1][1] >= mat[2][2]) {
+    _Float16 r = 2*__sqrtf16(1 - mat[0][0] - mat[2][2] + mat[1][1]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[0][1] + mat[1][0]),
+                           r/4,
+                           rinv*(mat[1][2] + mat[2][1]),
+                           rinv*(mat[2][0] - mat[0][2]));
+  } else {
+    _Float16 r = 2*__sqrtf16(1 - mat[0][0] - mat[1][1] + mat[2][2]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[0][2] + mat[2][0]),
+                           rinv*(mat[1][2] + mat[2][1]),
+                           r/4,
+                           rinv*(mat[0][1] - mat[1][0]));
+  }
+}
+  
+static SIMD_NOINLINE simd_quath simd_quaternion(simd_half4x4 matrix) {
+  const simd_half4 *mat = matrix.columns;
+  _Float16 trace = mat[0][0] + mat[1][1] + mat[2][2];
+  if (trace >= 0.0) {
+    _Float16 r = 2*__sqrtf16(1 + trace);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[1][2] - mat[2][1]),
+                           rinv*(mat[2][0] - mat[0][2]),
+                           rinv*(mat[0][1] - mat[1][0]),
+                           r/4);
+  } else if (mat[0][0] >= mat[1][1] && mat[0][0] >= mat[2][2]) {
+    _Float16 r = 2*__sqrtf16(1 - mat[1][1] - mat[2][2] + mat[0][0]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(r/4,
+                           rinv*(mat[0][1] + mat[1][0]),
+                           rinv*(mat[0][2] + mat[2][0]),
+                           rinv*(mat[1][2] - mat[2][1]));
+  } else if (mat[1][1] >= mat[2][2]) {
+    _Float16 r = 2*__sqrtf16(1 - mat[0][0] - mat[2][2] + mat[1][1]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[0][1] + mat[1][0]),
+                           r/4,
+                           rinv*(mat[1][2] + mat[2][1]),
+                           rinv*(mat[2][0] - mat[0][2]));
+  } else {
+    _Float16 r = 2*__sqrtf16(1 - mat[0][0] - mat[1][1] + mat[2][2]);
+    _Float16 rinv = simd_recip(r);
+    return simd_quaternion(rinv*(mat[0][2] + mat[2][0]),
+                           rinv*(mat[1][2] + mat[2][1]),
+                           r/4,
+                           rinv*(mat[0][1] - mat[1][0]));
+  }
+}
+  
+/*! @abstract The angle between p and q interpreted as 4-dimensional vectors.
+ *
+ *  @discussion This function is an implementation detail and you should not
+ *  call it directly. It may be removed or modified in future versions of the
+ *  simd module.                                                              */
+static SIMD_NOINLINE _Float16 _simd_angle(simd_quath p, simd_quath q) {
+  return 2*(_Float16)atan2f(simd_length(p.vector - q.vector), simd_length(p.vector + q.vector));
+}
+  
+/*! @abstract sin(x)/x.
+ *
+ *  @discussion This function is an implementation detail and you should not
+ *  call it directly. It may be removed or modified in future versions of the
+ *  simd module.                                                              */
+static SIMD_CFUNC _Float16 _simd_sinc(_Float16 x) {
+  if (x == 0) return 1;
+  return (_Float16)sinf(x)/x;
+}
+ 
+/*! @abstract Spherical lerp between q0 and q1.
+ *
+ *  @discussion This function may interpolate along either the longer or
+ *  shorter path between q0 and q1; it is used as an implementation detail
+ *  in `simd_slerp` and `simd_slerp_longest`; you should use those functions
+ *  instead of calling this directly.                                         */
+static SIMD_NOINLINE simd_quath _simd_slerp_internal(simd_quath q0, simd_quath q1, _Float16 t) {
+  _Float16 s = 1 - t;
+  _Float16 a = _simd_angle(q0, q1);
+  _Float16 r = simd_recip(_simd_sinc(a));
+  return simd_normalize(simd_quaternion(_simd_sinc(s*a)*r*s*q0.vector + _simd_sinc(t*a)*r*t*q1.vector));
+}
+  
+static SIMD_NOINLINE simd_quath simd_slerp(simd_quath q0, simd_quath q1, _Float16 t) {
+  if (simd_dot(q0, q1) >= 0)
+    return _simd_slerp_internal(q0, q1, t);
+  return _simd_slerp_internal(q0, simd_negate(q1), t);
+}
+
+static SIMD_NOINLINE simd_quath simd_slerp_longest(simd_quath q0, simd_quath q1, _Float16 t) {
+  if (simd_dot(q0, q1) >= 0)
+    return _simd_slerp_internal(q0, simd_negate(q1), t);
+  return _simd_slerp_internal(q0, q1, t);
+}
+  
+/*! @discussion This function is an implementation detail and you should not
+ *  call it directly. It may be removed or modified in future versions of the
+ *  simd module.                                                              */
+static SIMD_NOINLINE simd_quath _simd_intermediate(simd_quath q0, simd_quath q1, simd_quath q2) {
+  simd_quath p0 = __tg_log(simd_mul(q0, simd_inverse(q1)));
+  simd_quath p2 = __tg_log(simd_mul(q2, simd_inverse(q1)));
+  return simd_normalize(simd_mul(q1, __tg_exp(simd_mul(-0.25, simd_add(p0,p2)))));
+}
+
+/*! @discussion This function is an implementation detail and you should not
+ *  call it directly. It may be removed or modified in future versions of the
+ *  simd module.                                                              */
+static SIMD_NOINLINE simd_quath _simd_squad(simd_quath q0, simd_quath qa, simd_quath qb, simd_quath q1, _Float16 t) {
+  simd_quath r0 = _simd_slerp_internal(q0, q1, t);
+  simd_quath r1 = _simd_slerp_internal(qa, qb, t);
+  return _simd_slerp_internal(r0, r1, 2*t*(1 - t));
+}
+  
+static SIMD_NOINLINE simd_quath simd_spline(simd_quath q0, simd_quath q1, simd_quath q2, simd_quath q3, _Float16 t) {
+  simd_quath qa = _simd_intermediate(q0, q1, q2);
+  simd_quath qb = _simd_intermediate(q1, q2, q3);
+  return _simd_squad(q1, qa, qb, q2, t);
+}
+  
+static SIMD_NOINLINE simd_quath simd_bezier(simd_quath q0, simd_quath q1, simd_quath q2, simd_quath q3, _Float16 t) {
+  simd_quath q01 = _simd_slerp_internal(q0, q1, t);
+  simd_quath q12 = _simd_slerp_internal(q1, q2, t);
+  simd_quath q23 = _simd_slerp_internal(q2, q3, t);
+  simd_quath q012 = _simd_slerp_internal(q01, q12, t);
+  simd_quath q123 = _simd_slerp_internal(q12, q23, t);
+  return _simd_slerp_internal(q012, q123, t);
+}
+
 /*  MARK: - C and Objective-C float interfaces                                */
 
 /*! @abstract Constructs a quaternion from four scalar values.
@@ -368,7 +954,7 @@ static inline SIMD_CFUNC simd_quatf simd_normalize(simd_quatf q) {
   return simd_quaternion(q.vector * simd_rsqrt(length_squared));
 }
 
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
 /*! @abstract Multiplies the vector `v` by the quaternion `q`.
  *  
  *  @discussion This IS NOT the action of `q` on `v` (i.e. this is not rotation
@@ -384,7 +970,7 @@ static inline SIMD_CFUNC simd_quatf _simd_mul_vq(simd_float3 v, simd_quatf q) {
 #endif
   
 static inline SIMD_CFUNC simd_float3 simd_act(simd_quatf q, simd_float3 v) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return simd_mul(q, _simd_mul_vq(v, simd_conjugate(q))).vector.xyz;
 #else
   #pragma STDC FP_CONTRACT ON
@@ -394,9 +980,9 @@ static inline SIMD_CFUNC simd_float3 simd_act(simd_quatf q, simd_float3 v) {
 }
 
 static SIMD_NOINLINE simd_quatf __tg_log(simd_quatf q) {
-  float real = __tg_log(simd_length_squared(q.vector))/2;
+  float real = log(simd_length_squared(q.vector))/2;
   if (simd_equal(simd_imag(q), 0)) return _simd_quaternion(0, real);
-  simd_float3 imag = __tg_acos(simd_real(q)/simd_length(q)) * simd_normalize(simd_imag(q));
+  simd_float3 imag = acos(simd_real(q)/simd_length(q)) * simd_normalize(simd_imag(q));
   return _simd_quaternion(imag, real);
 }
   
@@ -405,9 +991,9 @@ static SIMD_NOINLINE simd_quatf __tg_exp(simd_quatf q) {
   //  the resulting quaternion, which is why we don't simply use the (angle,
   //  axis) constructor to generate `unit`.
   float angle = simd_length(simd_imag(q));
-  if (angle == 0) return _simd_quaternion(0, exp(simd_real(q)));
+  if (angle == 0) return _simd_quaternion((simd_float3)0, exp(simd_real(q)));
   simd_float3 axis = simd_normalize(simd_imag(q));
-  simd_quatf unit = _simd_quaternion(sin(angle)*axis, cosf(angle));
+  simd_quatf unit = _simd_quaternion(sin(angle)*axis, cos(angle));
   return simd_mul(exp(simd_real(q)), unit);
 }
  
@@ -954,7 +1540,7 @@ static inline SIMD_CFUNC simd_quatd simd_normalize(simd_quatd q) {
   return simd_quaternion(q.vector * simd_rsqrt(length_squared));
 }
 
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
 /*! @abstract Multiplies the vector `v` by the quaternion `q`.
  *  
  *  @discussion This IS NOT the action of `q` on `v` (i.e. this is not rotation
@@ -970,7 +1556,7 @@ static inline SIMD_CFUNC simd_quatd _simd_mul_vq(simd_double3 v, simd_quatd q) {
 #endif
   
 static inline SIMD_CFUNC simd_double3 simd_act(simd_quatd q, simd_double3 v) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return simd_mul(q, _simd_mul_vq(v, simd_conjugate(q))).vector.xyz;
 #else
   #pragma STDC FP_CONTRACT ON
@@ -980,9 +1566,9 @@ static inline SIMD_CFUNC simd_double3 simd_act(simd_quatd q, simd_double3 v) {
 }
 
 static SIMD_NOINLINE simd_quatd __tg_log(simd_quatd q) {
-  double real = __tg_log(simd_length_squared(q.vector))/2;
+  double real = log(simd_length_squared(q.vector))/2;
   if (simd_equal(simd_imag(q), 0)) return _simd_quaternion(0, real);
-  simd_double3 imag = __tg_acos(simd_real(q)/simd_length(q)) * simd_normalize(simd_imag(q));
+  simd_double3 imag = acos(simd_real(q)/simd_length(q)) * simd_normalize(simd_imag(q));
   return _simd_quaternion(imag, real);
 }
   
@@ -991,9 +1577,9 @@ static SIMD_NOINLINE simd_quatd __tg_exp(simd_quatd q) {
   //  the resulting quaternion, which is why we don't simply use the (angle,
   //  axis) constructor to generate `unit`.
   double angle = simd_length(simd_imag(q));
-  if (angle == 0) return _simd_quaternion(0, exp(simd_real(q)));
+  if (angle == 0) return _simd_quaternion((simd_double3)0, exp(simd_real(q)));
   simd_double3 axis = simd_normalize(simd_imag(q));
-  simd_quatd unit = _simd_quaternion(sin(angle)*axis, cosf(angle));
+  simd_quatd unit = _simd_quaternion(sin(angle)*axis, cos(angle));
   return simd_mul(exp(simd_real(q)), unit);
 }
  

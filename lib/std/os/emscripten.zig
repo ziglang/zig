@@ -12,7 +12,7 @@ const c = std.c;
 pub const FILE = c.FILE;
 
 var __stack_chk_guard: usize = 0;
-fn __stack_chk_fail() callconv(.C) void {
+fn __stack_chk_fail() callconv(.c) void {
     std.debug.print("stack smashing detected: terminated\n", .{});
     emscripten_force_exit(127);
 }
@@ -21,8 +21,8 @@ comptime {
     if (builtin.os.tag == .emscripten) {
         if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
             // Emscripten does not provide these symbols, so we must export our own
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
-            @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
+            @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
+            @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
         }
     }
 }
@@ -547,8 +547,8 @@ pub const SIG = struct {
 };
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -556,11 +556,11 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?*const fn () callconv(.C) void = null,
+    restorer: ?*const fn () callconv(.c) void = null,
 };
 
 pub const sigset_t = [1024 / 32]u32;
-pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
+pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).array.len;
 pub const siginfo_t = extern struct {
     signo: i32,
     errno: i32,
@@ -909,23 +909,23 @@ pub const LOG = struct {
     pub const INFO = 512;
 };
 
-pub const em_callback_func = ?*const fn () callconv(.C) void;
-pub const em_arg_callback_func = ?*const fn (?*anyopaque) callconv(.C) void;
-pub const em_str_callback_func = ?*const fn ([*:0]const u8) callconv(.C) void;
+pub const em_callback_func = ?*const fn () callconv(.c) void;
+pub const em_arg_callback_func = ?*const fn (?*anyopaque) callconv(.c) void;
+pub const em_str_callback_func = ?*const fn ([*:0]const u8) callconv(.c) void;
 
 pub extern "c" fn emscripten_async_wget(url: [*:0]const u8, file: [*:0]const u8, onload: em_str_callback_func, onerror: em_str_callback_func) void;
 
-pub const em_async_wget_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.C) void;
+pub const em_async_wget_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.c) void;
 pub extern "c" fn emscripten_async_wget_data(url: [*:0]const u8, arg: ?*anyopaque, onload: em_async_wget_onload_func, onerror: em_arg_callback_func) void;
 
-pub const em_async_wget2_onload_func = ?*const fn (c_uint, ?*anyopaque, [*:0]const u8) callconv(.C) void;
-pub const em_async_wget2_onstatus_func = ?*const fn (c_uint, ?*anyopaque, c_int) callconv(.C) void;
+pub const em_async_wget2_onload_func = ?*const fn (c_uint, ?*anyopaque, [*:0]const u8) callconv(.c) void;
+pub const em_async_wget2_onstatus_func = ?*const fn (c_uint, ?*anyopaque, c_int) callconv(.c) void;
 
 pub extern "c" fn emscripten_async_wget2(url: [*:0]const u8, file: [*:0]const u8, requesttype: [*:0]const u8, param: [*:0]const u8, arg: ?*anyopaque, onload: em_async_wget2_onload_func, onerror: em_async_wget2_onstatus_func, onprogress: em_async_wget2_onstatus_func) c_int;
 
-pub const em_async_wget2_data_onload_func = ?*const fn (c_uint, ?*anyopaque, ?*anyopaque, c_uint) callconv(.C) void;
-pub const em_async_wget2_data_onerror_func = ?*const fn (c_uint, ?*anyopaque, c_int, [*:0]const u8) callconv(.C) void;
-pub const em_async_wget2_data_onprogress_func = ?*const fn (c_uint, ?*anyopaque, c_int, c_int) callconv(.C) void;
+pub const em_async_wget2_data_onload_func = ?*const fn (c_uint, ?*anyopaque, ?*anyopaque, c_uint) callconv(.c) void;
+pub const em_async_wget2_data_onerror_func = ?*const fn (c_uint, ?*anyopaque, c_int, [*:0]const u8) callconv(.c) void;
+pub const em_async_wget2_data_onprogress_func = ?*const fn (c_uint, ?*anyopaque, c_int, c_int) callconv(.c) void;
 
 pub extern "c" fn emscripten_async_wget2_data(url: [*:0]const u8, requesttype: [*:0]const u8, param: [*:0]const u8, arg: ?*anyopaque, free: c_int, onload: em_async_wget2_data_onload_func, onerror: em_async_wget2_data_onerror_func, onprogress: em_async_wget2_data_onprogress_func) c_int;
 pub extern "c" fn emscripten_async_wget2_abort(handle: c_int) void;
@@ -944,8 +944,8 @@ pub extern "c" fn emscripten_pause_main_loop() void;
 pub extern "c" fn emscripten_resume_main_loop() void;
 pub extern "c" fn emscripten_cancel_main_loop() void;
 
-pub const em_socket_callback = ?*const fn (c_int, ?*anyopaque) callconv(.C) void;
-pub const em_socket_error_callback = ?*const fn (c_int, c_int, [*:0]const u8, ?*anyopaque) callconv(.C) void;
+pub const em_socket_callback = ?*const fn (c_int, ?*anyopaque) callconv(.c) void;
+pub const em_socket_error_callback = ?*const fn (c_int, c_int, [*:0]const u8, ?*anyopaque) callconv(.c) void;
 
 pub extern "c" fn emscripten_set_socket_error_callback(userData: ?*anyopaque, callback: em_socket_error_callback) void;
 pub extern "c" fn emscripten_set_socket_open_callback(userData: ?*anyopaque, callback: em_socket_callback) void;
@@ -968,11 +968,11 @@ pub extern "c" fn emscripten_set_canvas_size(width: c_int, height: c_int) void;
 pub extern "c" fn emscripten_get_canvas_size(width: *c_int, height: *c_int, isFullscreen: *c_int) void;
 pub extern "c" fn emscripten_get_now() f64;
 pub extern "c" fn emscripten_random() f32;
-pub const em_idb_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.C) void;
+pub const em_idb_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.c) void;
 pub extern "c" fn emscripten_idb_async_load(db_name: [*:0]const u8, file_id: [*:0]const u8, arg: ?*anyopaque, onload: em_idb_onload_func, onerror: em_arg_callback_func) void;
 pub extern "c" fn emscripten_idb_async_store(db_name: [*:0]const u8, file_id: [*:0]const u8, ptr: ?*anyopaque, num: c_int, arg: ?*anyopaque, onstore: em_arg_callback_func, onerror: em_arg_callback_func) void;
 pub extern "c" fn emscripten_idb_async_delete(db_name: [*:0]const u8, file_id: [*:0]const u8, arg: ?*anyopaque, ondelete: em_arg_callback_func, onerror: em_arg_callback_func) void;
-pub const em_idb_exists_func = ?*const fn (?*anyopaque, c_int) callconv(.C) void;
+pub const em_idb_exists_func = ?*const fn (?*anyopaque, c_int) callconv(.c) void;
 pub extern "c" fn emscripten_idb_async_exists(db_name: [*:0]const u8, file_id: [*:0]const u8, arg: ?*anyopaque, oncheck: em_idb_exists_func, onerror: em_arg_callback_func) void;
 pub extern "c" fn emscripten_idb_load(db_name: [*:0]const u8, file_id: [*:0]const u8, pbuffer: *?*anyopaque, pnum: *c_int, perror: *c_int) void;
 pub extern "c" fn emscripten_idb_store(db_name: [*:0]const u8, file_id: [*:0]const u8, buffer: *anyopaque, num: c_int, perror: *c_int) void;
@@ -983,13 +983,13 @@ pub extern "c" fn emscripten_idb_store_blob(db_name: [*:0]const u8, file_id: [*:
 pub extern "c" fn emscripten_idb_read_from_blob(blob: c_int, start: c_int, num: c_int, buffer: ?*anyopaque) void;
 pub extern "c" fn emscripten_idb_free_blob(blob: c_int) void;
 pub extern "c" fn emscripten_run_preload_plugins(file: [*:0]const u8, onload: em_str_callback_func, onerror: em_str_callback_func) c_int;
-pub const em_run_preload_plugins_data_onload_func = ?*const fn (?*anyopaque, [*:0]const u8) callconv(.C) void;
+pub const em_run_preload_plugins_data_onload_func = ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void;
 pub extern "c" fn emscripten_run_preload_plugins_data(data: [*]u8, size: c_int, suffix: [*:0]const u8, arg: ?*anyopaque, onload: em_run_preload_plugins_data_onload_func, onerror: em_arg_callback_func) void;
 pub extern "c" fn emscripten_lazy_load_code() void;
 pub const worker_handle = c_int;
 pub extern "c" fn emscripten_create_worker(url: [*:0]const u8) worker_handle;
 pub extern "c" fn emscripten_destroy_worker(worker: worker_handle) void;
-pub const em_worker_callback_func = ?*const fn ([*]u8, c_int, ?*anyopaque) callconv(.C) void;
+pub const em_worker_callback_func = ?*const fn ([*]u8, c_int, ?*anyopaque) callconv(.c) void;
 pub extern "c" fn emscripten_call_worker(worker: worker_handle, funcname: [*:0]const u8, data: [*]u8, size: c_int, callback: em_worker_callback_func, arg: ?*anyopaque) void;
 pub extern "c" fn emscripten_worker_respond(data: [*]u8, size: c_int) void;
 pub extern "c" fn emscripten_worker_respond_provisionally(data: [*]u8, size: c_int) void;
@@ -1003,10 +1003,10 @@ pub extern "c" fn emscripten_get_preloaded_image_data_from_FILE(file: *FILE, w: 
 pub extern "c" fn emscripten_log(flags: c_int, format: [*:0]const u8, ...) void;
 pub extern "c" fn emscripten_get_callstack(flags: c_int, out: ?[*]u8, maxbytes: c_int) c_int;
 pub extern "c" fn emscripten_print_double(x: f64, to: ?[*]u8, max: c_int) c_int;
-pub const em_scan_func = ?*const fn (?*anyopaque, ?*anyopaque) callconv(.C) void;
+pub const em_scan_func = ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
 pub extern "c" fn emscripten_scan_registers(func: em_scan_func) void;
 pub extern "c" fn emscripten_scan_stack(func: em_scan_func) void;
-pub const em_dlopen_callback = ?*const fn (?*anyopaque, ?*anyopaque) callconv(.C) void;
+pub const em_dlopen_callback = ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
 pub extern "c" fn emscripten_dlopen(filename: [*:0]const u8, flags: c_int, user_data: ?*anyopaque, onsuccess: em_dlopen_callback, onerror: em_arg_callback_func) void;
 pub extern "c" fn emscripten_dlopen_promise(filename: [*:0]const u8, flags: c_int) em_promise_t;
 pub extern "c" fn emscripten_throw_number(number: f64) void;
@@ -1024,7 +1024,7 @@ pub const struct__em_promise = opaque {};
 pub const em_promise_t = ?*struct__em_promise;
 pub const enum_em_promise_result_t = c_uint;
 pub const em_promise_result_t = enum_em_promise_result_t;
-pub const em_promise_callback_t = ?*const fn (?*?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.C) em_promise_result_t;
+pub const em_promise_callback_t = ?*const fn (?*?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) em_promise_result_t;
 
 pub extern "c" fn emscripten_promise_create() em_promise_t;
 pub extern "c" fn emscripten_promise_destroy(promise: em_promise_t) void;

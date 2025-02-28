@@ -10,31 +10,7 @@ pub fn Value(comptime T: type) type {
             return .{ .raw = value };
         }
 
-        /// Perform an atomic fence which uses the atomic value as a hint for
-        /// the modification order. Use this when you want to imply a fence on
-        /// an atomic variable without necessarily performing a memory access.
-        pub inline fn fence(self: *Self, comptime order: AtomicOrder) void {
-            // LLVM's ThreadSanitizer doesn't support the normal fences so we specialize for it.
-            if (builtin.sanitize_thread) {
-                const tsan = struct {
-                    extern "c" fn __tsan_acquire(addr: *anyopaque) void;
-                    extern "c" fn __tsan_release(addr: *anyopaque) void;
-                };
-
-                const addr: *anyopaque = self;
-                return switch (order) {
-                    .unordered, .monotonic => @compileError(@tagName(order) ++ " only applies to atomic loads and stores"),
-                    .acquire => tsan.__tsan_acquire(addr),
-                    .release => tsan.__tsan_release(addr),
-                    .acq_rel, .seq_cst => {
-                        tsan.__tsan_acquire(addr);
-                        tsan.__tsan_release(addr);
-                    },
-                };
-            }
-
-            return @fence(order);
-        }
+        pub const fence = @compileError("@fence is deprecated, use other atomics to establish ordering");
 
         pub inline fn load(self: *const Self, comptime order: AtomicOrder) T {
             return @atomicLoad(T, &self.raw, order);
@@ -148,21 +124,19 @@ test Value {
         const RefCount = @This();
 
         fn ref(rc: *RefCount) void {
-            // No ordering necessary; just updating a counter.
+            // no synchronization necessary; just updating a counter.
             _ = rc.count.fetchAdd(1, .monotonic);
         }
 
         fn unref(rc: *RefCount) void {
-            // Release ensures code before unref() happens-before the
+            // release ensures code before unref() happens-before the
             // count is decremented as dropFn could be called by then.
             if (rc.count.fetchSub(1, .release) == 1) {
-                // acquire ensures count decrement and code before
-                // previous unrefs()s happens-before we call dropFn
-                // below.
-                // Another alternative is to use .acq_rel on the
-                // fetchSub count decrement but it's extra barrier in
-                // possibly hot path.
-                rc.count.fence(.acquire);
+                // seeing 1 in the counter means that other unref()s have happened,
+                // but it doesn't mean that uses before each unref() are visible.
+                // The load acquires the release-sequence created by previous unref()s
+                // in order to ensure visibility of uses before dropping.
+                _ = rc.count.load(.acquire);
                 (rc.dropFn)(rc);
             }
         }
@@ -434,77 +408,85 @@ test spinLoopHint {
     }
 }
 
+pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
+    return switch (cpu.arch) {
+        // x86_64: Starting from Intel's Sandy Bridge, the spatial prefetcher pulls in pairs of 64-byte cache lines at a time.
+        // - https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-optimization-manual.pdf
+        // - https://github.com/facebook/folly/blob/1b5288e6eea6df074758f877c849b6e73bbb9fbb/folly/lang/Align.h#L107
+        //
+        // aarch64: Some big.LITTLE ARM archs have "big" cores with 128-byte cache lines:
+        // - https://www.mono-project.com/news/2016/09/12/arm64-icache/
+        // - https://cpufun.substack.com/p/more-m1-fun-hardware-information
+        //
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/arc/Kconfig#L212
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_ppc64x.go#L9
+        .x86_64,
+        .aarch64,
+        .aarch64_be,
+        .arc,
+        .powerpc64,
+        .powerpc64le,
+        => 128,
+
+        // https://github.com/llvm/llvm-project/blob/e379094328e49731a606304f7e3559d4f1fa96f9/clang/lib/Basic/Targets/Hexagon.h#L145-L151
+        .hexagon,
+        => if (std.Target.hexagon.featureSetHas(cpu.features, .v73)) 64 else 32,
+
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .sparc,
+        .sparc64,
+        => 32,
+
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
+        .m68k,
+        => 16,
+
+        // - https://www.ti.com/lit/pdf/slaa498
+        .msp430,
+        => 8,
+
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_s390x.go#L7
+        // - https://sxauroratsubasa.sakura.ne.jp/documents/guide/pdfs/Aurora_ISA_guide.pdf
+        .s390x,
+        .ve,
+        => 256,
+
+        // Other x86 and WASM platforms have 64-byte cache lines.
+        // The rest of the architectures are assumed to be similar.
+        // - https://github.com/golang/go/blob/dda2991c2ea0c5914714469c4defc2562a907230/src/internal/cpu/cpu_x86.go#L9
+        // - https://github.com/golang/go/blob/0a9321ad7f8c91e1b0c7184731257df923977eb9/src/internal/cpu/cpu_loong64.go#L11
+        // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_wasm.go#L7
+        // - https://github.com/golang/go/blob/19e923182e590ae6568c2c714f20f32512aeb3e3/src/internal/cpu/cpu_riscv64.go#L7
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/xtensa/variants/csp/include/variant/core.h#L209
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/csky/Kconfig#L183
+        // - https://www.xmos.com/download/The-XMOS-XS3-Architecture.pdf
+        else => 64,
+    };
+}
+
 /// The estimated size of the CPU's cache line when atomically updating memory.
 /// Add this much padding or align to this boundary to avoid atomically-updated
 /// memory from forcing cache invalidations on near, but non-atomic, memory.
 ///
 /// https://en.wikipedia.org/wiki/False_sharing
 /// https://github.com/golang/go/search?q=CacheLinePadSize
-pub const cache_line = switch (builtin.cpu.arch) {
-    // x86_64: Starting from Intel's Sandy Bridge, the spatial prefetcher pulls in pairs of 64-byte cache lines at a time.
-    // - https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-optimization-manual.pdf
-    // - https://github.com/facebook/folly/blob/1b5288e6eea6df074758f877c849b6e73bbb9fbb/folly/lang/Align.h#L107
-    //
-    // aarch64: Some big.LITTLE ARM archs have "big" cores with 128-byte cache lines:
-    // - https://www.mono-project.com/news/2016/09/12/arm64-icache/
-    // - https://cpufun.substack.com/p/more-m1-fun-hardware-information
-    //
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/arc/Kconfig#L212
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_ppc64x.go#L9
-    .x86_64,
-    .aarch64,
-    .aarch64_be,
-    .arc,
-    .powerpc64,
-    .powerpc64le,
-    => 128,
+pub const cache_line: comptime_int = cacheLineForCpu(builtin.cpu);
 
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_riscv64.go#L7
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/hexagon/include/asm/cache.h#L13
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
-    .arm,
-    .armeb,
-    .thumb,
-    .thumbeb,
-    .hexagon,
-    .mips,
-    .mipsel,
-    .mips64,
-    .mips64el,
-    .riscv32,
-    .riscv64,
-    .sparc,
-    .sparc64,
-    => 32,
-
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
-    .m68k,
-    => 16,
-
-    // - https://www.ti.com/lit/pdf/slaa498
-    .msp430,
-    => 8,
-
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_s390x.go#L7
-    // - https://sxauroratsubasa.sakura.ne.jp/documents/guide/pdfs/Aurora_ISA_guide.pdf
-    .s390x,
-    .ve,
-    => 256,
-
-    // Other x86 and WASM platforms have 64-byte cache lines.
-    // The rest of the architectures are assumed to be similar.
-    // - https://github.com/golang/go/blob/dda2991c2ea0c5914714469c4defc2562a907230/src/internal/cpu/cpu_x86.go#L9
-    // - https://github.com/golang/go/blob/0a9321ad7f8c91e1b0c7184731257df923977eb9/src/internal/cpu/cpu_loong64.go#L11
-    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_wasm.go#L7
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/xtensa/variants/csp/include/variant/core.h#L209
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/csky/Kconfig#L183
-    // - https://www.xmos.com/download/The-XMOS-XS3-Architecture.pdf
-    else => 64,
-};
+test "current CPU has a cache line size" {
+    _ = cache_line;
+}
 
 const std = @import("std.zig");
 const builtin = @import("builtin");

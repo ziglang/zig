@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const Node = @import("ast.zig").Node;
 const lex = @import("lex.zig");
 const Parser = @import("parse.zig").Parser;
-const Resource = @import("rc.zig").Resource;
+const ResourceType = @import("rc.zig").ResourceType;
 const Token = @import("lex.zig").Token;
 const literals = @import("literals.zig");
 const Number = literals.Number;
@@ -21,7 +21,7 @@ const WORD = std.os.windows.WORD;
 const DWORD = std.os.windows.DWORD;
 const utils = @import("utils.zig");
 const NameOrOrdinal = res.NameOrOrdinal;
-const CodePage = @import("code_pages.zig").CodePage;
+const SupportedCodePage = @import("code_pages.zig").SupportedCodePage;
 const CodePageLookup = @import("ast.zig").CodePageLookup;
 const SourceMappings = @import("source_mapping.zig").SourceMappings;
 const windows1252 = @import("windows1252.zig");
@@ -39,7 +39,10 @@ pub const CompileOptions = struct {
     /// freed by the caller.
     /// TODO: Maybe a dedicated struct for this purpose so that it's a bit nicer to work with.
     dependencies_list: ?*std.ArrayList([]const u8) = null,
-    default_code_page: CodePage = .windows1252,
+    default_code_page: SupportedCodePage = .windows1252,
+    /// If true, the first #pragma code_page directive only sets the input code page, but not the output code page.
+    /// This check must be done before comments are removed from the file.
+    disjoint_code_page: bool = false,
     ignore_include_env_var: bool = false,
     extra_include_paths: []const []const u8 = &.{},
     /// This is just an API convenience to allow separately passing 'system' (i.e. those
@@ -66,6 +69,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
     });
     var parser = Parser.init(&lexer, .{
         .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
+        .disjoint_code_page = options.disjoint_code_page,
     });
     var tree = try parser.parse(allocator, options.diagnostics);
     defer tree.deinit();
@@ -98,6 +102,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
                 .end = 0,
                 .line_number = 1,
             },
+            .code_page = .utf8,
             .print_source_line = false,
             .extra = .{ .file_open_error = .{
                 .err = ErrorDetails.FileOpenError.enumFromError(err),
@@ -213,7 +218,12 @@ pub const Compiler = struct {
             try self.addErrorDetails(.{
                 .err = .result_contains_fontdir,
                 .type = .hint,
-                .token = undefined,
+                .token = .{
+                    .id = .invalid,
+                    .start = 0,
+                    .end = 0,
+                    .line_number = 1,
+                },
             });
         }
         // once we've written every else out, we can write out the finalized STRINGTABLE resources
@@ -301,7 +311,10 @@ pub const Compiler = struct {
                         // UTF-8, we can parse either string type directly to UTF-8.
                         var parser = literals.IterativeStringParser.init(bytes, .{
                             .start_column = column,
-                            .diagnostics = .{ .diagnostics = self.diagnostics, .token = literal_node.token },
+                            .diagnostics = self.errContext(literal_node.token),
+                            // TODO: Re-evaluate this. It's not been tested whether or not using the actual
+                            //       output code page would make more sense.
+                            .output_code_page = .windows1252,
                         });
 
                         while (try parser.nextUnchecked()) |parsed| {
@@ -401,56 +414,55 @@ pub const Compiler = struct {
         return first_error orelse error.FileNotFound;
     }
 
+    /// Returns a Windows-1252 encoded string regardless of the current output code page.
+    /// All codepoints are encoded as a maximum of 2 bytes, where unescaped codepoints
+    /// >= 0x10000 are encoded as `??` and everything else is encoded as 1 byte.
     pub fn parseDlgIncludeString(self: *Compiler, token: Token) ![]u8 {
-        // For the purposes of parsing, we want to strip the L prefix
-        // if it exists since we want escaped integers to be limited to
-        // their ascii string range.
-        //
-        // We keep track of whether or not there was an L prefix, though,
-        // since there's more weirdness to come.
-        var bytes = self.sourceBytesForToken(token);
-        var was_wide_string = false;
-        if (bytes.slice[0] == 'L' or bytes.slice[0] == 'l') {
-            was_wide_string = true;
-            bytes.slice = bytes.slice[1..];
-        }
+        const bytes = self.sourceBytesForToken(token);
+        const output_code_page = self.output_code_pages.getForToken(token);
 
         var buf = try std.ArrayList(u8).initCapacity(self.allocator, bytes.slice.len);
         errdefer buf.deinit();
 
         var iterative_parser = literals.IterativeStringParser.init(bytes, .{
             .start_column = token.calculateColumn(self.source, 8, null),
-            .diagnostics = .{ .diagnostics = self.diagnostics, .token = token },
+            .diagnostics = self.errContext(token),
+            // TODO: Potentially re-evaluate this, it's not been tested whether or not
+            //       using the actual output code page would make more sense.
+            .output_code_page = .windows1252,
         });
 
-        // No real idea what's going on here, but this matches the rc.exe behavior
+        // This is similar to the logic in parseQuotedString, but ends up with everything
+        // encoded as Windows-1252. This effectively consolidates the two-step process
+        // of rc.exe into one step, since rc.exe's preprocessor converts to UTF-16 (this
+        // is when invalid sequences are replaced by the replacement character (U+FFFD)),
+        // and then that's run through the parser. Our preprocessor keeps things in their
+        // original encoding, meaning we emulate the <encoding> -> UTF-16 -> Windows-1252
+        // results all at once.
         while (try iterative_parser.next()) |parsed| {
             const c = parsed.codepoint;
-            switch (was_wide_string) {
-                true => {
-                    switch (c) {
-                        0...0x7F, 0xA0...0xFF => try buf.append(@intCast(c)),
-                        0x80...0x9F => {
-                            if (windows1252.bestFitFromCodepoint(c)) |_| {
-                                try buf.append(@intCast(c));
-                            } else {
-                                try buf.append('?');
-                            }
-                        },
-                        else => {
-                            if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
-                                try buf.append(best_fit);
-                            } else if (c < 0x10000 or c == code_pages.Codepoint.invalid) {
-                                try buf.append('?');
-                            } else {
-                                try buf.appendSlice("??");
-                            }
-                        },
+            switch (iterative_parser.declared_string_type) {
+                .wide => {
+                    if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
+                        try buf.append(best_fit);
+                    } else if (c < 0x10000 or c == code_pages.Codepoint.invalid or parsed.escaped_surrogate_pair) {
+                        try buf.append('?');
+                    } else {
+                        try buf.appendSlice("??");
                     }
                 },
-                false => {
+                .ascii => {
                     if (parsed.from_escaped_integer) {
-                        try buf.append(@truncate(c));
+                        const truncated: u8 = @truncate(c);
+                        switch (output_code_page) {
+                            .utf8 => switch (truncated) {
+                                0...0x7F => try buf.append(truncated),
+                                else => try buf.append('?'),
+                            },
+                            .windows1252 => {
+                                try buf.append(truncated);
+                            },
+                        }
                     } else {
                         if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
                             try buf.append(best_fit);
@@ -484,8 +496,12 @@ pub const Compiler = struct {
             const parsed_filename_terminated = std.mem.sliceTo(parsed_filename, 0);
 
             header.applyMemoryFlags(node.common_resource_attributes, self.source);
+            // This is effectively limited by `max_string_literal_codepoints` which is a u15.
+            // Each codepoint within a DLGINCLUDE string is encoded as a maximum of
+            // 2 bytes, which means that the maximum byte length of a DLGINCLUDE string is
+            // (including the NUL terminator): 32,767 * 2 + 1 = 65,535 or exactly the u16 max.
             header.data_size = @intCast(parsed_filename_terminated.len + 1);
-            try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+            try header.write(writer, self.errContext(node.id));
             try writer.writeAll(parsed_filename_terminated);
             try writer.writeByte(0);
             try writeDataPadding(writer, header.data_size);
@@ -568,7 +584,7 @@ pub const Compiler = struct {
                         header.applyMemoryFlags(node.common_resource_attributes, self.source);
                         header.data_size = @intCast(try file.getEndPos());
 
-                        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+                        try header.write(writer, self.errContext(node.id));
                         try file.seekTo(0);
                         try writeResourceData(writer, file.reader(), header.data_size);
                         return;
@@ -644,7 +660,7 @@ pub const Compiler = struct {
                             .version = self.state.version,
                             .characteristics = self.state.characteristics,
                         };
-                        try image_header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+                        try image_header.write(writer, self.errContext(node.id));
 
                         // From https://learn.microsoft.com/en-us/windows/win32/menurc/localheader:
                         // > The LOCALHEADER structure is the first data written to the RT_CURSOR
@@ -817,12 +833,26 @@ pub const Compiler = struct {
 
                     header.data_size = icon_dir.getResDataSize();
 
-                    try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+                    try header.write(writer, self.errContext(node.id));
                     try icon_dir.writeResData(writer, first_icon_id);
                     try writeDataPadding(writer, header.data_size);
                     return;
                 },
-                .RCDATA, .HTML, .MANIFEST, .MESSAGETABLE, .DLGINIT, .PLUGPLAY => {
+                .RCDATA,
+                .HTML,
+                .MESSAGETABLE,
+                .DLGINIT,
+                .PLUGPLAY,
+                .VXD,
+                // Note: All of the below can only be specified by using a number
+                //       as the resource type.
+                .MANIFEST,
+                .CURSOR,
+                .ICON,
+                .ANICURSOR,
+                .ANIICON,
+                .FONTDIR,
+                => {
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
                 },
                 .BITMAP => {
@@ -855,47 +885,32 @@ pub const Compiler = struct {
                     } else if (bitmap_info.getActualPaletteByteLen() < bitmap_info.getExpectedPaletteByteLen()) {
                         const num_padding_bytes = bitmap_info.getExpectedPaletteByteLen() - bitmap_info.getActualPaletteByteLen();
 
-                        // TODO: Make this configurable (command line option)
-                        const max_missing_bytes = 4096;
-                        if (num_padding_bytes > max_missing_bytes) {
-                            var numbers_as_bytes: [16]u8 = undefined;
-                            std.mem.writeInt(u64, numbers_as_bytes[0..8], num_padding_bytes, native_endian);
-                            std.mem.writeInt(u64, numbers_as_bytes[8..16], max_missing_bytes, native_endian);
-                            const values_string_index = try self.diagnostics.putString(&numbers_as_bytes);
-                            try self.addErrorDetails(.{
-                                .err = .bmp_too_many_missing_palette_bytes,
-                                .token = filename_token,
-                                .extra = .{ .number = values_string_index },
-                            });
-                            return self.addErrorDetailsAndFail(.{
-                                .err = .bmp_too_many_missing_palette_bytes,
-                                .type = .note,
-                                .print_source_line = false,
-                                .token = filename_token,
-                            });
-                        }
-
                         var number_as_bytes: [8]u8 = undefined;
                         std.mem.writeInt(u64, &number_as_bytes, num_padding_bytes, native_endian);
                         const value_string_index = try self.diagnostics.putString(&number_as_bytes);
                         try self.addErrorDetails(.{
                             .err = .bmp_missing_palette_bytes,
-                            .type = .warning,
+                            .type = .err,
                             .token = filename_token,
                             .extra = .{ .number = value_string_index },
                         });
                         const pixel_data_len = bitmap_info.getPixelDataLen(file_size);
+                        // TODO: This is a hack, but we know we have already added
+                        //       at least one entry to the diagnostics strings, so we can
+                        //       get away with using 0 to mean 'no string' here.
+                        var miscompiled_bytes_string_index: u32 = 0;
                         if (pixel_data_len > 0) {
                             const miscompiled_bytes = @min(pixel_data_len, num_padding_bytes);
                             std.mem.writeInt(u64, &number_as_bytes, miscompiled_bytes, native_endian);
-                            const miscompiled_bytes_string_index = try self.diagnostics.putString(&number_as_bytes);
-                            try self.addErrorDetails(.{
-                                .err = .rc_would_miscompile_bmp_palette_padding,
-                                .type = .warning,
-                                .token = filename_token,
-                                .extra = .{ .number = miscompiled_bytes_string_index },
-                            });
+                            miscompiled_bytes_string_index = try self.diagnostics.putString(&number_as_bytes);
                         }
+                        return self.addErrorDetailsAndFail(.{
+                            .err = .rc_would_miscompile_bmp_palette_padding,
+                            .type = .note,
+                            .print_source_line = false,
+                            .token = filename_token,
+                            .extra = .{ .number = miscompiled_bytes_string_index },
+                        });
                     }
 
                     // TODO: It might be possible that the calculation done in this function
@@ -905,7 +920,7 @@ pub const Compiler = struct {
                     const bmp_bytes_to_write: u32 = @intCast(bitmap_info.getExpectedByteLen(file_size));
 
                     header.data_size = bmp_bytes_to_write;
-                    try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+                    try header.write(writer, self.errContext(node.id));
                     try file.seekTo(bmp.file_header_len);
                     const file_reader = file.reader();
                     try writeResourceDataNoPadding(writer, file_reader, bitmap_info.dib_header_size);
@@ -914,12 +929,6 @@ pub const Compiler = struct {
                     }
                     if (bitmap_info.getExpectedPaletteByteLen() > 0) {
                         try writeResourceDataNoPadding(writer, file_reader, @intCast(bitmap_info.getActualPaletteByteLen()));
-                        // We know that the number of missing palette bytes is <= 4096
-                        // (see `bmp_too_many_missing_palette_bytes` error case above)
-                        const padding_bytes: usize = @intCast(bitmap_info.getMissingPaletteByteLen());
-                        if (padding_bytes > 0) {
-                            try writer.writeByteNTimes(0, padding_bytes);
-                        }
                     }
                     try file.seekTo(bitmap_info.pixel_data_offset);
                     const pixel_bytes: u32 = @intCast(file_size - bitmap_info.pixel_data_offset);
@@ -932,13 +941,13 @@ pub const Compiler = struct {
                         // Add warning and skip this resource
                         // Note: The Win32 compiler prints this as an error but it doesn't fail the compilation
                         // and the duplicate resource is skipped.
-                        try self.addErrorDetails(ErrorDetails{
+                        try self.addErrorDetails(.{
                             .err = .font_id_already_defined,
                             .token = node.id,
                             .type = .warning,
                             .extra = .{ .number = header.name_value.ordinal },
                         });
-                        try self.addErrorDetails(ErrorDetails{
+                        try self.addErrorDetails(.{
                             .err = .font_id_already_defined,
                             .token = self.state.font_dir.ids.get(header.name_value.ordinal).?,
                             .type = .note,
@@ -957,7 +966,7 @@ pub const Compiler = struct {
 
                     // We now know that the data size will fit in a u32
                     header.data_size = @intCast(file_size);
-                    try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+                    try header.write(writer, self.errContext(node.id));
 
                     var header_slurping_reader = headerSlurpingReader(148, file.reader());
                     try writeResourceData(writer, header_slurping_reader.reader(), header.data_size);
@@ -968,19 +977,13 @@ pub const Compiler = struct {
                     }, node.id);
                     return;
                 },
-                .ACCELERATOR,
-                .ANICURSOR,
-                .ANIICON,
-                .CURSOR,
-                .DIALOG,
-                .DLGINCLUDE,
-                .FONTDIR,
-                .ICON,
-                .MENU,
-                .STRING,
-                .TOOLBAR,
-                .VERSION,
-                .VXD,
+                .ACCELERATOR, // Cannot use an external file, enforced by the parser
+                .DIALOG, // Cannot use an external file, enforced by the parser
+                .DLGINCLUDE, // Handled specially above
+                .MENU, // Cannot use an external file, enforced by the parser
+                .STRING, // Parser error if this resource is specified as a number
+                .TOOLBAR, // Cannot use an external file, enforced by the parser
+                .VERSION, // Cannot use an external file, enforced by the parser
                 => unreachable,
                 _ => unreachable,
             }
@@ -998,7 +1001,7 @@ pub const Compiler = struct {
         }
         // We now know that the data size will fit in a u32
         header.data_size = @intCast(data_size);
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
         try writeResourceData(writer, file.reader(), header.data_size);
     }
 
@@ -1188,7 +1191,7 @@ pub const Compiler = struct {
                         };
                         const parsed = try literals.parseQuotedAsciiString(self.allocator, bytes, .{
                             .start_column = column,
-                            .diagnostics = .{ .diagnostics = self.diagnostics, .token = literal_node.token },
+                            .diagnostics = self.errContext(literal_node.token),
                             .output_code_page = self.output_code_pages.getForToken(literal_node.token),
                         });
                         errdefer self.allocator.free(parsed);
@@ -1202,7 +1205,8 @@ pub const Compiler = struct {
                         };
                         const parsed_string = try literals.parseQuotedWideString(self.allocator, bytes, .{
                             .start_column = column,
-                            .diagnostics = .{ .diagnostics = self.diagnostics, .token = literal_node.token },
+                            .diagnostics = self.errContext(literal_node.token),
+                            .output_code_page = self.output_code_pages.getForToken(literal_node.token),
                         });
                         errdefer self.allocator.free(parsed_string);
                         return .{ .wide_string = parsed_string };
@@ -1259,7 +1263,7 @@ pub const Compiler = struct {
 
         header.applyMemoryFlags(common_resource_attributes, self.source);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = id_token });
+        try header.write(writer, self.errContext(id_token));
     }
 
     pub fn writeResourceDataNoPadding(writer: anytype, data_reader: anytype, data_size: u32) !void {
@@ -1297,7 +1301,8 @@ pub const Compiler = struct {
             const column = literal.token.calculateColumn(self.source, 8, null);
             return res.parseAcceleratorKeyString(bytes, is_virt, .{
                 .start_column = column,
-                .diagnostics = .{ .diagnostics = self.diagnostics, .token = literal.token },
+                .diagnostics = self.errContext(literal.token),
+                .output_code_page = self.output_code_pages.getForToken(literal.token),
             });
         }
     }
@@ -1332,7 +1337,7 @@ pub const Compiler = struct {
         header.applyMemoryFlags(node.common_resource_attributes, self.source);
         header.applyOptionalStatements(node.optional_statements, self.source, self.input_code_pages);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
 
         var data_fbs = std.io.fixedBufferStream(data_buffer.items);
         try writeResourceData(writer, data_fbs.reader(), data_size);
@@ -1347,6 +1352,16 @@ pub const Compiler = struct {
             for (accelerator.type_and_options) |type_or_option| {
                 const modifier = rc.AcceleratorTypeAndOptions.map.get(type_or_option.slice(self.source)).?;
                 modifiers.apply(modifier);
+            }
+            if ((modifiers.isSet(.control) or modifiers.isSet(.shift)) and !modifiers.isSet(.virtkey)) {
+                try self.addErrorDetails(.{
+                    .err = .accelerator_shift_or_control_without_virtkey,
+                    .type = .warning,
+                    // We know that one of SHIFT or CONTROL was specified, so there's at least one item
+                    // in this list.
+                    .token = accelerator.type_and_options[0],
+                    .token_span_end = accelerator.type_and_options[accelerator.type_and_options.len - 1],
+                });
             }
             if (accelerator.event.isNumberExpression() and !modifiers.explicit_ascii_or_virtkey) {
                 return self.addErrorDetailsAndFail(.{
@@ -1399,7 +1414,7 @@ pub const Compiler = struct {
         var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
         const data_writer = limited_writer.writer();
 
-        const resource = Resource.fromString(.{
+        const resource = ResourceType.fromString(.{
             .slice = node.type.slice(self.source),
             .code_page = self.input_code_pages.getForToken(node.type),
         });
@@ -1414,8 +1429,6 @@ pub const Compiler = struct {
                 menu.deinit(self.allocator);
             }
         }
-        var skipped_menu_or_classes = std.ArrayList(*Node.SimpleStatement).init(self.allocator);
-        defer skipped_menu_or_classes.deinit();
         var last_menu: *Node.SimpleStatement = undefined;
         var last_class: *Node.SimpleStatement = undefined;
         var last_menu_would_be_forced_ordinal = false;
@@ -1445,9 +1458,6 @@ pub const Compiler = struct {
                         },
                         .class => {
                             const is_duplicate = optional_statement_values.class != null;
-                            if (is_duplicate) {
-                                try skipped_menu_or_classes.append(last_class);
-                            }
                             const forced_ordinal = is_duplicate and optional_statement_values.class.? == .ordinal;
                             // In the Win32 RC compiler, if any CLASS values that are interpreted as
                             // an ordinal exist, it affects all future CLASS statements and forces
@@ -1475,9 +1485,6 @@ pub const Compiler = struct {
                         },
                         .menu => {
                             const is_duplicate = optional_statement_values.menu != null;
-                            if (is_duplicate) {
-                                try skipped_menu_or_classes.append(last_menu);
-                            }
                             const forced_ordinal = is_duplicate and optional_statement_values.menu.? == .ordinal;
                             // In the Win32 RC compiler, if any MENU values that are interpreted as
                             // an ordinal exist, it affects all future MENU statements and forces
@@ -1561,22 +1568,6 @@ pub const Compiler = struct {
             }
         }
 
-        for (skipped_menu_or_classes.items) |simple_statement| {
-            const statement_identifier = simple_statement.identifier;
-            const statement_type = rc.OptionalStatements.dialog_map.get(statement_identifier.slice(self.source)) orelse continue;
-            try self.addErrorDetails(.{
-                .err = .duplicate_menu_or_class_skipped,
-                .type = .warning,
-                .token = simple_statement.identifier,
-                .token_span_start = simple_statement.base.getFirstToken(),
-                .token_span_end = simple_statement.base.getLastToken(),
-                .extra = .{ .menu_or_class = switch (statement_type) {
-                    .menu => .menu,
-                    .class => .class,
-                    else => unreachable,
-                } },
-            });
-        }
         // The Win32 RC compiler miscompiles the value in the following scenario:
         // Multiple CLASS parameters are specified and any of them are treated as a number, then
         // the last CLASS is always treated as a number no matter what
@@ -1739,7 +1730,7 @@ pub const Compiler = struct {
         header.applyMemoryFlags(node.common_resource_attributes, self.source);
         header.applyOptionalStatements(node.optional_statements, self.source, self.input_code_pages);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
 
         var data_fbs = std.io.fixedBufferStream(data_buffer.items);
         try writeResourceData(writer, data_fbs.reader(), data_size);
@@ -1749,7 +1740,7 @@ pub const Compiler = struct {
         self: *Compiler,
         node: *Node.Dialog,
         data_writer: anytype,
-        resource: Resource,
+        resource: ResourceType,
         optional_statement_values: *const DialogOptionalStatementValues,
         x: Number,
         y: Number,
@@ -1809,7 +1800,7 @@ pub const Compiler = struct {
         self: *Compiler,
         control: *Node.ControlStatement,
         data_writer: anytype,
-        resource: Resource,
+        resource: ResourceType,
         bytes_written_so_far: u32,
         controls_by_id: *std.AutoHashMap(u32, *const Node.ControlStatement),
     ) !void {
@@ -2053,7 +2044,7 @@ pub const Compiler = struct {
 
         header.applyMemoryFlags(node.common_resource_attributes, self.source);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
 
         var data_fbs = std.io.fixedBufferStream(data_buffer.items);
         try writeResourceData(writer, data_fbs.reader(), data_size);
@@ -2067,7 +2058,7 @@ pub const Compiler = struct {
         node: *Node.FontStatement,
     };
 
-    pub fn writeDialogFont(self: *Compiler, resource: Resource, values: FontStatementValues, writer: anytype) !void {
+    pub fn writeDialogFont(self: *Compiler, resource: ResourceType, values: FontStatementValues, writer: anytype) !void {
         const node = values.node;
         const point_size = evaluateNumberExpression(node.point_size, self.source, self.input_code_pages);
         try writer.writeInt(u16, point_size.asWord(), .little);
@@ -2104,7 +2095,7 @@ pub const Compiler = struct {
             .slice = node.type.slice(self.source),
             .code_page = self.input_code_pages.getForToken(node.type),
         };
-        const resource = Resource.fromString(type_bytes);
+        const resource = ResourceType.fromString(type_bytes);
         std.debug.assert(resource == .menu or resource == .menuex);
 
         self.writeMenuData(node, data_writer, resource) catch |err| switch (err) {
@@ -2128,7 +2119,7 @@ pub const Compiler = struct {
         header.applyMemoryFlags(node.common_resource_attributes, self.source);
         header.applyOptionalStatements(node.optional_statements, self.source, self.input_code_pages);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
 
         var data_fbs = std.io.fixedBufferStream(data_buffer.items);
         try writeResourceData(writer, data_fbs.reader(), data_size);
@@ -2136,7 +2127,7 @@ pub const Compiler = struct {
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft
-    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: anytype, resource: Resource) !void {
+    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: anytype, resource: ResourceType) !void {
         // menu header
         const version: u16 = if (resource == .menu) 0 else 1;
         try data_writer.writeInt(u16, version, .little);
@@ -2393,7 +2384,7 @@ pub const Compiler = struct {
 
         header.applyMemoryFlags(node.common_resource_attributes, self.source);
 
-        try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
+        try header.write(writer, self.errContext(node.id));
 
         var data_fbs = std.io.fixedBufferStream(data_buffer.items);
         try writeResourceData(writer, data_fbs.reader(), data_size);
@@ -2525,14 +2516,14 @@ pub const Compiler = struct {
                     // It might be nice to have these errors point to the ids rather than the
                     // string tokens, but that would mean storing the id token of each string
                     // which doesn't seem worth it just for slightly better error messages.
-                    try self.addErrorDetails(ErrorDetails{
+                    try self.addErrorDetails(.{
                         .err = .string_already_defined,
                         .token = string.string,
                         .extra = .{ .string_and_language = .{ .id = string_id, .language = language } },
                     });
                     const existing_def_table = self.state.string_tables.tables.getPtr(language).?;
                     const existing_definition = existing_def_table.get(string_id).?;
-                    return self.addErrorDetailsAndFail(ErrorDetails{
+                    return self.addErrorDetailsAndFail(.{
                         .err = .string_already_defined,
                         .type = .note,
                         .token = existing_definition,
@@ -2628,7 +2619,7 @@ pub const Compiler = struct {
 
         pub fn init(allocator: Allocator, id_bytes: SourceBytes, type_bytes: SourceBytes, data_size: DWORD, language: res.Language, version: DWORD, characteristics: DWORD) InitError!ResourceHeader {
             const type_value = type: {
-                const resource_type = Resource.fromString(type_bytes);
+                const resource_type = ResourceType.fromString(type_bytes);
                 if (res.RT.fromResource(resource_type)) |rt_constant| {
                     break :type NameOrOrdinal{ .ordinal = @intFromEnum(rt_constant) };
                 } else {
@@ -2673,7 +2664,7 @@ pub const Compiler = struct {
             padding_after_name: u2,
         };
 
-        fn calcSize(self: ResourceHeader) error{Overflow}!SizeInfo {
+        pub fn calcSize(self: ResourceHeader) error{Overflow}!SizeInfo {
             var header_size: u32 = 8;
             header_size = try std.math.add(
                 u32,
@@ -2699,6 +2690,7 @@ pub const Compiler = struct {
             const size_info = self.calcSize() catch {
                 try err_ctx.diagnostics.append(.{
                     .err = .resource_data_size_exceeds_max,
+                    .code_page = err_ctx.code_page,
                     .token = err_ctx.token,
                 });
                 return error.CompileError;
@@ -2706,7 +2698,7 @@ pub const Compiler = struct {
             return self.writeSizeInfo(writer, size_info);
         }
 
-        fn writeSizeInfo(self: ResourceHeader, writer: anytype, size_info: SizeInfo) !void {
+        pub fn writeSizeInfo(self: ResourceHeader, writer: anytype, size_info: SizeInfo) !void {
             try writer.writeInt(DWORD, self.data_size, .little); // DataSize
             try writer.writeInt(DWORD, size_info.bytes, .little); // HeaderSize
             try self.type_value.write(writer); // TYPE
@@ -2863,18 +2855,43 @@ pub const Compiler = struct {
             self.sourceBytesForToken(token),
             .{
                 .start_column = token.calculateColumn(self.source, 8, null),
-                .diagnostics = .{ .diagnostics = self.diagnostics, .token = token },
+                .diagnostics = self.errContext(token),
+                .output_code_page = self.output_code_pages.getForToken(token),
             },
         );
     }
 
-    fn addErrorDetails(self: *Compiler, details: ErrorDetails) Allocator.Error!void {
+    fn addErrorDetailsWithCodePage(self: *Compiler, details: ErrorDetails) Allocator.Error!void {
         try self.diagnostics.append(details);
     }
 
-    fn addErrorDetailsAndFail(self: *Compiler, details: ErrorDetails) error{ CompileError, OutOfMemory } {
-        try self.addErrorDetails(details);
+    /// Code page is looked up in input_code_pages using the token
+    fn addErrorDetails(self: *Compiler, details_without_code_page: errors.ErrorDetailsWithoutCodePage) Allocator.Error!void {
+        const details = ErrorDetails{
+            .err = details_without_code_page.err,
+            .code_page = self.input_code_pages.getForToken(details_without_code_page.token),
+            .token = details_without_code_page.token,
+            .token_span_start = details_without_code_page.token_span_start,
+            .token_span_end = details_without_code_page.token_span_end,
+            .type = details_without_code_page.type,
+            .print_source_line = details_without_code_page.print_source_line,
+            .extra = details_without_code_page.extra,
+        };
+        try self.addErrorDetailsWithCodePage(details);
+    }
+
+    /// Code page is looked up in input_code_pages using the token
+    fn addErrorDetailsAndFail(self: *Compiler, details_without_code_page: errors.ErrorDetailsWithoutCodePage) error{ CompileError, OutOfMemory } {
+        try self.addErrorDetails(details_without_code_page);
         return error.CompileError;
+    }
+
+    fn errContext(self: *Compiler, token: Token) errors.DiagnosticsContext {
+        return .{
+            .diagnostics = self.diagnostics,
+            .token = token,
+            .code_page = self.input_code_pages.getForToken(token),
+        };
     }
 };
 
@@ -3004,9 +3021,9 @@ test "limitedWriter basic usage" {
 }
 
 pub const FontDir = struct {
-    fonts: std.ArrayListUnmanaged(Font) = .{},
+    fonts: std.ArrayListUnmanaged(Font) = .empty,
     /// To keep track of which ids are set and where they were set from
-    ids: std.AutoHashMapUnmanaged(u16, Token) = .{},
+    ids: std.AutoHashMapUnmanaged(u16, Token) = .empty,
 
     pub const Font = struct {
         id: u16,
@@ -3112,7 +3129,7 @@ pub const StringTablesByLanguage = struct {
     /// when the first STRINGTABLE for the language was defined, and all blocks for a given
     /// language are written contiguously.
     /// Using an ArrayHashMap here gives us this property for free.
-    tables: std.AutoArrayHashMapUnmanaged(res.Language, StringTable) = .{},
+    tables: std.AutoArrayHashMapUnmanaged(res.Language, StringTable) = .empty,
 
     pub fn deinit(self: *StringTablesByLanguage, allocator: Allocator) void {
         self.tables.deinit(allocator);
@@ -3143,10 +3160,10 @@ pub const StringTable = struct {
     /// was added to the block (i.e. `STRINGTABLE { 16 "b" 0 "a" }` would then get written
     /// with block ID 2 (the one with "b") first and block ID 1 (the one with "a") second).
     /// Using an ArrayHashMap here gives us this property for free.
-    blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .{},
+    blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .empty,
 
     pub const Block = struct {
-        strings: std.ArrayListUnmanaged(Token) = .{},
+        strings: std.ArrayListUnmanaged(Token) = .empty,
         set_indexes: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 },
         memory_flags: MemoryFlags = MemoryFlags.defaults(res.RT.STRING),
         characteristics: u32,
@@ -3247,7 +3264,8 @@ pub const StringTable = struct {
                 const bytes = SourceBytes{ .slice = slice, .code_page = code_page };
                 const utf16_string = try literals.parseQuotedStringAsWideString(compiler.allocator, bytes, .{
                     .start_column = column,
-                    .diagnostics = .{ .diagnostics = compiler.diagnostics, .token = string_token },
+                    .diagnostics = compiler.errContext(string_token),
+                    .output_code_page = compiler.output_code_pages.getForToken(string_token),
                 });
                 defer compiler.allocator.free(utf16_string);
 

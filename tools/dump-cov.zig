@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 
 pub fn main() !void {
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -54,21 +54,30 @@ pub fn main() !void {
     const header: *SeenPcsHeader = @ptrCast(cov_bytes);
     try stdout.print("{any}\n", .{header.*});
     const pcs = header.pcAddrs();
-    for (0.., pcs[0 .. pcs.len - 1], pcs[1..]) |i, a, b| {
-        if (a > b) std.log.err("{d}: 0x{x} > 0x{x}", .{ i, a, b });
-    }
-    assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
+
+    var indexed_pcs: std.AutoArrayHashMapUnmanaged(usize, void) = .empty;
+    try indexed_pcs.entries.resize(arena, pcs.len);
+    @memcpy(indexed_pcs.entries.items(.key), pcs);
+    try indexed_pcs.reIndex(arena);
+
+    const sorted_pcs = try arena.dupe(usize, pcs);
+    std.mem.sortUnstable(usize, sorted_pcs, {}, std.sort.asc(usize));
+
+    const source_locations = try arena.alloc(std.debug.Coverage.SourceLocation, sorted_pcs.len);
+    try debug_info.resolveAddresses(gpa, sorted_pcs, source_locations);
 
     const seen_pcs = header.seenBits();
 
-    const source_locations = try arena.alloc(std.debug.Coverage.SourceLocation, pcs.len);
-    try debug_info.resolveAddresses(gpa, pcs, source_locations);
-
-    for (pcs, source_locations, 0..) |pc, sl, i| {
+    for (sorted_pcs, source_locations) |pc, sl| {
+        if (sl.file == .invalid) {
+            try stdout.print(" {x}: invalid\n", .{pc});
+            continue;
+        }
         const file = debug_info.coverage.fileAt(sl.file);
         const dir_name = debug_info.coverage.directories.keys()[file.directory_index];
         const dir_name_slice = debug_info.coverage.stringAt(dir_name);
-        const hit: u1 = @truncate(seen_pcs[i / @bitSizeOf(usize)] >> @intCast(i % @bitSizeOf(usize)));
+        const seen_i = indexed_pcs.getIndex(pc).?;
+        const hit: u1 = @truncate(seen_pcs[seen_i / @bitSizeOf(usize)] >> @intCast(seen_i % @bitSizeOf(usize)));
         try stdout.print("{c}{x}: {s}/{s}:{d}:{d}\n", .{
             "-+"[hit], pc, dir_name_slice, debug_info.coverage.stringAt(file.basename), sl.line, sl.column,
         });

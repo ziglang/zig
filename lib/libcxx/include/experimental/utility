@@ -30,7 +30,6 @@ inline namespace fundamentals_v1 {
 
  */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <experimental/__config>
 #include <utility>
 

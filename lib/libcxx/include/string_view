@@ -206,15 +206,17 @@ namespace std {
 // clang-format on
 
 #include <__algorithm/min.h>
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__assert>
 #include <__config>
 #include <__functional/hash.h>
 #include <__functional/unary_function.h>
+#include <__fwd/ostream.h>
 #include <__fwd/string_view.h>
 #include <__iterator/bounded_iter.h>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/reverse_iterator.h>
+#include <__iterator/wrap_iter.h>
 #include <__memory/pointer_traits.h>
 #include <__ranges/concepts.h>
 #include <__ranges/data.h>
@@ -278,10 +280,12 @@ public:
   using const_pointer   = const _CharT*;
   using reference       = _CharT&;
   using const_reference = const _CharT&;
-#ifdef _LIBCPP_ABI_BOUNDED_ITERATORS
+#if defined(_LIBCPP_ABI_BOUNDED_ITERATORS)
   using const_iterator = __bounded_iter<const_pointer>;
+#elif defined(_LIBCPP_ABI_USE_WRAP_ITER_IN_STD_STRING_VIEW)
+  using const_iterator = __wrap_iter<const_pointer>;
 #else
-  using const_iterator = const_pointer; // See [string.view.iterators]
+  using const_iterator = const_pointer;
 #endif
   using iterator                                = const_iterator;
   using const_reverse_iterator                  = std::reverse_iterator<const_iterator>;
@@ -290,10 +294,10 @@ public:
   using difference_type                         = ptrdiff_t;
   static _LIBCPP_CONSTEXPR const size_type npos = -1; // size_type(-1);
 
-  static_assert((!is_array<value_type>::value), "Character type of basic_string_view must not be an array");
-  static_assert((is_standard_layout<value_type>::value), "Character type of basic_string_view must be standard-layout");
-  static_assert((is_trivial<value_type>::value), "Character type of basic_string_view must be trivial");
-  static_assert((is_same<_CharT, typename traits_type::char_type>::value),
+  static_assert(!is_array<value_type>::value, "Character type of basic_string_view must not be an array");
+  static_assert(is_standard_layout<value_type>::value, "Character type of basic_string_view must be standard-layout");
+  static_assert(is_trivial<value_type>::value, "Character type of basic_string_view must be trivial");
+  static_assert(is_same<_CharT, typename traits_type::char_type>::value,
                 "traits_type::char_type must be the same type as CharT");
 
   // [string.view.cons], construct/copy
@@ -307,9 +311,10 @@ public:
       : __data_(__s),
         __size_(__len) {
 #if _LIBCPP_STD_VER >= 14
-    // This will result in creating an invalid `string_view` object -- some calculations involving `size` would
-    // overflow, making it effectively truncated.
-    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
+    // Allocations must fit in `ptrdiff_t` for pointer arithmetic to work. If `__len` exceeds it, the input
+    // range could not have been valid. Most likely the caller underflowed some arithmetic and inadvertently
+    // passed in a negative length.
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(
         __len <= static_cast<size_type>(numeric_limits<difference_type>::max()),
         "string_view::string_view(_CharT *, size_t): length does not fit in difference_type");
     _LIBCPP_ASSERT_NON_NULL(
@@ -353,7 +358,7 @@ public:
 #ifdef _LIBCPP_ABI_BOUNDED_ITERATORS
     return std::__make_bounded_iter(data(), data(), data() + size());
 #else
-    return __data_;
+    return const_iterator(__data_);
 #endif
   }
 
@@ -361,7 +366,7 @@ public:
 #ifdef _LIBCPP_ABI_BOUNDED_ITERATORS
     return std::__make_bounded_iter(data() + size(), data(), data() + size());
 #else
-    return __data_ + __size_;
+    return const_iterator(__data_ + __size_);
 #endif
   }
 
@@ -390,9 +395,7 @@ public:
     return numeric_limits<size_type>::max() / sizeof(value_type);
   }
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT {
-    return __size_ == 0;
-  }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return __size_ == 0; }
 
   // [string.view.access], element access
   _LIBCPP_CONSTEXPR _LIBCPP_HIDE_FROM_ABI const_reference operator[](size_type __pos) const _NOEXCEPT {
@@ -900,32 +903,31 @@ struct hash<basic_string_view<wchar_t, char_traits<wchar_t> > > : __string_view_
 #if _LIBCPP_STD_VER >= 14
 inline namespace literals {
 inline namespace string_view_literals {
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR basic_string_view<char>
-operator""sv(const char* __str, size_t __len) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string_view<char> operator""sv(const char* __str, size_t __len) noexcept {
   return basic_string_view<char>(__str, __len);
 }
 
 #  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR basic_string_view<wchar_t>
-operator""sv(const wchar_t* __str, size_t __len) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string_view<wchar_t>
+operator""sv(const wchar_t* __str, size_t __len) noexcept {
   return basic_string_view<wchar_t>(__str, __len);
 }
 #  endif
 
 #  ifndef _LIBCPP_HAS_NO_CHAR8_T
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR basic_string_view<char8_t>
-operator""sv(const char8_t* __str, size_t __len) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string_view<char8_t>
+operator""sv(const char8_t* __str, size_t __len) noexcept {
   return basic_string_view<char8_t>(__str, __len);
 }
 #  endif
 
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR basic_string_view<char16_t>
-operator""sv(const char16_t* __str, size_t __len) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string_view<char16_t>
+operator""sv(const char16_t* __str, size_t __len) noexcept {
   return basic_string_view<char16_t>(__str, __len);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR basic_string_view<char32_t>
-operator""sv(const char32_t* __str, size_t __len) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string_view<char32_t>
+operator""sv(const char32_t* __str, size_t __len) noexcept {
   return basic_string_view<char32_t>(__str, __len);
 }
 } // namespace string_view_literals

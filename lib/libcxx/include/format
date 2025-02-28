@@ -170,7 +170,7 @@ namespace std {
   template<class Context> class basic_format_arg;
 
   template<class Visitor, class Context>
-    see below visit_format_arg(Visitor&& vis, basic_format_arg<Context> arg);
+    see below visit_format_arg(Visitor&& vis, basic_format_arg<Context> arg); // Deprecated in C++26
 
   // [format.arg.store], class template format-arg-store
   template<class Context, class... Args> struct format-arg-store;      // exposition only
@@ -188,38 +188,70 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__format/buffer.h>
-#include <__format/concepts.h>
-#include <__format/container_adaptor.h>
-#include <__format/enable_insertable.h>
-#include <__format/format_arg.h>
-#include <__format/format_arg_store.h>
-#include <__format/format_args.h>
-#include <__format/format_context.h>
-#include <__format/format_error.h>
-#include <__format/format_functions.h>
-#include <__format/format_fwd.h>
-#include <__format/format_parse_context.h>
-#include <__format/format_string.h>
-#include <__format/format_to_n_result.h>
-#include <__format/formatter.h>
-#include <__format/formatter_bool.h>
-#include <__format/formatter_char.h>
-#include <__format/formatter_floating_point.h>
-#include <__format/formatter_integer.h>
-#include <__format/formatter_pointer.h>
-#include <__format/formatter_string.h>
-#include <__format/formatter_tuple.h>
-#include <__format/parser_std_format_spec.h>
-#include <__format/range_default_formatter.h>
-#include <__format/range_formatter.h>
-#include <__format/unicode.h>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__format/buffer.h>
+#  include <__format/concepts.h>
+#  include <__format/container_adaptor.h>
+#  include <__format/enable_insertable.h>
+#  include <__format/escaped_output_table.h>
+#  include <__format/extended_grapheme_cluster_table.h>
+#  include <__format/format_arg.h>
+#  include <__format/format_arg_store.h>
+#  include <__format/format_args.h>
+#  include <__format/format_context.h>
+#  include <__format/format_error.h>
+#  include <__format/format_functions.h>
+#  include <__format/format_parse_context.h>
+#  include <__format/format_string.h>
+#  include <__format/format_to_n_result.h>
+#  include <__format/formatter.h>
+#  include <__format/formatter_bool.h>
+#  include <__format/formatter_char.h>
+#  include <__format/formatter_floating_point.h>
+#  include <__format/formatter_integer.h>
+#  include <__format/formatter_pointer.h>
+#  include <__format/formatter_string.h>
+#  include <__format/formatter_tuple.h>
+#  include <__format/parser_std_format_spec.h>
+#  include <__format/range_default_formatter.h>
+#  include <__format/range_formatter.h>
+#  include <__format/unicode.h>
+#  include <__fwd/format.h>
+#endif
+
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <array>
+#  include <cctype>
+#  include <cerrno>
+#  include <clocale>
+#  include <cmath>
+#  include <cstddef>
+#  include <cstdint>
+#  include <cstdlib>
+#  include <cstring>
+#  include <initializer_list>
+#  include <limits>
+#  include <locale>
+#  include <new>
+#  include <optional>
+#  include <queue>
+#  include <stack>
+#  include <stdexcept>
+#  include <string>
+#  include <string_view>
+#  include <tuple>
+
+#  if !defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
+#    include <cwchar>
+#  endif
 #endif
 
 #endif // _LIBCPP_FORMAT

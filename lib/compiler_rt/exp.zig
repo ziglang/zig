@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __exph(a: f16) callconv(.C) f16 {
@@ -201,7 +201,7 @@ pub fn expq(a: f128) callconv(.C) f128 {
 }
 
 pub fn expl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __exph(x),
         32 => return expf(x),
         64 => return exp(x),

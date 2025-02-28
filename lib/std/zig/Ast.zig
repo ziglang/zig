@@ -205,9 +205,11 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
 }
 
 pub fn rootDecls(tree: Ast) []const Node.Index {
-    // Root is always index 0.
     const nodes_data = tree.nodes.items(.data);
-    return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+    return switch (tree.mode) {
+        .zig => tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs],
+        .zon => (&nodes_data[0].lhs)[0..1],
+    };
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
@@ -454,6 +456,19 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .for_input_not_captured => {
             return stream.writeAll("for input is not captured");
+        },
+
+        .invalid_byte => {
+            const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
+            return stream.print("{s} contains invalid byte: '{'}'", .{
+                switch (tok_slice[0]) {
+                    '\'' => "character literal",
+                    '"', '\\' => "string literal",
+                    '/' => "comment",
+                    else => unreachable,
+                },
+                std.zig.fmtEscapes(tok_slice[parse_error.extra.offset..][0..1]),
+            });
         },
 
         .expected_token => {
@@ -1184,14 +1199,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = extra.sentinel;
         },
 
-        .@"continue" => {
-            if (datas[n].lhs != 0) {
-                return datas[n].lhs + end_offset;
-            } else {
-                return main_tokens[n] + end_offset;
-            }
-        },
-        .@"break" => {
+        .@"continue", .@"break" => {
             if (datas[n].rhs != 0) {
                 n = datas[n].rhs;
             } else if (datas[n].lhs != 0) {
@@ -1895,6 +1903,25 @@ pub fn taggedUnionEnumTag(tree: Ast, node: Node.Index) full.ContainerDecl {
     });
 }
 
+pub fn switchFull(tree: Ast, node: Node.Index) full.Switch {
+    const data = &tree.nodes.items(.data)[node];
+    const main_token = tree.nodes.items(.main_token)[node];
+    const switch_token: TokenIndex, const label_token: ?TokenIndex = switch (tree.tokens.items(.tag)[main_token]) {
+        .identifier => .{ main_token + 2, main_token },
+        .keyword_switch => .{ main_token, null },
+        else => unreachable,
+    };
+    const extra = tree.extraData(data.rhs, Ast.Node.SubRange);
+    return .{
+        .ast = .{
+            .switch_token = switch_token,
+            .condition = data.lhs,
+            .cases = tree.extra_data[extra.start..extra.end],
+        },
+        .label_token = label_token,
+    };
+}
+
 pub fn switchCaseOne(tree: Ast, node: Node.Index) full.SwitchCase {
     const data = &tree.nodes.items(.data)[node];
     const values: *[1]Node.Index = &data.lhs;
@@ -2143,14 +2170,13 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
 
 fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
-    const Size = std.builtin.Type.Pointer.Size;
-    const size: Size = switch (token_tags[info.main_token]) {
+    const size: std.builtin.Type.Pointer.Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
-        => .One,
+        => .one,
         .l_bracket => switch (token_tags[info.main_token + 1]) {
-            .asterisk => if (token_tags[info.main_token + 2] == .identifier) Size.C else Size.Many,
-            else => Size.Slice,
+            .asterisk => if (token_tags[info.main_token + 2] == .identifier) .c else .many,
+            else => .slice,
         },
         else => unreachable,
     };
@@ -2166,7 +2192,7 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
     var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else switch (size) {
-        .Many, .C => info.main_token + 1,
+        .many, .c => info.main_token + 1,
         else => info.main_token,
     };
     const end = tree.firstToken(info.child_type);
@@ -2202,6 +2228,21 @@ fn fullContainerDeclComponents(tree: Ast, info: full.ContainerDecl.Components) f
     switch (token_tags[info.main_token - 1]) {
         .keyword_extern, .keyword_packed => result.layout_token = info.main_token - 1,
         else => {},
+    }
+    return result;
+}
+
+fn fullSwitchComponents(tree: Ast, info: full.Switch.Components) full.Switch {
+    const token_tags = tree.tokens.items(.tag);
+    const tok_i = info.switch_token -| 1;
+    var result: full.Switch = .{
+        .ast = info,
+        .label_token = null,
+    };
+    if (token_tags[tok_i] == .colon and
+        token_tags[tok_i -| 1] == .identifier)
+    {
+        result.label_token = tok_i - 1;
     }
     return result;
 }
@@ -2473,6 +2514,13 @@ pub fn fullContainerDecl(tree: Ast, buffer: *[2]Ast.Node.Index, node: Node.Index
         .tagged_union, .tagged_union_trailing => tree.taggedUnion(node),
         .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => tree.taggedUnionEnumTag(node),
         .tagged_union_two, .tagged_union_two_trailing => tree.taggedUnionTwo(buffer, node),
+        else => null,
+    };
+}
+
+pub fn fullSwitch(tree: Ast, node: Node.Index) ?full.Switch {
+    return switch (tree.nodes.items(.tag)[node]) {
+        .@"switch", .switch_comma => tree.switchFull(node),
         else => null,
     };
 }
@@ -2829,6 +2877,17 @@ pub const full = struct {
         };
     };
 
+    pub const Switch = struct {
+        ast: Components,
+        label_token: ?TokenIndex,
+
+        pub const Components = struct {
+            switch_token: TokenIndex,
+            condition: Node.Index,
+            cases: []const Node.Index,
+        };
+    };
+
     pub const SwitchCase = struct {
         inline_token: ?TokenIndex,
         /// Points to the first token after the `|`. Will either be an identifier or
@@ -2880,6 +2939,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
+        offset: usize,
     } = .{ .none = {} },
 
     pub const Tag = enum {
@@ -2950,6 +3010,9 @@ pub const Error = struct {
 
         /// `expected_tag` is populated.
         expected_token,
+
+        /// `offset` is populated
+        invalid_byte,
     };
 };
 
@@ -3243,6 +3306,7 @@ pub const Node = struct {
         /// main_token is the `(`.
         async_call_comma,
         /// `switch(lhs) {}`. `SubRange[rhs]`.
+        /// `main_token` is the identifier of a preceding label, if any; otherwise `switch`.
         @"switch",
         /// Same as switch except there is known to be a trailing comma
         /// before the final rbrace
@@ -3287,7 +3351,8 @@ pub const Node = struct {
         @"suspend",
         /// `resume lhs`. rhs is unused.
         @"resume",
-        /// `continue`. lhs is token index of label if any. rhs is unused.
+        /// `continue :lhs rhs`
+        /// both lhs and rhs may be omitted.
         @"continue",
         /// `break :lhs rhs`
         /// both lhs and rhs may be omitted.

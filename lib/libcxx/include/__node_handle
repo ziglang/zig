@@ -147,7 +147,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI explicit operator bool() const { return __ptr_ != nullptr; }
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const { return __ptr_ == nullptr; }
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI bool empty() const { return __ptr_ == nullptr; }
 
   _LIBCPP_HIDE_FROM_ABI void swap(__basic_node_handle& __other) noexcept(
       __alloc_traits::propagate_on_container_swap::value || __alloc_traits::is_always_equal::value) {

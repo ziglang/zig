@@ -9,36 +9,137 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 const Sha1 = std.crypto.hash.Sha1;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 const assert = std.debug.assert;
 
-pub const oid_length = Sha1.digest_length;
-pub const fmt_oid_length = 2 * oid_length;
-/// The ID of a Git object (an SHA-1 hash).
-pub const Oid = [oid_length]u8;
+/// The ID of a Git object.
+pub const Oid = union(Format) {
+    sha1: [Sha1.digest_length]u8,
+    sha256: [Sha256.digest_length]u8,
 
-pub fn parseOid(s: []const u8) !Oid {
-    if (s.len != fmt_oid_length) return error.InvalidOid;
-    var oid: Oid = undefined;
-    for (&oid, 0..) |*b, i| {
-        b.* = std.fmt.parseUnsigned(u8, s[2 * i ..][0..2], 16) catch return error.InvalidOid;
+    pub const max_formatted_length = len: {
+        var max: usize = 0;
+        for (std.enums.values(Format)) |f| {
+            max = @max(max, f.formattedLength());
+        }
+        break :len max;
+    };
+
+    pub const Format = enum {
+        sha1,
+        sha256,
+
+        pub fn byteLength(f: Format) usize {
+            return switch (f) {
+                .sha1 => Sha1.digest_length,
+                .sha256 => Sha256.digest_length,
+            };
+        }
+
+        pub fn formattedLength(f: Format) usize {
+            return 2 * f.byteLength();
+        }
+    };
+
+    const Hasher = union(Format) {
+        sha1: Sha1,
+        sha256: Sha256,
+
+        fn init(oid_format: Format) Hasher {
+            return switch (oid_format) {
+                .sha1 => .{ .sha1 = Sha1.init(.{}) },
+                .sha256 => .{ .sha256 = Sha256.init(.{}) },
+            };
+        }
+
+        // Must be public for use from HashedReader and HashedWriter.
+        pub fn update(hasher: *Hasher, b: []const u8) void {
+            switch (hasher.*) {
+                inline else => |*inner| inner.update(b),
+            }
+        }
+
+        fn finalResult(hasher: *Hasher) Oid {
+            return switch (hasher.*) {
+                inline else => |*inner, tag| @unionInit(Oid, @tagName(tag), inner.finalResult()),
+            };
+        }
+    };
+
+    pub fn fromBytes(oid_format: Format, bytes: []const u8) Oid {
+        assert(bytes.len == oid_format.byteLength());
+        return switch (oid_format) {
+            inline else => |tag| @unionInit(Oid, @tagName(tag), bytes[0..comptime tag.byteLength()].*),
+        };
     }
-    return oid;
-}
 
-test parseOid {
-    try testing.expectEqualSlices(
-        u8,
-        &.{ 0xCE, 0x91, 0x9C, 0xCF, 0x45, 0x95, 0x18, 0x56, 0xA7, 0x62, 0xFF, 0xDB, 0x8E, 0xF8, 0x50, 0x30, 0x1C, 0xD8, 0xC5, 0x88 },
-        &try parseOid("ce919ccf45951856a762ffdb8ef850301cd8c588"),
-    );
-    try testing.expectError(error.InvalidOid, parseOid("ce919ccf"));
-    try testing.expectError(error.InvalidOid, parseOid("master"));
-    try testing.expectError(error.InvalidOid, parseOid("HEAD"));
-}
+    pub fn readBytes(oid_format: Format, reader: anytype) @TypeOf(reader).NoEofError!Oid {
+        return switch (oid_format) {
+            inline else => |tag| @unionInit(Oid, @tagName(tag), try reader.readBytesNoEof(tag.byteLength())),
+        };
+    }
+
+    pub fn parse(oid_format: Format, s: []const u8) error{InvalidOid}!Oid {
+        switch (oid_format) {
+            inline else => |tag| {
+                if (s.len != tag.formattedLength()) return error.InvalidOid;
+                var bytes: [tag.byteLength()]u8 = undefined;
+                for (&bytes, 0..) |*b, i| {
+                    b.* = std.fmt.parseUnsigned(u8, s[2 * i ..][0..2], 16) catch return error.InvalidOid;
+                }
+                return @unionInit(Oid, @tagName(tag), bytes);
+            },
+        }
+    }
+
+    test parse {
+        try testing.expectEqualSlices(
+            u8,
+            &.{ 0xCE, 0x91, 0x9C, 0xCF, 0x45, 0x95, 0x18, 0x56, 0xA7, 0x62, 0xFF, 0xDB, 0x8E, 0xF8, 0x50, 0x30, 0x1C, 0xD8, 0xC5, 0x88 },
+            &(try parse(.sha1, "ce919ccf45951856a762ffdb8ef850301cd8c588")).sha1,
+        );
+        try testing.expectError(error.InvalidOid, parse(.sha256, "ce919ccf45951856a762ffdb8ef850301cd8c588"));
+        try testing.expectError(error.InvalidOid, parse(.sha1, "7f444a92bd4572ee4a28b2c63059924a9ca1829138553ef3e7c41ee159afae7a"));
+        try testing.expectEqualSlices(
+            u8,
+            &.{ 0x7F, 0x44, 0x4A, 0x92, 0xBD, 0x45, 0x72, 0xEE, 0x4A, 0x28, 0xB2, 0xC6, 0x30, 0x59, 0x92, 0x4A, 0x9C, 0xA1, 0x82, 0x91, 0x38, 0x55, 0x3E, 0xF3, 0xE7, 0xC4, 0x1E, 0xE1, 0x59, 0xAF, 0xAE, 0x7A },
+            &(try parse(.sha256, "7f444a92bd4572ee4a28b2c63059924a9ca1829138553ef3e7c41ee159afae7a")).sha256,
+        );
+        try testing.expectError(error.InvalidOid, parse(.sha1, "ce919ccf"));
+        try testing.expectError(error.InvalidOid, parse(.sha256, "ce919ccf"));
+        try testing.expectError(error.InvalidOid, parse(.sha1, "master"));
+        try testing.expectError(error.InvalidOid, parse(.sha256, "master"));
+        try testing.expectError(error.InvalidOid, parse(.sha1, "HEAD"));
+        try testing.expectError(error.InvalidOid, parse(.sha256, "HEAD"));
+    }
+
+    pub fn parseAny(s: []const u8) error{InvalidOid}!Oid {
+        return for (std.enums.values(Format)) |f| {
+            if (s.len == f.formattedLength()) break parse(f, s);
+        } else error.InvalidOid;
+    }
+
+    pub fn format(
+        oid: Oid,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{}", .{std.fmt.fmtSliceHexLower(oid.slice())});
+    }
+
+    pub fn slice(oid: *const Oid) []const u8 {
+        return switch (oid.*) {
+            inline else => |*bytes| bytes,
+        };
+    }
+};
 
 pub const Diagnostics = struct {
     allocator: Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: std.ArrayListUnmanaged(Error) = .empty,
 
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -72,8 +173,8 @@ pub const Diagnostics = struct {
 pub const Repository = struct {
     odb: Odb,
 
-    pub fn init(allocator: Allocator, pack_file: std.fs.File, index_file: std.fs.File) !Repository {
-        return .{ .odb = try Odb.init(allocator, pack_file, index_file) };
+    pub fn init(allocator: Allocator, format: Oid.Format, pack_file: std.fs.File, index_file: std.fs.File) !Repository {
+        return .{ .odb = try Odb.init(allocator, format, pack_file, index_file) };
     }
 
     pub fn deinit(repository: *Repository) void {
@@ -92,7 +193,7 @@ pub const Repository = struct {
         const tree_oid = tree_oid: {
             const commit_object = try repository.odb.readObject();
             if (commit_object.type != .commit) return error.NotACommit;
-            break :tree_oid try getCommitTree(commit_object.data);
+            break :tree_oid try getCommitTree(repository.odb.format, commit_object.data);
         };
         try repository.checkoutTree(worktree, tree_oid, "", diagnostics);
     }
@@ -114,7 +215,11 @@ pub const Repository = struct {
         const tree_data = try repository.odb.allocator.dupe(u8, tree_object.data);
         defer repository.odb.allocator.free(tree_data);
 
-        var tree_iter: TreeIterator = .{ .data = tree_data };
+        var tree_iter: TreeIterator = .{
+            .format = repository.odb.format,
+            .data = tree_data,
+            .pos = 0,
+        };
         while (try tree_iter.next()) |entry| {
             switch (entry.type) {
                 .directory => {
@@ -170,19 +275,20 @@ pub const Repository = struct {
 
     /// Returns the ID of the tree associated with the given commit (provided as
     /// raw object data).
-    fn getCommitTree(commit_data: []const u8) !Oid {
+    fn getCommitTree(format: Oid.Format, commit_data: []const u8) !Oid {
         if (!mem.startsWith(u8, commit_data, "tree ") or
-            commit_data.len < "tree ".len + fmt_oid_length + "\n".len or
-            commit_data["tree ".len + fmt_oid_length] != '\n')
+            commit_data.len < "tree ".len + format.formattedLength() + "\n".len or
+            commit_data["tree ".len + format.formattedLength()] != '\n')
         {
             return error.InvalidCommit;
         }
-        return try parseOid(commit_data["tree ".len..][0..fmt_oid_length]);
+        return try .parse(format, commit_data["tree ".len..][0..format.formattedLength()]);
     }
 
     const TreeIterator = struct {
+        format: Oid.Format,
         data: []const u8,
-        pos: usize = 0,
+        pos: usize,
 
         const Entry = struct {
             type: Type,
@@ -220,8 +326,9 @@ pub const Repository = struct {
             const name = iterator.data[iterator.pos..name_end :0];
             iterator.pos = name_end + 1;
 
+            const oid_length = iterator.format.byteLength();
             if (iterator.pos + oid_length > iterator.data.len) return error.InvalidTree;
-            const oid = iterator.data[iterator.pos..][0..oid_length].*;
+            const oid: Oid = .fromBytes(iterator.format, iterator.data[iterator.pos..][0..oid_length]);
             iterator.pos += oid_length;
 
             return .{ .type = @"type", .executable = executable, .name = name, .oid = oid };
@@ -235,6 +342,7 @@ pub const Repository = struct {
 /// The format of the packfile and its associated index are documented in
 /// [pack-format](https://git-scm.com/docs/pack-format).
 const Odb = struct {
+    format: Oid.Format,
     pack_file: std.fs.File,
     index_header: IndexHeader,
     index_file: std.fs.File,
@@ -242,11 +350,12 @@ const Odb = struct {
     allocator: Allocator,
 
     /// Initializes the database from open pack and index files.
-    fn init(allocator: Allocator, pack_file: std.fs.File, index_file: std.fs.File) !Odb {
+    fn init(allocator: Allocator, format: Oid.Format, pack_file: std.fs.File, index_file: std.fs.File) !Odb {
         try pack_file.seekTo(0);
         try index_file.seekTo(0);
         const index_header = try IndexHeader.read(index_file.reader());
         return .{
+            .format = format,
             .pack_file = pack_file,
             .index_header = index_header,
             .index_file = index_file,
@@ -263,12 +372,12 @@ const Odb = struct {
     fn readObject(odb: *Odb) !Object {
         var base_offset = try odb.pack_file.getPos();
         var base_header: EntryHeader = undefined;
-        var delta_offsets = std.ArrayListUnmanaged(u64){};
+        var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
         defer delta_offsets.deinit(odb.allocator);
         const base_object = while (true) {
             if (odb.cache.get(base_offset)) |base_object| break base_object;
 
-            base_header = try EntryHeader.read(odb.pack_file.reader());
+            base_header = try EntryHeader.read(odb.format, odb.pack_file.reader());
             switch (base_header) {
                 .ofs_delta => |ofs_delta| {
                     try delta_offsets.append(odb.allocator, base_offset);
@@ -292,6 +401,7 @@ const Odb = struct {
 
         const base_data = try resolveDeltaChain(
             odb.allocator,
+            odb.format,
             odb.pack_file,
             base_object,
             delta_offsets.items,
@@ -303,14 +413,15 @@ const Odb = struct {
 
     /// Seeks to the beginning of the object with the given ID.
     fn seekOid(odb: *Odb, oid: Oid) !void {
-        const key = oid[0];
+        const oid_length = odb.format.byteLength();
+        const key = oid.slice()[0];
         var start_index = if (key > 0) odb.index_header.fan_out_table[key - 1] else 0;
         var end_index = odb.index_header.fan_out_table[key];
         const found_index = while (start_index < end_index) {
             const mid_index = start_index + (end_index - start_index) / 2;
             try odb.index_file.seekTo(IndexHeader.size + mid_index * oid_length);
-            const mid_oid = try odb.index_file.reader().readBytesNoEof(oid_length);
-            switch (mem.order(u8, &mid_oid, &oid)) {
+            const mid_oid = try Oid.readBytes(odb.format, odb.index_file.reader());
+            switch (mem.order(u8, mid_oid.slice(), oid.slice())) {
                 .lt => start_index = mid_index + 1,
                 .gt => end_index = mid_index,
                 .eq => break mid_index,
@@ -361,7 +472,7 @@ const Object = struct {
 /// freed by the caller at any point after inserting it into the cache. Any
 /// objects remaining in the cache will be freed when the cache itself is freed.
 const ObjectCache = struct {
-    objects: std.AutoHashMapUnmanaged(u64, CacheEntry) = .{},
+    objects: std.AutoHashMapUnmanaged(u64, CacheEntry) = .empty,
     lru_nodes: LruList = .{},
     byte_size: usize = 0,
 
@@ -492,26 +603,33 @@ const Packet = union(enum) {
 /// [protocol-v2](https://git-scm.com/docs/protocol-v2).
 pub const Session = struct {
     transport: *std.http.Client,
-    uri: std.Uri,
-    supports_agent: bool = false,
-    supports_shallow: bool = false,
+    location: Location,
+    supports_agent: bool,
+    supports_shallow: bool,
+    object_format: Oid.Format,
+    allocator: Allocator,
 
     const agent = "zig/" ++ @import("builtin").zig_version_string;
     const agent_capability = std.fmt.comptimePrint("agent={s}\n", .{agent});
 
-    /// Discovers server capabilities. This should be called before using any
-    /// other client functionality, or the client will be forced to default to
-    /// the bare minimum server requirements, which may be considerably less
-    /// efficient (e.g. no shallow fetches).
-    ///
-    /// See the note on `getCapabilities` regarding `redirect_uri`.
-    pub fn discoverCapabilities(
-        session: *Session,
+    /// Initializes a client session and discovers the capabilities of the
+    /// server for optimal transport.
+    pub fn init(
         allocator: Allocator,
-        redirect_uri: *[]u8,
+        transport: *std.http.Client,
+        uri: std.Uri,
         http_headers_buffer: []u8,
-    ) !void {
-        var capability_iterator = try session.getCapabilities(allocator, redirect_uri, http_headers_buffer);
+    ) !Session {
+        var session: Session = .{
+            .transport = transport,
+            .location = try .init(allocator, uri),
+            .supports_agent = false,
+            .supports_shallow = false,
+            .object_format = .sha1,
+            .allocator = allocator,
+        };
+        errdefer session.deinit();
+        var capability_iterator = try session.getCapabilities(http_headers_buffer);
         defer capability_iterator.deinit();
         while (try capability_iterator.next()) |capability| {
             if (mem.eql(u8, capability.key, "agent")) {
@@ -523,29 +641,69 @@ pub const Session = struct {
                         session.supports_shallow = true;
                     }
                 }
+            } else if (mem.eql(u8, capability.key, "object-format")) {
+                if (std.meta.stringToEnum(Oid.Format, capability.value orelse continue)) |format| {
+                    session.object_format = format;
+                }
             }
         }
+        return session;
     }
+
+    pub fn deinit(session: *Session) void {
+        session.location.deinit(session.allocator);
+        session.* = undefined;
+    }
+
+    /// An owned `std.Uri` representing the location of the server (base URI).
+    const Location = struct {
+        uri: std.Uri,
+
+        fn init(allocator: Allocator, uri: std.Uri) !Location {
+            const scheme = try allocator.dupe(u8, uri.scheme);
+            errdefer allocator.free(scheme);
+            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{user}", .{user}) else null;
+            errdefer if (user) |s| allocator.free(s);
+            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{password}", .{password}) else null;
+            errdefer if (password) |s| allocator.free(s);
+            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{host}", .{host}) else null;
+            errdefer if (host) |s| allocator.free(s);
+            const path = try std.fmt.allocPrint(allocator, "{path}", .{uri.path});
+            errdefer allocator.free(path);
+            // The query and fragment are not used as part of the base server URI.
+            return .{
+                .uri = .{
+                    .scheme = scheme,
+                    .user = if (user) |s| .{ .percent_encoded = s } else null,
+                    .password = if (password) |s| .{ .percent_encoded = s } else null,
+                    .host = if (host) |s| .{ .percent_encoded = s } else null,
+                    .port = uri.port,
+                    .path = .{ .percent_encoded = path },
+                },
+            };
+        }
+
+        fn deinit(loc: *Location, allocator: Allocator) void {
+            allocator.free(loc.uri.scheme);
+            if (loc.uri.user) |user| allocator.free(user.percent_encoded);
+            if (loc.uri.password) |password| allocator.free(password.percent_encoded);
+            if (loc.uri.host) |host| allocator.free(host.percent_encoded);
+            allocator.free(loc.uri.path.percent_encoded);
+        }
+    };
 
     /// Returns an iterator over capabilities supported by the server.
     ///
-    /// If the server redirects the request, `error.Redirected` is returned and
-    /// `redirect_uri` is populated with the URI resulting from the redirects.
-    /// When this occurs, the value of `redirect_uri` must be freed with
-    /// `allocator` when the caller is done with it.
-    fn getCapabilities(
-        session: Session,
-        allocator: Allocator,
-        redirect_uri: *[]u8,
-        http_headers_buffer: []u8,
-    ) !CapabilityIterator {
-        var info_refs_uri = session.uri;
+    /// The `session.location` is updated if the server returns a redirect, so
+    /// that subsequent session functions do not need to handle redirects.
+    fn getCapabilities(session: *Session, http_headers_buffer: []u8) !CapabilityIterator {
+        var info_refs_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "info/refs" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "info/refs" }) };
         }
-        defer allocator.free(info_refs_uri.path.percent_encoded);
+        defer session.allocator.free(info_refs_uri.path.percent_encoded);
         info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
         info_refs_uri.fragment = null;
 
@@ -565,14 +723,14 @@ pub const Session = struct {
         if (request.response.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{request.uri.path});
-            defer allocator.free(request_uri_path);
+            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{request.uri.path});
+            defer session.allocator.free(request_uri_path);
             if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
             new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
-            new_uri.query = null;
-            redirect_uri.* = try std.fmt.allocPrint(allocator, "{+/}", .{new_uri});
-            return error.Redirected;
+            const new_location: Location = try .init(session.allocator, new_uri);
+            session.location.deinit(session.allocator);
+            session.location = new_location;
         }
 
         const reader = request.reader();
@@ -649,28 +807,33 @@ pub const Session = struct {
     };
 
     /// Returns an iterator over refs known to the server.
-    pub fn listRefs(session: Session, allocator: Allocator, options: ListRefsOptions) !RefIterator {
-        var upload_pack_uri = session.uri;
+    pub fn listRefs(session: Session, options: ListRefsOptions) !RefIterator {
+        var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer allocator.free(upload_pack_uri.path.percent_encoded);
+        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body = std.ArrayListUnmanaged(u8){};
-        defer body.deinit(allocator);
-        const body_writer = body.writer(allocator);
+        var body: std.ArrayListUnmanaged(u8) = .empty;
+        defer body.deinit(session.allocator);
+        const body_writer = body.writer(session.allocator);
         try Packet.write(.{ .data = "command=ls-refs\n" }, body_writer);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, body_writer);
         }
+        {
+            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={s}\n", .{@tagName(session.object_format)});
+            defer session.allocator.free(object_format_packet);
+            try Packet.write(.{ .data = object_format_packet }, body_writer);
+        }
         try Packet.write(.delimiter, body_writer);
         for (options.ref_prefixes) |ref_prefix| {
-            const ref_prefix_packet = try std.fmt.allocPrint(allocator, "ref-prefix {s}\n", .{ref_prefix});
-            defer allocator.free(ref_prefix_packet);
+            const ref_prefix_packet = try std.fmt.allocPrint(session.allocator, "ref-prefix {s}\n", .{ref_prefix});
+            defer session.allocator.free(ref_prefix_packet);
             try Packet.write(.{ .data = ref_prefix_packet }, body_writer);
         }
         if (options.include_symrefs) {
@@ -698,10 +861,14 @@ pub const Session = struct {
         try request.wait();
         if (request.response.status != .ok) return error.ProtocolError;
 
-        return .{ .request = request };
+        return .{
+            .format = session.object_format,
+            .request = request,
+        };
     }
 
     pub const RefIterator = struct {
+        format: Oid.Format,
         request: std.http.Client.Request,
         buf: [Packet.max_data_length]u8 = undefined,
 
@@ -723,7 +890,7 @@ pub const Session = struct {
                 .data => |data| {
                     const ref_data = Packet.normalizeText(data);
                     const oid_sep_pos = mem.indexOfScalar(u8, ref_data, ' ') orelse return error.InvalidRefPacket;
-                    const oid = parseOid(data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
+                    const oid = Oid.parse(iterator.format, data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
 
                     const name_sep_pos = mem.indexOfScalarPos(u8, ref_data, oid_sep_pos + 1, ' ') orelse ref_data.len;
                     const name = ref_data[oid_sep_pos + 1 .. name_sep_pos];
@@ -737,7 +904,7 @@ pub const Session = struct {
                         if (mem.startsWith(u8, attribute, "symref-target:")) {
                             symref_target = attribute["symref-target:".len..];
                         } else if (mem.startsWith(u8, attribute, "peeled:")) {
-                            peeled = parseOid(attribute["peeled:".len..]) catch return error.InvalidRefPacket;
+                            peeled = Oid.parse(iterator.format, attribute["peeled:".len..]) catch return error.InvalidRefPacket;
                         }
                         last_sep_pos = next_sep_pos;
                     }
@@ -753,26 +920,30 @@ pub const Session = struct {
     /// performed if the server supports it.
     pub fn fetch(
         session: Session,
-        allocator: Allocator,
         wants: []const []const u8,
         http_headers_buffer: []u8,
     ) !FetchStream {
-        var upload_pack_uri = session.uri;
+        var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer allocator.free(upload_pack_uri.path.percent_encoded);
+        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body = std.ArrayListUnmanaged(u8){};
-        defer body.deinit(allocator);
-        const body_writer = body.writer(allocator);
+        var body: std.ArrayListUnmanaged(u8) = .empty;
+        defer body.deinit(session.allocator);
+        const body_writer = body.writer(session.allocator);
         try Packet.write(.{ .data = "command=fetch\n" }, body_writer);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, body_writer);
+        }
+        {
+            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={s}\n", .{@tagName(session.object_format)});
+            defer session.allocator.free(object_format_packet);
+            try Packet.write(.{ .data = object_format_packet }, body_writer);
         }
         try Packet.write(.delimiter, body_writer);
         // Our packfile parser supports the OFS_DELTA object type
@@ -957,7 +1128,7 @@ const EntryHeader = union(Type) {
         };
     }
 
-    fn read(reader: anytype) !EntryHeader {
+    fn read(format: Oid.Format, reader: anytype) !EntryHeader {
         const InitialByte = packed struct { len: u4, type: u3, has_next: bool };
         const initial: InitialByte = @bitCast(reader.readByte() catch |e| switch (e) {
             error.EndOfStream => return error.InvalidFormat,
@@ -976,7 +1147,7 @@ const EntryHeader = union(Type) {
                 .uncompressed_length = uncompressed_length,
             } },
             .ref_delta => .{ .ref_delta = .{
-                .base_object = reader.readBytesNoEof(oid_length) catch |e| switch (e) {
+                .base_object = Oid.readBytes(format, reader) catch |e| switch (e) {
                     error.EndOfStream => return error.InvalidFormat,
                     else => |other| return other,
                 },
@@ -1041,15 +1212,15 @@ const IndexEntry = struct {
 
 /// Writes out a version 2 index for the given packfile, as documented in
 /// [pack-format](https://git-scm.com/docs/pack-format).
-pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype) !void {
+pub fn indexPack(allocator: Allocator, format: Oid.Format, pack: std.fs.File, index_writer: anytype) !void {
     try pack.seekTo(0);
 
-    var index_entries = std.AutoHashMapUnmanaged(Oid, IndexEntry){};
+    var index_entries: std.AutoHashMapUnmanaged(Oid, IndexEntry) = .empty;
     defer index_entries.deinit(allocator);
-    var pending_deltas = std.ArrayListUnmanaged(IndexEntry){};
+    var pending_deltas: std.ArrayListUnmanaged(IndexEntry) = .empty;
     defer pending_deltas.deinit(allocator);
 
-    const pack_checksum = try indexPackFirstPass(allocator, pack, &index_entries, &pending_deltas);
+    const pack_checksum = try indexPackFirstPass(allocator, format, pack, &index_entries, &pending_deltas);
 
     var cache: ObjectCache = .{};
     defer cache.deinit(allocator);
@@ -1059,7 +1230,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
         while (i > 0) {
             i -= 1;
             const delta = pending_deltas.items[i];
-            if (try indexPackHashDelta(allocator, pack, delta, index_entries, &cache)) |oid| {
+            if (try indexPackHashDelta(allocator, format, pack, delta, index_entries, &cache)) |oid| {
                 try index_entries.put(allocator, oid, delta);
                 _ = pending_deltas.swapRemove(i);
             }
@@ -1068,7 +1239,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
         remaining_deltas = pending_deltas.items.len;
     }
 
-    var oids = std.ArrayListUnmanaged(Oid){};
+    var oids: std.ArrayListUnmanaged(Oid) = .empty;
     defer oids.deinit(allocator);
     try oids.ensureTotalCapacityPrecise(allocator, index_entries.count());
     var index_entries_iter = index_entries.iterator();
@@ -1077,7 +1248,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     }
     mem.sortUnstable(Oid, oids.items, {}, struct {
         fn lessThan(_: void, o1: Oid, o2: Oid) bool {
-            return mem.lessThan(u8, &o1, &o2);
+            return mem.lessThan(u8, o1.slice(), o2.slice());
         }
     }.lessThan);
 
@@ -1085,15 +1256,16 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     var count: u32 = 0;
     var fan_out_index: u8 = 0;
     for (oids.items) |oid| {
-        if (oid[0] > fan_out_index) {
-            @memset(fan_out_table[fan_out_index..oid[0]], count);
-            fan_out_index = oid[0];
+        const key = oid.slice()[0];
+        if (key > fan_out_index) {
+            @memset(fan_out_table[fan_out_index..key], count);
+            fan_out_index = key;
         }
         count += 1;
     }
     @memset(fan_out_table[fan_out_index..], count);
 
-    var index_hashed_writer = hashedWriter(index_writer, Sha1.init(.{}));
+    var index_hashed_writer = std.compress.hashedWriter(index_writer, Oid.Hasher.init(format));
     const writer = index_hashed_writer.writer();
     try writer.writeAll(IndexHeader.signature);
     try writer.writeInt(u32, IndexHeader.supported_version, .big);
@@ -1102,14 +1274,14 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     }
 
     for (oids.items) |oid| {
-        try writer.writeAll(&oid);
+        try writer.writeAll(oid.slice());
     }
 
     for (oids.items) |oid| {
         try writer.writeInt(u32, index_entries.get(oid).?.crc32, .big);
     }
 
-    var big_offsets = std.ArrayListUnmanaged(u64){};
+    var big_offsets: std.ArrayListUnmanaged(u64) = .empty;
     defer big_offsets.deinit(allocator);
     for (oids.items) |oid| {
         const offset = index_entries.get(oid).?.offset;
@@ -1125,9 +1297,9 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
         try writer.writeInt(u64, offset, .big);
     }
 
-    try writer.writeAll(&pack_checksum);
+    try writer.writeAll(pack_checksum.slice());
     const index_checksum = index_hashed_writer.hasher.finalResult();
-    try index_writer.writeAll(&index_checksum);
+    try index_writer.writeAll(index_checksum.slice());
 }
 
 /// Performs the first pass over the packfile data for index construction.
@@ -1136,13 +1308,14 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
 /// format).
 fn indexPackFirstPass(
     allocator: Allocator,
+    format: Oid.Format,
     pack: std.fs.File,
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
     pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
-) ![Sha1.digest_length]u8 {
+) !Oid {
     var pack_buffered_reader = std.io.bufferedReader(pack.reader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
-    var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Sha1.init(.{}));
+    var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
     const pack_reader = pack_hashed_reader.reader();
 
     const pack_header = try PackHeader.read(pack_reader);
@@ -1151,12 +1324,12 @@ fn indexPackFirstPass(
     while (current_entry < pack_header.total_objects) : (current_entry += 1) {
         const entry_offset = pack_counting_reader.bytes_read;
         var entry_crc32_reader = std.compress.hashedReader(pack_reader, std.hash.Crc32.init());
-        const entry_header = try EntryHeader.read(entry_crc32_reader.reader());
+        const entry_header = try EntryHeader.read(format, entry_crc32_reader.reader());
         switch (entry_header) {
             .commit, .tree, .blob, .tag => |object| {
                 var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
-                var entry_hashed_writer = hashedWriter(std.io.null_writer, Sha1.init(.{}));
+                var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, Oid.Hasher.init(format));
                 const entry_writer = entry_hashed_writer.writer();
                 // The object header is not included in the pack data but is
                 // part of the object's ID
@@ -1189,8 +1362,8 @@ fn indexPackFirstPass(
     }
 
     const pack_checksum = pack_hashed_reader.hasher.finalResult();
-    const recorded_checksum = try pack_buffered_reader.reader().readBytesNoEof(Sha1.digest_length);
-    if (!mem.eql(u8, &pack_checksum, &recorded_checksum)) {
+    const recorded_checksum = try Oid.readBytes(format, pack_buffered_reader.reader());
+    if (!mem.eql(u8, pack_checksum.slice(), recorded_checksum.slice())) {
         return error.CorruptedPack;
     }
     _ = pack_reader.readByte() catch |e| switch (e) {
@@ -1205,6 +1378,7 @@ fn indexPackFirstPass(
 /// delta and we do not yet know the offset of the base object).
 fn indexPackHashDelta(
     allocator: Allocator,
+    format: Oid.Format,
     pack: std.fs.File,
     delta: IndexEntry,
     index_entries: std.AutoHashMapUnmanaged(Oid, IndexEntry),
@@ -1213,13 +1387,13 @@ fn indexPackHashDelta(
     // Figure out the chain of deltas to resolve
     var base_offset = delta.offset;
     var base_header: EntryHeader = undefined;
-    var delta_offsets = std.ArrayListUnmanaged(u64){};
+    var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
     defer delta_offsets.deinit(allocator);
     const base_object = while (true) {
         if (cache.get(base_offset)) |base_object| break base_object;
 
         try pack.seekTo(base_offset);
-        base_header = try EntryHeader.read(pack.reader());
+        base_header = try EntryHeader.read(format, pack.reader());
         switch (base_header) {
             .ofs_delta => |ofs_delta| {
                 try delta_offsets.append(allocator, base_offset);
@@ -1239,10 +1413,10 @@ fn indexPackHashDelta(
         }
     };
 
-    const base_data = try resolveDeltaChain(allocator, pack, base_object, delta_offsets.items, cache);
+    const base_data = try resolveDeltaChain(allocator, format, pack, base_object, delta_offsets.items, cache);
 
-    var entry_hasher = Sha1.init(.{});
-    var entry_hashed_writer = hashedWriter(std.io.null_writer, &entry_hasher);
+    var entry_hasher: Oid.Hasher = .init(format);
+    var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, &entry_hasher);
     try entry_hashed_writer.writer().print("{s} {}\x00", .{ @tagName(base_object.type), base_data.len });
     entry_hasher.update(base_data);
     return entry_hasher.finalResult();
@@ -1254,6 +1428,7 @@ fn indexPackHashDelta(
 /// to obtain the final object.
 fn resolveDeltaChain(
     allocator: Allocator,
+    format: Oid.Format,
     pack: std.fs.File,
     base_object: Object,
     delta_offsets: []const u64,
@@ -1266,7 +1441,7 @@ fn resolveDeltaChain(
 
         const delta_offset = delta_offsets[i];
         try pack.seekTo(delta_offset);
-        const delta_header = try EntryHeader.read(pack.reader());
+        const delta_header = try EntryHeader.read(format, pack.reader());
         const delta_data = try readObjectRaw(allocator, pack.reader(), delta_header.uncompressedLength());
         defer allocator.free(delta_data);
         var delta_stream = std.io.fixedBufferStream(delta_data);
@@ -1354,46 +1529,22 @@ fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !vo
     }
 }
 
-fn HashedWriter(
-    comptime WriterType: anytype,
-    comptime HasherType: anytype,
-) type {
-    return struct {
-        child_writer: WriterType,
-        hasher: HasherType,
-
-        const Error = WriterType.Error;
-        const Writer = std.io.Writer(*@This(), Error, write);
-
-        fn write(hashed_writer: *@This(), buf: []const u8) Error!usize {
-            const amt = try hashed_writer.child_writer.write(buf);
-            hashed_writer.hasher.update(buf);
-            return amt;
-        }
-
-        fn writer(hashed_writer: *@This()) Writer {
-            return .{ .context = hashed_writer };
-        }
-    };
-}
-
-fn hashedWriter(
-    writer: anytype,
-    hasher: anytype,
-) HashedWriter(@TypeOf(writer), @TypeOf(hasher)) {
-    return .{ .child_writer = writer, .hasher = hasher };
-}
-
-test "packfile indexing and checkout" {
-    // To verify the contents of this packfile without using the code in this
-    // file:
-    //
-    // 1. Create a new empty Git repository (`git init`)
-    // 2. `git unpack-objects <path/to/testdata.pack`
-    // 3. `git fsck` -> note the "dangling commit" ID (which matches the commit
-    //    checked out below)
-    // 4. `git checkout dd582c0720819ab7130b103635bd7271b9fd4feb`
-    const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
+/// Runs the packfile indexing and checkout test.
+///
+/// The two testrepo repositories under testdata contain identical commit
+/// histories and contents.
+///
+/// To verify the contents of the packfiles using Git alone, run the
+/// following commands in an empty directory:
+///
+/// 1. `git init --object-format=(sha1|sha256)`
+/// 2. `git unpack-objects <path/to/testrepo.pack`
+/// 3. `git fsck` - will print one "dangling commit":
+///    - SHA-1: `dd582c0720819ab7130b103635bd7271b9fd4feb`
+///    - SHA-256: `7f444a92bd4572ee4a28b2c63059924a9ca1829138553ef3e7c41ee159afae7a`
+/// 4. `git checkout $commit`
+fn runRepositoryTest(comptime format: Oid.Format, head_commit: []const u8) !void {
+    const testrepo_pack = @embedFile("git/testdata/testrepo-" ++ @tagName(format) ++ ".pack");
 
     var git_dir = testing.tmpDir(.{});
     defer git_dir.cleanup();
@@ -1403,27 +1554,27 @@ test "packfile indexing and checkout" {
 
     var index_file = try git_dir.dir.createFile("testrepo.idx", .{ .read = true });
     defer index_file.close();
-    try indexPack(testing.allocator, pack_file, index_file.writer());
+    try indexPack(testing.allocator, format, pack_file, index_file.writer());
 
     // Arbitrary size limit on files read while checking the repository contents
-    // (all files in the test repo are known to be much smaller than this)
-    const max_file_size = 4096;
+    // (all files in the test repo are known to be smaller than this)
+    const max_file_size = 8192;
 
     const index_file_data = try git_dir.dir.readFileAlloc(testing.allocator, "testrepo.idx", max_file_size);
     defer testing.allocator.free(index_file_data);
     // testrepo.idx is generated by Git. The index created by this file should
     // match it exactly. Running `git verify-pack -v testrepo.pack` can verify
     // this.
-    const testrepo_idx = @embedFile("git/testdata/testrepo.idx");
+    const testrepo_idx = @embedFile("git/testdata/testrepo-" ++ @tagName(format) ++ ".idx");
     try testing.expectEqualSlices(u8, testrepo_idx, index_file_data);
 
-    var repository = try Repository.init(testing.allocator, pack_file, index_file);
+    var repository = try Repository.init(testing.allocator, format, pack_file, index_file);
     defer repository.deinit();
 
     var worktree = testing.tmpDir(.{ .iterate = true });
     defer worktree.cleanup();
 
-    const commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
+    const commit_id = try Oid.parse(format, head_commit);
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
@@ -1447,7 +1598,7 @@ test "packfile indexing and checkout" {
         "file8",
         "file9",
     };
-    var actual_files: std.ArrayListUnmanaged([]u8) = .{};
+    var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
     defer actual_files.deinit(testing.allocator);
     defer for (actual_files.items) |file| testing.allocator.free(file);
     var walker = try worktree.dir.walk(testing.allocator);
@@ -1487,6 +1638,14 @@ test "packfile indexing and checkout" {
     try testing.expectEqualStrings(expected_file_contents, actual_file_contents);
 }
 
+test "SHA-1 packfile indexing and checkout" {
+    try runRepositoryTest(.sha1, "dd582c0720819ab7130b103635bd7271b9fd4feb");
+}
+
+test "SHA-256 packfile indexing and checkout" {
+    try runRepositoryTest(.sha256, "7f444a92bd4572ee4a28b2c63059924a9ca1829138553ef3e7c41ee159afae7a");
+}
+
 /// Checks out a commit of a packfile. Intended for experimenting with and
 /// benchmarking possible optimizations to the indexing and checkout behavior.
 pub fn main() !void {
@@ -1494,14 +1653,16 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len != 4) {
-        return error.InvalidArguments; // Arguments: packfile commit worktree
+    if (args.len != 5) {
+        return error.InvalidArguments; // Arguments: format packfile commit worktree
     }
 
-    var pack_file = try std.fs.cwd().openFile(args[1], .{});
+    const format = std.meta.stringToEnum(Oid.Format, args[1]) orelse return error.InvalidFormat;
+
+    var pack_file = try std.fs.cwd().openFile(args[2], .{});
     defer pack_file.close();
-    const commit = try parseOid(args[2]);
-    var worktree = try std.fs.cwd().makeOpenPath(args[3], .{});
+    const commit = try Oid.parse(format, args[3]);
+    var worktree = try std.fs.cwd().makeOpenPath(args[4], .{});
     defer worktree.close();
 
     var git_dir = try worktree.makeOpenPath(".git", .{});
@@ -1511,12 +1672,12 @@ pub fn main() !void {
     var index_file = try git_dir.createFile("idx", .{ .read = true });
     defer index_file.close();
     var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
-    try indexPack(allocator, pack_file, index_buffered_writer.writer());
+    try indexPack(allocator, format, pack_file, index_buffered_writer.writer());
     try index_buffered_writer.flush();
     try index_file.sync();
 
     std.debug.print("Starting checkout...\n", .{});
-    var repository = try Repository.init(allocator, pack_file, index_file);
+    var repository = try Repository.init(allocator, format, pack_file, index_file);
     defer repository.deinit();
     var diagnostics: Diagnostics = .{ .allocator = allocator };
     defer diagnostics.deinit();

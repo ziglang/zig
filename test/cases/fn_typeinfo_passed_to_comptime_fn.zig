@@ -9,10 +9,10 @@ fn someFn(arg: ?*c_int) f64 {
     return 8;
 }
 fn foo(comptime info: std.builtin.Type) !void {
-    try std.testing.expect(info.Fn.params[0].type.? == ?*c_int);
+    try std.testing.expect(info.@"fn".params[0].type.? == ?*c_int);
 }
 
 // run
 // is_test=true
-// backend=llvm
+// backend=stage2,llvm
 //

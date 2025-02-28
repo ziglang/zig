@@ -30,7 +30,7 @@ pub fn init(
         if (std.ascii.eqlIgnoreCase(header.name, "sec-websocket-key")) {
             sec_websocket_key = header.value;
         } else if (std.ascii.eqlIgnoreCase(header.name, "upgrade")) {
-            if (!std.mem.eql(u8, header.value, "websocket"))
+            if (!std.ascii.eqlIgnoreCase(header.value, "websocket"))
                 return false;
             upgrade_websocket = true;
         }

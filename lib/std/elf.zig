@@ -258,17 +258,26 @@ pub const DF_1_SINGLETON = 0x02000000;
 pub const DF_1_STUB = 0x04000000;
 pub const DF_1_PIE = 0x08000000;
 
-pub const VERSYM_HIDDEN = 0x8000;
-pub const VERSYM_VERSION = 0x7fff;
+pub const Versym = packed struct(u16) {
+    VERSION: u15,
+    HIDDEN: bool,
 
-/// Symbol is local
-pub const VER_NDX_LOCAL = 0;
-/// Symbol is global
-pub const VER_NDX_GLOBAL = 1;
-/// Beginning of reserved entries
-pub const VER_NDX_LORESERVE = 0xff00;
-/// Symbol is to be eliminated
-pub const VER_NDX_ELIMINATE = 0xff01;
+    pub const LOCAL: Versym = @bitCast(@intFromEnum(VER_NDX.LOCAL));
+    pub const GLOBAL: Versym = @bitCast(@intFromEnum(VER_NDX.GLOBAL));
+};
+
+pub const VER_NDX = enum(u16) {
+    /// Symbol is local
+    LOCAL = 0,
+    /// Symbol is global
+    GLOBAL = 1,
+    /// Beginning of reserved entries
+    LORESERVE = 0xff00,
+    /// Symbol is to be eliminated
+    ELIMINATE = 0xff01,
+    UNSPECIFIED = 0xffff,
+    _,
+};
 
 /// Version definition of the file itself
 pub const VER_FLG_BASE = 1;
@@ -453,18 +462,29 @@ pub const ET = enum(u16) {
     /// Core file
     CORE = 4,
 
+    _,
+
+    /// Beginning of OS-specific codes
+    pub const LOOS = 0xfe00;
+
+    /// End of OS-specific codes
+    pub const HIOS = 0xfeff;
+
     /// Beginning of processor-specific codes
     pub const LOPROC = 0xff00;
 
-    /// Processor-specific
+    /// End of processor-specific codes
     pub const HIPROC = 0xffff;
 };
 
 /// All integers are native endian.
 pub const Header = struct {
-    endian: std.builtin.Endian,
-    machine: EM,
     is_64: bool,
+    endian: std.builtin.Endian,
+    os_abi: OSABI,
+    abi_version: u8,
+    type: ET,
+    machine: EM,
     entry: u64,
     phoff: u64,
     shoff: u64,
@@ -501,6 +521,12 @@ pub const Header = struct {
         if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
+        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
+            ELFCLASS32 => false,
+            ELFCLASS64 => true,
+            else => return error.InvalidElfClass,
+        };
+
         const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
             ELFDATA2LSB => .little,
             ELFDATA2MSB => .big,
@@ -508,21 +534,32 @@ pub const Header = struct {
         };
         const need_bswap = endian != native_endian;
 
-        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
-            ELFCLASS32 => false,
-            ELFCLASS64 => true,
-            else => return error.InvalidElfClass,
-        };
+        // Converting integers to exhaustive enums using `@enumFromInt` could cause a panic.
+        comptime assert(!@typeInfo(OSABI).@"enum".is_exhaustive);
+        const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
+
+        // The meaning of this value depends on `os_abi` so just make it available as `u8`.
+        const abi_version = hdr32.e_ident[EI_ABIVERSION];
+
+        const @"type" = if (need_bswap) blk: {
+            comptime assert(!@typeInfo(ET).@"enum".is_exhaustive);
+            const value = @intFromEnum(hdr32.e_type);
+            break :blk @as(ET, @enumFromInt(@byteSwap(value)));
+        } else hdr32.e_type;
 
         const machine = if (need_bswap) blk: {
+            comptime assert(!@typeInfo(EM).@"enum".is_exhaustive);
             const value = @intFromEnum(hdr32.e_machine);
             break :blk @as(EM, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_machine;
 
         return @as(Header, .{
-            .endian = endian,
-            .machine = machine,
             .is_64 = is_64,
+            .endian = endian,
+            .os_abi = os_abi,
+            .abi_version = abi_version,
+            .type = @"type",
+            .machine = machine,
             .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
             .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
             .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
@@ -637,7 +674,7 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     };
 }
 
-pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
+fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
             return @byteSwap(int_64);
@@ -649,7 +686,7 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Typ
     }
 }
 
-pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
+fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     if (need_bswap) {
         return @byteSwap(int_32);
     } else {
@@ -657,28 +694,28 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     }
 }
 
-pub const EI_NIDENT = 16;
-
-pub const EI_CLASS = 4;
 pub const ELFCLASSNONE = 0;
 pub const ELFCLASS32 = 1;
 pub const ELFCLASS64 = 2;
 pub const ELFCLASSNUM = 3;
 
-pub const EI_DATA = 5;
 pub const ELFDATANONE = 0;
 pub const ELFDATA2LSB = 1;
 pub const ELFDATA2MSB = 2;
 pub const ELFDATANUM = 3;
 
+pub const EI_CLASS = 4;
+pub const EI_DATA = 5;
 pub const EI_VERSION = 6;
+pub const EI_OSABI = 7;
+pub const EI_ABIVERSION = 8;
+pub const EI_PAD = 9;
 
-pub const Elf32_Half = u16;
-pub const Elf64_Half = u16;
-pub const Elf32_Word = u32;
-pub const Elf32_Sword = i32;
-pub const Elf64_Word = u32;
-pub const Elf64_Sword = i32;
+pub const EI_NIDENT = 16;
+
+pub const Half = u16;
+pub const Word = u32;
+pub const Sword = i32;
 pub const Elf32_Xword = u64;
 pub const Elf32_Sxword = i64;
 pub const Elf64_Xword = u64;
@@ -689,53 +726,51 @@ pub const Elf32_Off = u32;
 pub const Elf64_Off = u64;
 pub const Elf32_Section = u16;
 pub const Elf64_Section = u16;
-pub const Elf32_Versym = Elf32_Half;
-pub const Elf64_Versym = Elf64_Half;
 pub const Elf32_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: ET,
     e_machine: EM,
-    e_version: Elf32_Word,
+    e_version: Word,
     e_entry: Elf32_Addr,
     e_phoff: Elf32_Off,
     e_shoff: Elf32_Off,
-    e_flags: Elf32_Word,
-    e_ehsize: Elf32_Half,
-    e_phentsize: Elf32_Half,
-    e_phnum: Elf32_Half,
-    e_shentsize: Elf32_Half,
-    e_shnum: Elf32_Half,
-    e_shstrndx: Elf32_Half,
+    e_flags: Word,
+    e_ehsize: Half,
+    e_phentsize: Half,
+    e_phnum: Half,
+    e_shentsize: Half,
+    e_shnum: Half,
+    e_shstrndx: Half,
 };
 pub const Elf64_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: ET,
     e_machine: EM,
-    e_version: Elf64_Word,
+    e_version: Word,
     e_entry: Elf64_Addr,
     e_phoff: Elf64_Off,
     e_shoff: Elf64_Off,
-    e_flags: Elf64_Word,
-    e_ehsize: Elf64_Half,
-    e_phentsize: Elf64_Half,
-    e_phnum: Elf64_Half,
-    e_shentsize: Elf64_Half,
-    e_shnum: Elf64_Half,
-    e_shstrndx: Elf64_Half,
+    e_flags: Word,
+    e_ehsize: Half,
+    e_phentsize: Half,
+    e_phnum: Half,
+    e_shentsize: Half,
+    e_shnum: Half,
+    e_shstrndx: Half,
 };
 pub const Elf32_Phdr = extern struct {
-    p_type: Elf32_Word,
+    p_type: Word,
     p_offset: Elf32_Off,
     p_vaddr: Elf32_Addr,
     p_paddr: Elf32_Addr,
-    p_filesz: Elf32_Word,
-    p_memsz: Elf32_Word,
-    p_flags: Elf32_Word,
-    p_align: Elf32_Word,
+    p_filesz: Word,
+    p_memsz: Word,
+    p_flags: Word,
+    p_align: Word,
 };
 pub const Elf64_Phdr = extern struct {
-    p_type: Elf64_Word,
-    p_flags: Elf64_Word,
+    p_type: Word,
+    p_flags: Word,
     p_offset: Elf64_Off,
     p_vaddr: Elf64_Addr,
     p_paddr: Elf64_Addr,
@@ -744,44 +779,44 @@ pub const Elf64_Phdr = extern struct {
     p_align: Elf64_Xword,
 };
 pub const Elf32_Shdr = extern struct {
-    sh_name: Elf32_Word,
-    sh_type: Elf32_Word,
-    sh_flags: Elf32_Word,
+    sh_name: Word,
+    sh_type: Word,
+    sh_flags: Word,
     sh_addr: Elf32_Addr,
     sh_offset: Elf32_Off,
-    sh_size: Elf32_Word,
-    sh_link: Elf32_Word,
-    sh_info: Elf32_Word,
-    sh_addralign: Elf32_Word,
-    sh_entsize: Elf32_Word,
+    sh_size: Word,
+    sh_link: Word,
+    sh_info: Word,
+    sh_addralign: Word,
+    sh_entsize: Word,
 };
 pub const Elf64_Shdr = extern struct {
-    sh_name: Elf64_Word,
-    sh_type: Elf64_Word,
+    sh_name: Word,
+    sh_type: Word,
     sh_flags: Elf64_Xword,
     sh_addr: Elf64_Addr,
     sh_offset: Elf64_Off,
     sh_size: Elf64_Xword,
-    sh_link: Elf64_Word,
-    sh_info: Elf64_Word,
+    sh_link: Word,
+    sh_info: Word,
     sh_addralign: Elf64_Xword,
     sh_entsize: Elf64_Xword,
 };
 pub const Elf32_Chdr = extern struct {
     ch_type: COMPRESS,
-    ch_size: Elf32_Word,
-    ch_addralign: Elf32_Word,
+    ch_size: Word,
+    ch_addralign: Word,
 };
 pub const Elf64_Chdr = extern struct {
     ch_type: COMPRESS,
-    ch_reserved: Elf64_Word = 0,
+    ch_reserved: Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
 pub const Elf32_Sym = extern struct {
-    st_name: Elf32_Word,
+    st_name: Word,
     st_value: Elf32_Addr,
-    st_size: Elf32_Word,
+    st_size: Word,
     st_info: u8,
     st_other: u8,
     st_shndx: Elf32_Section,
@@ -794,7 +829,7 @@ pub const Elf32_Sym = extern struct {
     }
 };
 pub const Elf64_Sym = extern struct {
-    st_name: Elf64_Word,
+    st_name: Word,
     st_info: u8,
     st_other: u8,
     st_shndx: Elf64_Section,
@@ -809,16 +844,16 @@ pub const Elf64_Sym = extern struct {
     }
 };
 pub const Elf32_Syminfo = extern struct {
-    si_boundto: Elf32_Half,
-    si_flags: Elf32_Half,
+    si_boundto: Half,
+    si_flags: Half,
 };
 pub const Elf64_Syminfo = extern struct {
-    si_boundto: Elf64_Half,
-    si_flags: Elf64_Half,
+    si_boundto: Half,
+    si_flags: Half,
 };
 pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
-    r_info: Elf32_Word,
+    r_info: Word,
 
     pub inline fn r_sym(self: @This()) u24 {
         return @truncate(self.r_info >> 8);
@@ -840,8 +875,8 @@ pub const Elf64_Rel = extern struct {
 };
 pub const Elf32_Rela = extern struct {
     r_offset: Elf32_Addr,
-    r_info: Elf32_Word,
-    r_addend: Elf32_Sword,
+    r_info: Word,
+    r_addend: Sword,
 
     pub inline fn r_sym(self: @This()) u24 {
         return @truncate(self.r_info >> 8);
@@ -862,69 +897,49 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
-pub const Elf32_Relr = Elf32_Word;
+pub const Elf32_Relr = Word;
 pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
-    d_tag: Elf32_Sword,
+    d_tag: Sword,
     d_val: Elf32_Addr,
 };
 pub const Elf64_Dyn = extern struct {
     d_tag: Elf64_Sxword,
     d_val: Elf64_Addr,
 };
-pub const Elf32_Verdef = extern struct {
-    vd_version: Elf32_Half,
-    vd_flags: Elf32_Half,
-    vd_ndx: Elf32_Half,
-    vd_cnt: Elf32_Half,
-    vd_hash: Elf32_Word,
-    vd_aux: Elf32_Word,
-    vd_next: Elf32_Word,
+pub const Verdef = extern struct {
+    version: Half,
+    flags: Half,
+    ndx: VER_NDX,
+    cnt: Half,
+    hash: Word,
+    aux: Word,
+    next: Word,
 };
-pub const Elf64_Verdef = extern struct {
-    vd_version: Elf64_Half,
-    vd_flags: Elf64_Half,
-    vd_ndx: Elf64_Half,
-    vd_cnt: Elf64_Half,
-    vd_hash: Elf64_Word,
-    vd_aux: Elf64_Word,
-    vd_next: Elf64_Word,
-};
-pub const Elf32_Verdaux = extern struct {
-    vda_name: Elf32_Word,
-    vda_next: Elf32_Word,
-};
-pub const Elf64_Verdaux = extern struct {
-    vda_name: Elf64_Word,
-    vda_next: Elf64_Word,
+pub const Verdaux = extern struct {
+    name: Word,
+    next: Word,
 };
 pub const Elf32_Verneed = extern struct {
-    vn_version: Elf32_Half,
-    vn_cnt: Elf32_Half,
-    vn_file: Elf32_Word,
-    vn_aux: Elf32_Word,
-    vn_next: Elf32_Word,
+    vn_version: Half,
+    vn_cnt: Half,
+    vn_file: Word,
+    vn_aux: Word,
+    vn_next: Word,
 };
 pub const Elf64_Verneed = extern struct {
-    vn_version: Elf64_Half,
-    vn_cnt: Elf64_Half,
-    vn_file: Elf64_Word,
-    vn_aux: Elf64_Word,
-    vn_next: Elf64_Word,
+    vn_version: Half,
+    vn_cnt: Half,
+    vn_file: Word,
+    vn_aux: Word,
+    vn_next: Word,
 };
-pub const Elf32_Vernaux = extern struct {
-    vna_hash: Elf32_Word,
-    vna_flags: Elf32_Half,
-    vna_other: Elf32_Half,
-    vna_name: Elf32_Word,
-    vna_next: Elf32_Word,
-};
-pub const Elf64_Vernaux = extern struct {
-    vna_hash: Elf64_Word,
-    vna_flags: Elf64_Half,
-    vna_other: Elf64_Half,
-    vna_name: Elf64_Word,
-    vna_next: Elf64_Word,
+pub const Vernaux = extern struct {
+    hash: Word,
+    flags: Half,
+    other: Half,
+    name: Word,
+    next: Word,
 };
 pub const Elf32_auxv_t = extern struct {
     a_type: u32,
@@ -939,81 +954,81 @@ pub const Elf64_auxv_t = extern struct {
     },
 };
 pub const Elf32_Nhdr = extern struct {
-    n_namesz: Elf32_Word,
-    n_descsz: Elf32_Word,
-    n_type: Elf32_Word,
+    n_namesz: Word,
+    n_descsz: Word,
+    n_type: Word,
 };
 pub const Elf64_Nhdr = extern struct {
-    n_namesz: Elf64_Word,
-    n_descsz: Elf64_Word,
-    n_type: Elf64_Word,
+    n_namesz: Word,
+    n_descsz: Word,
+    n_type: Word,
 };
 pub const Elf32_Move = extern struct {
     m_value: Elf32_Xword,
-    m_info: Elf32_Word,
-    m_poffset: Elf32_Word,
-    m_repeat: Elf32_Half,
-    m_stride: Elf32_Half,
+    m_info: Word,
+    m_poffset: Word,
+    m_repeat: Half,
+    m_stride: Half,
 };
 pub const Elf64_Move = extern struct {
     m_value: Elf64_Xword,
     m_info: Elf64_Xword,
     m_poffset: Elf64_Xword,
-    m_repeat: Elf64_Half,
-    m_stride: Elf64_Half,
+    m_repeat: Half,
+    m_stride: Half,
 };
 pub const Elf32_gptab = extern union {
     gt_header: extern struct {
-        gt_current_g_value: Elf32_Word,
-        gt_unused: Elf32_Word,
+        gt_current_g_value: Word,
+        gt_unused: Word,
     },
     gt_entry: extern struct {
-        gt_g_value: Elf32_Word,
-        gt_bytes: Elf32_Word,
+        gt_g_value: Word,
+        gt_bytes: Word,
     },
 };
 pub const Elf32_RegInfo = extern struct {
-    ri_gprmask: Elf32_Word,
-    ri_cprmask: [4]Elf32_Word,
-    ri_gp_value: Elf32_Sword,
+    ri_gprmask: Word,
+    ri_cprmask: [4]Word,
+    ri_gp_value: Sword,
 };
 pub const Elf_Options = extern struct {
     kind: u8,
     size: u8,
     section: Elf32_Section,
-    info: Elf32_Word,
+    info: Word,
 };
 pub const Elf_Options_Hw = extern struct {
-    hwp_flags1: Elf32_Word,
-    hwp_flags2: Elf32_Word,
+    hwp_flags1: Word,
+    hwp_flags2: Word,
 };
 pub const Elf32_Lib = extern struct {
-    l_name: Elf32_Word,
-    l_time_stamp: Elf32_Word,
-    l_checksum: Elf32_Word,
-    l_version: Elf32_Word,
-    l_flags: Elf32_Word,
+    l_name: Word,
+    l_time_stamp: Word,
+    l_checksum: Word,
+    l_version: Word,
+    l_flags: Word,
 };
 pub const Elf64_Lib = extern struct {
-    l_name: Elf64_Word,
-    l_time_stamp: Elf64_Word,
-    l_checksum: Elf64_Word,
-    l_version: Elf64_Word,
-    l_flags: Elf64_Word,
+    l_name: Word,
+    l_time_stamp: Word,
+    l_checksum: Word,
+    l_version: Word,
+    l_flags: Word,
 };
 pub const Elf32_Conflict = Elf32_Addr;
 pub const Elf_MIPS_ABIFlags_v0 = extern struct {
-    version: Elf32_Half,
+    version: Half,
     isa_level: u8,
     isa_rev: u8,
     gpr_size: u8,
     cpr1_size: u8,
     cpr2_size: u8,
     fp_abi: u8,
-    isa_ext: Elf32_Word,
-    ases: Elf32_Word,
-    flags1: Elf32_Word,
-    flags2: Elf32_Word,
+    isa_ext: Word,
+    ases: Word,
+    flags1: Word,
+    flags2: Word,
 };
 
 comptime {
@@ -1077,22 +1092,62 @@ pub const Sym = switch (@sizeOf(usize)) {
     8 => Elf64_Sym,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Verdef = switch (@sizeOf(usize)) {
-    4 => Elf32_Verdef,
-    8 => Elf64_Verdef,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Verdaux = switch (@sizeOf(usize)) {
-    4 => Elf32_Verdaux,
-    8 => Elf64_Verdaux,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
 pub const Addr = switch (@sizeOf(usize)) {
     4 => Elf32_Addr,
     8 => Elf64_Addr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Half = u16;
+
+pub const OSABI = enum(u8) {
+    /// UNIX System V ABI
+    NONE = 0,
+    /// HP-UX operating system
+    HPUX = 1,
+    /// NetBSD
+    NETBSD = 2,
+    /// GNU (Hurd/Linux)
+    GNU = 3,
+    /// Solaris
+    SOLARIS = 6,
+    /// AIX
+    AIX = 7,
+    /// IRIX
+    IRIX = 8,
+    /// FreeBSD
+    FREEBSD = 9,
+    /// TRU64 UNIX
+    TRU64 = 10,
+    /// Novell Modesto
+    MODESTO = 11,
+    /// OpenBSD
+    OPENBSD = 12,
+    /// OpenVMS
+    OPENVMS = 13,
+    /// Hewlett-Packard Non-Stop Kernel
+    NSK = 14,
+    /// AROS
+    AROS = 15,
+    /// FenixOS
+    FENIXOS = 16,
+    /// Nuxi CloudABI
+    CLOUDABI = 17,
+    /// Stratus Technologies OpenVOS
+    OPENVOS = 18,
+    /// NVIDIA CUDA architecture
+    CUDA = 51,
+    /// AMD HSA Runtime
+    AMDGPU_HSA = 64,
+    /// AMD PAL Runtime
+    AMDGPU_PAL = 65,
+    /// AMD Mesa3D Runtime
+    AMDGPU_MESA3D = 66,
+    /// ARM
+    ARM = 97,
+    /// Standalone (embedded) application
+    STANDALONE = 255,
+
+    _,
+};
 
 /// Machine architectures.
 ///
@@ -1101,589 +1156,464 @@ pub const Half = u16;
 pub const EM = enum(u16) {
     /// No machine
     NONE = 0,
-
     /// AT&T WE 32100
     M32 = 1,
-
-    /// SPARC
+    /// SUN SPARC
     SPARC = 2,
-
-    /// Intel 386
+    /// Intel 80386
     @"386" = 3,
-
-    /// Motorola 68000
+    /// Motorola m68k family
     @"68K" = 4,
-
-    /// Motorola 88000
+    /// Motorola m88k family
     @"88K" = 5,
-
     /// Intel MCU
     IAMCU = 6,
-
     /// Intel 80860
     @"860" = 7,
-
-    /// MIPS R3000
+    /// MIPS R3000 (officially, big-endian only)
     MIPS = 8,
-
     /// IBM System/370
     S370 = 9,
-
-    /// MIPS RS3000 Little-endian
+    /// MIPS R3000 (and R4000) little-endian, Oct 4 1993 Draft (deprecated)
     MIPS_RS3_LE = 10,
-
-    /// SPU Mark II
-    SPU_2 = 13,
-
-    /// Hewlett-Packard PA-RISC
+    /// Old version of Sparc v9, from before the ABI (deprecated)
+    OLD_SPARCV9 = 11,
+    /// HPPA
     PARISC = 15,
-
-    /// Fujitsu VPP500
+    /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
     VPP500 = 17,
-
-    /// Enhanced instruction set SPARC
+    /// Sun's "v8plus"
     SPARC32PLUS = 18,
-
     /// Intel 80960
     @"960" = 19,
-
     /// PowerPC
     PPC = 20,
-
-    /// PowerPC64
+    /// 64-bit PowerPC
     PPC64 = 21,
-
-    /// IBM System/390
+    /// IBM S/390
     S390 = 22,
-
-    /// IBM SPU/SPC
+    /// Sony/Toshiba/IBM SPU
     SPU = 23,
-
-    /// NEC V800
+    /// NEC V800 series
     V800 = 36,
-
     /// Fujitsu FR20
     FR20 = 37,
-
-    /// TRW RH-32
+    /// TRW RH32
     RH32 = 38,
-
-    /// Motorola RCE
-    RCE = 39,
-
+    /// Motorola M*Core, aka RCE (also Fujitsu MMA)
+    MCORE = 39,
     /// ARM
     ARM = 40,
-
-    /// DEC Alpha
-    ALPHA = 41,
-
-    /// Hitachi SH
+    /// Digital Alpha
+    OLD_ALPHA = 41,
+    /// Renesas (formerly Hitachi) / SuperH SH
     SH = 42,
-
-    /// SPARC V9
+    /// SPARC v9 64-bit
     SPARCV9 = 43,
-
-    /// Siemens TriCore
+    /// Siemens Tricore embedded processor
     TRICORE = 44,
-
-    /// Argonaut RISC Core
+    /// ARC Cores
     ARC = 45,
-
-    /// Hitachi H8/300
+    /// Renesas (formerly Hitachi) H8/300
     H8_300 = 46,
-
-    /// Hitachi H8/300H
+    /// Renesas (formerly Hitachi) H8/300H
     H8_300H = 47,
-
-    /// Hitachi H8S
+    /// Renesas (formerly Hitachi) H8S
     H8S = 48,
-
-    /// Hitachi H8/500
+    /// Renesas (formerly Hitachi) H8/500
     H8_500 = 49,
-
-    /// Intel IA-64 processor architecture
+    /// Intel IA-64 Processor
     IA_64 = 50,
-
     /// Stanford MIPS-X
     MIPS_X = 51,
-
-    /// Motorola ColdFire
+    /// Motorola Coldfire
     COLDFIRE = 52,
-
     /// Motorola M68HC12
     @"68HC12" = 53,
-
-    /// Fujitsu MMA Multimedia Accelerator
+    /// Fujitsu Multimedia Accelerator
     MMA = 54,
-
     /// Siemens PCP
     PCP = 55,
-
     /// Sony nCPU embedded RISC processor
     NCPU = 56,
-
     /// Denso NDR1 microprocessor
     NDR1 = 57,
-
     /// Motorola Star*Core processor
     STARCORE = 58,
-
     /// Toyota ME16 processor
     ME16 = 59,
-
     /// STMicroelectronics ST100 processor
     ST100 = 60,
-
-    /// Advanced Logic Corp. TinyJ embedded processor family
+    /// Advanced Logic Corp. TinyJ embedded processor
     TINYJ = 61,
-
-    /// AMD x86-64 architecture
+    /// Advanced Micro Devices X86-64 processor
     X86_64 = 62,
-
     /// Sony DSP Processor
     PDSP = 63,
-
     /// Digital Equipment Corp. PDP-10
     PDP10 = 64,
-
     /// Digital Equipment Corp. PDP-11
     PDP11 = 65,
-
     /// Siemens FX66 microcontroller
     FX66 = 66,
-
     /// STMicroelectronics ST9+ 8/16 bit microcontroller
     ST9PLUS = 67,
-
     /// STMicroelectronics ST7 8-bit microcontroller
     ST7 = 68,
-
     /// Motorola MC68HC16 Microcontroller
     @"68HC16" = 69,
-
     /// Motorola MC68HC11 Microcontroller
     @"68HC11" = 70,
-
     /// Motorola MC68HC08 Microcontroller
     @"68HC08" = 71,
-
     /// Motorola MC68HC05 Microcontroller
     @"68HC05" = 72,
-
     /// Silicon Graphics SVx
     SVX = 73,
-
-    /// STMicroelectronics ST19 8-bit microcontroller
+    /// STMicroelectronics ST19 8-bit cpu
     ST19 = 74,
-
     /// Digital VAX
     VAX = 75,
-
     /// Axis Communications 32-bit embedded processor
     CRIS = 76,
-
-    /// Infineon Technologies 32-bit embedded processor
+    /// Infineon Technologies 32-bit embedded cpu
     JAVELIN = 77,
-
-    /// Element 14 64-bit DSP Processor
+    /// Element 14 64-bit DSP processor
     FIREPATH = 78,
-
-    /// LSI Logic 16-bit DSP Processor
+    /// LSI Logic's 16-bit DSP processor
     ZSP = 79,
-
     /// Donald Knuth's educational 64-bit processor
     MMIX = 80,
-
-    /// Harvard University machine-independent object files
+    /// Harvard's machine-independent format
     HUANY = 81,
-
     /// SiTera Prism
     PRISM = 82,
-
     /// Atmel AVR 8-bit microcontroller
     AVR = 83,
-
     /// Fujitsu FR30
     FR30 = 84,
-
     /// Mitsubishi D10V
     D10V = 85,
-
     /// Mitsubishi D30V
     D30V = 86,
-
-    /// NEC v850
+    /// Renesas V850 (formerly NEC V850)
     V850 = 87,
-
-    /// Mitsubishi M32R
+    /// Renesas M32R (formerly Mitsubishi M32R)
     M32R = 88,
-
     /// Matsushita MN10300
     MN10300 = 89,
-
     /// Matsushita MN10200
     MN10200 = 90,
-
     /// picoJava
     PJ = 91,
-
-    /// OpenRISC 32-bit embedded processor
-    OPENRISC = 92,
-
-    /// ARC International ARCompact processor (old spelling/synonym: EM_ARC_A5)
+    /// OpenRISC 1000 32-bit embedded processor
+    OR1K = 92,
+    /// ARC International ARCompact processor
     ARC_COMPACT = 93,
-
     /// Tensilica Xtensa Architecture
     XTENSA = 94,
-
-    /// Alphamosaic VideoCore processor
+    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number)
     VIDEOCORE = 95,
-
     /// Thompson Multimedia General Purpose Processor
     TMM_GPP = 96,
-
     /// National Semiconductor 32000 series
     NS32K = 97,
-
     /// Tenor Network TPC processor
     TPC = 98,
-
-    /// Trebia SNP 1000 processor
+    /// Trebia SNP 1000 processor (also old value for picoJava; deprecated)
     SNP1K = 99,
-
-    /// STMicroelectronics (www.st.com) ST200
+    /// STMicroelectronics ST200 microcontroller
     ST200 = 100,
-
-    /// Ubicom IP2xxx microcontroller family
+    /// Ubicom IP2022 micro controller
     IP2K = 101,
-
     /// MAX Processor
     MAX = 102,
-
-    /// National Semiconductor CompactRISC microprocessor
+    /// National Semiconductor CompactRISC
     CR = 103,
-
     /// Fujitsu F2MC16
     F2MC16 = 104,
-
-    /// Texas Instruments embedded microcontroller msp430
+    /// TI msp430 micro controller
     MSP430 = 105,
-
-    /// Analog Devices Blackfin (DSP) processor
+    /// ADI Blackfin
     BLACKFIN = 106,
-
     /// S1C33 Family of Seiko Epson processors
     SE_C33 = 107,
-
     /// Sharp embedded microprocessor
     SEP = 108,
-
     /// Arca RISC Microprocessor
     ARCA = 109,
-
     /// Microprocessor series from PKU-Unity Ltd. and MPRC of Peking University
     UNICORE = 110,
-
     /// eXcess: 16/32/64-bit configurable embedded CPU
     EXCESS = 111,
-
     /// Icera Semiconductor Inc. Deep Execution Processor
     DXP = 112,
-
     /// Altera Nios II soft-core processor
     ALTERA_NIOS2 = 113,
-
-    /// National Semiconductor CompactRISC CRX
+    /// National Semiconductor CRX
     CRX = 114,
-
-    /// Motorola XGATE embedded processor
+    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC; deprecated)
     XGATE = 115,
-
     /// Infineon C16x/XC16x processor
     C166 = 116,
-
     /// Renesas M16C series microprocessors
     M16C = 117,
-
     /// Microchip Technology dsPIC30F Digital Signal Controller
     DSPIC30F = 118,
-
     /// Freescale Communication Engine RISC core
     CE = 119,
-
     /// Renesas M32C series microprocessors
     M32C = 120,
-
     /// Altium TSK3000 core
     TSK3000 = 131,
-
     /// Freescale RS08 embedded processor
     RS08 = 132,
-
     /// Analog Devices SHARC family of 32-bit DSP processors
     SHARC = 133,
-
     /// Cyan Technology eCOG2 microprocessor
     ECOG2 = 134,
-
-    /// Sunplus S+core7 RISC processor
-    SCORE7 = 135,
-
+    /// Sunplus S+core (and S+core7) RISC processor
+    SCORE = 135,
     /// New Japan Radio (NJR) 24-bit DSP Processor
     DSP24 = 136,
-
     /// Broadcom VideoCore III processor
     VIDEOCORE3 = 137,
-
     /// RISC processor for Lattice FPGA architecture
     LATTICEMICO32 = 138,
-
     /// Seiko Epson C17 family
     SE_C17 = 139,
-
-    /// The Texas Instruments TMS320C6000 DSP family
+    /// Texas Instruments TMS320C6000 DSP family
     TI_C6000 = 140,
-
-    /// The Texas Instruments TMS320C2000 DSP family
+    /// Texas Instruments TMS320C2000 DSP family
     TI_C2000 = 141,
-
-    /// The Texas Instruments TMS320C55x DSP family
+    /// Texas Instruments TMS320C55x DSP family
     TI_C5500 = 142,
-
+    /// Texas Instruments Programmable Realtime Unit
+    TI_PRU = 144,
     /// STMicroelectronics 64bit VLIW Data Signal Processor
     MMDSP_PLUS = 160,
-
     /// Cypress M8C microprocessor
     CYPRESS_M8C = 161,
-
     /// Renesas R32C series microprocessors
     R32C = 162,
-
     /// NXP Semiconductors TriMedia architecture family
     TRIMEDIA = 163,
-
-    /// Qualcomm Hexagon processor
-    HEXAGON = 164,
-
+    /// QUALCOMM DSP6 Processor
+    QDSP6 = 164,
     /// Intel 8051 and variants
     @"8051" = 165,
-
-    /// STMicroelectronics STxP7x family of configurable and extensible RISC processors
+    /// STMicroelectronics STxP7x family
     STXP7X = 166,
-
     /// Andes Technology compact code size embedded RISC processor family
     NDS32 = 167,
-
     /// Cyan Technology eCOG1X family
     ECOG1X = 168,
-
     /// Dallas Semiconductor MAXQ30 Core Micro-controllers
     MAXQ30 = 169,
-
     /// New Japan Radio (NJR) 16-bit DSP Processor
     XIMO16 = 170,
-
     /// M2000 Reconfigurable RISC Microprocessor
     MANIK = 171,
-
     /// Cray Inc. NV2 vector architecture
     CRAYNV2 = 172,
-
     /// Renesas RX family
     RX = 173,
-
-    /// Imagination Technologies META processor architecture
+    /// Imagination Technologies Meta processor architecture
     METAG = 174,
-
     /// MCST Elbrus general purpose hardware architecture
     MCST_ELBRUS = 175,
-
     /// Cyan Technology eCOG16 family
     ECOG16 = 176,
-
-    /// National Semiconductor CompactRISC CR16 16-bit microprocessor
+    /// National Semiconductor CompactRISC 16-bit processor
     CR16 = 177,
-
     /// Freescale Extended Time Processing Unit
     ETPU = 178,
-
     /// Infineon Technologies SLE9X core
     SLE9X = 179,
-
     /// Intel L10M
     L10M = 180,
-
     /// Intel K10M
     K10M = 181,
-
-    /// ARM AArch64
+    /// ARM 64-bit architecture
     AARCH64 = 183,
-
     /// Atmel Corporation 32-bit microprocessor family
     AVR32 = 185,
-
     /// STMicroeletronics STM8 8-bit microcontroller
     STM8 = 186,
-
     /// Tilera TILE64 multicore architecture family
     TILE64 = 187,
-
     /// Tilera TILEPro multicore architecture family
     TILEPRO = 188,
-
-    /// Xilinx MicroBlaze
+    /// Xilinx MicroBlaze 32-bit RISC soft processor core
     MICROBLAZE = 189,
-
     /// NVIDIA CUDA architecture
     CUDA = 190,
-
     /// Tilera TILE-Gx multicore architecture family
     TILEGX = 191,
-
     /// CloudShield architecture family
     CLOUDSHIELD = 192,
-
     /// KIPO-KAIST Core-A 1st generation processor family
     COREA_1ST = 193,
-
     /// KIPO-KAIST Core-A 2nd generation processor family
     COREA_2ND = 194,
-
     /// Synopsys ARCompact V2
     ARC_COMPACT2 = 195,
-
     /// Open8 8-bit RISC soft processor core
     OPEN8 = 196,
-
     /// Renesas RL78 family
     RL78 = 197,
-
     /// Broadcom VideoCore V processor
     VIDEOCORE5 = 198,
-
-    /// Renesas 78KOR family
-    @"78KOR" = 199,
-
+    /// Renesas 78K0R
+    @"78K0R" = 199,
     /// Freescale 56800EX Digital Signal Controller (DSC)
     @"56800EX" = 200,
-
     /// Beyond BA1 CPU architecture
     BA1 = 201,
-
     /// Beyond BA2 CPU architecture
     BA2 = 202,
-
     /// XMOS xCORE processor family
     XCORE = 203,
-
     /// Microchip 8-bit PIC(r) family
     MCHP_PIC = 204,
-
-    /// Reserved by Intel
-    INTEL205 = 205,
-
-    /// Reserved by Intel
-    INTEL206 = 206,
-
-    /// Reserved by Intel
-    INTEL207 = 207,
-
-    /// Reserved by Intel
-    INTEL208 = 208,
-
-    /// Reserved by Intel
-    INTEL209 = 209,
-
+    /// Intel Graphics Technology
+    INTELGT = 205,
     /// KM211 KM32 32-bit processor
     KM32 = 210,
-
     /// KM211 KMX32 32-bit processor
     KMX32 = 211,
-
     /// KM211 KMX16 16-bit processor
     KMX16 = 212,
-
     /// KM211 KMX8 8-bit processor
     KMX8 = 213,
-
     /// KM211 KVARC processor
     KVARC = 214,
-
     /// Paneve CDP architecture family
     CDP = 215,
-
     /// Cognitive Smart Memory Processor
     COGE = 216,
-
-    /// iCelero CoolEngine
+    /// Bluechip Systems CoolEngine
     COOL = 217,
-
     /// Nanoradio Optimized RISC
     NORC = 218,
-
     /// CSR Kalimba architecture family
     CSR_KALIMBA = 219,
-
+    /// Zilog Z80
+    Z80 = 220,
+    /// Controls and Data Services VISIUMcore processor
+    VISIUM = 221,
+    /// FTDI Chip FT32 high performance 32-bit RISC architecture
+    FT32 = 222,
+    /// Moxie processor family
+    MOXIE = 223,
     /// AMD GPU architecture
     AMDGPU = 224,
-
     /// RISC-V
     RISCV = 243,
-
     /// Lanai 32-bit processor
     LANAI = 244,
-
-    /// Linux kernel bpf virtual machine
+    /// CEVA Processor Architecture Family
+    CEVA = 245,
+    /// CEVA X2 Processor Family
+    CEVA_X2 = 246,
+    /// Linux BPF - in-kernel virtual machine
     BPF = 247,
-
-    /// C-SKY
+    /// Graphcore Intelligent Processing Unit
+    GRAPHCORE_IPU = 248,
+    /// Imagination Technologies
+    IMG1 = 249,
+    /// Netronome Flow Processor
+    NFP = 250,
+    /// NEC Vector Engine
+    VE = 251,
+    /// C-SKY processor family
     CSKY = 252,
-
+    /// Synopsys ARCv2.3 64-bit
+    ARC_COMPACT3_64 = 253,
+    /// MOS Technology MCS 6502 processor
+    MCS6502 = 254,
+    /// Synopsys ARCv2.3 32-bit
+    ARC_COMPACT3 = 255,
+    /// Kalray VLIW core of the MPPA processor family
+    KVX = 256,
+    /// WDC 65816/65C816
+    @"65816" = 257,
     /// LoongArch
     LOONGARCH = 258,
+    /// ChipON KungFu32
+    KF32 = 259,
+    /// LAPIS nX-U16/U8
+    U16_U8CORE = 260,
+    /// Tachyum
+    TACHYUM = 261,
+    /// NXP 56800EF Digital Signal Controller (DSC)
+    @"56800EF" = 262,
+    /// AVR
+    AVR_OLD = 0x1057,
+    /// MSP430
+    MSP430_OLD = 0x1059,
+    /// Morpho MT
+    MT = 0x2530,
+    /// FR30
+    CYGNUS_FR30 = 0x3330,
+    /// WebAssembly (as used by LLVM)
+    WEBASSEMBLY = 0x4157,
+    /// Infineon Technologies 16-bit microcontroller with C166-V2 core
+    XC16X = 0x4688,
+    /// Freescale S12Z
+    S12Z = 0x4def,
+    /// DLX
+    DLX = 0x5aa5,
+    /// FRV
+    CYGNUS_FRV = 0x5441,
+    /// D10V
+    CYGNUS_D10V = 0x7650,
+    /// D30V
+    CYGNUS_D30V = 0x7676,
+    /// Ubicom IP2xxx
+    IP2K_OLD = 0x8217,
+    /// Cygnus PowerPC ELF
+    CYGNUS_POWERPC = 0x9025,
+    /// Alpha
+    ALPHA = 0x9026,
+    /// Cygnus M32R ELF
+    CYGNUS_M32R = 0x9041,
+    /// V850
+    CYGNUS_V850 = 0x9080,
+    /// Old S/390
+    S390_OLD = 0xa390,
+    /// Old unofficial value for Xtensa
+    XTENSA_OLD = 0xabc7,
+    /// Xstormy16
+    XSTORMY16 = 0xad45,
+    /// MN10300
+    CYGNUS_MN10300 = 0xbeef,
+    /// MN10200
+    CYGNUS_MN10200 = 0xdead,
+    /// Renesas M32C and M16C
+    M32C_OLD = 0xfeb0,
+    /// Vitesse IQ2000
+    IQ2000 = 0xfeba,
+    /// NIOS
+    NIOS32 = 0xfebb,
+    /// Toshiba MeP
+    CYGNUS_MEP = 0xf00d,
+    /// Old unofficial value for Moxie
+    MOXIE_OLD = 0xfeed,
+    /// Old MicroBlaze
+    MICROBLAZE_OLD = 0xbaab,
+    /// Adapteva's Epiphany architecture
+    ADAPTEVA_EPIPHANY = 0x1223,
 
-    /// Fujitsu FR-V
-    FRV = 0x5441,
+    /// Parallax Propeller (P1)
+    /// This value is an unofficial ELF value used in: https://github.com/parallaxinc/propgcc
+    PROPELLER = 0x5072,
+
+    /// Parallax Propeller 2 (P2)
+    /// This value is an unofficial ELF value used in: https://github.com/ne75/llvm-project
+    PROPELLER2 = 300,
 
     _,
-
-    pub fn toTargetCpuArch(em: EM) ?std.Target.Cpu.Arch {
-        return switch (em) {
-            .AVR => .avr,
-            .MSP430 => .msp430,
-            .ARC => .arc,
-            .ARM => .arm,
-            .HEXAGON => .hexagon,
-            .@"68K" => .m68k,
-            .MIPS => .mips,
-            .MIPS_RS3_LE => .mipsel,
-            .PPC => .powerpc,
-            .SPARC => .sparc,
-            .@"386" => .x86,
-            .XCORE => .xcore,
-            .CSR_KALIMBA => .kalimba,
-            .LANAI => .lanai,
-            .AARCH64 => .aarch64,
-            .PPC64 => .powerpc64,
-            .RISCV => .riscv64,
-            .X86_64 => .x86_64,
-            .BPF => .bpfel,
-            .SPARCV9 => .sparc64,
-            .S390 => .s390x,
-            .SPU_2 => .spu_2,
-            // FIXME:
-            // No support for .loongarch32 yet so it is safe to assume we are on .loongarch64.
-            //
-            // However, when e_machine is .LOONGARCH, we should check
-            // ei_class's value to decide the CPU architecture.
-            // - ELFCLASS32 => .loongarch32
-            // - ELFCLASS64 => .loongarch64
-            .LOONGARCH => .loongarch64,
-            // there's many cases we don't (yet) handle, or will never have a
-            // zig target cpu arch equivalent (such as null).
-            else => null,
-        };
-    }
 };
 
 pub const GRP_COMDAT = 1;
@@ -2465,3 +2395,40 @@ pub const STRNAME = genSpecialMemberName("//");
 pub const SYM64NAME = genSpecialMemberName("/SYM64/");
 pub const SYMDEFNAME = genSpecialMemberName("__.SYMDEF");
 pub const SYMDEFSORTEDNAME = genSpecialMemberName("__.SYMDEF SORTED");
+
+pub const gnu_hash = struct {
+
+    // See https://flapenguin.me/elf-dt-gnu-hash
+
+    pub const Header = extern struct {
+        nbuckets: u32,
+        symoffset: u32,
+        bloom_size: u32,
+        bloom_shift: u32,
+    };
+
+    pub const ChainEntry = packed struct(u32) {
+        end_of_chain: bool,
+        /// Contains the top bits of the hash value.
+        hash: u31,
+    };
+
+    /// Calculate the hash value for a name
+    pub fn calculate(name: []const u8) u32 {
+        var hash: u32 = 5381;
+
+        for (name) |char| {
+            hash = (hash << 5) +% hash +% char;
+        }
+
+        return hash;
+    }
+
+    test calculate {
+        try std.testing.expectEqual(0x00001505, calculate(""));
+        try std.testing.expectEqual(0x156b2bb8, calculate("printf"));
+        try std.testing.expectEqual(0x7c967e3f, calculate("exit"));
+        try std.testing.expectEqual(0xbac212a0, calculate("syscall"));
+        try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
+    }
+};

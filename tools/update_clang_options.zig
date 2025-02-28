@@ -111,6 +111,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_unwind_tables",
     },
     .{
+        .name = "fasynchronous-unwind-tables",
+        .ident = "asynchronous_unwind_tables",
+    },
+    .{
+        .name = "fno-asynchronous-unwind-tables",
+        .ident = "no_asynchronous_unwind_tables",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },
@@ -153,6 +161,10 @@ const known_options = [_]KnownOpt{
     .{
         .name = "Wl,",
         .ident = "wl",
+    },
+    .{
+        .name = "Wp,",
+        .ident = "wp",
     },
     .{
         .name = "Xlinker",
@@ -548,6 +560,14 @@ const known_options = [_]KnownOpt{
         .name = "fno-sanitize-coverage",
         .ident = "no_san_cov",
     },
+    .{
+        .name = "rtlib",
+        .ident = "rtlib",
+    },
+    .{
+        .name = "rtlib=",
+        .ident = "rtlib",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -564,7 +584,7 @@ fn knownOption(name: []const u8) ?[]const u8 {
 
 const cpu_targets = struct {
     pub const aarch64 = std.Target.aarch64;
-    pub const amdgpu = std.Target.amdgpu;
+    pub const amdgcn = std.Target.amdgcn;
     pub const arc = std.Target.arc;
     pub const arm = std.Target.arm;
     pub const avr = std.Target.avr;
@@ -616,7 +636,7 @@ pub fn main() anyerror!void {
 
     var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
 
-    inline for (@typeInfo(cpu_targets).Struct.decls) |decl| {
+    inline for (@typeInfo(cpu_targets).@"struct".decls) |decl| {
         const Feature = @field(cpu_targets, decl.name).Feature;
         const all_features = @field(cpu_targets, decl.name).all_features;
 
@@ -741,7 +761,7 @@ pub fn main() anyerror!void {
             if ((std.mem.startsWith(u8, name, "mno-") and
                 llvm_to_zig_cpu_features.contains(name["mno-".len..])) or
                 (std.mem.startsWith(u8, name, "m") and
-                llvm_to_zig_cpu_features.contains(name["m".len..])))
+                    llvm_to_zig_cpu_features.contains(name["m".len..])))
             {
                 try stdout.print("m(\"{s}\"),\n", .{name});
             } else {

@@ -102,6 +102,7 @@ PSSTDAPI PropVariantToUInt32(REFPROPVARIANT propvarIn, ULONG *ret);
 PSSTDAPI_(ULONG) PropVariantToUInt32WithDefault(REFPROPVARIANT propvarIn, ULONG uLDefault);
 PSSTDAPI PropVariantToUInt64(REFPROPVARIANT propvarIn, ULONGLONG *ret);
 PSSTDAPI PropVariantToBoolean(REFPROPVARIANT propvarIn, WINBOOL *ret);
+PSSTDAPI PropVariantToBSTR(REFPROPVARIANT propvar, BSTR *bstr);
 PSSTDAPI PropVariantToBuffer(REFPROPVARIANT propvarIn, void *ret, UINT cb);
 PSSTDAPI PropVariantToString(REFPROPVARIANT propvarIn, PWSTR ret, UINT cch);
 PSSTDAPI_(PCWSTR) PropVariantToStringWithDefault(REFPROPVARIANT propvarIn, LPCWSTR pszDefault);
@@ -109,6 +110,11 @@ PSSTDAPI_(PCWSTR) VariantToStringWithDefault(const VARIANT *pvar, LPCWSTR pszDef
 PSSTDAPI VariantToString(REFVARIANT var, PWSTR ret, UINT cch);
 
 PSSTDAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
+
+PSSTDAPI PropVariantToVariant(const PROPVARIANT *propvar, VARIANT *var);
+PSSTDAPI VariantToPropVariant(const VARIANT* var, PROPVARIANT* propvar);
+
+PSSTDAPI PropVariantGetStringElem(const PROPVARIANT *propvar, ULONG idx, WCHAR **ret);
 
 #ifdef __cplusplus
 

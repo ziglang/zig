@@ -15,8 +15,10 @@
 #include <__concepts/same_as.h>
 #include <__config>
 #include <__format/extended_grapheme_cluster_table.h>
+#include <__format/indic_conjunct_break_table.h>
 #include <__iterator/concepts.h>
 #include <__iterator/readable_traits.h> // iter_value_t
+#include <__utility/unreachable.h>
 #include <string_view>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -292,84 +294,231 @@ private:
 };
 #    endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
-_LIBCPP_HIDE_FROM_ABI constexpr bool __at_extended_grapheme_cluster_break(
-    bool& __ri_break_allowed,
-    bool __has_extened_pictographic,
-    __extended_grapheme_custer_property_boundary::__property __prev,
-    __extended_grapheme_custer_property_boundary::__property __next) {
-  using __extended_grapheme_custer_property_boundary::__property;
+// State machine to implement the Extended Grapheme Cluster Boundary
+//
+// The exact rules may change between Unicode versions.
+// This implements the extended rules see
+// https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries
+class __extended_grapheme_cluster_break {
+  using __EGC_property  = __extended_grapheme_custer_property_boundary::__property;
+  using __inCB_property = __indic_conjunct_break::__property;
 
-  __has_extened_pictographic |= __prev == __property::__Extended_Pictographic;
-
-  // https://www.unicode.org/reports/tr29/tr29-39.html#Grapheme_Cluster_Boundary_Rules
-
-  // *** Break at the start and end of text, unless the text is empty. ***
-
-  _LIBCPP_ASSERT_INTERNAL(__prev != __property::__sot, "should be handled in the constructor"); // GB1
-  _LIBCPP_ASSERT_INTERNAL(__prev != __property::__eot, "should be handled by our caller");      // GB2
-
-  // *** Do not break between a CR and LF. Otherwise, break before and after controls. ***
-  if (__prev == __property::__CR && __next == __property::__LF) // GB3
-    return false;
-
-  if (__prev == __property::__Control || __prev == __property::__CR || __prev == __property::__LF) // GB4
-    return true;
-
-  if (__next == __property::__Control || __next == __property::__CR || __next == __property::__LF) // GB5
-    return true;
-
-  // *** Do not break Hangul syllable sequences. ***
-  if (__prev == __property::__L && (__next == __property::__L || __next == __property::__V ||
-                                    __next == __property::__LV || __next == __property::__LVT)) // GB6
-    return false;
-
-  if ((__prev == __property::__LV || __prev == __property::__V) &&
-      (__next == __property::__V || __next == __property::__T)) // GB7
-    return false;
-
-  if ((__prev == __property::__LVT || __prev == __property::__T) && __next == __property::__T) // GB8
-    return false;
-
-  // *** Do not break before extending characters or ZWJ. ***
-  if (__next == __property::__Extend || __next == __property::__ZWJ)
-    return false; // GB9
-
-  // *** Do not break before SpacingMarks, or after Prepend characters. ***
-  if (__next == __property::__SpacingMark) // GB9a
-    return false;
-
-  if (__prev == __property::__Prepend) // GB9b
-    return false;
-
-  // *** Do not break within emoji modifier sequences or emoji zwj sequences. ***
-
-  // GB11 \p{Extended_Pictographic} Extend* ZWJ x \p{Extended_Pictographic}
-  //
-  // Note that several parts of this rule are matched by GB9: Any x (Extend | ZWJ)
-  // - \p{Extended_Pictographic} x Extend
-  // - Extend x Extend
-  // - \p{Extended_Pictographic} x ZWJ
-  // - Extend x ZWJ
-  //
-  // So the only case left to test is
-  // - \p{Extended_Pictographic}' x ZWJ x \p{Extended_Pictographic}
-  //   where  \p{Extended_Pictographic}' is stored in __has_extened_pictographic
-  if (__has_extened_pictographic && __prev == __property::__ZWJ && __next == __property::__Extended_Pictographic)
-    return false;
-
-  // *** Do not break within emoji flag sequences ***
-
-  // That is, do not break between regional indicator (RI) symbols if there
-  // is an odd number of RI characters before the break point.
-
-  if (__prev == __property::__Regional_Indicator && __next == __property::__Regional_Indicator) { // GB12 + GB13
-    __ri_break_allowed = !__ri_break_allowed;
-    return __ri_break_allowed;
+public:
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __extended_grapheme_cluster_break(char32_t __first_code_point)
+      : __prev_code_point_(__first_code_point),
+        __prev_property_(__extended_grapheme_custer_property_boundary::__get_property(__first_code_point)) {
+    // Initializes the active rule.
+    if (__prev_property_ == __EGC_property::__Extended_Pictographic)
+      __active_rule_ = __rule::__GB11_emoji;
+    else if (__prev_property_ == __EGC_property::__Regional_Indicator)
+      __active_rule_ = __rule::__GB12_GB13_regional_indicator;
+    else if (__indic_conjunct_break::__get_property(__first_code_point) == __inCB_property::__Consonant)
+      __active_rule_ = __rule::__GB9c_indic_conjunct_break;
   }
 
-  // *** Otherwise, break everywhere. ***
-  return true; // GB999
-}
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(char32_t __next_code_point) {
+    __EGC_property __next_property = __extended_grapheme_custer_property_boundary::__get_property(__next_code_point);
+    bool __result                  = __evaluate(__next_code_point, __next_property);
+    __prev_code_point_             = __next_code_point;
+    __prev_property_               = __next_property;
+    return __result;
+  }
+
+  // The code point whose break propery are considered during the next
+  // evaluation cyle.
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr char32_t __current_code_point() const { return __prev_code_point_; }
+
+private:
+  // The naming of the identifiers matches the Unicode standard.
+  // NOLINTBEGIN(readability-identifier-naming)
+
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
+  __evaluate(char32_t __next_code_point, __EGC_property __next_property) {
+    switch (__active_rule_) {
+    case __rule::__none:
+      return __evaluate_none(__next_code_point, __next_property);
+    case __rule::__GB9c_indic_conjunct_break:
+      return __evaluate_GB9c_indic_conjunct_break(__next_code_point, __next_property);
+    case __rule::__GB11_emoji:
+      return __evaluate_GB11_emoji(__next_code_point, __next_property);
+    case __rule::__GB12_GB13_regional_indicator:
+      return __evaluate_GB12_GB13_regional_indicator(__next_code_point, __next_property);
+    }
+    __libcpp_unreachable();
+  }
+
+  _LIBCPP_HIDE_FROM_ABI constexpr bool __evaluate_none(char32_t __next_code_point, __EGC_property __next_property) {
+    // *** Break at the start and end of text, unless the text is empty. ***
+
+    _LIBCPP_ASSERT_INTERNAL(__prev_property_ != __EGC_property::__sot, "should be handled in the constructor"); // GB1
+    _LIBCPP_ASSERT_INTERNAL(__prev_property_ != __EGC_property::__eot, "should be handled by our caller");      // GB2
+
+    // *** Do not break between a CR and LF. Otherwise, break before and after controls. ***
+    if (__prev_property_ == __EGC_property::__CR && __next_property == __EGC_property::__LF) // GB3
+      return false;
+
+    if (__prev_property_ == __EGC_property::__Control || __prev_property_ == __EGC_property::__CR ||
+        __prev_property_ == __EGC_property::__LF) // GB4
+      return true;
+
+    if (__next_property == __EGC_property::__Control || __next_property == __EGC_property::__CR ||
+        __next_property == __EGC_property::__LF) // GB5
+      return true;
+
+    // *** Do not break Hangul syllable sequences. ***
+    if (__prev_property_ == __EGC_property::__L &&
+        (__next_property == __EGC_property::__L || __next_property == __EGC_property::__V ||
+         __next_property == __EGC_property::__LV || __next_property == __EGC_property::__LVT)) // GB6
+      return false;
+
+    if ((__prev_property_ == __EGC_property::__LV || __prev_property_ == __EGC_property::__V) &&
+        (__next_property == __EGC_property::__V || __next_property == __EGC_property::__T)) // GB7
+      return false;
+
+    if ((__prev_property_ == __EGC_property::__LVT || __prev_property_ == __EGC_property::__T) &&
+        __next_property == __EGC_property::__T) // GB8
+      return false;
+
+    // *** Do not break before extending characters or ZWJ. ***
+    if (__next_property == __EGC_property::__Extend || __next_property == __EGC_property::__ZWJ)
+      return false; // GB9
+
+    // *** Do not break before SpacingMarks, or after Prepend characters. ***
+    if (__next_property == __EGC_property::__SpacingMark) // GB9a
+      return false;
+
+    if (__prev_property_ == __EGC_property::__Prepend) // GB9b
+      return false;
+
+    // *** Do not break within certain combinations with Indic_Conjunct_Break (InCB)=Linker. ***
+    if (__indic_conjunct_break::__get_property(__next_code_point) == __inCB_property::__Consonant) {
+      __active_rule_                     = __rule::__GB9c_indic_conjunct_break;
+      __GB9c_indic_conjunct_break_state_ = __GB9c_indic_conjunct_break_state::__Consonant;
+      return true;
+    }
+
+    // *** Do not break within emoji modifier sequences or emoji zwj sequences. ***
+    if (__next_property == __EGC_property::__Extended_Pictographic) {
+      __active_rule_      = __rule::__GB11_emoji;
+      __GB11_emoji_state_ = __GB11_emoji_state::__Extended_Pictographic;
+      return true;
+    }
+
+    // *** Do not break within emoji flag sequences ***
+
+    // That is, do not break between regional indicator (RI) symbols if there
+    // is an odd number of RI characters before the break point.
+    if (__next_property == __EGC_property::__Regional_Indicator) { // GB12 + GB13
+      __active_rule_ = __rule::__GB12_GB13_regional_indicator;
+      return true;
+    }
+
+    // *** Otherwise, break everywhere. ***
+    return true; // GB999
+  }
+
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
+  __evaluate_GB9c_indic_conjunct_break(char32_t __next_code_point, __EGC_property __next_property) {
+    __inCB_property __break = __indic_conjunct_break::__get_property(__next_code_point);
+    if (__break == __inCB_property::__none) {
+      __active_rule_ = __rule::__none;
+      return __evaluate_none(__next_code_point, __next_property);
+    }
+
+    switch (__GB9c_indic_conjunct_break_state_) {
+    case __GB9c_indic_conjunct_break_state::__Consonant:
+      if (__break == __inCB_property::__Extend) {
+        return false;
+      }
+      if (__break == __inCB_property::__Linker) {
+        __GB9c_indic_conjunct_break_state_ = __GB9c_indic_conjunct_break_state::__Linker;
+        return false;
+      }
+      __active_rule_ = __rule::__none;
+      return __evaluate_none(__next_code_point, __next_property);
+
+    case __GB9c_indic_conjunct_break_state::__Linker:
+      if (__break == __inCB_property::__Extend) {
+        return false;
+      }
+      if (__break == __inCB_property::__Linker) {
+        return false;
+      }
+      if (__break == __inCB_property::__Consonant) {
+        __GB9c_indic_conjunct_break_state_ = __GB9c_indic_conjunct_break_state::__Consonant;
+        return false;
+      }
+      __active_rule_ = __rule::__none;
+      return __evaluate_none(__next_code_point, __next_property);
+    }
+    __libcpp_unreachable();
+  }
+
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
+  __evaluate_GB11_emoji(char32_t __next_code_point, __EGC_property __next_property) {
+    switch (__GB11_emoji_state_) {
+    case __GB11_emoji_state::__Extended_Pictographic:
+      if (__next_property == __EGC_property::__Extend) {
+        __GB11_emoji_state_ = __GB11_emoji_state::__Extend;
+        return false;
+      }
+      [[fallthrough]];
+    case __GB11_emoji_state::__Extend:
+      if (__next_property == __EGC_property::__ZWJ) {
+        __GB11_emoji_state_ = __GB11_emoji_state::__ZWJ;
+        return false;
+      }
+      if (__next_property == __EGC_property::__Extend)
+        return false;
+      __active_rule_ = __rule::__none;
+      return __evaluate_none(__next_code_point, __next_property);
+
+    case __GB11_emoji_state::__ZWJ:
+      if (__next_property == __EGC_property::__Extended_Pictographic) {
+        __GB11_emoji_state_ = __GB11_emoji_state::__Extended_Pictographic;
+        return false;
+      }
+      __active_rule_ = __rule::__none;
+      return __evaluate_none(__next_code_point, __next_property);
+    }
+    __libcpp_unreachable();
+  }
+
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
+  __evaluate_GB12_GB13_regional_indicator(char32_t __next_code_point, __EGC_property __next_property) {
+    __active_rule_ = __rule::__none;
+    if (__next_property == __EGC_property::__Regional_Indicator)
+      return false;
+    return __evaluate_none(__next_code_point, __next_property);
+  }
+
+  char32_t __prev_code_point_;
+  __EGC_property __prev_property_;
+
+  enum class __rule {
+    __none,
+    __GB9c_indic_conjunct_break,
+    __GB11_emoji,
+    __GB12_GB13_regional_indicator,
+  };
+  __rule __active_rule_ = __rule::__none;
+
+  enum class __GB11_emoji_state {
+    __Extended_Pictographic,
+    __Extend,
+    __ZWJ,
+  };
+  __GB11_emoji_state __GB11_emoji_state_ = __GB11_emoji_state::__Extended_Pictographic;
+
+  enum class __GB9c_indic_conjunct_break_state {
+    __Consonant,
+    __Linker,
+  };
+
+  __GB9c_indic_conjunct_break_state __GB9c_indic_conjunct_break_state_ = __GB9c_indic_conjunct_break_state::__Consonant;
+
+  // NOLINTEND(readability-identifier-naming)
+};
 
 /// Helper class to extract an extended grapheme cluster from a Unicode character range.
 ///
@@ -382,9 +531,7 @@ class __extended_grapheme_cluster_view {
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __extended_grapheme_cluster_view(_Iterator __first, _Iterator __last)
-      : __code_point_view_(__first, __last),
-        __next_code_point_(__code_point_view_.__consume().__code_point),
-        __next_prop_(__extended_grapheme_custer_property_boundary::__get_property(__next_code_point_)) {}
+      : __code_point_view_(__first, __last), __at_break_(__code_point_view_.__consume().__code_point) {}
 
   struct __cluster {
     /// The first code point of the extended grapheme cluster.
@@ -400,44 +547,20 @@ public:
     _Iterator __last_;
   };
 
-  _LIBCPP_HIDE_FROM_ABI constexpr __cluster __consume() {
-    _LIBCPP_ASSERT_INTERNAL(__next_prop_ != __extended_grapheme_custer_property_boundary::__property::__eot,
-                            "can't move beyond the end of input");
-
-    char32_t __code_point = __next_code_point_;
-    if (!__code_point_view_.__at_end())
-      return {__code_point, __get_break()};
-
-    __next_prop_ = __extended_grapheme_custer_property_boundary::__property::__eot;
-    return {__code_point, __code_point_view_.__position()};
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr __cluster __consume() {
+    char32_t __code_point = __at_break_.__current_code_point();
+    _Iterator __position  = __code_point_view_.__position();
+    while (!__code_point_view_.__at_end()) {
+      if (__at_break_(__code_point_view_.__consume().__code_point))
+        break;
+      __position = __code_point_view_.__position();
+    }
+    return {__code_point, __position};
   }
 
 private:
   __code_point_view<_CharT> __code_point_view_;
-
-  char32_t __next_code_point_;
-  __extended_grapheme_custer_property_boundary::__property __next_prop_;
-
-  _LIBCPP_HIDE_FROM_ABI constexpr _Iterator __get_break() {
-    bool __ri_break_allowed         = true;
-    bool __has_extened_pictographic = false;
-    while (true) {
-      _Iterator __result                                              = __code_point_view_.__position();
-      __extended_grapheme_custer_property_boundary::__property __prev = __next_prop_;
-      if (__code_point_view_.__at_end()) {
-        __next_prop_ = __extended_grapheme_custer_property_boundary::__property::__eot;
-        return __result;
-      }
-      __next_code_point_ = __code_point_view_.__consume().__code_point;
-      __next_prop_       = __extended_grapheme_custer_property_boundary::__get_property(__next_code_point_);
-
-      __has_extened_pictographic |=
-          __prev == __extended_grapheme_custer_property_boundary::__property::__Extended_Pictographic;
-
-      if (__at_extended_grapheme_cluster_break(__ri_break_allowed, __has_extened_pictographic, __prev, __next_prop_))
-        return __result;
-    }
-  }
+  __extended_grapheme_cluster_break __at_break_;
 };
 
 template <contiguous_iterator _Iterator>

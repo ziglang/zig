@@ -29,16 +29,12 @@ test {
     }
 }
 
-const syscall_bits = switch (native_arch) {
-    .thumb => @import("linux/thumb.zig"),
-    else => arch_bits,
-};
-
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
-    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
+    .hexagon => @import("linux/hexagon.zig"),
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
@@ -47,11 +43,15 @@ const arch_bits = switch (native_arch) {
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .s390x => @import("linux/s390x.zig"),
     else => struct {
         pub const ucontext_t = void;
         pub const getcontext = {};
     },
 };
+
+const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
+
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
 pub const syscall2 = syscall_bits.syscall2;
@@ -67,24 +67,24 @@ pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
 pub fn clone(
-    func: *const fn (arg: usize) callconv(.C) u8,
+    func: *const fn (arg: usize) callconv(.c) u8,
     stack: usize,
     flags: u32,
     arg: usize,
-    ptid: *i32,
+    ptid: ?*i32,
     tp: usize, // aka tls
-    ctid: *i32,
+    ctid: ?*i32,
 ) usize {
     // Can't directly call a naked function; cast to C calling convention first.
     return @as(*const fn (
-        *const fn (arg: usize) callconv(.C) u8,
+        *const fn (arg: usize) callconv(.c) u8,
         usize,
         u32,
         usize,
-        *i32,
+        ?*i32,
         usize,
-        *i32,
-    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+        ?*i32,
+    ) callconv(.c) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
 }
 
 pub const ARCH = arch_bits.ARCH;
@@ -115,34 +115,37 @@ pub const user_desc = arch_bits.user_desc;
 pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/start_pie.zig");
+pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .x86 => syscalls.X86,
-    .x86_64 => syscalls.X64,
-    .aarch64, .aarch64_be => syscalls.Arm64,
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
-    .riscv32 => syscalls.RiscV32,
-    .riscv64 => syscalls.RiscV64,
-    .sparc => syscalls.Sparc,
-    .sparc64 => syscalls.Sparc64,
     .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
-    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
-        syscalls.MipsN32
-    else
-        syscalls.MipsN64,
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => syscalls.MipsN32,
+        else => syscalls.MipsN64,
+    },
+    .riscv32 => syscalls.RiscV32,
+    .riscv64 => syscalls.RiscV64,
+    .s390x => syscalls.S390x,
+    .sparc => syscalls.Sparc,
+    .sparc64 => syscalls.Sparc64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
-    .s390x => syscalls.S390x,
+    .x86 => syscalls.X86,
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => syscalls.X32,
+        else => syscalls.X64,
+    },
     .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -276,7 +279,37 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
+    .hexagon, .s390x => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _4: u1 = 0,
+        _5: u1 = 0,
+        GROWSDOWN: bool = false,
+        _7: u1 = 0,
+        _8: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _19: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
+};
+
+pub const MREMAP = packed struct(u32) {
+    MAYMOVE: bool = false,
+    FIXED: bool = false,
+    DONTUNMAP: bool = false,
+    _: u29 = 0,
 };
 
 pub const O = switch (native_arch) {
@@ -417,6 +450,32 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
+    .hexagon, .s390x => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _17: u1 = 0,
+        PATH: bool = false,
+        _: u10 = 0,
+
+        // #define O_RSYNC    04010000
+        // #define O_SYNC     04010000
+        // #define O_TMPFILE 020200000
+        // #define O_NDELAY O_NONBLOCK
+    },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
@@ -434,7 +493,7 @@ comptime {
     // Export this only when building executable, otherwise it is overriding
     // the libc implementation
     if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
 
@@ -442,7 +501,7 @@ pub const getauxval = if (extern_getauxval) struct {
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
-fn getauxvalImpl(index: usize) callconv(.C) usize {
+fn getauxvalImpl(index: usize) callconv(.c) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -457,7 +516,7 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 const require_aligned_register_pair =
     builtin.cpu.arch.isPowerPC32() or
     builtin.cpu.arch.isMIPS32() or
-    builtin.cpu.arch.isArmOrThumb();
+    builtin.cpu.arch.isArm();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -556,11 +615,11 @@ pub inline fn vfork() usize {
     return @call(.always_inline, syscall0, .{.vfork});
 }
 
-pub fn futimens(fd: i32, times: *const [2]timespec) usize {
+pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
     return utimensat(fd, null, times, 0);
 }
 
-pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, flags: u32) usize {
+pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
 }
 
@@ -630,12 +689,13 @@ pub fn futex2_waitv(
         nr_futexes,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -646,7 +706,7 @@ pub fn futex2_wait(
     /// `FUTEX2` flags.
     flags: u32,
     /// Optional absolute timeout.
-    timeout: *const timespec,
+    timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -657,15 +717,16 @@ pub fn futex2_wait(
         mask,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wake a number of futexes.
-/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
-    uaddr: [*]const anyopaque,
+    uaddr: *const anyopaque,
     /// Bitmask
     mask: usize,
     /// Number of the futexes to wake.
@@ -800,7 +861,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -808,7 +869,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
@@ -838,10 +899,6 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
-        // Make sure the offset is also specified in multiples of page size
-        if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @bitCast(-@as(isize, @intFromEnum(E.INVAL)));
-
         return syscall6(
             .mmap2,
             @intFromPtr(address),
@@ -852,7 +909,19 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
-        return syscall6(
+        // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
+        // it takes a single pointer to an array of arguments instead.
+        return if (native_arch == .s390x) syscall1(
+            .mmap,
+            @intFromPtr(&[_]usize{
+                @intFromPtr(address),
+                length,
+                prot,
+                @as(u32, @bitCast(flags)),
+                @bitCast(@as(isize, fd)),
+                @as(u64, @bitCast(offset)),
+            }),
+        ) else syscall6(
             .mmap,
             @intFromPtr(address),
             length,
@@ -868,11 +937,27 @@ pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(.mprotect, @intFromPtr(address), length, protection);
 }
 
+pub fn mremap(old_addr: ?[*]const u8, old_len: usize, new_len: usize, flags: MREMAP, new_addr: ?[*]const u8) usize {
+    return syscall5(
+        .mremap,
+        @intFromPtr(old_addr),
+        old_len,
+        new_len,
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_addr),
+    );
+}
+
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
     pub const SYNC = 4;
 };
+
+/// Can only be called on 64 bit systems.
+pub fn mseal(address: [*]const u8, length: usize, flags: usize) usize {
+    return syscall3(.mseal, @intFromPtr(address), length, flags);
+}
 
 pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
     return syscall3(.msync, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
@@ -1414,7 +1499,7 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 }
 
 // We must follow the C calling convention when we call into the VDSO
-const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
@@ -1431,7 +1516,7 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
     return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.C) usize {
+fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
     const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -1449,6 +1534,16 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
+    return syscall4(
+        .clock_nanosleep,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(request),
+        @intFromPtr(remain),
+    );
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -1458,7 +1553,9 @@ pub fn settimeofday(tv: *const timeval, tz: *const timezone) usize {
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
-    return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
+    if (native_arch == .riscv32) {
+        @compileError("No nanosleep syscall on this architecture.");
+    } else return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
 pub fn pause() usize {
@@ -1540,7 +1637,7 @@ pub fn seteuid(euid: uid_t) usize {
     // The setresuid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since uid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
 }
 
@@ -1551,7 +1648,7 @@ pub fn setegid(egid: gid_t) usize {
     // The setresgid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since gid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
 }
 
@@ -1591,7 +1688,7 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
     return syscall2(.setpgid, @intCast(pid), @intCast(pgid));
 }
 
-pub fn getgroups(size: usize, list: *gid_t) usize {
+pub fn getgroups(size: usize, list: ?*gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @intFromPtr(list));
     } else {
@@ -1670,7 +1767,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     return 0;
 }
 
-const usize_bits = @typeInfo(usize).Int.bits;
+const usize_bits = @typeInfo(usize).int.bits;
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
@@ -1680,9 +1777,17 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
     (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
 }
 
+pub fn sigdelset(set: *sigset_t, sig: u6) void {
+    const s = sig - 1;
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
+    const val = @as(u32, @intCast(1)) << shift;
+    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+}
+
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << (s & (usize_bits - 1)))) != 0;
+    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1731,7 +1836,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@typeInfo(mmsghdr).Struct.fields[1].type).Int.bits) {
+    if (@typeInfo(usize).int.bits > @typeInfo(@typeInfo(mmsghdr).@"struct".fields[1].type).int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5
@@ -1739,31 +1844,31 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         var next_unsent: usize = 0;
         for (msgvec[0..kvlen], 0..) |*msg, i| {
             var size: i32 = 0;
-            const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
-            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
+            const msg_iovlen = @as(usize, @intCast(msg.hdr.iovlen)); // kernel side this is treated as unsigned
+            for (msg.hdr.iov[0..msg_iovlen]) |iov| {
                 if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (E.init(r) != 0) return next_unsent;
+                        if (E.init(r) != .SUCCESS) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
-                    const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (E.init(r) != 0) return r;
+                    const r = sendmsg(fd, &msg.hdr, flags);
+                    if (E.init(r) != .SUCCESS) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
-                    msg.msg_len = @as(u32, @intCast(r));
+                    msg.len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.len;
+                size += @intCast(iov.len);
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (E.init(r) != 0) return r;
+            if (E.init(r) != .SUCCESS) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -1789,6 +1894,17 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     } else {
         return syscall3(.recvmsg, fd_usize, msg_usize, flags);
     }
+}
+
+pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
+    return syscall5(
+        .recvmmsg,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(msgvec),
+        vlen,
+        flags,
+        @intFromPtr(timeout),
+    );
 }
 
 pub fn recvfrom(
@@ -1946,8 +2062,8 @@ pub fn llistxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(.llistxattr, @intFromPtr(path), @intFromPtr(list), size);
 }
 
-pub fn flistxattr(fd: usize, list: [*]u8, size: usize) usize {
-    return syscall3(.flistxattr, fd, @intFromPtr(list), size);
+pub fn flistxattr(fd: fd_t, list: [*]u8, size: usize) usize {
+    return syscall3(.flistxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(list), size);
 }
 
 pub fn getxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
@@ -1958,20 +2074,20 @@ pub fn lgetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: u
     return syscall4(.lgetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn fgetxattr(fd: usize, name: [*:0]const u8, value: [*]u8, size: usize) usize {
-    return syscall4(.lgetxattr, fd, @intFromPtr(name), @intFromPtr(value), size);
+pub fn fgetxattr(fd: fd_t, name: [*:0]const u8, value: [*]u8, size: usize) usize {
+    return syscall4(.fgetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.setxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.lsetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn fsetxattr(fd: usize, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
-    return syscall5(.fsetxattr, fd, @intFromPtr(name), @intFromPtr(value), size, flags);
+pub fn fsetxattr(fd: fd_t, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
+    return syscall5(.fsetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
 pub fn removexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
@@ -1984,6 +2100,84 @@ pub fn lremovexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
 
 pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
     return syscall2(.fremovexattr, fd, @intFromPtr(name));
+}
+
+pub const sched_param = extern struct {
+    priority: i32,
+};
+
+pub const SCHED = packed struct(i32) {
+    pub const Mode = enum(u3) {
+        /// normal multi-user scheduling
+        NORMAL = 0,
+        /// FIFO realtime scheduling
+        FIFO = 1,
+        /// Round-robin realtime scheduling
+        RR = 2,
+        /// For "batch" style execution of processes
+        BATCH = 3,
+        /// Low latency scheduling
+        IDLE = 5,
+        /// Sporadic task model deadline scheduling
+        DEADLINE = 6,
+    };
+    mode: Mode, //bits [0, 2]
+    _3: u27 = 0, //bits [3, 29]
+    /// set to true to stop children from inheriting policies
+    RESET_ON_FORK: bool = false, //bit 30
+    _31: u1 = 0, //bit 31
+};
+
+pub fn sched_setparam(pid: pid_t, param: *const sched_param) usize {
+    return syscall2(.sched_setparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_getparam(pid: pid_t, param: *sched_param) usize {
+    return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_setscheduler(pid: pid_t, policy: SCHED, param: *const sched_param) usize {
+    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), @intCast(@as(u32, @bitCast(policy))), @intFromPtr(param));
+}
+
+pub fn sched_getscheduler(pid: pid_t) usize {
+    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+pub fn sched_get_priority_max(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_max, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn sched_get_priority_min(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
+    return syscall2(.getcpu, @intFromPtr(cpu), @intFromPtr(node));
+}
+
+pub const sched_attr = extern struct {
+    size: u32 = 48, // Size of this structure
+    policy: u32 = 0, // Policy (SCHED_*)
+    flags: u64 = 0, // Flags
+    nice: u32 = 0, // Nice value (SCHED_OTHER, SCHED_BATCH)
+    priority: u32 = 0, // Static priority (SCHED_FIFO, SCHED_RR)
+    // Remaining fields are for SCHED_DEADLINE
+    runtime: u64 = 0,
+    deadline: u64 = 0,
+    period: u64 = 0,
+};
+
+pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
+    return syscall3(.sched_setattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), flags);
+}
+
+pub fn sched_getattr(pid: pid_t, attr: *sched_attr, size: usize, flags: usize) usize {
+    return syscall4(.sched_getattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), size, flags);
+}
+
+pub fn sched_rr_get_interval(pid: pid_t, tp: *timespec) usize {
+    return syscall2(.sched_rr_get_interval, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(tp));
 }
 
 pub fn sched_yield() usize {
@@ -2039,7 +2233,7 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+pub fn timerfd_create(clockid: timerfd_clockid_t, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
         @intFromEnum(clockid),
@@ -2255,7 +2449,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isArmOrThumb() or native_arch.isPowerPC32()) {
+    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -2271,7 +2465,7 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[0],
             length_halves[1],
         );
-    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+    } else if (native_arch.isMIPS32()) {
         // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
@@ -2294,7 +2488,10 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
         const length_halves = splitValue64(len);
 
         return syscall6(
-            .fadvise64_64,
+            switch (builtin.abi) {
+                .gnuabin32, .gnux32, .muslabin32, .muslx32 => .fadvise64,
+                else => .fadvise64_64,
+            },
             @as(usize, @bitCast(@as(isize, fd))),
             offset_halves[0],
             offset_halves[1],
@@ -2381,7 +2578,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(u16) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -3427,6 +3624,30 @@ pub const TCP = struct {
     pub const REPAIR_OFF = 0;
     /// Turn off without window probes
     pub const REPAIR_OFF_NO_WP = -1;
+};
+
+pub const UDP = struct {
+    /// Never send partially complete segments
+    pub const CORK = 1;
+    /// Set the socket to accept encapsulated packets
+    pub const ENCAP = 100;
+    /// Disable sending checksum for UDP6X
+    pub const NO_CHECK6_TX = 101;
+    /// Disable accepting checksum for UDP6
+    pub const NO_CHECK6_RX = 102;
+    /// Set GSO segmentation size
+    pub const SEGMENT = 103;
+    /// This socket can receive UDP GRO packets
+    pub const GRO = 104;
+};
+
+pub const UDP_ENCAP = struct {
+    pub const ESPINUDP_NON_IKE = 1;
+    pub const ESPINUDP = 2;
+    pub const L2TPINUDP = 3;
+    pub const GTP0 = 4;
+    pub const GTP1U = 5;
+    pub const RXRPC = 6;
 };
 
 pub const PF = struct {
@@ -4517,9 +4738,41 @@ pub const clockid_t = enum(u32) {
     BOOTTIME = 7,
     REALTIME_ALARM = 8,
     BOOTTIME_ALARM = 9,
-    SGI_CYCLE = 10,
-    TAI = 11,
+    // In the linux kernel header file (time.h) is the following note:
+    // * The driver implementing this got removed. The clock ID is kept as a
+    // * place holder. Do not reuse!
+    // Therefore, calling clock_gettime() with these IDs will result in an error.
+    //
+    // Some backgrond:
+    // - SGI_CYCLE was for Silicon Graphics (SGI) workstations,
+    // which are probably no longer in use, so it makes sense to disable
+    // - TAI_CLOCK was designed as CLOCK_REALTIME(UTC) + tai_offset,
+    // but tai_offset was always 0 in the kernel.
+    // So there is no point in using this clock.
+    // SGI_CYCLE = 10,
+    // TAI = 11,
     _,
+};
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
+    _,
+};
+
+pub const TIMER = packed struct(u32) {
+    ABSTIME: bool,
+    _: u31 = 0,
 };
 
 pub const CSIGNAL = 0x000000ff;
@@ -4901,12 +5154,12 @@ pub const NSIG = if (is_mips) 128 else 65;
 
 pub const sigset_t = [1024 / 32]u32;
 
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.len;
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*align(1) const fn (i32) callconv(.C) void;
-    const restorer = *const fn () callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.c) void;
+    const restorer = *const fn () callconv(.c) void;
 };
 
 pub const k_sigaction = switch (native_arch) {
@@ -4932,8 +5185,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -4941,10 +5194,10 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?*const fn () callconv(.C) void = null,
+    restorer: ?*const fn () callconv(.c) void = null,
 };
 
-const sigset_len = @typeInfo(sigset_t).Array.len;
+const sigset_len = @typeInfo(sigset_t).array.len;
 pub const empty_sigset = [_]u32{0} ** sigset_len;
 pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
@@ -5094,7 +5347,7 @@ pub const epoll_event = extern struct {
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
 pub const VFS_CAP_REVISION_SHIFT = 24;
-pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_MASK = ~@as(u32, VFS_CAP_REVISION_MASK);
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
@@ -5112,7 +5365,7 @@ pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = extern struct {
         permitted: u32,
         inheritable: u32,
     };
@@ -5614,6 +5867,11 @@ pub const IORING_RECV_MULTISHOT = 1 << 1;
 pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
 /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
 pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
+/// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
+/// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
+/// The buffers be contigious from the starting buffer ID.
+/// Used with IOSQE_BUFFER_SELECT.
+pub const IORING_RECVSEND_BUNDLE = 1 << 4;
 /// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
 pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
 
@@ -6481,12 +6739,12 @@ pub const tc_oflag_t = if (is_ppc) packed struct(tcflag_t) {
     ONLRET: bool = false,
     OFILL: bool = false,
     OFDEL: bool = false,
-    NLDLY: NLDLY = 0,
-    TABDLY: TABDLY = 0,
-    CRDLY: CRDLY = 0,
-    FFDLY: FFDLY = 0,
-    BSDLY: BSDLY = 0,
-    VTDLY: VTDLY = 0,
+    NLDLY: NLDLY = .NL0,
+    TABDLY: TABDLY = .TAB0,
+    CRDLY: CRDLY = .CR0,
+    FFDLY: FFDLY = .FF0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
     _17: u15 = 0,
 } else if (is_sparc) packed struct(tcflag_t) {
     OPOST: bool = false,
@@ -6577,7 +6835,7 @@ pub const tc_lflag_t = if (is_mips) packed struct(tcflag_t) {
     PENDIN: bool = false,
     TOSTOP: bool = false,
     EXTPROC: bool = false,
-    _17: u16 = 0,
+    _17: u15 = 0,
 } else if (is_ppc) packed struct(tcflag_t) {
     ECHOKE: bool = false,
     ECHOE: bool = false,
@@ -6783,8 +7041,272 @@ pub const termios2 = if (is_mips) extern struct {
     ospeed: speed_t,
 };
 
+/// Linux-specific socket ioctls
+pub const SIOCINQ = T.FIONREAD;
+
+/// Linux-specific socket ioctls
+/// output queue size (not sent + not acked)
+pub const SIOCOUTQ = T.IOCOUTQ;
+
+pub const SOCK_IOC_TYPE = 0x89;
+
+pub const SIOCGSTAMP_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x06, i64[2]);
+pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
+
+/// Get stamp (timeval)
+pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
+
+pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+
+/// Get stamp (timespec)
+pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
+
+// Routing table calls.
+/// Add routing table entry
+pub const SIOCADDRT = 0x890B;
+
+/// Delete routing table entry
+pub const SIOCDELRT = 0x890C;
+
+/// Unused
+pub const SIOCRTMSG = 0x890D;
+
+// Socket configuration controls.
+/// Get iface name
+pub const SIOCGIFNAME = 0x8910;
+
+/// Set iface channel
+pub const SIOCSIFLINK = 0x8911;
+
+/// Get iface list
+pub const SIOCGIFCONF = 0x8912;
+
+/// Get flags
+pub const SIOCGIFFLAGS = 0x8913;
+
+/// Set flags
+pub const SIOCSIFFLAGS = 0x8914;
+
+/// Get PA address
+pub const SIOCGIFADDR = 0x8915;
+
+/// Set PA address
+pub const SIOCSIFADDR = 0x8916;
+
+/// Get remote PA address
+pub const SIOCGIFDSTADDR = 0x8917;
+
+/// Set remote PA address
+pub const SIOCSIFDSTADDR = 0x8918;
+
+/// Get broadcast PA address
+pub const SIOCGIFBRDADDR = 0x8919;
+
+/// Set broadcast PA address
+pub const SIOCSIFBRDADDR = 0x891a;
+
+/// Get network PA mask
+pub const SIOCGIFNETMASK = 0x891b;
+
+/// Set network PA mask
+pub const SIOCSIFNETMASK = 0x891c;
+
+/// Get metric
+pub const SIOCGIFMETRIC = 0x891d;
+
+/// Set metric
+pub const SIOCSIFMETRIC = 0x891e;
+
+/// Get memory address (BSD)
+pub const SIOCGIFMEM = 0x891f;
+
+/// Set memory address (BSD)
+pub const SIOCSIFMEM = 0x8920;
+
+/// Get MTU size
+pub const SIOCGIFMTU = 0x8921;
+
+/// Set MTU size
+pub const SIOCSIFMTU = 0x8922;
+
+/// Set interface name
+pub const SIOCSIFNAME = 0x8923;
+
+/// Set hardware address
+pub const SIOCSIFHWADDR = 0x8924;
+
+/// Get encapsulations
+pub const SIOCGIFENCAP = 0x8925;
+
+/// Set encapsulations
+pub const SIOCSIFENCAP = 0x8926;
+
+/// Get hardware address
+pub const SIOCGIFHWADDR = 0x8927;
+
+/// Driver slaving support
+pub const SIOCGIFSLAVE = 0x8929;
+
+/// Driver slaving support
+pub const SIOCSIFSLAVE = 0x8930;
+
+/// Add to Multicast address lists
+pub const SIOCADDMULTI = 0x8931;
+
+/// Delete from Multicast address lists
+pub const SIOCDELMULTI = 0x8932;
+
+/// name -> if_index mapping
 pub const SIOCGIFINDEX = 0x8933;
+
+/// Set extended flags set
+pub const SIOCSIFPFLAGS = 0x8934;
+
+/// Get extended flags set
+pub const SIOCGIFPFLAGS = 0x8935;
+
+/// Delete PA address
+pub const SIOCDIFADDR = 0x8936;
+
+/// Set hardware broadcast addr
+pub const SIOCSIFHWBROADCAST = 0x8937;
+
+/// Get number of devices
+pub const SIOCGIFCOUNT = 0x8938;
+
+/// Bridging support
+pub const SIOCGIFBR = 0x8940;
+
+/// Set bridging options
+pub const SIOCSIFBR = 0x8941;
+
+/// Get the tx queue length
+pub const SIOCGIFTXQLEN = 0x8942;
+
+/// Set the tx queue length
+pub const SIOCSIFTXQLEN = 0x8943;
+
+/// Ethtool interface
+pub const SIOCETHTOOL = 0x8946;
+
+/// Get address of MII PHY in use.
+pub const SIOCGMIIPHY = 0x8947;
+
+/// Read MII PHY register.
+pub const SIOCGMIIREG = 0x8948;
+
+/// Write MII PHY register.
+pub const SIOCSMIIREG = 0x8949;
+
+/// Get / Set netdev parameters
+pub const SIOCWANDEV = 0x894A;
+
+/// Output queue size (not sent only)
+pub const SIOCOUTQNSD = 0x894B;
+
+/// Get socket network namespace
+pub const SIOCGSKNS = 0x894C;
+
+// ARP cache control calls.
+//  0x8950 - 0x8952 obsolete calls.
+/// Delete ARP table entry
+pub const SIOCDARP = 0x8953;
+
+/// Get ARP table entry
+pub const SIOCGARP = 0x8954;
+
+/// Set ARP table entry
+pub const SIOCSARP = 0x8955;
+
+// RARP cache control calls.
+/// Delete RARP table entry
+pub const SIOCDRARP = 0x8960;
+
+/// Get RARP table entry
+pub const SIOCGRARP = 0x8961;
+
+/// Set RARP table entry
+pub const SIOCSRARP = 0x8962;
+
+// Driver configuration calls
+/// Get device parameters
+pub const SIOCGIFMAP = 0x8970;
+
+/// Set device parameters
+pub const SIOCSIFMAP = 0x8971;
+
+// DLCI configuration calls
+/// Create new DLCI device
+pub const SIOCADDDLCI = 0x8980;
+
+/// Delete DLCI device
+pub const SIOCDELDLCI = 0x8981;
+
+/// 802.1Q VLAN support
+pub const SIOCGIFVLAN = 0x8982;
+
+/// Set 802.1Q VLAN options
+pub const SIOCSIFVLAN = 0x8983;
+
+// bonding calls
+/// Enslave a device to the bond
+pub const SIOCBONDENSLAVE = 0x8990;
+
+/// Release a slave from the bond
+pub const SIOCBONDRELEASE = 0x8991;
+
+/// Set the hw addr of the bond
+pub const SIOCBONDSETHWADDR = 0x8992;
+
+/// rtn info about slave state
+pub const SIOCBONDSLAVEINFOQUERY = 0x8993;
+
+/// rtn info about bond state
+pub const SIOCBONDINFOQUERY = 0x8994;
+
+/// Update to a new active slave
+pub const SIOCBONDCHANGEACTIVE = 0x8995;
+
+// Bridge calls
+/// Create new bridge device
+pub const SIOCBRADDBR = 0x89a0;
+
+/// Remove bridge device
+pub const SIOCBRDELBR = 0x89a1;
+
+/// Add interface to bridge
+pub const SIOCBRADDIF = 0x89a2;
+
+/// Remove interface from bridge
+pub const SIOCBRDELIF = 0x89a3;
+
+/// Get hardware time stamp config
+pub const SIOCSHWTSTAMP = 0x89b0;
+
+/// Set hardware time stamp config
+pub const SIOCGHWTSTAMP = 0x89b1;
+
+/// Device private ioctl calls
+pub const SIOCDEVPRIVATE = 0x89F0;
+
+/// These 16 ioctl calls are protocol private
+pub const SIOCPROTOPRIVATE = 0x89E0;
+
 pub const IFNAMESIZE = 16;
+
+pub const IFF = packed struct(u16) {
+    UP: bool = false,
+    BROADCAST: bool = false,
+    DEBUG: bool = false,
+    LOOPBACK: bool = false,
+    POINTOPOINT: bool = false,
+    NOTRAILERS: bool = false,
+    RUNNING: bool = false,
+    NOARP: bool = false,
+    PROMISC: bool = false,
+    _9: u7 = 0,
+};
 
 pub const ifmap = extern struct {
     mem_start: usize,
@@ -6805,7 +7327,7 @@ pub const ifreq = extern struct {
         broadaddr: sockaddr,
         netmask: sockaddr,
         hwaddr: sockaddr,
-        flags: i16,
+        flags: IFF,
         ivalue: i32,
         mtu: i32,
         map: ifmap,
@@ -6815,54 +7337,314 @@ pub const ifreq = extern struct {
     },
 };
 
-// doc comments copied from musl
-pub const rlimit_resource = if (native_arch.isMIPS() or native_arch.isSPARC())
-    arch_bits.rlimit_resource
-else
-    enum(c_int) {
-        /// Per-process CPU limit, in seconds.
-        CPU,
-        /// Largest file that can be created, in bytes.
-        FSIZE,
-        /// Maximum size of data segment, in bytes.
-        DATA,
-        /// Maximum size of stack segment, in bytes.
-        STACK,
-        /// Largest core file that can be created, in bytes.
-        CORE,
-        /// Largest resident set size, in bytes.
-        /// This affects swapping; processes that are exceeding their
-        /// resident set size will be more likely to have physical memory
-        /// taken from them.
-        RSS,
-        /// Number of processes.
-        NPROC,
-        /// Number of open files.
-        NOFILE,
-        /// Locked-in-memory address space.
-        MEMLOCK,
-        /// Address space limit.
-        AS,
-        /// Maximum number of file locks.
-        LOCKS,
-        /// Maximum number of pending signals.
-        SIGPENDING,
-        /// Maximum bytes in POSIX message queues.
-        MSGQUEUE,
-        /// Maximum nice priority allowed to raise to.
-        /// Nice levels 19 .. -20 correspond to 0 .. 39
-        /// values of this resource limit.
-        NICE,
-        /// Maximum realtime priority allowed for non-privileged
-        /// processes.
-        RTPRIO,
-        /// Maximum CPU time in µs that a process scheduled under a real-time
-        /// scheduling policy may consume without making a blocking system
-        /// call before being forcibly descheduled.
-        RTTIME,
+pub const PACKET = struct {
+    pub const HOST = 0;
+    pub const BROADCAST = 1;
+    pub const MULTICAST = 2;
+    pub const OTHERHOST = 3;
+    pub const OUTGOING = 4;
+    pub const LOOPBACK = 5;
+    pub const USER = 6;
+    pub const KERNEL = 7;
 
-        _,
-    };
+    pub const ADD_MEMBERSHIP = 1;
+    pub const DROP_MEMBERSHIP = 2;
+    pub const RECV_OUTPUT = 3;
+    pub const RX_RING = 5;
+    pub const STATISTICS = 6;
+    pub const COPY_THRESH = 7;
+    pub const AUXDATA = 8;
+    pub const ORIGDEV = 9;
+    pub const VERSION = 10;
+    pub const HDRLEN = 11;
+    pub const RESERVE = 12;
+    pub const TX_RING = 13;
+    pub const LOSS = 14;
+    pub const VNET_HDR = 15;
+    pub const TX_TIMESTAMP = 16;
+    pub const TIMESTAMP = 17;
+    pub const FANOUT = 18;
+    pub const TX_HAS_OFF = 19;
+    pub const QDISC_BYPASS = 20;
+    pub const ROLLOVER_STATS = 21;
+    pub const FANOUT_DATA = 22;
+    pub const IGNORE_OUTGOING = 23;
+    pub const VNET_HDR_SZ = 24;
+
+    pub const FANOUT_HASH = 0;
+    pub const FANOUT_LB = 1;
+    pub const FANOUT_CPU = 2;
+    pub const FANOUT_ROLLOVER = 3;
+    pub const FANOUT_RND = 4;
+    pub const FANOUT_QM = 5;
+    pub const FANOUT_CBPF = 6;
+    pub const FANOUT_EBPF = 7;
+    pub const FANOUT_FLAG_ROLLOVER = 0x1000;
+    pub const FANOUT_FLAG_UNIQUEID = 0x2000;
+    pub const FANOUT_FLAG_IGNORE_OUTGOING = 0x4000;
+    pub const FANOUT_FLAG_DEFRAG = 0x8000;
+};
+
+pub const tpacket_versions = enum(u32) {
+    V1 = 0,
+    V2 = 1,
+    V3 = 2,
+};
+
+pub const tpacket_req3 = extern struct {
+    block_size: c_uint, // Minimal size of contiguous block
+    block_nr: c_uint, // Number of blocks
+    frame_size: c_uint, // Size of frame
+    frame_nr: c_uint, // Total number of frames
+    retire_blk_tov: c_uint, // Timeout in msecs
+    sizeof_priv: c_uint, // Offset to private data area
+    feature_req_word: c_uint,
+};
+
+pub const tpacket_bd_ts = extern struct {
+    sec: c_uint,
+    frac: extern union {
+        usec: c_uint,
+        nsec: c_uint,
+    },
+};
+
+pub const TP_STATUS = extern union {
+    rx: packed struct(u32) {
+        USER: bool,
+        COPY: bool,
+        LOSING: bool,
+        CSUMNOTREADY: bool,
+        VLAN_VALID: bool,
+        BLK_TMO: bool,
+        VLAN_TPID_VALID: bool,
+        CSUM_VALID: bool,
+        GSO_TCP: bool,
+        _: u20,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+    tx: packed struct(u32) {
+        SEND_REQUEST: bool,
+        SENDING: bool,
+        WRONG_FORMAT: bool,
+        _: u26,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+};
+
+pub const tpacket_hdr_v1 = extern struct {
+    block_status: TP_STATUS,
+    num_pkts: u32,
+    offset_to_first_pkt: u32,
+    blk_len: u32,
+    seq_num: u64 align(8),
+    ts_first_pkt: tpacket_bd_ts,
+    ts_last_pkt: tpacket_bd_ts,
+};
+
+pub const tpacket_bd_header_u = extern union {
+    bh1: tpacket_hdr_v1,
+};
+
+pub const tpacket_block_desc = extern struct {
+    version: u32,
+    offset_to_priv: u32,
+    hdr: tpacket_bd_header_u,
+};
+
+pub const tpacket_hdr_variant1 = extern struct {
+    rxhash: u32,
+    vlan_tci: u32,
+    vlan_tpid: u16,
+    padding: u16,
+};
+
+pub const tpacket3_hdr = extern struct {
+    next_offset: u32,
+    sec: u32,
+    nsec: u32,
+    snaplen: u32,
+    len: u32,
+    status: u32,
+    mac: u16,
+    net: u16,
+    variant: extern union {
+        hv1: tpacket_hdr_variant1,
+    },
+    padding: [8]u8,
+};
+
+pub const tpacket_stats_v3 = extern struct {
+    packets: c_uint,
+    drops: c_uint,
+    freeze_q_cnt: c_uint,
+};
+
+// doc comments copied from musl
+pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Number of open files.
+    NOFILE = 5,
+
+    /// Address space limit.
+    AS = 6,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 7,
+
+    /// Number of processes.
+    NPROC = 8,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else if (native_arch.isSPARC()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+
+    /// Number of open files.
+    NOFILE = 6,
+
+    /// Number of processes.
+    NPROC = 7,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+
+    /// Address space limit.
+    AS = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+    /// Number of processes.
+    NPROC = 6,
+    /// Number of open files.
+    NOFILE = 7,
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+    /// Address space limit.
+    AS = 9,
+    /// Maximum number of file locks.
+    LOCKS = 10,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+};
 
 pub const rlim_t = u64;
 
@@ -6906,7 +7688,7 @@ pub const MADV = struct {
 };
 
 pub const POSIX_FADV = switch (native_arch) {
-    .s390x => if (@typeInfo(usize).Int.bits == 64) struct {
+    .s390x => if (@typeInfo(usize).int.bits == 64) struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
         pub const SEQUENTIAL = 2;
@@ -6938,7 +7720,7 @@ pub const kernel_timespec = extern struct {
 };
 
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
+pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
@@ -7483,9 +8265,31 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    type: IFLA,
+    type: extern union {
+        /// IFLA_* from linux/if_link.h
+        link: IFLA,
+        /// IFA_* from linux/if_addr.h
+        addr: IFA,
+    },
 
     pub const ALIGNTO = 4;
+};
+
+pub const IFA = enum(c_ushort) {
+    UNSPEC,
+    ADDRESS,
+    LOCAL,
+    LABEL,
+    BROADCAST,
+    ANYCAST,
+    CACHEINFO,
+    MULTICAST,
+    FLAGS,
+    RT_PRIORITY,
+    TARGET_NETNSID,
+    PROTO,
+
+    _,
 };
 
 pub const IFLA = enum(c_ushort) {
@@ -8043,11 +8847,11 @@ pub const AUDIT = struct {
             .mips => .MIPS,
             .mipsel => .MIPSEL,
             .mips64 => switch (native_abi) {
-                .gnuabin32 => .MIPS64N32,
+                .gnuabin32, .muslabin32 => .MIPS64N32,
                 else => .MIPS64,
             },
             .mips64el => switch (native_abi) {
-                .gnuabin32 => .MIPSEL64N32,
+                .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
             .powerpc => .PPC,

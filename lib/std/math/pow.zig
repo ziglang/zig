@@ -31,7 +31,7 @@ const expect = std.testing.expect;
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
 pub fn pow(comptime T: type, x: T, y: T) T {
-    if (@typeInfo(T) == .Int) {
+    if (@typeInfo(T) == .int) {
         return math.powi(T, x, y) catch unreachable;
     }
 
@@ -48,6 +48,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     // pow(nan, y) = nan    for all y
     // pow(x, nan) = nan    for all x
     if (math.isNan(x) or math.isNan(y)) {
+        @branchHint(.unlikely);
         return math.nan(T);
     }
 
@@ -122,7 +123,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     if (yf != 0 and x < 0) {
         return math.nan(T);
     }
-    if (yi >= 1 << (@typeInfo(T).Float.bits - 1)) {
+    if (yi >= 1 << (@typeInfo(T).float.bits - 1)) {
         return @exp(y * @log(x));
     }
 
@@ -144,7 +145,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @as(std.meta.Int(.signed, @typeInfo(T).Float.bits), @intFromFloat(yi));
+    var i = @as(std.meta.Int(.signed, @typeInfo(T).float.bits), @intFromFloat(yi));
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {

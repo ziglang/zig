@@ -9,7 +9,7 @@ set -e
 ZIGDIR="$PWD"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -26,15 +26,14 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
-rm -rf build-debug
-mkdir build-debug
-cd build-debug
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
+
+mkdir build-debug
+cd build-debug
 
 PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \

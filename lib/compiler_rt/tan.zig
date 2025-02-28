@@ -21,15 +21,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
@@ -116,7 +116,7 @@ pub fn tanq(x: f128) callconv(.C) f128 {
 }
 
 pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __tanh(x),
         32 => return tanf(x),
         64 => return tan(x),

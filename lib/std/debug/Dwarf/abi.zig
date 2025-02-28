@@ -17,7 +17,6 @@ pub fn supportsUnwinding(target: std.Target) bool {
         .spirv,
         .spirv32,
         .spirv64,
-        .spu_2,
         => false,
 
         // Enabling this causes relocation errors such as:
@@ -35,8 +34,8 @@ pub fn ipRegNum(arch: Arch) ?u8 {
     return switch (arch) {
         .x86 => 8,
         .x86_64 => 16,
-        .arm => 15,
-        .aarch64 => 32,
+        .arm, .armeb, .thumb, .thumbeb => 15,
+        .aarch64, .aarch64_be => 32,
         else => null,
     };
 }
@@ -47,8 +46,8 @@ pub fn fpRegNum(arch: Arch, reg_context: RegisterContext) u8 {
         // (only in .eh_frame), and that is now the convention for MachO
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 4 else 5,
         .x86_64 => 6,
-        .arm => 11,
-        .aarch64 => 29,
+        .arm, .armeb, .thumb, .thumbeb => 11,
+        .aarch64, .aarch64_be => 29,
         else => unreachable,
     };
 }
@@ -57,8 +56,8 @@ pub fn spRegNum(arch: Arch, reg_context: RegisterContext) u8 {
     return switch (arch) {
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 5 else 4,
         .x86_64 => 7,
-        .arm => 13,
-        .aarch64 => 31,
+        .arm, .armeb, .thumb, .thumbeb => 13,
+        .aarch64, .aarch64_be => 31,
         else => unreachable,
     };
 }
@@ -131,7 +130,7 @@ pub fn regBytes(
                 16 => mem.asBytes(&thread_context_ptr.Rip),
                 else => error.InvalidRegister,
             },
-            .aarch64 => switch (reg_number) {
+            .aarch64, .aarch64_be => switch (reg_number) {
                 0...30 => mem.asBytes(&thread_context_ptr.DUMMYUNIONNAME.X[reg_number]),
                 31 => mem.asBytes(&thread_context_ptr.Sp),
                 32 => mem.asBytes(&thread_context_ptr.Pc),
@@ -269,7 +268,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .arm => switch (builtin.os.tag) {
+        .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
             .linux => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.arm_r0),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.arm_r1),
@@ -292,8 +291,8 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .aarch64 => switch (builtin.os.tag) {
-            .macos, .ios => switch (reg_number) {
+        .aarch64, .aarch64_be => switch (builtin.os.tag) {
+            .macos, .ios, .watchos => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),

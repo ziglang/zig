@@ -138,7 +138,6 @@ test "packed union initialized with a runtime value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Fields = packed struct {
@@ -149,12 +148,12 @@ test "packed union initialized with a runtime value" {
         value: u63,
         fields: Fields,
 
-        fn value() i64 {
+        fn getValue() i64 {
             return 1341;
         }
     };
 
-    const timestamp: i64 = ID.value();
+    const timestamp: i64 = ID.getValue();
     const id = ID{ .fields = Fields{
         .timestamp = @as(u50, @intCast(timestamp)),
         .random_bits = 420,

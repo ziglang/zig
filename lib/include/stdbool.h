@@ -12,6 +12,10 @@
 
 #define __bool_true_false_are_defined 1
 
+#if defined(__MVS__) && __has_include_next(<stdbool.h>)
+#include_next <stdbool.h>
+#else
+
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
 /* FIXME: We should be issuing a deprecation warning here, but cannot yet due
  * to system headers which include this header file unconditionally.
@@ -31,4 +35,5 @@
 #endif
 #endif
 
+#endif /* __MVS__ */
 #endif /* __STDBOOL_H */

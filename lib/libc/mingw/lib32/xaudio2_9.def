@@ -9,8 +9,8 @@ XAudio2Create@12
 CreateAudioReverb@4
 CreateAudioVolumeMeter@4
 CreateFX@0
-X3DAudioCalculate@0
-X3DAudioInitialize@0
+X3DAudioCalculate
+X3DAudioInitialize
 CreateAudioReverbV2_8@4
 XAudio2CreateV2_9@12
 XAudio2CreateWithVersionInfo@16

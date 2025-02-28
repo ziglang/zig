@@ -5,7 +5,7 @@ pub const panic = common.panic;
 
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
-        @export(__mulhc3, .{ .name = "__mulhc3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__mulhc3, .{ .name = "__mulhc3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

@@ -1,19 +1,19 @@
 index: File.Index,
 
 sections: std.MultiArrayList(Section) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
 
-objc_methnames: std.ArrayListUnmanaged(u8) = .{},
+objc_methnames: std.ArrayListUnmanaged(u8) = .empty,
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
-force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .{},
+force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 entry_index: ?Symbol.Index = null,
 dyld_stub_binder_index: ?Symbol.Index = null,
 dyld_private_index: ?Symbol.Index = null,
@@ -21,7 +21,7 @@ objc_msg_send_index: ?Symbol.Index = null,
 mh_execute_header_index: ?Symbol.Index = null,
 mh_dylib_header_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
@@ -281,7 +281,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
 
-    return atom_index;
+    return sym_index;
 }
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
@@ -414,10 +414,11 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const rel = relocs[0];
         assert(rel.tag == .@"extern");
         const target = rel.getTargetSymbol(atom.*, macho_file).getAtom(macho_file).?;
-        const target_size = std.math.cast(usize, target.size) orelse return error.Overflow;
+        const target_size = try macho_file.cast(usize, target.size);
         try buffer.ensureUnusedCapacity(target_size);
         buffer.resize(target_size) catch unreachable;
-        @memcpy(buffer.items, try self.getSectionData(target.n_sect));
+        const section_data = try self.getSectionData(target.n_sect, macho_file);
+        @memcpy(buffer.items, section_data);
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
         if (!res.found_existing) {
@@ -507,6 +508,41 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
     }
 }
 
+pub fn checkUndefs(self: InternalObject, macho_file: *MachO) !void {
+    const addUndef = struct {
+        fn addUndef(mf: *MachO, index: MachO.SymbolResolver.Index, tag: anytype) !void {
+            const gpa = mf.base.comp.gpa;
+            mf.undefs_mutex.lock();
+            defer mf.undefs_mutex.unlock();
+            const gop = try mf.undefs.getOrPut(gpa, index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = tag;
+            }
+        }
+    }.addUndef;
+    for (self.force_undefined.items) |index| {
+        const ref = self.getSymbolRef(index, macho_file);
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[index], .force_undefined);
+        }
+    }
+    if (self.getEntryRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[self.entry_index.?], .entry);
+        }
+    }
+    if (self.getDyldStubBinderRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and macho_file.stubs.symbols.items.len > 0) {
+            try addUndef(macho_file, self.globals.items[self.dyld_stub_binder_index.?], .dyld_stub_binder);
+        }
+    }
+    if (self.getObjcMsgSendRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and self.needsObjcMsgsendSymbol()) {
+            try addUndef(macho_file, self.globals.items[self.objc_msg_send_index.?], .objc_msgsend);
+        }
+    }
+}
+
 pub fn allocateSyntheticSymbols(self: *InternalObject, macho_file: *MachO) void {
     const text_seg = macho_file.getTextSegment();
 
@@ -547,6 +583,7 @@ pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getName(macho_file).len == 0) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
@@ -572,10 +609,11 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
         if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
-        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const off = try macho_file.cast(usize, atom.value);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items[off..][0..size];
-        @memcpy(buffer, try self.getSectionData(atom.n_sect));
+        const section_data = try self.getSectionData(atom.n_sect, macho_file);
+        @memcpy(buffer, section_data);
         try atom.resolveRelocs(macho_file, buffer);
     }
 }
@@ -609,13 +647,13 @@ fn addSection(self: *InternalObject, allocator: Allocator, segname: []const u8, 
     return n_sect;
 }
 
-fn getSectionData(self: *const InternalObject, index: u32) error{Overflow}![]const u8 {
+fn getSectionData(self: *const InternalObject, index: u32, macho_file: *MachO) error{LinkFailure}![]const u8 {
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
     const extra = slice.items(.extra)[index];
     if (extra.is_objc_methname) {
-        const size = std.math.cast(usize, sect.size) orelse return error.Overflow;
+        const size = try macho_file.cast(usize, sect.size);
         return self.objc_methnames.items[sect.offset..][0..size];
     } else if (extra.is_objc_selref)
         return &self.objc_selrefs
@@ -669,14 +707,14 @@ pub fn getAtoms(self: InternalObject) []const Atom.Index {
 }
 
 fn addAtomExtra(self: *InternalObject, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 fn addAtomExtraAssumeCapacity(self: *InternalObject, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -687,7 +725,7 @@ fn addAtomExtraAssumeCapacity(self: *InternalObject, extra: Atom.Extra) u32 {
 }
 
 pub fn getAtomExtra(self: InternalObject, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
     inline for (fields) |field| {
@@ -702,7 +740,7 @@ pub fn getAtomExtra(self: InternalObject, index: u32) Atom.Extra {
 
 pub fn setAtomExtra(self: *InternalObject, index: u32, extra: Atom.Extra) void {
     assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -750,14 +788,14 @@ pub fn getSymbolRef(self: InternalObject, index: Symbol.Index, macho_file: *Mach
 }
 
 pub fn addSymbolExtra(self: *InternalObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *InternalObject, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -768,7 +806,7 @@ fn addSymbolExtraAssumeCapacity(self: *InternalObject, extra: Symbol.Extra) u32 
 }
 
 pub fn getSymbolExtra(self: InternalObject, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -782,13 +820,20 @@ pub fn getSymbolExtra(self: InternalObject, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *InternalObject, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
             else => @compileError("bad field type"),
         };
     }
+}
+
+fn needsObjcMsgsendSymbol(self: InternalObject) bool {
+    for (self.sections.items(.extra)) |extra| {
+        if (extra.is_objc_methname or extra.is_objc_selref) return true;
+    }
+    return false;
 }
 
 const FormatContext = struct {
@@ -849,7 +894,7 @@ fn formatSymtab(
 
 const Section = struct {
     header: macho.section_64,
-    relocs: std.ArrayListUnmanaged(Relocation) = .{},
+    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
     extra: Extra = .{},
 
     const Extra = packed struct {

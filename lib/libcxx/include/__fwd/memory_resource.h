@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___FWD_MEMORY_RESOURCE_H
 #define _LIBCPP___FWD_MEMORY_RESOURCE_H
 
-#include <__availability>
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

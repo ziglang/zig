@@ -87,3 +87,13 @@ test "too small uncompressed size in header" {
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),
     );
 }
+
+test "reading one byte" {
+    const compressed = @embedFile("testdata/good-known_size-with_eopm.lzma");
+    var stream = std.io.fixedBufferStream(compressed);
+    var decompressor = try lzma.decompress(std.testing.allocator, stream.reader());
+    defer decompressor.deinit();
+
+    var buffer = [1]u8{0};
+    _ = try decompressor.read(buffer[0..]);
+}

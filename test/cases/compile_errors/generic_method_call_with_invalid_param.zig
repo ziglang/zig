@@ -22,12 +22,11 @@ const S = struct {
 };
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:18: error: expected type 'bool', found 'void'
 // :19:43: note: parameter type declared here
 // :8:18: error: expected type 'void', found 'bool'
 // :20:43: note: parameter type declared here
-// :15:26: error: runtime-known argument passed to comptime parameter
-// :21:57: note: declared comptime here
+// :15:26: error: unable to resolve comptime value
+// :15:26: note: argument to comptime parameter must be comptime-known
+// :21:48: note: parameter declared comptime here

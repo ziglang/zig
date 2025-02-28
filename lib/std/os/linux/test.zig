@@ -41,7 +41,7 @@ test "timer" {
     var err: linux.E = linux.E.init(epoll_fd);
     try expect(err == .SUCCESS);
 
-    const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, .{});
+    const timer_fd = linux.timerfd_create(linux.TIMERFD_CLOCK.MONOTONIC, .{});
     try expect(linux.E.init(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
@@ -123,6 +123,33 @@ test "fadvise" {
 
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
+}
+
+test "sigset_t" {
+    var sigset = linux.empty_sigset;
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR1);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR2);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+
+    linux.sigdelset(&sigset, linux.SIG.USR1);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+
+    linux.sigdelset(&sigset, linux.SIG.USR2);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
 }
 
 test {

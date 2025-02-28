@@ -2,22 +2,23 @@
 
 bin_file: *link.File,
 lower: Lower,
-debug_output: DebugInfoOutput,
-code: *std.ArrayList(u8),
+debug_output: link.File.DebugInfoOutput,
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,
 };
 
 pub fn emitMir(emit: *Emit) Error!void {
+    const gpa = emit.bin_file.comp.gpa;
     log.debug("mir instruction len: {}", .{emit.lower.mir.instructions.len});
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
@@ -30,7 +31,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
-            try lowered_inst.encode(emit.code.writer());
+            try lowered_inst.encode(emit.code.writer(gpa));
 
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
@@ -43,81 +44,69 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .fmt = std.meta.activeTag(lowered_inst),
                 }),
                 .load_symbol_reloc => |symbol| {
-                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
-                        .Exe => false,
-                        .Obj => true,
-                        .Lib => emit.lower.link_mode == .static,
-                    };
-
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
-                    var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
-
-                    if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(symbol.sym_index, elf_file);
-
-                        hi_r_type = Elf.R_ZIG_GOT_HI20;
-                        lo_r_type = Elf.R_ZIG_GOT_LO12;
-                    } else if (sym.flags.needs_got) {
-                        hi_r_type = Elf.R_GOT_HI20_STATIC; // TODO: rework this #20887
-                        lo_r_type = Elf.R_GOT_LO12_I_STATIC; // TODO: rework this #20887
+                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
+                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
                     }
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+                    const lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
+
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
                 .load_tlv_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
 
                     const R_RISCV = std.elf.R_RISCV;
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_HI20),
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_ADD),
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 8,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_LO12_I),
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
                 .call_extern_fn_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
 
                     const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
             };
         }
@@ -228,7 +217,6 @@ const log = std.log.scoped(.emit);
 const mem = std.mem;
 const std = @import("std");
 
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");

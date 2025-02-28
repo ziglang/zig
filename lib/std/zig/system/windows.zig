@@ -56,11 +56,11 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
 
-    if (args_type_info != .Struct) {
+    if (args_type_info != .@"struct") {
         @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
-    const fields_info = args_type_info.Struct.fields;
+    const fields_info = args_type_info.@"struct".fields;
 
     // Originally, I wanted to issue a single call with a more complex table structure such that we
     // would sequentially visit each CPU#d subkey in the registry and pull the value of interest into

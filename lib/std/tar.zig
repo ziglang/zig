@@ -19,7 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const output = @import("tar/output.zig");
+pub const writer = @import("tar/writer.zig").writer;
 
 /// Provide this to receive detailed error messages.
 /// When this is provided, some errors which would otherwise be returned
@@ -27,7 +27,7 @@ pub const output = @import("tar/output.zig");
 /// the errors in diagnostics to know whether the operation succeeded or failed.
 pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: std.ArrayListUnmanaged(Error) = .empty,
 
     entries: usize = 0,
     root_dir: []const u8 = "",
@@ -355,13 +355,13 @@ pub fn Iterator(comptime ReaderType: type) type {
             }
 
             // Writes file content to writer.
-            pub fn writeAll(self: File, writer: anytype) !void {
+            pub fn writeAll(self: File, out_writer: anytype) !void {
                 var buffer: [4096]u8 = undefined;
 
                 while (self.unread_bytes.* > 0) {
                     const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
                     try self.parent_reader.readNoEof(buf);
-                    try writer.writeAll(buf);
+                    try out_writer.writeAll(buf);
                     self.unread_bytes.* -= buf.len;
                 }
             }
@@ -848,6 +848,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = @import("tar/writer.zig");
     _ = Diagnostics;
 }
 

@@ -5,11 +5,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.gnu_f16_abi) {
-        @export(__gnu_h2f_ieee, .{ .name = "__gnu_h2f_ieee", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__gnu_h2f_ieee, .{ .name = "__gnu_h2f_ieee", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_aeabi) {
-        @export(__aeabi_h2f, .{ .name = "__aeabi_h2f", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_h2f, .{ .name = "__aeabi_h2f", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__extendhfsf2, .{ .name = "__extendhfsf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__extendhfsf2, .{ .name = "__extendhfsf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __extendhfsf2(a: common.F16T(f32)) callconv(.C) f32 {

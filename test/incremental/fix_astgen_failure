@@ -1,0 +1,36 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+#update=initial version with error
+#file=main.zig
+pub fn main() !void {
+    try @import("foo.zig").hello();
+}
+#file=foo.zig
+pub fn hello() !void {
+    try std.io.getStdOut().writeAll("Hello, World!\n");
+}
+#expect_error=foo.zig:2:9: error: use of undeclared identifier 'std'
+#update=fix the error
+#file=foo.zig
+const std = @import("std");
+pub fn hello() !void {
+    try std.io.getStdOut().writeAll("Hello, World!\n");
+}
+#expect_stdout="Hello, World!\n"
+#update=add new error
+#file=foo.zig
+const std = @import("std");
+pub fn hello() !void {
+    try std.io.getStdOut().writeAll(hello_str);
+}
+#expect_error=foo.zig:3:37: error: use of undeclared identifier 'hello_str'
+#update=fix the new error
+#file=foo.zig
+const std = @import("std");
+const hello_str = "Hello, World! Again!\n";
+pub fn hello() !void {
+    try std.io.getStdOut().writeAll(hello_str);
+}
+#expect_stdout="Hello, World! Again!\n"

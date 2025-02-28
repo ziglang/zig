@@ -14,6 +14,8 @@ pub const isPrimitive = primitives.isPrimitive;
 pub const Ast = @import("zig/Ast.zig");
 pub const AstGen = @import("zig/AstGen.zig");
 pub const Zir = @import("zig/Zir.zig");
+pub const Zoir = @import("zig/Zoir.zig");
+pub const ZonGen = @import("zig/ZonGen.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @compileError("deprecated; use std.Target.Query");
 pub const BuiltinFn = @import("zig/BuiltinFn.zig");
@@ -22,6 +24,7 @@ pub const LibCInstallation = @import("zig/LibCInstallation.zig");
 pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
+pub const llvm = @import("zig/llvm.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
@@ -52,11 +55,8 @@ pub const Color = enum {
     }
 
     pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
         return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
+            .ttyconf = get_tty_conf(color),
         };
     }
 };
@@ -163,7 +163,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
-        .elf => switch (options.output_mode) {
+        .elf, .goff, .xcoff => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .static) {
@@ -233,7 +233,6 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
-        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 
@@ -246,7 +245,7 @@ pub const BuildId = union(enum) {
     hexstring: HexString,
 
     pub fn eql(a: BuildId, b: BuildId) bool {
-        const Tag = @typeInfo(BuildId).Union.tag_type.?;
+        const Tag = @typeInfo(BuildId).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -537,16 +536,12 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(
-    allocator: Allocator,
-    input: std.fs.File,
-    size_hint: ?usize,
-) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?usize) ![:0]u8 {
     const source_code = input.readToEndAllocOptions(
-        allocator,
+        gpa,
         max_src_size,
         size_hint,
-        @alignOf(u16),
+        @alignOf(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
@@ -554,7 +549,7 @@ pub fn readSourceFileToEndAlloc(
         error.NotOpenForReading => unreachable,
         else => |e| return e,
     };
-    errdefer allocator.free(source_code);
+    errdefer gpa.free(source_code);
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -570,15 +565,19 @@ pub fn readSourceFileToEndAlloc(
 
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
-        const source_code_utf16_le = std.mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
+        if (source_code.len % 2 != 0) return error.InvalidEncoding;
+        // TODO: after wrangle-writer-buffering branch is merged,
+        // avoid this unnecessary allocation
+        const aligned_copy = try gpa.alloc(u16, source_code.len / 2);
+        defer gpa.free(aligned_copy);
+        @memcpy(std.mem.sliceAsBytes(aligned_copy), source_code);
+        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(gpa, aligned_copy) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             else => |e| return e,
         };
-
-        allocator.free(source_code);
+        gpa.free(source_code);
         return source_code_utf8;
     }
 
@@ -654,12 +653,23 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
-                inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
+                inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
                     help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
             fatal("unknown object format: '{s}'", .{opts.object_format.?});
+        },
+        error.UnknownArchitecture => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
+                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                }
+                std.log.info("available architectures:\n{s} native\n", .{help_text.items});
+            }
+            fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
         },
         else => |e| fatal("unable to parse target query '{s}': {s}", .{
             opts.arch_os_abi, @errorName(e),
@@ -689,7 +699,7 @@ pub const EnvVar = enum {
     HOME,
 
     pub fn isSet(comptime ev: EnvVar) bool {
-        return std.process.hasEnvVarConstant(@tagName(ev));
+        return std.process.hasNonEmptyEnvVarConstant(@tagName(ev));
     }
 
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
@@ -703,6 +713,167 @@ pub const EnvVar = enum {
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
         return std.posix.getenvZ(@tagName(ev));
+    }
+};
+
+pub const SimpleComptimeReason = enum(u32) {
+    // Evaluating at comptime because a builtin operand must be comptime-known.
+    // These messages all mention a specific builtin.
+    operand_Type,
+    operand_setEvalBranchQuota,
+    operand_setFloatMode,
+    operand_branchHint,
+    operand_setRuntimeSafety,
+    operand_embedFile,
+    operand_cImport,
+    operand_cDefine_macro_name,
+    operand_cDefine_macro_value,
+    operand_cInclude_file_name,
+    operand_cUndef_macro_name,
+    operand_shuffle_mask,
+    operand_atomicRmw_operation,
+    operand_reduce_operation,
+
+    // Evaluating at comptime because an operand must be comptime-known.
+    // These messages do not mention a specific builtin (and may not be about a builtin at all).
+    export_target,
+    export_options,
+    extern_options,
+    prefetch_options,
+    call_modifier,
+    compile_error_string,
+    inline_assembly_code,
+    atomic_order,
+    array_mul_factor,
+    slice_cat_operand,
+    inline_call_target,
+    generic_call_target,
+    wasm_memory_index,
+    work_group_dim_index,
+
+    // Evaluating at comptime because types must be comptime-known.
+    // Reasons other than `.type` are just more specific messages.
+    type,
+    array_sentinel,
+    pointer_sentinel,
+    slice_sentinel,
+    array_length,
+    vector_length,
+    error_set_contents,
+    struct_fields,
+    enum_fields,
+    union_fields,
+    function_ret_ty,
+    function_parameters,
+
+    // Evaluating at comptime because decl/field name must be comptime-known.
+    decl_name,
+    field_name,
+    struct_field_name,
+    enum_field_name,
+    union_field_name,
+    tuple_field_name,
+    tuple_field_index,
+
+    // Evaluating at comptime because it is an attribute of a global declaration.
+    container_var_init,
+    @"callconv",
+    @"align",
+    @"addrspace",
+    @"linksection",
+
+    // Miscellaneous reasons.
+    comptime_keyword,
+    comptime_call_modifier,
+    inline_loop_operand,
+    switch_item,
+    tuple_field_default_value,
+    struct_field_default_value,
+    enum_field_tag_value,
+    slice_single_item_ptr_bounds,
+    stored_to_comptime_field,
+    stored_to_comptime_var,
+    casted_to_comptime_enum,
+    casted_to_comptime_int,
+    casted_to_comptime_float,
+    panic_handler,
+
+    pub fn message(r: SimpleComptimeReason) []const u8 {
+        return switch (r) {
+            // zig fmt: off
+            .operand_Type                => "operand to '@Type' must be comptime-known",
+            .operand_setEvalBranchQuota  => "operand to '@setEvalBranchQuota' must be comptime-known",
+            .operand_setFloatMode        => "operand to '@setFloatMode' must be comptime-known",
+            .operand_branchHint          => "operand to '@branchHint' must be comptime-known",
+            .operand_setRuntimeSafety    => "operand to '@setRuntimeSafety' must be comptime-known",
+            .operand_embedFile           => "operand to '@embedFile' must be comptime-known",
+            .operand_cImport             => "operand to '@cImport' is evaluated at comptime",
+            .operand_cDefine_macro_name  => "'@cDefine' macro name must be comptime-known",
+            .operand_cDefine_macro_value => "'@cDefine' macro value must be comptime-known",
+            .operand_cInclude_file_name  => "'@cInclude' file name must be comptime-known",
+            .operand_cUndef_macro_name   => "'@cUndef' macro name must be comptime-known",
+            .operand_shuffle_mask        => "'@shuffle' mask must be comptime-known",
+            .operand_atomicRmw_operation => "'@atomicRmw' operation must be comptime-known",
+            .operand_reduce_operation    => "'@reduce' operation must be comptime-known",
+
+            .export_target        => "export target must be comptime-known",
+            .export_options       => "export options must be comptime-known",
+            .extern_options       => "extern options must be comptime-known",
+            .prefetch_options     => "prefetch options must be comptime-known",
+            .call_modifier        => "call modifier must be comptime-known",
+            .compile_error_string => "compile error string must be comptime-known",
+            .inline_assembly_code => "inline assembly code must be comptime-known",
+            .atomic_order         => "atomic order must be comptime-known",
+            .array_mul_factor     => "array multiplication factor must be comptime-known",
+            .slice_cat_operand    => "slice being concatenated must be comptime-known",
+            .inline_call_target   => "function being called inline must be comptime-known",
+            .generic_call_target  => "generic function being called must be comptime-known",
+            .wasm_memory_index    => "wasm memory index must be comptime-known",
+            .work_group_dim_index => "work group dimension index must be comptime-known",
+
+            .type                => "types must be comptime-known",
+            .array_sentinel      => "array sentinel value must be comptime-known",
+            .pointer_sentinel    => "pointer sentinel value must be comptime-known",
+            .slice_sentinel      => "slice sentinel value must be comptime-known",
+            .array_length        => "array length must be comptime-known",
+            .vector_length       => "vector length must be comptime-known",
+            .error_set_contents  => "error set contents must be comptime-known",
+            .struct_fields       => "struct fields must be comptime-known",
+            .enum_fields         => "enum fields must be comptime-known",
+            .union_fields        => "union fields must be comptime-known",
+            .function_ret_ty     => "function return type must be comptime-known",
+            .function_parameters => "function parameters must be comptime-known",
+
+            .decl_name         => "declaration name must be comptime-known",
+            .field_name        => "field name must be comptime-known",
+            .struct_field_name => "struct field name must be comptime-known",
+            .enum_field_name   => "enum field name must be comptime-known",
+            .union_field_name  => "union field name must be comptime-known",
+            .tuple_field_name  => "tuple field name must be comptime-known",
+            .tuple_field_index => "tuple field index must be comptime-known",
+
+            .container_var_init => "initializer of container-level variable must be comptime-known",
+            .@"callconv"        => "calling convention must be comptime-known",
+            .@"align"           => "alignment must be comptime-known",
+            .@"addrspace"       => "address space must be comptime-known",
+            .@"linksection"     => "linksection must be comptime-known",
+
+            .comptime_keyword             => "'comptime' keyword forces comptime evaluation",
+            .comptime_call_modifier       => "'.compile_time' call modifier forces comptime evaluation",
+            .inline_loop_operand          => "inline loop condition must be comptime-known",
+            .switch_item                  => "switch prong values must be comptime-known",
+            .tuple_field_default_value    => "tuple field default value must be comptime-known",
+            .struct_field_default_value   => "struct field default value must be comptime-known",
+            .enum_field_tag_value         => "enum field tag value must be comptime-known",
+            .slice_single_item_ptr_bounds => "slice of single-item pointer must have comptime-known bounds",
+            .stored_to_comptime_field     => "value stored to a comptime field must be comptime-known",
+            .stored_to_comptime_var       => "value stored to a comptime variable must be comptime-known",
+            .casted_to_comptime_enum      => "value casted to enum with 'comptime_int' tag type must be comptime-known",
+            .casted_to_comptime_int       => "value casted to 'comptime_int' must be comptime-known",
+            .casted_to_comptime_float     => "value casted to 'comptime_float' must be comptime-known",
+            .panic_handler                => "panic handler must be comptime-known",
+            // zig fmt: on
+        };
     }
 };
 

@@ -13,6 +13,7 @@ const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
+const types_resolved = @import("Air/types_resolved.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -265,7 +266,8 @@ pub const Inst = struct {
         /// Boolean or binary NOT.
         /// Uses the `ty_op` field.
         not,
-        /// Reinterpret the memory representation of a value as a different type.
+        /// Reinterpret the bits of a value as a different type.  This is like `@bitCast` but
+        /// also supports enums and pointers.
         /// Uses the `ty_op` field.
         bitcast,
         /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
@@ -273,13 +275,15 @@ pub const Inst = struct {
         /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
         /// then there do not exist any `br` instructions targeting this `block`.
         block,
-        /// A labeled block of code that loops forever. At the end of the body it is implied
-        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// A labeled block of code that loops forever. The body must be `noreturn`: loops
+        /// occur through an explicit `repeat` instruction pointing back to this one.
         /// Result type is always `noreturn`; no instructions in a block follow this one.
-        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
-        /// is always statically reachable.
+        /// There is always at least one `repeat` instruction referencing the loop.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
+        /// Sends control flow back to the beginning of a parent `loop` body.
+        /// Uses the `repeat` field.
+        repeat,
         /// Return from a block with a result.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
@@ -426,6 +430,14 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
+        /// Switch branch which can dispatch back to itself with a different operand.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
+        loop_switch_br,
+        /// Dispatches back to a branch of a parent `loop_switch_br`.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `br` field. `block_inst` is a `loop_switch_br` instruction.
+        switch_dispatch,
         /// Given an operand which is an error union, splits control flow. In
         /// case of error, control flow goes into the block that is part of this
         /// instruction, which is guaranteed to end with a return instruction
@@ -433,17 +445,24 @@ pub const Inst = struct {
         /// In the case of non-error, control flow proceeds to the next instruction
         /// after the `try`, with the result of this instruction being the unwrapped
         /// payload value, as if `unwrap_errunion_payload` was executed on the operand.
+        /// The error branch is considered to have a branch hint of `.unlikely`.
         /// Uses the `pl_op` field. Payload is `Try`.
         @"try",
+        /// Same as `try` except the error branch hint is `.cold`.
+        try_cold,
         /// Same as `try` except the operand is a pointer to an error union, and the
         /// result is a pointer to the payload. Result is as if `unwrap_errunion_payload_ptr`
         /// was executed on the operand.
         /// Uses the `ty_pl` field. Payload is `TryPtr`.
         try_ptr,
+        /// Same as `try_ptr` except the error branch hint is `.cold`.
+        try_ptr_cold,
         /// Notes the beginning of a source code statement and marks the line and column.
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks a statement that can be stepped to but produces no code.
+        dbg_empty_stmt,
         /// A block that represents an inlined function call.
         /// Uses the `ty_pl` field. Payload is `DbgInlineBlock`.
         dbg_inline_block,
@@ -456,6 +475,8 @@ pub const Inst = struct {
         /// Same as `dbg_var_ptr` except the local is a const, not a var, and the
         /// operand is the local's value.
         dbg_var_val,
+        /// Same as `dbg_var_val` except the local is an inline function argument.
+        dbg_arg_inline,
         /// ?T => bool
         /// Result type is always bool.
         /// Uses the `un_op` field.
@@ -497,14 +518,6 @@ pub const Inst = struct {
         /// Read a value from a pointer.
         /// Uses the `ty_op` field.
         load,
-        /// Converts a pointer to its address. Result type is always `usize`.
-        /// Pointer type size may be any, including slice.
-        /// Uses the `un_op` field.
-        int_from_ptr,
-        /// Given a boolean, returns 0 or 1.
-        /// Result type is always `u1`.
-        /// Uses the `un_op` field.
-        int_from_bool,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
@@ -554,7 +567,13 @@ pub const Inst = struct {
         /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,
-        /// Truncate higher bits from an integer, resulting in an integer with the same
+        /// Like `intcast`, but includes two safety checks:
+        /// * triggers a safety panic if the cast truncates bits
+        /// * triggers a safety panic if the destination type is an exhaustive enum
+        ///   and the operand is not a valid value of this type; i.e. equivalent to
+        ///   a safety check based on `.is_named_enum_value`
+        intcast_safe,
+        /// Truncate higher bits from an integer, resulting in an integer type with the same
         /// sign but an equal or smaller number of bits.
         /// Uses the `ty_op` field.
         trunc,
@@ -716,10 +735,6 @@ pub const Inst = struct {
         cmpxchg_weak,
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_strong,
-        /// Lowers to a memory fence instruction.
-        /// Result type is always void.
-        /// Uses the `fence` field.
-        fence,
         /// Atomically load from a pointer.
         /// Result type is the element type of the pointer.
         /// Uses the `atomic_load` field.
@@ -877,14 +892,38 @@ pub const Inst = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn toRef(i: Index) Inst.Ref {
-            assert(@intFromEnum(i) >> 31 == 0);
-            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        pub fn unwrap(index: Index) union(enum) { ref: Inst.Ref, target: u31 } {
+            const low_index: u31 = @truncate(@intFromEnum(index));
+            return switch (@as(u1, @intCast(@intFromEnum(index) >> 31))) {
+                0 => .{ .ref = @enumFromInt(@as(u32, 1 << 31) | low_index) },
+                1 => .{ .target = low_index },
+            };
         }
 
-        pub fn toTargetIndex(i: Index) u31 {
-            assert(@intFromEnum(i) >> 31 == 1);
-            return @truncate(@intFromEnum(i));
+        pub fn toRef(index: Index) Inst.Ref {
+            return index.unwrap().ref;
+        }
+
+        pub fn fromTargetIndex(index: u31) Index {
+            return @enumFromInt((1 << 31) | @as(u32, index));
+        }
+
+        pub fn toTargetIndex(index: Index) u31 {
+            return index.unwrap().target;
+        }
+
+        pub fn format(
+            index: Index,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            try writer.writeByte('%');
+            switch (index.unwrap()) {
+                .ref => {},
+                .target => try writer.writeByte('t'),
+            }
+            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 
@@ -938,28 +977,40 @@ pub const Inst = struct {
         null_type = @intFromEnum(InternPool.Index.null_type),
         undefined_type = @intFromEnum(InternPool.Index.undefined_type),
         enum_literal_type = @intFromEnum(InternPool.Index.enum_literal_type),
-        atomic_order_type = @intFromEnum(InternPool.Index.atomic_order_type),
-        atomic_rmw_op_type = @intFromEnum(InternPool.Index.atomic_rmw_op_type),
-        calling_convention_type = @intFromEnum(InternPool.Index.calling_convention_type),
-        address_space_type = @intFromEnum(InternPool.Index.address_space_type),
-        float_mode_type = @intFromEnum(InternPool.Index.float_mode_type),
-        reduce_op_type = @intFromEnum(InternPool.Index.reduce_op_type),
-        call_modifier_type = @intFromEnum(InternPool.Index.call_modifier_type),
-        prefetch_options_type = @intFromEnum(InternPool.Index.prefetch_options_type),
-        export_options_type = @intFromEnum(InternPool.Index.export_options_type),
-        extern_options_type = @intFromEnum(InternPool.Index.extern_options_type),
-        type_info_type = @intFromEnum(InternPool.Index.type_info_type),
         manyptr_u8_type = @intFromEnum(InternPool.Index.manyptr_u8_type),
         manyptr_const_u8_type = @intFromEnum(InternPool.Index.manyptr_const_u8_type),
         manyptr_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.manyptr_const_u8_sentinel_0_type),
         single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
+        vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),
+        vector_16_u8_type = @intFromEnum(InternPool.Index.vector_16_u8_type),
+        vector_32_u8_type = @intFromEnum(InternPool.Index.vector_32_u8_type),
+        vector_8_i16_type = @intFromEnum(InternPool.Index.vector_8_i16_type),
+        vector_16_i16_type = @intFromEnum(InternPool.Index.vector_16_i16_type),
+        vector_8_u16_type = @intFromEnum(InternPool.Index.vector_8_u16_type),
+        vector_16_u16_type = @intFromEnum(InternPool.Index.vector_16_u16_type),
+        vector_4_i32_type = @intFromEnum(InternPool.Index.vector_4_i32_type),
+        vector_8_i32_type = @intFromEnum(InternPool.Index.vector_8_i32_type),
+        vector_4_u32_type = @intFromEnum(InternPool.Index.vector_4_u32_type),
+        vector_8_u32_type = @intFromEnum(InternPool.Index.vector_8_u32_type),
+        vector_2_i64_type = @intFromEnum(InternPool.Index.vector_2_i64_type),
+        vector_4_i64_type = @intFromEnum(InternPool.Index.vector_4_i64_type),
+        vector_2_u64_type = @intFromEnum(InternPool.Index.vector_2_u64_type),
+        vector_4_u64_type = @intFromEnum(InternPool.Index.vector_4_u64_type),
+        vector_4_f16_type = @intFromEnum(InternPool.Index.vector_4_f16_type),
+        vector_8_f16_type = @intFromEnum(InternPool.Index.vector_8_f16_type),
+        vector_2_f32_type = @intFromEnum(InternPool.Index.vector_2_f32_type),
+        vector_4_f32_type = @intFromEnum(InternPool.Index.vector_4_f32_type),
+        vector_8_f32_type = @intFromEnum(InternPool.Index.vector_8_f32_type),
+        vector_2_f64_type = @intFromEnum(InternPool.Index.vector_2_f64_type),
+        vector_4_f64_type = @intFromEnum(InternPool.Index.vector_4_f64_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
-        empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
+        empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
@@ -969,15 +1020,12 @@ pub const Inst = struct {
         one_u8 = @intFromEnum(InternPool.Index.one_u8),
         four_u8 = @intFromEnum(InternPool.Index.four_u8),
         negative_one = @intFromEnum(InternPool.Index.negative_one),
-        calling_convention_c = @intFromEnum(InternPool.Index.calling_convention_c),
-        calling_convention_inline = @intFromEnum(InternPool.Index.calling_convention_inline),
         void_value = @intFromEnum(InternPool.Index.void_value),
         unreachable_value = @intFromEnum(InternPool.Index.unreachable_value),
         null_value = @intFromEnum(InternPool.Index.null_value),
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
-        empty_struct = @intFromEnum(InternPool.Index.empty_struct),
-        generic_poison = @intFromEnum(InternPool.Index.generic_poison),
+        empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
 
         /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -1035,10 +1083,7 @@ pub const Inst = struct {
             ty: Ref,
             /// Index into `extra` of a null-terminated string representing the parameter name.
             /// This is `.none` if debug info is stripped.
-            name: enum(u32) {
-                none = std.math.maxInt(u32),
-                _,
-            },
+            name: NullTerminatedString,
         },
         ty_op: struct {
             ty: Ref,
@@ -1053,6 +1098,9 @@ pub const Inst = struct {
             block_inst: Index,
             operand: Ref,
         },
+        repeat: struct {
+            loop_inst: Index,
+        },
         pl_op: struct {
             operand: Ref,
             payload: u32,
@@ -1061,7 +1109,6 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
-        fence: std.builtin.AtomicOrder,
         atomic_load: struct {
             ptr: Ref,
             order: std.builtin.AtomicOrder,
@@ -1130,20 +1177,33 @@ pub const Call = struct {
 pub const CondBr = struct {
     then_body_len: u32,
     else_body_len: u32,
+    branch_hints: BranchHints,
+    pub const BranchHints = packed struct(u32) {
+        true: std.builtin.BranchHint,
+        false: std.builtin.BranchHint,
+        then_cov: CoveragePoint,
+        else_cov: CoveragePoint,
+        _: u24 = 0,
+    };
 };
 
 /// Trailing:
-/// * 0. `Case` for each `cases_len`
-/// * 1. the else body, according to `else_body_len`.
+/// * 0. `BranchHint` for each `cases_len + 1`. bit-packed into `u32`
+///      elems such that each `u32` contains up to 10x `BranchHint`.
+///      LSBs are first case. Final hint is `else`.
+/// * 1. `Case` for each `cases_len`
+/// * 2. the else body, according to `else_body_len`.
 pub const SwitchBr = struct {
     cases_len: u32,
     else_body_len: u32,
 
     /// Trailing:
-    /// * item: Inst.Ref // for each `items_len`.
-    /// * instruction index for each `body_len`.
+    /// * item: Inst.Ref // for each `items_len`
+    /// * { range_start: Inst.Ref, range_end: Inst.Ref } // for each `ranges_len`
+    /// * body_inst: Inst.Index // for each `body_len`
     pub const Case = struct {
         items_len: u32,
+        ranges_len: u32,
         body_len: u32,
     };
 };
@@ -1190,7 +1250,7 @@ pub const VectorCmp = struct {
     op: u32,
 
     pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
-        return @as(std.math.CompareOperator, @enumFromInt(@as(u3, @truncate(self.op))));
+        return @enumFromInt(@as(u3, @intCast(self.op)));
     }
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
@@ -1235,11 +1295,11 @@ pub const Cmpxchg = struct {
     flags: u32,
 
     pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u3, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1250,11 +1310,11 @@ pub const AtomicRmw = struct {
     flags: u32,
 
     pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
-        return @as(std.builtin.AtomicRmwOp, @enumFromInt(@as(u4, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u4, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1394,6 +1454,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_add,
         .ptr_sub,
         .try_ptr,
+        .try_ptr_cold,
         => return datas[@intFromEnum(inst)].ty_pl.ty.toType(),
 
         .not,
@@ -1402,6 +1463,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .fpext,
         .fptrunc,
         .intcast,
+        .intcast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -1439,9 +1501,12 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         => return datas[@intFromEnum(inst)].ty_op.ty.toType(),
 
         .loop,
+        .repeat,
         .br,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .ret,
         .ret_safe,
         .ret_load,
@@ -1451,11 +1516,12 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .store,
         .store_safe,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1470,7 +1536,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_end,
         => return Type.void,
 
-        .int_from_ptr,
         .slice_len,
         .ret_addr,
         .frame_addr,
@@ -1479,8 +1544,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .wasm_memory_grow => return Type.isize,
         .wasm_memory_size => return Type.usize,
-
-        .int_from_bool => return Type.u1,
 
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
@@ -1513,7 +1576,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return air.typeOf(extra.lhs, ip);
         },
 
-        .@"try" => {
+        .@"try", .try_cold => {
             const err_union_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
@@ -1537,9 +1600,8 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => air.extra[i],
-            Inst.Ref => @as(Inst.Ref, @enumFromInt(air.extra[i])),
-            i32 => @as(i32, @bitCast(air.extra[i])),
-            InternPool.Index => @as(InternPool.Index, @enumFromInt(air.extra[i])),
+            InternPool.Index, Inst.Ref => @enumFromInt(air.extra[i]),
+            i32, CondBr.BranchHints => @bitCast(air.extra[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1575,14 +1637,16 @@ pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
 }
 
-pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
-    const bytes = std.mem.sliceAsBytes(air.extra[index..]);
-    var end: usize = 0;
-    while (bytes[end] != 0) {
-        end += 1;
+pub const NullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn toSlice(nts: NullTerminatedString, air: Air) [:0]const u8 {
+        if (nts == .none) return "";
+        const bytes = std.mem.sliceAsBytes(air.extra[@intFromEnum(nts)..]);
+        return bytes[0..std.mem.indexOfScalar(u8, bytes, 0).? :0];
     }
-    return bytes[0..end :0];
-}
+};
 
 /// Returns whether the given instruction must always be lowered, for instance
 /// because it can cause side effects. If an instruction does not need to be
@@ -1594,6 +1658,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .arg,
         .block,
         .loop,
+        .repeat,
         .br,
         .trap,
         .breakpoint,
@@ -1603,12 +1668,18 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_never_inline,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .@"try",
+        .try_cold,
         .try_ptr,
+        .try_ptr_cold,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .ret,
         .ret_safe,
         .ret_load,
@@ -1623,7 +1694,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memcpy,
         .cmpxchg_weak,
         .cmpxchg_strong,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1640,6 +1710,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .intcast_safe,
         => true,
 
         .add,
@@ -1735,8 +1806,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .is_non_err_ptr,
         .bool_and,
         .bool_or,
-        .int_from_ptr,
-        .int_from_bool,
         .fptrunc,
         .fpext,
         .intcast,
@@ -1806,4 +1875,111 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
     };
 }
 
-pub const typesFullyResolved = @import("Air/types_resolved.zig").typesFullyResolved;
+pub const UnwrappedSwitch = struct {
+    air: *const Air,
+    operand: Inst.Ref,
+    cases_len: u32,
+    else_body_len: u32,
+    branch_hints_start: u32,
+    cases_start: u32,
+
+    /// Asserts that `case_idx < us.cases_len`.
+    pub fn getHint(us: UnwrappedSwitch, case_idx: u32) std.builtin.BranchHint {
+        assert(case_idx < us.cases_len);
+        return us.getHintInner(case_idx);
+    }
+    pub fn getElseHint(us: UnwrappedSwitch) std.builtin.BranchHint {
+        return us.getHintInner(us.cases_len);
+    }
+    fn getHintInner(us: UnwrappedSwitch, idx: u32) std.builtin.BranchHint {
+        const bag = us.air.extra[us.branch_hints_start..][idx / 10];
+        const bits: u3 = @truncate(bag >> @intCast(3 * (idx % 10)));
+        return @enumFromInt(bits);
+    }
+
+    pub fn iterateCases(us: UnwrappedSwitch) CaseIterator {
+        return .{
+            .air = us.air,
+            .cases_len = us.cases_len,
+            .else_body_len = us.else_body_len,
+            .next_case = 0,
+            .extra_index = us.cases_start,
+        };
+    }
+    pub const CaseIterator = struct {
+        air: *const Air,
+        cases_len: u32,
+        else_body_len: u32,
+        next_case: u32,
+        extra_index: u32,
+
+        pub fn next(it: *CaseIterator) ?Case {
+            if (it.next_case == it.cases_len) return null;
+            const idx = it.next_case;
+            it.next_case += 1;
+
+            const extra = it.air.extraData(SwitchBr.Case, it.extra_index);
+            var extra_index = extra.end;
+            const items: []const Inst.Ref = @ptrCast(it.air.extra[extra_index..][0..extra.data.items_len]);
+            extra_index += items.len;
+            // TODO: ptrcast from []const Inst.Ref to []const [2]Inst.Ref when supported
+            const ranges_ptr: [*]const [2]Inst.Ref = @ptrCast(it.air.extra[extra_index..]);
+            const ranges: []const [2]Inst.Ref = ranges_ptr[0..extra.data.ranges_len];
+            extra_index += ranges.len * 2;
+            const body: []const Inst.Index = @ptrCast(it.air.extra[extra_index..][0..extra.data.body_len]);
+            extra_index += body.len;
+            it.extra_index = @intCast(extra_index);
+
+            return .{
+                .idx = idx,
+                .items = items,
+                .ranges = ranges,
+                .body = body,
+            };
+        }
+        /// Only valid to call once all cases have been iterated, i.e. `next` returns `null`.
+        /// Returns the body of the "default" (`else`) case.
+        pub fn elseBody(it: *CaseIterator) []const Inst.Index {
+            assert(it.next_case == it.cases_len);
+            return @ptrCast(it.air.extra[it.extra_index..][0..it.else_body_len]);
+        }
+        pub const Case = struct {
+            idx: u32,
+            items: []const Inst.Ref,
+            ranges: []const [2]Inst.Ref,
+            body: []const Inst.Index,
+        };
+    };
+};
+
+pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
+    const inst = air.instructions.get(@intFromEnum(switch_inst));
+    switch (inst.tag) {
+        .switch_br, .loop_switch_br => {},
+        else => unreachable, // assertion failure
+    }
+    const pl_op = inst.data.pl_op;
+    const extra = air.extraData(SwitchBr, pl_op.payload);
+    const hint_bag_count = std.math.divCeil(usize, extra.data.cases_len + 1, 10) catch unreachable;
+    return .{
+        .air = air,
+        .operand = pl_op.operand,
+        .cases_len = extra.data.cases_len,
+        .else_body_len = extra.data.else_body_len,
+        .branch_hints_start = @intCast(extra.end),
+        .cases_start = @intCast(extra.end + hint_bag_count),
+    };
+}
+
+pub const typesFullyResolved = types_resolved.typesFullyResolved;
+pub const typeFullyResolved = types_resolved.checkType;
+pub const valFullyResolved = types_resolved.checkVal;
+
+pub const CoveragePoint = enum(u1) {
+    /// Indicates the block is not a place of interest corresponding to
+    /// a source location for coverage purposes.
+    none,
+    /// Point of interest. The next instruction emitted corresponds to
+    /// a source location used for coverage instrumentation.
+    poi,
+};

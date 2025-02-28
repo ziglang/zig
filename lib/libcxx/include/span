@@ -18,6 +18,20 @@ namespace std {
 // constants
 inline constexpr size_t dynamic_extent = numeric_limits<size_t>::max();
 
+template<class T>
+  concept integral-constant-like =                           // exposition only, since C++26
+    is_integral_v<decltype(T::value)> &&
+    !is_same_v<bool, remove_const_t<decltype(T::value)>> &&
+    convertible_to<T, decltype(T::value)> &&
+    equality_comparable_with<T, decltype(T::value)> &&
+    bool_constant<T() == T::value>::value &&
+    bool_constant<static_cast<decltype(T::value)>(T()) == T::value>::value;
+
+template<class T>
+  constexpr size_t maybe-static-ext = dynamic_extent;        // exposition only, since C++26
+template<integral-constant-like T>
+  constexpr size_t maybe-static-ext<T> = {T::value};
+
 // [views.span], class template span
 template <class ElementType, size_t Extent = dynamic_extent>
     class span;
@@ -110,7 +124,9 @@ private:
 };
 
 template<class It, class EndOrSize>
-    span(It, EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>>;
+    span(It, EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>>;                             // until C++26
+template<class It, class EndOrSize>
+    span(It, EndOrSize) -> span<remove_reference_t<iter_reference_t<It>>, maybe-static-ext<EndOrSize>>; // since C++26
 
 template<class T, size_t N>
     span(T (&)[N]) -> span<T, N>;
@@ -128,12 +144,16 @@ template<class R>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__assert>
+#include <__concepts/convertible_to.h>
+#include <__concepts/equality_comparable.h>
 #include <__config>
+#include <__fwd/array.h>
 #include <__fwd/span.h>
 #include <__iterator/bounded_iter.h>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/reverse_iterator.h>
 #include <__iterator/wrap_iter.h>
 #include <__memory/pointer_traits.h>
 #include <__ranges/concepts.h>
@@ -141,13 +161,20 @@ template<class R>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
 #include <__ranges/size.h>
+#include <__type_traits/integral_constant.h>
+#include <__type_traits/is_array.h>
+#include <__type_traits/is_const.h>
 #include <__type_traits/is_convertible.h>
+#include <__type_traits/is_integral.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/remove_const.h>
+#include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_cvref.h>
 #include <__type_traits/remove_reference.h>
 #include <__type_traits/type_identity.h>
 #include <__utility/forward.h>
-#include <array>   // for array
 #include <cstddef> // for byte
+#include <initializer_list>
 #include <stdexcept>
 #include <version>
 
@@ -172,12 +199,6 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
-struct __is_std_array : false_type {};
-
-template <class _Tp, size_t _Sz>
-struct __is_std_array<array<_Tp, _Sz>> : true_type {};
-
-template <class _Tp>
 struct __is_std_span : false_type {};
 
 template <class _Tp, size_t _Sz>
@@ -185,12 +206,12 @@ struct __is_std_span<span<_Tp, _Sz>> : true_type {};
 
 template <class _Range, class _ElementType>
 concept __span_compatible_range =
-    ranges::contiguous_range<_Range> &&                            //
-    ranges::sized_range<_Range> &&                                 //
-    (ranges::borrowed_range<_Range> || is_const_v<_ElementType>)&& //
-    !__is_std_span<remove_cvref_t<_Range>>::value &&               //
-    !__is_std_array<remove_cvref_t<_Range>>::value &&              //
-    !is_array_v<remove_cvref_t<_Range>> &&                         //
+    !__is_std_span<remove_cvref_t<_Range>>::value &&                //
+    ranges::contiguous_range<_Range> &&                             //
+    ranges::sized_range<_Range> &&                                  //
+    (ranges::borrowed_range<_Range> || is_const_v<_ElementType>) && //
+    !__is_std_array<remove_cvref_t<_Range>>::value &&               //
+    !is_array_v<remove_cvref_t<_Range>> &&                          //
     is_convertible_v<remove_reference_t<ranges::range_reference_t<_Range>> (*)[], _ElementType (*)[]>;
 
 template <class _From, class _To>
@@ -273,7 +294,8 @@ public:
   }
 
   template <__span_array_convertible<element_type> _OtherElementType>
-  _LIBCPP_HIDE_FROM_ABI constexpr span(const span<_OtherElementType, _Extent>& __other) : __data_{__other.data()} {}
+  _LIBCPP_HIDE_FROM_ABI constexpr span(const span<_OtherElementType, _Extent>& __other) noexcept
+      : __data_{__other.data()} {}
 
   template <__span_array_convertible<element_type> _OtherElementType>
   _LIBCPP_HIDE_FROM_ABI constexpr explicit span(const span<_OtherElementType, dynamic_extent>& __other) noexcept
@@ -304,8 +326,8 @@ public:
   }
 
   template <size_t _Offset, size_t _Count = dynamic_extent>
-  _LIBCPP_HIDE_FROM_ABI constexpr auto subspan() const noexcept
-      -> span<element_type, _Count != dynamic_extent ? _Count : _Extent - _Offset> {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto
+  subspan() const noexcept -> span<element_type, _Count != dynamic_extent ? _Count : _Extent - _Offset> {
     static_assert(_Offset <= _Extent, "span<T, N>::subspan<Offset, Count>(): Offset out of range");
     static_assert(_Count == dynamic_extent || _Count <= _Extent - _Offset,
                   "span<T, N>::subspan<Offset, Count>(): Offset + Count out of range");
@@ -564,10 +586,26 @@ _LIBCPP_HIDE_FROM_ABI auto as_writable_bytes(span<_Tp, _Extent> __s) noexcept {
   return __s.__as_writable_bytes();
 }
 
-#  if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 26
+template <class _Tp>
+concept __integral_constant_like =
+    is_integral_v<decltype(_Tp::value)> && !is_same_v<bool, remove_const_t<decltype(_Tp::value)>> &&
+    convertible_to<_Tp, decltype(_Tp::value)> && equality_comparable_with<_Tp, decltype(_Tp::value)> &&
+    bool_constant<_Tp() == _Tp::value>::value &&
+    bool_constant<static_cast<decltype(_Tp::value)>(_Tp()) == _Tp::value>::value;
+
+template <class _Tp>
+inline constexpr size_t __maybe_static_ext = dynamic_extent;
+
+template <__integral_constant_like _Tp>
+inline constexpr size_t __maybe_static_ext<_Tp> = {_Tp::value};
+
+template <contiguous_iterator _It, class _EndOrSize>
+span(_It, _EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>, __maybe_static_ext<_EndOrSize>>;
+#  else
 template <contiguous_iterator _It, class _EndOrSize>
 span(_It, _EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>>;
-#  endif // _LIBCPP_STD_VER >= 20
+#  endif
 
 template <class _Tp, size_t _Sz>
 span(_Tp (&)[_Sz]) -> span<_Tp, _Sz>;
@@ -588,6 +626,7 @@ _LIBCPP_END_NAMESPACE_STD
 _LIBCPP_POP_MACROS
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <array>
 #  include <concepts>
 #  include <functional>
 #  include <iterator>

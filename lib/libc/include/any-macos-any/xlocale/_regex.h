@@ -26,8 +26,8 @@
 
 #ifndef _REGEX_H_
 #include <_regex.h>
-#endif // _REGEX_H_
-#include <_xlocale.h>
+#include <__xlocale.h>
+#endif
 
 __BEGIN_DECLS
 

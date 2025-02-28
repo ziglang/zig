@@ -436,6 +436,15 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    pub fn prep_cancel_fd(
+        sqe: *linux.io_uring_sqe,
+        fd: linux.fd_t,
+        flags: u32,
+    ) void {
+        sqe.prep_rw(.ASYNC_CANCEL, fd, 0, 0, 0);
+        sqe.rw_flags = flags | linux.IORING_ASYNC_CANCEL_FD;
+    }
+
     pub fn prep_shutdown(
         sqe: *linux.io_uring_sqe,
         sockfd: linux.socket_t,
@@ -514,6 +523,21 @@ pub const io_uring_sqe = extern struct {
         );
         sqe.len = @bitCast(new_dir_fd);
         sqe.rw_flags = flags;
+    }
+
+    pub fn prep_files_update(
+        sqe: *linux.io_uring_sqe,
+        fds: []const linux.fd_t,
+        offset: u32,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, @intCast(offset));
+    }
+
+    pub fn prep_files_update_alloc(
+        sqe: *linux.io_uring_sqe,
+        fds: []linux.fd_t,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, linux.IORING_FILE_INDEX_ALLOC);
     }
 
     pub fn prep_provide_buffers(

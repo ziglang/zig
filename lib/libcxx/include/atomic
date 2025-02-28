@@ -587,7 +587,12 @@ template <class T>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__config>
+
+#if _LIBCPP_STD_VER < 23 && defined(_LIBCPP_STDATOMIC_H)
+#  error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
+#endif
+
 #include <__atomic/aliases.h>
 #include <__atomic/atomic.h>
 #include <__atomic/atomic_base.h>
@@ -602,8 +607,11 @@ template <class T>
 #include <__atomic/is_always_lock_free.h>
 #include <__atomic/kill_dependency.h>
 #include <__atomic/memory_order.h>
-#include <__config>
 #include <version>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__atomic/atomic_ref.h>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -613,13 +621,10 @@ template <class T>
 #  error <atomic> is not implemented
 #endif
 
-#ifdef kill_dependency
-#  error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
-#endif
-
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <cmath>
 #  include <compare>
+#  include <cstdlib>
 #  include <cstring>
 #  include <type_traits>
 #endif

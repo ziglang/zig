@@ -1,11 +1,12 @@
-const Int = @import("std").meta.Int;
-const math = @import("std").math;
+const std = @import("std");
+const Int = std.meta.Int;
+const math = std.math;
 const Log2Int = math.Log2Int;
 
 pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const F = @TypeOf(a);
-    const float_bits = @typeInfo(F).Float.bits;
-    const int_bits = @typeInfo(I).Int.bits;
+    const float_bits = @typeInfo(F).float.bits;
+    const int_bits = @typeInfo(I).int.bits;
     const rep_t = Int(.unsigned, float_bits);
     const sig_bits = math.floatMantissaBits(F);
     const exp_bits = math.floatExponentBits(F);
@@ -26,7 +27,7 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     if (exponent < 0) return 0;
 
     // If the value is too large for the integer type, saturate.
-    switch (@typeInfo(I).Int.signedness) {
+    switch (@typeInfo(I).int.signedness) {
         .unsigned => {
             if (negative) return 0;
             if (@as(c_uint, @intCast(exponent)) >= @min(int_bits, max_exp)) return math.maxInt(I);
@@ -45,9 +46,58 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
         result = @as(I, @intCast(significand)) << @intCast(exponent - fractional_bits);
     }
 
-    if ((@typeInfo(I).Int.signedness == .signed) and negative)
+    if ((@typeInfo(I).int.signedness == .signed) and negative)
         return ~result +% 1;
     return result;
+}
+
+pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, result: []u32, a: anytype) void {
+    switch (result.len) {
+        0 => return,
+        inline 1...4 => |limbs_len| {
+            result[0..limbs_len].* = @bitCast(@as(
+                @Type(.{ .int = .{ .signedness = signedness, .bits = 32 * limbs_len } }),
+                @intFromFloat(a),
+            ));
+            return;
+        },
+        else => {},
+    }
+
+    // sign implicit fraction
+    const significand_bits = 1 + math.floatFractionalBits(@TypeOf(a));
+    const I = @Type(comptime .{ .int = .{
+        .signedness = signedness,
+        .bits = @as(u16, @intFromBool(signedness == .signed)) + significand_bits,
+    } });
+
+    const parts = math.frexp(a);
+    const exponent = @max(parts.exponent - significand_bits, 0);
+    const int: I = @intFromFloat(switch (exponent) {
+        0 => a,
+        else => math.ldexp(parts.significand, significand_bits),
+    });
+    switch (signedness) {
+        .signed => {
+            const endian = @import("builtin").cpu.arch.endian();
+            const exponent_limb = switch (endian) {
+                .little => exponent / 32,
+                .big => result.len - 1 - exponent / 32,
+            };
+            const sign_bits: u32 = if (int < 0) math.maxInt(u32) else 0;
+            @memset(result[0..exponent_limb], switch (endian) {
+                .little => 0,
+                .big => sign_bits,
+            });
+            result[exponent_limb] = sign_bits << @truncate(exponent);
+            @memset(result[exponent_limb + 1 ..], switch (endian) {
+                .little => sign_bits,
+                .big => 0,
+            });
+        },
+        .unsigned => @memset(result, 0),
+    }
+    std.mem.writePackedIntNative(I, std.mem.sliceAsBytes(result), exponent, int);
 }
 
 test {

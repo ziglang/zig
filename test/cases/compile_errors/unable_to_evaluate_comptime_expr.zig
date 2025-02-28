@@ -16,7 +16,7 @@ pub export fn entry2() void {
     _ = b;
 }
 
-const Int = @typeInfo(bar).Struct.backing_integer.?;
+const Int = @typeInfo(bar).@"struct".backing_integer.?;
 
 const foo = enum(Int) {
     c = @bitCast(bar{
@@ -33,12 +33,13 @@ pub export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:13: error: unable to evaluate comptime expression
 // :7:16: note: operation is runtime due to this operand
+// :7:13: note: initializer of container-level variable must be comptime-known
 // :13:13: error: unable to evaluate comptime expression
 // :13:16: note: operation is runtime due to this operand
+// :13:13: note: initializer of container-level variable must be comptime-known
 // :22:9: error: unable to evaluate comptime expression
 // :22:21: note: operation is runtime due to this operand
+// :21:13: note: enum fields must be comptime-known

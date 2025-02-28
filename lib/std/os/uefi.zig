@@ -9,10 +9,10 @@ pub const hii = @import("uefi/hii.zig");
 pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
 
-/// The memory type to allocate when using the pool
-/// Defaults to .LoaderData, the default data allocation type
+/// The memory type to allocate when using the pool.
+/// Defaults to `.loader_data`, the default data allocation type
 /// used by UEFI applications to allocate pool memory.
-pub var efi_pool_memory_type: tables.MemoryType = .LoaderData;
+pub var efi_pool_memory_type: tables.MemoryType = .loader_data;
 pub const pool_allocator = @import("uefi/pool_allocator.zig").pool_allocator;
 pub const raw_pool_allocator = @import("uefi/pool_allocator.zig").raw_pool_allocator;
 
@@ -26,9 +26,9 @@ pub var system_table: *tables.SystemTable = undefined;
 pub const Event = *opaque {};
 
 /// The calling convention used for all external functions part of the UEFI API.
-pub const cc = switch (@import("builtin").target.cpu.arch) {
-    .x86_64 => .Win64,
-    else => .C,
+pub const cc: std.builtin.CallingConvention = switch (@import("builtin").target.cpu.arch) {
+    .x86_64 => .{ .x86_64_win = .{} },
+    else => .c,
 };
 
 pub const MacAddress = extern struct {

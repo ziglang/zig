@@ -1,10 +1,10 @@
 const E = enum { one, two };
 comptime {
-    @export(E, .{ .name = "E" });
+    @export(&E, .{ .name = "E" });
 }
 const e: E = .two;
 comptime {
-    @export(e, .{ .name = "e" });
+    @export(&e, .{ .name = "e" });
 }
 
 // error

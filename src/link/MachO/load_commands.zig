@@ -53,7 +53,7 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
     if (macho_file.base.isDynLib()) {
         const emit = macho_file.base.emit;
         const install_name = macho_file.install_name orelse
-            try emit.directory.join(gpa, &.{emit.sub_path});
+            try emit.root_dir.join(gpa, &.{emit.sub_path});
         defer if (macho_file.install_name == null) gpa.free(install_name);
         sizeofcmds += calcInstallNameLen(
             @sizeOf(macho.dylib_command),
@@ -63,7 +63,7 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
     }
     // LC_RPATH
     {
-        for (macho_file.base.rpath_list) |rpath| {
+        for (macho_file.rpath_list) |rpath| {
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),
                 rpath,
@@ -72,7 +72,8 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
         }
 
         if (comp.config.any_sanitize_thread) {
-            const path = comp.tsan_lib.?.full_object_path;
+            const path = try comp.tsan_lib.?.full_object_path.toString(gpa);
+            defer gpa.free(path);
             const rpath = std.fs.path.dirname(path) orelse ".";
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),
@@ -237,7 +238,7 @@ pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     assert(comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
     const emit = macho_file.base.emit;
     const install_name = macho_file.install_name orelse
-        try emit.directory.join(gpa, &.{emit.sub_path});
+        try emit.root_dir.join(gpa, &.{emit.sub_path});
     defer if (macho_file.install_name == null) gpa.free(install_name);
     const curr = comp.version orelse std.SemanticVersion{
         .major = 1,

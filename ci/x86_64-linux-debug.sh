@@ -8,37 +8,34 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.418+ebd9efa85"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v29.0.0-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-9.2.0-rc1/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git fetch --unshallow || true
 git fetch --tags
 
-# Test building from source without LLVM.
-git clean -fd
-rm -rf zig-out
-cc -o bootstrap bootstrap.c
-./bootstrap
-./zig2 build -Dno-lib
-./zig-out/bin/zig test test/behavior.zig
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-
-rm -rf build-debug
-mkdir build-debug
-cd build-debug
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
+
+# Test building from source without LLVM.
+cc -o bootstrap bootstrap.c
+./bootstrap
+./zig2 build -Dno-lib
+./zig-out/bin/zig test test/behavior.zig
+
+mkdir build-debug
+cd build-debug
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \
@@ -64,23 +61,21 @@ stage3-debug/bin/zig build \
 
 stage3-debug/bin/zig build test docs \
   --maxrss 21000000000 \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-e0a42bb34/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy
+  -Denable-superhtml
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1
 
-rm -rf ../build-new
 mkdir ../build-new
 cd ../build-new
 
-export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 

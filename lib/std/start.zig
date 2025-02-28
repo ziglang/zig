@@ -19,8 +19,7 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_sparc64 or
-    builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64;
+    builtin.zig_backend == .stage2_spirv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -30,39 +29,39 @@ comptime {
     if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
-                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main2, .{ .name = "main" });
+                if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
+                    @export(&main2, .{ .name = "main" });
                 }
             } else if (builtin.os.tag == .windows) {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
-                    @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .opencl) {
+            } else if (builtin.os.tag == .opencl or builtin.os.tag == .vulkan) {
                 if (@hasDecl(root, "main"))
-                    @export(spirvMain2, .{ .name = "main" });
+                    @export(&spirvMain2, .{ .name = "main" });
             } else {
                 if (!@hasDecl(root, "_start")) {
-                    @export(_start2, .{ .name = "_start" });
+                    @export(&_start2, .{ .name = "_start" });
                 }
             }
         }
     } else {
         if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
             if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-                @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+                @export(&_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(mainWithoutEnv, .{ .name = "main" });
-                } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "main" });
+                } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
+                    @export(&main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
-                    @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&WinStartup, .{ .name = "wWinMainCRTStartup" });
                 } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -70,10 +69,10 @@ comptime {
                 } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
                     !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
                 {
-                    @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (native_os == .uefi) {
-                if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
+                if (!@hasDecl(root, "EfiMain")) @export(&EfiMain, .{ .name = "EfiMain" });
             } else if (native_os == .wasi) {
                 const wasm_start_sym = switch (builtin.wasi_exec_model) {
                     .reactor => "_initialize",
@@ -82,14 +81,14 @@ comptime {
                 if (!@hasDecl(root, wasm_start_sym) and @hasDecl(root, "main")) {
                     // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                     // case it's not required to provide an entrypoint such as main.
-                    @export(wasi_start, .{ .name = wasm_start_sym });
+                    @export(&wasi_start, .{ .name = wasm_start_sym });
                 }
             } else if (native_arch.isWasm() and native_os == .freestanding) {
                 // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                 // case it's not required to provide an entrypoint such as main.
-                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
             } else if (native_os != .other and native_os != .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name });
             }
         }
     }
@@ -97,26 +96,25 @@ comptime {
 
 // Simplified start code for stage2 until it supports more language features ///
 
-fn main2() callconv(.C) c_int {
+fn main2() callconv(.c) c_int {
     root.main();
     return 0;
 }
 
-fn _start2() callconv(.C) noreturn {
+fn _start2() callconv(.withStackAlign(.c, 1)) noreturn {
     callMain2();
 }
 
 fn callMain2() noreturn {
-    @setAlignStack(16);
     root.main();
     exit2(0);
 }
 
-fn spirvMain2() callconv(.Kernel) void {
+fn spirvMain2() callconv(.kernel) void {
     root.main();
 }
 
-fn wWinMainCRTStartup2() callconv(.C) noreturn {
+fn wWinMainCRTStartup2() callconv(.c) noreturn {
     root.main();
     exit2(0);
 }
@@ -174,7 +172,7 @@ fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
-) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
+) callconv(.winapi) std.os.windows.BOOL {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -186,13 +184,13 @@ fn _DllMainCRTStartup(
     return std.os.windows.TRUE;
 }
 
-fn wasm_freestanding_start() callconv(.C) void {
+fn wasm_freestanding_start() callconv(.c) void {
     // This is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     _ = @call(.always_inline, callMain, .{});
 }
 
-fn wasi_start() callconv(.C) void {
+fn wasi_start() callconv(.c) void {
     // The function call is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
@@ -201,11 +199,11 @@ fn wasi_start() callconv(.C) void {
     }
 }
 
-fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
+fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.c) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
+    switch (@typeInfo(@TypeOf(root.main)).@"fn".return_type.?) {
         noreturn => {
             root.main();
         },
@@ -223,7 +221,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     }
 }
 
-fn _start() callconv(.Naked) noreturn {
+fn _start() callconv(.naked) noreturn {
     // TODO set Top of Stack on non x86_64-plan9
     if (native_os == .plan9 and native_arch == .x86_64) {
         // from /sys/src/libc/amd64/main9.s
@@ -231,6 +229,39 @@ fn _start() callconv(.Naked) noreturn {
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
     }
+
+    // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
+    // prevent FP-based unwinders from unwinding further by zeroing the register below.
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
+            .arc => ".cfi_undefined blink",
+            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
+            .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .csky => ".cfi_undefined lr",
+            .hexagon => ".cfi_undefined r31",
+            .loongarch32, .loongarch64 => ".cfi_undefined 1",
+            .m68k => ".cfi_undefined pc",
+            .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
+            .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
+                ""
+            else
+                ".cfi_undefined ra",
+            .s390x => ".cfi_undefined %%r14",
+            .sparc, .sparc64 => ".cfi_undefined %%i7",
+            .x86 => ".cfi_undefined %%eip",
+            .x86_64 => ".cfi_undefined %%rip",
+            else => @compileError("unsupported arch"),
+        });
+
+    // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
+        \\ .weak __global_pointer$
+        \\ .hidden __global_pointer$
+        \\ .option push
+        \\ .option norelax
+        \\ lla gp, __global_pointer$
+        \\ .option pop
+    );
 
     // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
     // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
@@ -260,8 +291,8 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .arc =>
-            // The `arc` tag currently means ARCv2, which has an unusually low stack alignment
-            // requirement. ARCv3 increases it from 4 to 16, but we don't support ARCv3 yet.
+            // The `arc` tag currently means ARC v1 and v2, which have an unusually low stack
+            // alignment requirement. ARC v3 increases it from 4 to 16, but we don't support v3 yet.
             \\ mov fp, 0
             \\ mov blink, 0
             \\ mov r0, sp
@@ -269,33 +300,37 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
-            \\ mov fp, #0
-            \\ mov lr, #0
+            // Note that this code must work for Thumb-1.
+            // r7 = FP (local), r11 = FP (unwind)
+            \\ movs v1, #0
+            \\ mov r7, v1
+            \\ mov r11, v1
+            \\ mov lr, v1
             \\ mov a1, sp
-            \\ and sp, #-16
+            \\ subs v1, #16
+            \\ ands v1, a1
+            \\ mov sp, v1
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .csky =>
-            if (builtin.position_independent_code)
-                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
-                // to locate `_DYNAMIC` as well.
-                \\ grs t0, 1f
-                \\ 1:
-                \\ lrw gb, 1b@GOTPC
-                \\ addu gb, t0
-            else ""
-            ++
+            // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+            // position-independent code to work. We depend on this in `std.os.linux.pie` to locate
+            // `_DYNAMIC` as well.
+            // r8 = FP
+            \\ grs t0, 1f
+            \\ 1:
+            \\ lrw gb, 1b@GOTPC
+            \\ addu gb, t0
+            \\ movi r8, 0
             \\ movi lr, 0
             \\ mov a0, sp
             \\ andi sp, sp, -8
             \\ jmpi %[posixCallMainAndExit]
             ,
-            // zig fmt: on
             .hexagon =>
-            // r29 = SP, r30 = FP
+            // r29 = SP, r30 = FP, r31 = LR
             \\ r30 = #0
+            \\ r31 = #0
             \\ r0 = r29
             \\ r29 = and(r29, #-16)
             \\ memw(r29 + #-8) = r29
@@ -304,31 +339,18 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
+            \\ move $ra, $zero
             \\ move $a0, $sp
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .riscv32, .riscv64 =>
-            // The self-hosted riscv64 backend is not able to assemble this yet.
-            if (builtin.zig_backend != .stage2_riscv64)
-                // The RISC-V ELF ABI assumes that `gp` is set to the value of `__global_pointer$` at
-                // startup in order for GP relaxation to work, even in static builds.
-                \\ .weak __global_pointer$
-                \\ .hidden __global_pointer$
-                \\ .option push
-                \\ .option norelax
-                \\ lla gp, __global_pointer$
-                \\ .option pop
-            else ""
-            ++
-            \\ li s0, 0
+            \\ li fp, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
-            // zig fmt: off
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
@@ -377,27 +399,35 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
+            // r1 = SP, r31 = FP
             \\ mr 3, 1
             \\ clrrwi 1, 1, 4
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
+            \\ li 31, 0
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
             // Set up the ToC and initial stack frame, and clear the back chain pointer.
+            // r1 = SP, r2 = ToC, r31 = FP
             \\ addis 2, 12, .TOC. - %[_start]@ha
             \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
             \\ clrrdi 1, 1, 4
             \\ li 0, 0
             \\ stdu 0, -32(1)
+            \\ li 31, 0
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
+            \\ nop
             ,
             .s390x =>
             // Set up the stack frame (register save area and cleared back-chain slot).
+            // r11 = FP, r14 = LR, r15 = SP
+            \\ lghi %%r11, 0
+            \\ lghi %%r14, 0
             \\ lgr %%r2, %%r15
             \\ lghi %%r0, -16
             \\ ngr %%r15, %%r0
@@ -408,7 +438,9 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
+            // i7 = LR
             \\ mov %%g0, %%fp
+            \\ mov %%g0, %%i7
             \\ add %%sp, 64, %%o0
             \\ and %%sp, -8, %%sp
             \\ ba,a %[posixCallMainAndExit]
@@ -416,7 +448,9 @@ fn _start() callconv(.Naked) noreturn {
             .sparc64 =>
             // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
             // (2047 bytes).
+            // i7 = LR
             \\ mov %%g0, %%fp
+            \\ mov %%g0, %%i7
             \\ add %%sp, 2175, %%o0
             \\ add %%sp, 2047, %%sp
             \\ and %%sp, -16, %%sp
@@ -426,13 +460,12 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [_start] "X" (_start),
+        : [_start] "X" (&_start),
           [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
 
-fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
-    @setAlignStack(16);
+fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -442,8 +475,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
 
-fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
-    @setAlignStack(16);
+fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -454,7 +486,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
-fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
+fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // We're not ready to panic until thread local storage is initialized.
     @setRuntimeSafety(false);
     // Code coverage instrumentation might try to use thread local variables.
@@ -502,7 +534,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             // ARMv6 targets (and earlier) have no support for TLS in hardware.
             // FIXME: Elide the check for targets >= ARMv7 when the target feature API
             // becomes less verbose (and more usable).
-            if (comptime native_arch.isArmOrThumb()) {
+            if (comptime native_arch.isArm()) {
                 if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                     // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
                     // For the time being use a simple trap instead of a @panic call to
@@ -521,11 +553,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // to ask for more stack space.
         expandStackSize(phdrs);
 
-        const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
+        const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
             .name = "__init_array_start",
             .linkage = .weak,
         });
-        const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
+        const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
             .name = "__init_array_end",
             .linkage = .weak,
         });
@@ -543,7 +575,8 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
-                assert(phdr.p_memsz % std.mem.page_size == 0);
+                if (phdr.p_memsz == 0) break;
+                assert(phdr.p_memsz % std.heap.page_size_min == 0);
 
                 // Silently fail if we are unable to get limits.
                 const limits = std.posix.getrlimit(.STACK) catch break;
@@ -583,7 +616,7 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return callMain();
 }
 
-fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
+fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.c) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
@@ -598,7 +631,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
     return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
     std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
     return callMain();
 }
@@ -607,7 +640,7 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
 pub inline fn callMain() u8 {
-    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
+    const ReturnType = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
 
     switch (ReturnType) {
         void => {
@@ -618,7 +651,7 @@ pub inline fn callMain() u8 {
             return root.main();
         },
         else => {
-            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
+            if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
@@ -643,7 +676,7 @@ pub inline fn callMain() u8 {
 
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
     const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 
@@ -708,4 +741,4 @@ fn maybeIgnoreSigpipe() void {
     }
 }
 
-fn noopSigHandler(_: i32) callconv(.C) void {}
+fn noopSigHandler(_: i32) callconv(.c) void {}

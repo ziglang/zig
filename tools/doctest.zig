@@ -203,7 +203,7 @@ fn printOutput(
                 if (mem.startsWith(u8, triple, "wasm32") or
                     mem.startsWith(u8, triple, "riscv64-linux") or
                     (mem.startsWith(u8, triple, "x86_64-linux") and
-                    builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
+                        builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
                 {
                     // skip execution
                     break :code_block;
@@ -868,8 +868,8 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
 
     var mode: std.builtin.OptimizeMode = .Debug;
     var link_mode: ?std.builtin.LinkMode = null;
-    var link_objects: std.ArrayListUnmanaged([]const u8) = .{};
-    var additional_options: std.ArrayListUnmanaged([]const u8) = .{};
+    var link_objects: std.ArrayListUnmanaged([]const u8) = .empty;
+    var additional_options: std.ArrayListUnmanaged([]const u8) = .empty;
     var target_str: ?[]const u8 = null;
     var link_libc = false;
     var disable_cache = false;

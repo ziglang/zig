@@ -28,6 +28,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [cmp.alg]
 namespace __partial_order {
+void partial_order() = delete;
+
 struct __fn {
   // NOLINTBEGIN(libcpp-robust-against-adl) partial_order should use ADL, but only here
   template <class _Tp, class _Up>

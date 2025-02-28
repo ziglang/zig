@@ -17,8 +17,8 @@ const AnySlice = union(enum) {
 };
 
 fn withFor(any: AnySlice) usize {
-    const Tag = @typeInfo(AnySlice).Union.tag_type.?;
-    inline for (@typeInfo(Tag).Enum.fields) |field| {
+    const Tag = @typeInfo(AnySlice).@"union".tag_type.?;
+    inline for (@typeInfo(Tag).@"enum".fields) |field| {
         // With `inline for` the function gets generated as
         // a series of `if` statements relying on the optimizer
         // to convert it to a switch.

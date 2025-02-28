@@ -1,113 +1,5 @@
-pub const ZigGotSection = struct {
-    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
-    dirty: bool = false,
-
-    pub const Index = u32;
-
-    pub fn deinit(zig_got: *ZigGotSection, allocator: Allocator) void {
-        zig_got.entries.deinit(allocator);
-    }
-
-    fn allocateEntry(zig_got: *ZigGotSection, allocator: Allocator) !Index {
-        try zig_got.entries.ensureUnusedCapacity(allocator, 1);
-        // TODO add free list
-        const index = @as(Index, @intCast(zig_got.entries.items.len));
-        _ = zig_got.entries.addOneAssumeCapacity();
-        zig_got.dirty = true;
-        return index;
-    }
-
-    pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, macho_file: *MachO) !Index {
-        const gpa = macho_file.base.comp.gpa;
-        const zo = macho_file.getZigObject().?;
-        const index = try zig_got.allocateEntry(gpa);
-        const entry = &zig_got.entries.items[index];
-        entry.* = sym_index;
-        const symbol = &zo.symbols.items[sym_index];
-        assert(symbol.getSectionFlags().needs_zig_got);
-        symbol.setSectionFlags(.{ .has_zig_got = true });
-        symbol.addExtra(.{ .zig_got = index }, macho_file);
-        return index;
-    }
-
-    pub fn entryOffset(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
-        _ = zig_got;
-        const sect = macho_file.sections.items(.header)[macho_file.zig_got_sect_index.?];
-        return sect.offset + @sizeOf(u64) * index;
-    }
-
-    pub fn entryAddress(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
-        _ = zig_got;
-        const sect = macho_file.sections.items(.header)[macho_file.zig_got_sect_index.?];
-        return sect.addr + @sizeOf(u64) * index;
-    }
-
-    pub fn size(zig_got: ZigGotSection, macho_file: *MachO) usize {
-        _ = macho_file;
-        return @sizeOf(u64) * zig_got.entries.items.len;
-    }
-
-    pub fn writeOne(zig_got: *ZigGotSection, macho_file: *MachO, index: Index) !void {
-        if (zig_got.dirty) {
-            const needed_size = zig_got.size(macho_file);
-            try macho_file.growSection(macho_file.zig_got_sect_index.?, needed_size);
-            zig_got.dirty = false;
-        }
-        const zo = macho_file.getZigObject().?;
-        const off = zig_got.entryOffset(index, macho_file);
-        const entry = zig_got.entries.items[index];
-        const value = zo.symbols.items[entry].getAddress(.{ .stubs = false }, macho_file);
-
-        var buf: [8]u8 = undefined;
-        std.mem.writeInt(u64, &buf, value, .little);
-        try macho_file.base.file.?.pwriteAll(&buf, off);
-    }
-
-    pub fn writeAll(zig_got: ZigGotSection, macho_file: *MachO, writer: anytype) !void {
-        const zo = macho_file.getZigObject().?;
-        for (zig_got.entries.items) |entry| {
-            const symbol = zo.symbols.items[entry];
-            const value = symbol.address(.{ .stubs = false }, macho_file);
-            try writer.writeInt(u64, value, .little);
-        }
-    }
-
-    const FormatCtx = struct {
-        zig_got: ZigGotSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(zig_got: ZigGotSection, macho_file: *MachO) std.fmt.Formatter(format2) {
-        return .{ .data = .{ .zig_got = zig_got, .macho_file = macho_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const zig_got = ctx.zig_got;
-        const macho_file = ctx.macho_file;
-        try writer.writeAll("__zig_got\n");
-        for (zig_got.entries.items, 0..) |entry, index| {
-            const zo = macho_file.getZigObject().?;
-            const symbol = zo.symbols.items[entry];
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                index,
-                zig_got.entryAddress(@intCast(index), macho_file),
-                entry,
-                symbol.getAddress(.{}, macho_file),
-                symbol.getName(macho_file),
-            });
-        }
-    }
-};
-
 pub const GotSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -176,7 +68,7 @@ pub const GotSection = struct {
 };
 
 pub const StubsSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -312,7 +204,7 @@ pub const StubsHelperSection = struct {
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
             if (sym.flags.weak) continue;
-            const offset = macho_file.lazy_bind.offsets.items[idx];
+            const offset = macho_file.lazy_bind_section.offsets.items[idx];
             const source: i64 = @intCast(sect.addr + preamble_size + entry_size * idx);
             const target: i64 = @intCast(sect.addr);
             switch (cpu_arch) {
@@ -424,7 +316,7 @@ pub const LaSymbolPtrSection = struct {
 };
 
 pub const TlvPtrSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -496,7 +388,7 @@ pub const TlvPtrSection = struct {
 };
 
 pub const ObjcStubsSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub fn deinit(objc: *ObjcStubsSection, allocator: Allocator) void {
         objc.symbols.deinit(allocator);
@@ -640,23 +532,29 @@ pub const Indsymtab = struct {
 
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
 
         for (macho_file.got.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
 
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
     }
 };
 
 pub const DataInCode = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
 
     pub fn deinit(dice: *DataInCode, allocator: Allocator) void {
         dice.entries.deinit(allocator);

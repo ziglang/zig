@@ -117,7 +117,9 @@ namespace std {
 
 #include <__config>
 #include <__utility/move.h>
+#include <ios>
 #include <iosfwd> // required for declaration of default arguments
+#include <streambuf>
 #include <string>
 
 #ifndef _LIBCPP_HAS_NO_THREADS

@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 
 test "memcpy and memset intrinsics" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -28,6 +29,7 @@ test "@memcpy with both operands single-ptr-to-array, one is null-terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMemcpyBothSinglePtrArrayOneIsNullTerminated();
     try comptime testMemcpyBothSinglePtrArrayOneIsNullTerminated();
@@ -48,6 +50,7 @@ test "@memcpy dest many pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMemcpyDestManyPtr();
     try comptime testMemcpyDestManyPtr();
@@ -70,6 +73,7 @@ test "@memcpy slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMemcpySlice();
     try comptime testMemcpySlice();
@@ -98,4 +102,34 @@ comptime {
     var s = S{};
     s.set("hello");
     if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+}
+
+test "@memcpy comptime-only type" {
+    const in: [4]type = .{ u8, u16, u32, u64 };
+    comptime var out: [4]type = undefined;
+    @memcpy(&out, &in);
+
+    comptime assert(out[0] == u8);
+    comptime assert(out[1] == u16);
+    comptime assert(out[2] == u32);
+    comptime assert(out[3] == u64);
+}
+
+test "@memcpy zero-bit type with aliasing" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() void {
+            var buf: [3]void = @splat({});
+            const slice: []void = &buf;
+            // These two pointers are the same, but it's still not considered aliasing because
+            // the input and output slices both correspond to zero bits of memory.
+            @memcpy(slice, slice);
+            comptime assert(buf[0] == {});
+            comptime assert(buf[1] == {});
+            comptime assert(buf[2] == {});
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

@@ -14,15 +14,15 @@ const expect = std.testing.expect;
 ///
 pub fn nextAfter(comptime T: type, x: T, y: T) T {
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => nextAfterInt(T, x, y),
-        .Float => nextAfterFloat(T, x, y),
+        .int, .comptime_int => nextAfterInt(T, x, y),
+        .float => nextAfterFloat(T, x, y),
         else => @compileError("expected int or non-comptime float, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
 fn nextAfterInt(comptime T: type, x: T, y: T) T {
-    comptime assert(@typeInfo(T) == .Int or @typeInfo(T) == .ComptimeInt);
-    return if (@typeInfo(T) == .Int and @bitSizeOf(T) < 2)
+    comptime assert(@typeInfo(T) == .int or @typeInfo(T) == .comptime_int);
+    return if (@typeInfo(T) == .int and @bitSizeOf(T) < 2)
         // Special case for `i0`, `u0`, `i1`, and `u1`.
         y
     else if (y > x)
@@ -38,7 +38,7 @@ fn nextAfterInt(comptime T: type, x: T, y: T) T {
 // <https://github.com/mingw-w64/mingw-w64/blob/e89de847dd3e05bb8e46344378ce3e124f4e7d1c/mingw-w64-crt/math/nextafterl.c>
 
 fn nextAfterFloat(comptime T: type, x: T, y: T) T {
-    comptime assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .float);
     if (x == y) {
         // Returning `y` ensures that (0.0, -0.0) returns -0.0 and that (-0.0, 0.0) returns 0.0.
         return y;
@@ -61,7 +61,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
         const integer_bit_mask = 1 << math.floatFractionalBits(f80);
         const exponent_bits_mask = (1 << math.floatExponentBits(f80)) - 1;
 
-        var x_parts = math.break_f80(x);
+        var x_parts = math.F80.fromFloat(x);
 
         // Bitwise increment/decrement the fractional part while also taking care to update the
         // exponent if we overflow the fractional part. This might flip the integer bit; this is
@@ -88,7 +88,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
         // set to cleared (if the old value was normal) or remained cleared (if the old value was
         // subnormal), both of which are the outcomes we want.
 
-        return math.make_f80(x_parts);
+        return x_parts.toFloat();
     } else {
         const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
         var x_bits: Bits = @bitCast(x);
@@ -144,7 +144,7 @@ test "int" {
 }
 
 test "float" {
-    @setEvalBranchQuota(3000);
+    @setEvalBranchQuota(4000);
 
     // normal -> normal
     try expect(nextAfter(f16, 0x1.234p0, 2.0) == 0x1.238p0);
@@ -320,7 +320,7 @@ test "float" {
 
 /// Helps ensure that 0.0 doesn't compare equal to -0.0.
 fn bitwiseEqual(comptime T: type, x: T, y: T) bool {
-    comptime assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .float);
     const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
     return @as(Bits, @bitCast(x)) == @as(Bits, @bitCast(y));
 }

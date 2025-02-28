@@ -119,7 +119,7 @@ namespace __width_estimation_table {
 /// - bits [0, 13] The size of the range, allowing 16384 elements.
 /// - bits [14, 31] The lower bound code point of the range. The upper bound of
 ///   the range is lower bound + size.
-inline constexpr uint32_t __entries[108] = {
+_LIBCPP_HIDE_FROM_ABI inline constexpr uint32_t __entries[107] = {
     0x0440005f /* 00001100 - 0000115f [   96] */, //
     0x08c68001 /* 0000231a - 0000231b [    2] */, //
     0x08ca4001 /* 00002329 - 0000232a [    2] */, //
@@ -158,14 +158,13 @@ inline constexpr uint32_t __entries[108] = {
     0x0ba00019 /* 00002e80 - 00002e99 [   26] */, //
     0x0ba6c058 /* 00002e9b - 00002ef3 [   89] */, //
     0x0bc000d5 /* 00002f00 - 00002fd5 [  214] */, //
-    0x0bfc000b /* 00002ff0 - 00002ffb [   12] */, //
-    0x0c00003e /* 00003000 - 0000303e [   63] */, //
+    0x0bfc004e /* 00002ff0 - 0000303e [   79] */, //
     0x0c104055 /* 00003041 - 00003096 [   86] */, //
     0x0c264066 /* 00003099 - 000030ff [  103] */, //
     0x0c41402a /* 00003105 - 0000312f [   43] */, //
     0x0c4c405d /* 00003131 - 0000318e [   94] */, //
     0x0c640053 /* 00003190 - 000031e3 [   84] */, //
-    0x0c7c002e /* 000031f0 - 0000321e [   47] */, //
+    0x0c7bc02f /* 000031ef - 0000321e [   48] */, //
     0x0c880027 /* 00003220 - 00003247 [   40] */, //
     0x0c943fff /* 00003250 - 0000724f [16384] */, //
     0x1c94323c /* 00007250 - 0000a48c [12861] */, //
@@ -238,7 +237,7 @@ inline constexpr uint32_t __table_upper_bound = 0x0003fffd;
 
 /// Returns the estimated width of a Unicode code point.
 ///
-/// \pre The code point is a valid Unicode code point.
+/// \\pre The code point is a valid Unicode code point.
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr int __estimated_width(const char32_t __code_point) noexcept {
   // Since __table_upper_bound contains the unshifted range do the
   // comparison without shifting.

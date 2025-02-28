@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Target = std.Target;
@@ -116,7 +115,7 @@ pub const Immediate = union(enum) {
     }
 
     pub fn asBits(imm: Immediate, comptime T: type) T {
-        const int_info = @typeInfo(T).Int;
+        const int_info = @typeInfo(T).int;
         if (int_info.signedness != .unsigned) @compileError("Immediate.asBits needs unsigned T");
         return switch (imm) {
             .signed => |x| @bitCast(@as(std.meta.Int(.signed, int_info.bits), @intCast(x))),
@@ -190,7 +189,7 @@ pub const Register = enum(u8) {
     /// The goal of this function is to return the same ID for `zero` and `x0` but two
     /// seperate IDs for `x0` and `f0`. We will assume that each register set has 32 registers
     /// and is repeated twice, once for the named version, once for the number version.
-    pub fn id(reg: Register) std.math.IntFittingRange(0, @typeInfo(Register).Enum.fields.len) {
+    pub fn id(reg: Register) std.math.IntFittingRange(0, @typeInfo(Register).@"enum".fields.len) {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => @intFromEnum(Register.zero),
@@ -207,8 +206,8 @@ pub const Register = enum(u8) {
         return @truncate(@intFromEnum(reg));
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id());
+    pub fn dwarfNum(reg: Register) u8 {
+        return reg.id();
     }
 
     pub fn bitSize(reg: Register, zcu: *const Zcu) u32 {
@@ -253,7 +252,7 @@ pub const FrameIndex = enum(u32) {
     /// Other indices are used for local variable stack slots
     _,
 
-    pub const named_count = @typeInfo(FrameIndex).Enum.fields.len;
+    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
 
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;

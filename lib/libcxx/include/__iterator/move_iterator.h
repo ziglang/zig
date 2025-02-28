@@ -105,9 +105,8 @@ public:
   typedef iterator_type pointer;
 
   typedef typename iterator_traits<iterator_type>::reference __reference;
-  typedef typename conditional< is_reference<__reference>::value,
-                                __libcpp_remove_reference_t<__reference>&&,
-                                __reference >::type reference;
+  typedef __conditional_t<is_reference<__reference>::value, __libcpp_remove_reference_t<__reference>&&, __reference>
+      reference;
 #endif // _LIBCPP_STD_VER >= 20
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 explicit move_iterator(_Iter __i) : __current_(std::move(__i)) {}
@@ -157,14 +156,14 @@ public:
 #else
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 move_iterator() : __current_() {}
 
-  template <class _Up,
-            class = __enable_if_t< !is_same<_Up, _Iter>::value && is_convertible<const _Up&, _Iter>::value > >
+  template <class _Up, __enable_if_t< !is_same<_Up, _Iter>::value && is_convertible<const _Up&, _Iter>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 move_iterator(const move_iterator<_Up>& __u)
       : __current_(__u.base()) {}
 
   template <class _Up,
-            class = __enable_if_t< !is_same<_Up, _Iter>::value && is_convertible<const _Up&, _Iter>::value &&
-                                   is_assignable<_Iter&, const _Up&>::value > >
+            __enable_if_t< !is_same<_Up, _Iter>::value && is_convertible<const _Up&, _Iter>::value &&
+                               is_assignable<_Iter&, const _Up&>::value,
+                           int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 move_iterator& operator=(const move_iterator<_Up>& __u) {
     __current_ = __u.base();
     return *this;
@@ -292,8 +291,8 @@ operator>=(const move_iterator<_Iter1>& __x, const move_iterator<_Iter2>& __y) {
 #if _LIBCPP_STD_VER >= 20
 template <class _Iter1, three_way_comparable_with<_Iter1> _Iter2>
 inline _LIBCPP_HIDE_FROM_ABI constexpr auto
-operator<=>(const move_iterator<_Iter1>& __x, const move_iterator<_Iter2>& __y)
-    -> compare_three_way_result_t<_Iter1, _Iter2> {
+operator<=>(const move_iterator<_Iter1>& __x,
+            const move_iterator<_Iter2>& __y) -> compare_three_way_result_t<_Iter1, _Iter2> {
   return __x.base() <=> __y.base();
 }
 #endif // _LIBCPP_STD_VER >= 20
@@ -328,6 +327,12 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 move_iterator<_Iter>
 operator+(typename move_iterator<_Iter>::difference_type __n, const move_iterator<_Iter>& __x) {
   return move_iterator<_Iter>(__x.base() + __n);
 }
+#endif // _LIBCPP_STD_VER >= 20
+
+#if _LIBCPP_STD_VER >= 20
+template <class _Iter1, class _Iter2>
+  requires(!sized_sentinel_for<_Iter1, _Iter2>)
+inline constexpr bool disable_sized_sentinel_for<move_iterator<_Iter1>, move_iterator<_Iter2>> = true;
 #endif // _LIBCPP_STD_VER >= 20
 
 template <class _Iter>

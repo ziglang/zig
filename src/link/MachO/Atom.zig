@@ -129,7 +129,7 @@ const AddExtraOpts = struct {
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) void {
     const file = atom.getFile(macho_file);
     var extra = file.getAtomExtra(atom.extra);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
         }
@@ -149,10 +149,10 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     if (macho_file.base.isRelocatable()) {
         const osec = macho_file.getSectionByName(sect.segName(), sect.sectName()) orelse
             try macho_file.addSection(
-            sect.segName(),
-            sect.sectName(),
-            .{ .flags = sect.flags },
-        );
+                sect.segName(),
+                sect.sectName(),
+                .{ .flags = sect.flags },
+            );
         return osec;
     }
 
@@ -492,10 +492,6 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 }
             },
 
-            .zig_got_load => {
-                assert(rel.getTargetSymbol(self, macho_file).getSectionFlags().has_zig_got);
-            },
-
             .got => {
                 rel.getTargetSymbol(self, macho_file).setSectionFlags(.{ .needs_got = true });
             },
@@ -564,9 +560,9 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
         const gpa = macho_file.base.comp.gpa;
         const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[rel.target]);
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{};
+            gop.value_ptr.* = .{ .refs = .{} };
         }
-        try gop.value_ptr.append(gpa, .{ .index = self.atom_index, .file = self.file });
+        try gop.value_ptr.refs.append(gpa, .{ .index = self.atom_index, .file = self.file });
         return true;
     }
 
@@ -644,7 +640,8 @@ fn resolveRelocInner(
     macho_file: *MachO,
     writer: anytype,
 ) ResolveError!void {
-    const cpu_arch = macho_file.getTarget().cpu.arch;
+    const t = &macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = t.cpu.arch;
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
     const P = @as(i64, @intCast(self.getAddress(macho_file))) + @as(i64, @intCast(rel_offset));
     const A = rel.addend + rel.getRelocAddend(cpu_arch);
@@ -652,8 +649,6 @@ fn resolveRelocInner(
     const G: i64 = @intCast(rel.getGotTargetAddress(self, macho_file));
     const TLS = @as(i64, @intCast(macho_file.getTlsAddress()));
     const SUB = if (subtractor) |sub| @as(i64, @intCast(sub.getTargetAddress(self, macho_file))) else 0;
-    // Address of the __got_zig table entry if any.
-    const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(macho_file)));
 
     const divExact = struct {
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
@@ -676,13 +671,12 @@ fn resolveRelocInner(
             S + A - SUB,
             rel.getTargetAtom(self, macho_file).atom_index,
         }),
-        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ZG({x}) ({s})", .{
+        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ({s})", .{
             P,
             rel_offset,
             rel.fmtPretty(cpu_arch),
             S + A - SUB,
             G + A,
-            ZIG_GOT + A,
             rel.getTargetSymbol(self, macho_file).getName(macho_file),
         }),
     }
@@ -745,17 +739,6 @@ fn resolveRelocInner(
             }
         },
 
-        .zig_got_load => {
-            assert(rel.tag == .@"extern");
-            assert(rel.meta.length == 2);
-            assert(rel.meta.pcrel);
-            switch (cpu_arch) {
-                .x86_64 => try writer.writeInt(i32, @intCast(ZIG_GOT + A - P), .little),
-                .aarch64 => @panic("TODO resolve __got_zig indirection reloc"),
-                else => unreachable,
-            }
-        },
-
         .tlv => {
             assert(rel.tag == .@"extern");
             assert(rel.meta.length == 2);
@@ -765,7 +748,7 @@ fn resolveRelocInner(
                 const S_: i64 = @intCast(sym.getTlvPtrAddress(macho_file));
                 try writer.writeInt(i32, @intCast(S_ + A - P), .little);
             } else {
-                try x86_64.relaxTlv(code[rel_offset - 3 ..]);
+                try x86_64.relaxTlv(code[rel_offset - 3 ..], t);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -911,34 +894,36 @@ fn resolveRelocInner(
 const x86_64 = struct {
     fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
         dev.check(.x86_64_backend);
+        const t = &macho_file.base.comp.root_mod.resolved_target.result;
+        const diags = &macho_file.base.comp.link_diags;
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => |x| {
-                var err = try macho_file.base.addErrorWithNotes(2);
+                var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
                     self.getName(macho_file),
                     self.getAddress(macho_file),
                     rel.offset,
                     rel.fmtPretty(.x86_64),
                 });
-                try err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
-                try err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
+                err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
                 return error.RelaxFailUnexpectedInstruction;
             },
         }
     }
 
-    fn relaxTlv(code: []u8) error{RelaxFail}!void {
+    fn relaxTlv(code: []u8, t: *const std.Target) error{RelaxFail}!void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
@@ -988,9 +973,11 @@ pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
     }
 }
 
-pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.relocation_info) !void {
+pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.relocation_info) error{ LinkFailure, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), self.getName(macho_file) });
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
@@ -998,21 +985,39 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     var i: usize = 0;
     for (relocs) |rel| {
         defer i += 1;
-        const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
-        const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
+        const rel_offset = try macho_file.cast(usize, rel.offset - self.off);
+        const r_address: i32 = try macho_file.cast(i32, self.value + rel_offset);
         assert(r_address >= 0);
         const r_symbolnum = r_symbolnum: {
             const r_symbolnum: u32 = switch (rel.tag) {
                 .local => rel.getTargetAtom(self, macho_file).out_n_sect + 1,
                 .@"extern" => rel.getTargetSymbol(self, macho_file).getOutputSymtabIndex(macho_file).?,
             };
-            break :r_symbolnum math.cast(u24, r_symbolnum) orelse return error.Overflow;
+            break :r_symbolnum try macho_file.cast(u24, r_symbolnum);
         };
         const r_extern = rel.tag == .@"extern";
         var addend = rel.addend + rel.getRelocAddend(cpu_arch);
         if (rel.tag == .local) {
             const target: i64 = @intCast(rel.getTargetAddress(self, macho_file));
             addend += target;
+        }
+
+        switch (rel.tag) {
+            .local => relocs_log.debug("  {}: [{x} => {d}({s},{s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                macho_file.sections.items(.header)[r_symbolnum - 1].segName(),
+                macho_file.sections.items(.header)[r_symbolnum - 1].sectName(),
+                addend,
+            }),
+            .@"extern" => relocs_log.debug("  {}: [{x} => {d}({s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                rel.getTargetSymbol(self, macho_file).getName(macho_file),
+                addend,
+            }),
         }
 
         switch (cpu_arch) {
@@ -1024,7 +1029,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                 } else if (addend > 0) {
                     buffer[i] = .{
                         .r_address = r_address,
-                        .r_symbolnum = @bitCast(math.cast(i24, addend) orelse return error.Overflow),
+                        .r_symbolnum = @bitCast(try macho_file.cast(i24, addend)),
                         .r_pcrel = 0,
                         .r_length = 2,
                         .r_extern = 0,
@@ -1045,7 +1050,6 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                     .subtractor => .ARM64_RELOC_SUBTRACTOR,
                     .unsigned => .ARM64_RELOC_UNSIGNED,
 
-                    .zig_got_load,
                     .signed,
                     .signed1,
                     .signed2,
@@ -1089,7 +1093,6 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                     .subtractor => .X86_64_RELOC_SUBTRACTOR,
                     .unsigned => .X86_64_RELOC_UNSIGNED,
 
-                    .zig_got_load,
                     .page,
                     .pageoff,
                     .got_load_page,
@@ -1220,6 +1223,6 @@ const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
-const Thunk = @import("thunks.zig").Thunk;
+const Thunk = @import("Thunk.zig");
 const UnwindInfo = @import("UnwindInfo.zig");
 const dev = @import("../../dev.zig");

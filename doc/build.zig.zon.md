@@ -10,7 +10,7 @@ build.zig.
 
 ### `name`
 
-String. Required.
+Enum literal. Required.
 
 This is the default name used by packages depending on this one. For example,
 when a user runs `zig fetch --save <url>`, this field is used as the key in the
@@ -20,11 +20,41 @@ will stick with this provided value.
 It is redundant to include "zig" in this name because it is already within the
 Zig package namespace.
 
+Must be a valid bare Zig identifier (don't `@` me), limited to 32 bytes.
+
+Together with `fingerprint`, this represents a globally unique package identifier.
+
+### `fingerprint`
+
+Together with `name`, this represents a globally unique package identifier. This
+field is auto-initialized by the toolchain when the package is first created,
+and then *never changes*. This allows Zig to unambiguously detect when one
+package is an updated version of another.
+
+When forking a Zig project, this fingerprint should be regenerated if the upstream
+project is still maintained. Otherwise, the fork is *hostile*, attempting to
+take control over the original project's identity. The fingerprint can be regenerated
+by deleting the field and running `zig build`.
+
+This 64-bit integer is the combination of a 32-bit id component and a 32-bit
+checksum.
+
+The id component within the fingerprint has these restrictions:
+
+`0x00000000` is reserved for legacy packages.
+
+`0xffffffff` is reserved to represent "naked" packages.
+
+The checksum is computed from `name` and serves to protect Zig users from
+accidental id collisions.
+
 ### `version`
 
 String. Required.
 
 [semver](https://semver.org/)
+
+Limited to 32 bytes.
 
 ### `minimum_zig_version`
 
@@ -47,7 +77,8 @@ String.
 
 When updating this field to a new URL, be sure to delete the corresponding
 `hash`, otherwise you are communicating that you expect to find the old hash at
-the new URL.
+the new URL. If the contents of a URL change this will result in a hash mismatch
+which will prevent zig from using it.
 
 #### `hash`
 

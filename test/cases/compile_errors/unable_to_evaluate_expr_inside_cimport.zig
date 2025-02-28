@@ -7,9 +7,9 @@ export fn entry() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:11: error: unable to evaluate comptime expression
 // :2:13: note: operation is runtime due to this operand
-// :1:11: note: expression is evaluated at comptime because it is inside a @cImport
+// :1:11: note: operand to '@cImport' is evaluated at comptime

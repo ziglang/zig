@@ -5,7 +5,7 @@ const testing = std.testing;
 extern fn add(a: u32, b: u32, addr: *usize) u32;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 

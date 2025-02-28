@@ -230,6 +230,11 @@ test "echo content server" {
 }
 
 test "Server.Request.respondStreaming non-chunked, unknown content-length" {
+    if (builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/21457
+        return error.SkipZigTest;
+    }
+
     // In this case, the response is expected to stream until the connection is
     // closed, indicating the end of the body.
     const test_server = try createTestServer(struct {

@@ -17,11 +17,12 @@ const Module = std.Build.Module;
 const InstallDir = std.Build.InstallDir;
 const GeneratedFile = std.Build.GeneratedFile;
 const Compile = @This();
+const Path = std.Build.Cache.Path;
 
 pub const base_id: Step.Id = .compile;
 
 step: Step,
-root_module: Module,
+root_module: *Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
@@ -39,6 +40,7 @@ compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
+bundle_ubsan_rt: ?bool = null,
 rdynamic: bool,
 import_memory: bool = false,
 export_memory: bool = false,
@@ -55,8 +57,7 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?LazyPath,
-test_server_mode: bool,
+test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
 installed_headers: ArrayList(HeaderInstallation),
@@ -160,6 +161,9 @@ dead_strip_dylibs: bool = false,
 /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
 force_load_objc: bool = false,
 
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
+
 /// Position Independent Executable
 pie: ?bool = null,
 
@@ -184,6 +188,15 @@ stack_size: ?u64 = null,
 want_lto: ?bool = null,
 use_llvm: ?bool,
 use_lld: ?bool,
+
+/// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
+/// flags, overriding the global user setting provided to the `zig build`
+/// command.
+///
+/// The compiler defaults this value to off so that users whose system shared
+/// libraries are all ELF files don't have to pay the cost of checking every
+/// file to find out if it is a text file instead.
+allow_so_scripts: ?bool = null,
 
 /// This is an advanced setting that can change the intent of this Compile step.
 /// If this value is non-null, it means that this Compile step exists to
@@ -217,17 +230,25 @@ no_builtin: bool = false,
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
 
-/// Enables deprecated coverage instrumentation that is only useful if you
-/// are using third party fuzzers that depend on it. Otherwise, slows down
-/// the instrumented binary with unnecessary function calls.
+/// Enables coverage instrumentation that is only useful if you are using third
+/// party fuzzers that depend on it. Otherwise, slows down the instrumented
+/// binary with unnecessary function calls.
 ///
-/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
-/// flag in `Module`.
+/// This kind of coverage instrumentation is used by AFLplusplus v4.21c,
+/// however, modern fuzzers - including Zig - have switched to using "inline
+/// 8-bit counters" or "inline bool flag" which incurs only a single
+/// instruction for coverage, along with "trace cmp" which instruments
+/// comparisons and reports the operands.
+///
+/// To instead enable fuzz testing instrumentation on a compilation using Zig's
+/// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
+    starts_with: []const u8,
+    stderr_contains: []const u8,
 };
 
 pub const Entry = union(enum) {
@@ -244,13 +265,13 @@ pub const Entry = union(enum) {
 
 pub const Options = struct {
     name: []const u8,
-    root_module: Module.CreateOptions,
+    root_module: *Module,
     kind: Kind,
     linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?LazyPath = null,
+    test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -329,6 +350,14 @@ pub const HeaderInstallation = union(enum) {
     }
 };
 
+pub const TestRunner = struct {
+    path: LazyPath,
+    /// Test runners can either be "simple", running tests when spawned and terminating when the
+    /// tests are complete, or they can use `std.zig.Server` over stdio to interact more closely
+    /// with the build system.
+    mode: enum { simple, server },
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -341,7 +370,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const resolved_target = options.root_module.target.?;
+    const resolved_target = options.root_module.resolved_target orelse
+        @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
@@ -370,7 +400,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const compile = owner.allocator.create(Compile) catch @panic("OOM");
     compile.* = .{
-        .root_module = undefined,
+        .root_module = options.root_module,
         .verbose_link = false,
         .verbose_cc = false,
         .linkage = options.linkage,
@@ -392,8 +422,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = null,
-        .test_server_mode = options.test_runner == null,
+        .test_runner = null, // set below
         .rdynamic = false,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
@@ -414,16 +443,17 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_process = null,
     };
 
-    compile.root_module.init(owner, options.root_module, compile);
-
     if (options.zig_lib_dir) |lp| {
         compile.zig_lib_dir = lp.dupe(compile.step.owner);
         lp.addStepDependencies(&compile.step);
     }
 
-    if (options.test_runner) |lp| {
-        compile.test_runner = lp.dupe(compile.step.owner);
-        lp.addStepDependencies(&compile.step);
+    if (options.test_runner) |runner| {
+        compile.test_runner = .{
+            .path = runner.path.dupe(compile.step.owner),
+            .mode = runner.mode,
+        };
+        runner.path.addStepDependencies(&compile.step);
     }
 
     // Only the PE/COFF format has a Resource Table which is where the manifest
@@ -439,7 +469,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (compile.linkage != null and compile.linkage.? == .static) {
             compile.out_lib_filename = compile.out_filename;
         } else if (compile.version) |version| {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     compile.name,
                     version.major,
@@ -454,7 +484,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.out_lib_filename = compile.out_filename;
             }
         } else {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
                 compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
@@ -565,9 +595,6 @@ pub fn checkObject(compile: *Compile) *Step.CheckObject {
     return Step.CheckObject.create(compile.step.owner, compile.getEmittedBin(), compile.rootModuleTarget().ofmt);
 }
 
-/// deprecated: use `setLinkerScript`
-pub const setLinkerScriptPath = setLinkerScript;
-
 pub fn setLinkerScript(compile: *Compile, source: LazyPath) void {
     const b = compile.step.owner;
     compile.linker_script = source.dupe(b);
@@ -587,27 +614,30 @@ pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
 
 /// Returns whether the library, executable, or object depends on a particular system library.
 /// Includes transitive dependencies.
-pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
+pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
     var is_linking_libc = false;
     var is_linking_libcpp = false;
 
-    var dep_it = compile.root_module.iterateDependencies(compile, true);
-    while (dep_it.next()) |module| {
-        for (module.link_objects.items) |link_object| {
-            switch (link_object) {
-                .system_lib => |lib| if (mem.eql(u8, lib.name, name)) return true,
-                else => continue,
+    for (compile.getCompileDependencies(true)) |some_compile| {
+        for (some_compile.root_module.getGraph().modules) |mod| {
+            for (mod.link_objects.items) |lo| {
+                switch (lo) {
+                    .system_lib => |lib| if (mem.eql(u8, lib.name, name)) return true,
+                    else => {},
+                }
             }
+            if (mod.link_libc orelse false) is_linking_libc = true;
+            if (mod.link_libcpp orelse false) is_linking_libcpp = true;
         }
-        is_linking_libc = is_linking_libc or module.link_libc == true;
-        is_linking_libcpp = is_linking_libcpp or module.link_libcpp == true;
     }
 
-    if (compile.rootModuleTarget().is_libc_lib_name(name)) {
+    const target = compile.rootModuleTarget();
+
+    if (std.zig.target.isLibCLibName(target, name)) {
         return is_linking_libc;
     }
 
-    if (compile.rootModuleTarget().is_libcpp_lib_name(name)) {
+    if (std.zig.target.isLibCxxLibName(target, name)) {
         return is_linking_libcpp;
     }
 
@@ -655,11 +685,6 @@ pub fn linkLibCpp(compile: *Compile) void {
     compile.root_module.link_libcpp = true;
 }
 
-/// Deprecated. Use `c.root_module.addCMacro`.
-pub fn defineCMacro(c: *Compile, name: []const u8, value: ?[]const u8) void {
-    c.root_module.addCMacro(name, value orelse "1");
-}
-
 const PkgConfigResult = struct {
     cflags: []const []const u8,
     libs: []const []const u8,
@@ -675,6 +700,7 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         // -lSDL2 -> pkg-config sdl2
         // -lgdk-3 -> pkg-config gdk-3.0
         // -latk-1.0 -> pkg-config atk
+        // -lpulse -> pkg-config libpulse
         const pkgs = try getPkgConfigList(b);
 
         // Exact match means instant winner.
@@ -691,13 +717,14 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             }
         }
 
-        // Now try appending ".0".
+        // Prefixed "lib" or suffixed ".0".
         for (pkgs) |pkg| {
             if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
-                if (pos != 0) continue;
-                if (mem.eql(u8, pkg.name[lib_name.len..], ".0")) {
-                    break :match pkg.name;
-                }
+                const prefix = pkg.name[0..pos];
+                const suffix = pkg.name[pos + lib_name.len ..];
+                if (prefix.len > 0 and !mem.eql(u8, prefix, "lib")) continue;
+                if (suffix.len > 0 and !mem.eql(u8, suffix, ".0")) continue;
+                break :match pkg.name;
             }
         }
 
@@ -783,16 +810,6 @@ pub fn linkFramework(c: *Compile, name: []const u8) void {
     c.root_module.linkFramework(name, .{});
 }
 
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkNeeded(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .needed = true });
-}
-
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .weak = true });
-}
-
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(compile: *Compile, options: Module.AddCSourceFilesOptions) void {
     compile.root_module.addCSourceFiles(options);
@@ -819,7 +836,12 @@ pub fn setVerboseCC(compile: *Compile, value: bool) void {
 
 pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
     const b = compile.step.owner;
-    compile.libc_file = if (libc_file) |f| f.dupe(b) else null;
+    if (libc_file) |f| {
+        compile.libc_file = f.dupe(b);
+        f.addStepDependencies(&compile.step);
+    } else {
+        compile.libc_file = null;
+    }
 }
 
 fn getEmittedFileGeneric(compile: *Compile, output_file: *?*GeneratedFile) LazyPath {
@@ -956,23 +978,22 @@ const CliNamedModules = struct {
             .modules = .{},
             .names = .{},
         };
-        var dep_it = root_module.iterateDependencies(null, false);
+        const graph = root_module.getGraph();
         {
-            const item = dep_it.next().?;
-            assert(root_module == item.module);
+            assert(graph.modules[0] == root_module);
             try compile.modules.put(arena, root_module, {});
             try compile.names.put(arena, "root", {});
         }
-        while (dep_it.next()) |item| {
-            var name = item.name;
+        for (graph.modules[1..], graph.names[1..]) |mod, orig_name| {
+            var name = orig_name;
             var n: usize = 0;
             while (true) {
                 const gop = try compile.names.getOrPut(arena, name);
                 if (!gop.found_existing) {
-                    try compile.modules.putNoClobber(arena, item.module, {});
+                    try compile.modules.putNoClobber(arena, mod, {});
                     break;
                 }
-                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ item.name, n });
+                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ orig_name, n });
                 n += 1;
             }
         }
@@ -1025,6 +1046,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
+    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse b.graph.allow_so_scripts);
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
@@ -1063,8 +1085,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // Stores system libraries that have already been seen for at least one
         // module, along with any arguments that need to be passed to the
         // compiler for each module individually.
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .{};
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
+        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .empty;
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
@@ -1074,279 +1096,287 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // emitted if there is nothing to link.
         var total_linker_objects: usize = @intFromBool(compile.root_module.root_source_file != null);
 
-        {
-            // Fully recursive iteration including dynamic libraries to detect
-            // libc and libc++ linkage.
-            var dep_it = compile.root_module.iterateDependencies(compile, true);
-            while (dep_it.next()) |key| {
-                if (key.module.link_libc == true) compile.is_linking_libc = true;
-                if (key.module.link_libcpp == true) compile.is_linking_libcpp = true;
+        // Fully recursive iteration including dynamic libraries to detect
+        // libc and libc++ linkage.
+        for (compile.getCompileDependencies(true)) |some_compile| {
+            for (some_compile.root_module.getGraph().modules) |mod| {
+                if (mod.link_libc == true) compile.is_linking_libc = true;
+                if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(arena, &compile.root_module);
+        var cli_named_modules = try CliNamedModules.init(arena, compile.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
-        var dep_it = compile.root_module.iterateDependencies(compile, false);
+        for (compile.getCompileDependencies(false)) |dep_compile| {
+            for (dep_compile.root_module.getGraph().modules) |mod| {
+                // While walking transitive dependencies, if a given link object is
+                // already included in a library, it should not redundantly be
+                // placed on the linker line of the dependee.
+                const my_responsibility = dep_compile == compile;
+                const already_linked = !my_responsibility and dep_compile.isDynamicLibrary();
 
-        while (dep_it.next()) |dep| {
-            // While walking transitive dependencies, if a given link object is
-            // already included in a library, it should not redundantly be
-            // placed on the linker line of the dependee.
-            const my_responsibility = dep.compile.? == compile;
-            const already_linked = !my_responsibility and dep.compile.?.isDynamicLibrary();
-
-            // Inherit dependencies on darwin frameworks.
-            if (!already_linked) {
-                for (dep.module.frameworks.keys(), dep.module.frameworks.values()) |name, info| {
-                    try frameworks.put(arena, name, info);
-                }
-            }
-
-            // Inherit dependencies on system libraries and static libraries.
-            for (dep.module.link_objects.items) |link_object| {
-                switch (link_object) {
-                    .static_path => |static_path| {
-                        if (my_responsibility) {
-                            try zig_args.append(static_path.getPath2(dep.module.owner, step));
-                            total_linker_objects += 1;
-                        }
-                    },
-                    .system_lib => |system_lib| {
-                        const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
-                        if (system_lib_gop.found_existing) {
-                            try zig_args.appendSlice(system_lib_gop.value_ptr.*);
-                            continue;
-                        } else {
-                            system_lib_gop.value_ptr.* = &.{};
-                        }
-
-                        if (already_linked)
-                            continue;
-
-                        if ((system_lib.search_strategy != prev_search_strategy or
-                            system_lib.preferred_link_mode != prev_preferred_link_mode) and
-                            compile.linkage != .static)
-                        {
-                            switch (system_lib.search_strategy) {
-                                .no_fallback => switch (system_lib.preferred_link_mode) {
-                                    .dynamic => try zig_args.append("-search_dylibs_only"),
-                                    .static => try zig_args.append("-search_static_only"),
-                                },
-                                .paths_first => switch (system_lib.preferred_link_mode) {
-                                    .dynamic => try zig_args.append("-search_paths_first"),
-                                    .static => try zig_args.append("-search_paths_first_static"),
-                                },
-                                .mode_first => switch (system_lib.preferred_link_mode) {
-                                    .dynamic => try zig_args.append("-search_dylibs_first"),
-                                    .static => try zig_args.append("-search_static_first"),
-                                },
-                            }
-                            prev_search_strategy = system_lib.search_strategy;
-                            prev_preferred_link_mode = system_lib.preferred_link_mode;
-                        }
-
-                        const prefix: []const u8 = prefix: {
-                            if (system_lib.needed) break :prefix "-needed-l";
-                            if (system_lib.weak) break :prefix "-weak-l";
-                            break :prefix "-l";
-                        };
-                        switch (system_lib.use_pkg_config) {
-                            .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
-                            .yes, .force => {
-                                if (compile.runPkgConfig(system_lib.name)) |result| {
-                                    try zig_args.appendSlice(result.cflags);
-                                    try zig_args.appendSlice(result.libs);
-                                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
-                                } else |err| switch (err) {
-                                    error.PkgConfigInvalidOutput,
-                                    error.PkgConfigCrashed,
-                                    error.PkgConfigFailed,
-                                    error.PkgConfigNotInstalled,
-                                    error.PackageNotFound,
-                                    => switch (system_lib.use_pkg_config) {
-                                        .yes => {
-                                            // pkg-config failed, so fall back to linking the library
-                                            // by name directly.
-                                            try zig_args.append(b.fmt("{s}{s}", .{
-                                                prefix,
-                                                system_lib.name,
-                                            }));
-                                        },
-                                        .force => {
-                                            panic("pkg-config failed for library {s}", .{system_lib.name});
-                                        },
-                                        .no => unreachable,
-                                    },
-
-                                    else => |e| return e,
-                                }
-                            },
-                        }
-                    },
-                    .other_step => |other| {
-                        switch (other.kind) {
-                            .exe => return step.fail("cannot link with an executable build artifact", .{}),
-                            .@"test" => return step.fail("cannot link with a test", .{}),
-                            .obj => {
-                                const included_in_lib_or_obj = !my_responsibility and
-                                    (dep.compile.?.kind == .lib or dep.compile.?.kind == .obj);
-                                if (!already_linked and !included_in_lib_or_obj) {
-                                    try zig_args.append(other.getEmittedBin().getPath2(b, step));
-                                    total_linker_objects += 1;
-                                }
-                            },
-                            .lib => l: {
-                                const other_produces_implib = other.producesImplib();
-                                const other_is_static = other_produces_implib or other.isStaticLibrary();
-
-                                if (compile.isStaticLibrary() and other_is_static) {
-                                    // Avoid putting a static library inside a static library.
-                                    break :l;
-                                }
-
-                                // For DLLs, we must link against the implib.
-                                // For everything else, we directly link
-                                // against the library file.
-                                const full_path_lib = if (other_produces_implib)
-                                    other.getGeneratedFilePath("generated_implib", &compile.step)
-                                else
-                                    other.getGeneratedFilePath("generated_bin", &compile.step);
-
-                                try zig_args.append(full_path_lib);
-                                total_linker_objects += 1;
-
-                                if (other.linkage == .dynamic and
-                                    compile.rootModuleTarget().os.tag != .windows)
-                                {
-                                    if (fs.path.dirname(full_path_lib)) |dirname| {
-                                        try zig_args.append("-rpath");
-                                        try zig_args.append(dirname);
-                                    }
-                                }
-                            },
-                        }
-                    },
-                    .assembly_file => |asm_file| l: {
-                        if (!my_responsibility) break :l;
-
-                        if (prev_has_cflags) {
-                            try zig_args.append("-cflags");
-                            try zig_args.append("--");
-                            prev_has_cflags = false;
-                        }
-                        try zig_args.append(asm_file.getPath2(dep.module.owner, step));
-                        total_linker_objects += 1;
-                    },
-
-                    .c_source_file => |c_source_file| l: {
-                        if (!my_responsibility) break :l;
-
-                        if (c_source_file.flags.len == 0) {
-                            if (prev_has_cflags) {
-                                try zig_args.append("-cflags");
-                                try zig_args.append("--");
-                                prev_has_cflags = false;
-                            }
-                        } else {
-                            try zig_args.append("-cflags");
-                            for (c_source_file.flags) |arg| {
-                                try zig_args.append(arg);
-                            }
-                            try zig_args.append("--");
-                            prev_has_cflags = true;
-                        }
-                        try zig_args.append(c_source_file.file.getPath2(dep.module.owner, step));
-                        total_linker_objects += 1;
-                    },
-
-                    .c_source_files => |c_source_files| l: {
-                        if (!my_responsibility) break :l;
-
-                        if (c_source_files.flags.len == 0) {
-                            if (prev_has_cflags) {
-                                try zig_args.append("-cflags");
-                                try zig_args.append("--");
-                                prev_has_cflags = false;
-                            }
-                        } else {
-                            try zig_args.append("-cflags");
-                            for (c_source_files.flags) |flag| {
-                                try zig_args.append(flag);
-                            }
-                            try zig_args.append("--");
-                            prev_has_cflags = true;
-                        }
-
-                        const root_path = c_source_files.root.getPath2(dep.module.owner, step);
-                        for (c_source_files.files) |file| {
-                            try zig_args.append(b.pathJoin(&.{ root_path, file }));
-                        }
-
-                        total_linker_objects += c_source_files.files.len;
-                    },
-
-                    .win32_resource_file => |rc_source_file| l: {
-                        if (!my_responsibility) break :l;
-
-                        if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
-                            if (prev_has_rcflags) {
-                                try zig_args.append("-rcflags");
-                                try zig_args.append("--");
-                                prev_has_rcflags = false;
-                            }
-                        } else {
-                            try zig_args.append("-rcflags");
-                            for (rc_source_file.flags) |arg| {
-                                try zig_args.append(arg);
-                            }
-                            for (rc_source_file.include_paths) |include_path| {
-                                try zig_args.append("/I");
-                                try zig_args.append(include_path.getPath2(dep.module.owner, step));
-                            }
-                            try zig_args.append("--");
-                            prev_has_rcflags = true;
-                        }
-                        try zig_args.append(rc_source_file.file.getPath2(dep.module.owner, step));
-                        total_linker_objects += 1;
-                    },
-                }
-            }
-
-            // We need to emit the --mod argument here so that the above link objects
-            // have the correct parent module, but only if the module is part of
-            // this compilation.
-            if (!my_responsibility) continue;
-            if (cli_named_modules.modules.getIndex(dep.module)) |module_cli_index| {
-                const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
-                try dep.module.appendZigProcessFlags(&zig_args, step);
-
-                // --dep arguments
-                try zig_args.ensureUnusedCapacity(dep.module.import_table.count() * 2);
-                for (dep.module.import_table.keys(), dep.module.import_table.values()) |name, import| {
-                    const import_index = cli_named_modules.modules.getIndex(import).?;
-                    const import_cli_name = cli_named_modules.names.keys()[import_index];
-                    zig_args.appendAssumeCapacity("--dep");
-                    if (std.mem.eql(u8, import_cli_name, name)) {
-                        zig_args.appendAssumeCapacity(import_cli_name);
-                    } else {
-                        zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, import_cli_name }));
+                // Inherit dependencies on darwin frameworks.
+                if (!already_linked) {
+                    for (mod.frameworks.keys(), mod.frameworks.values()) |name, info| {
+                        try frameworks.put(arena, name, info);
                     }
                 }
 
-                // When the CLI sees a -M argument, it determines whether it
-                // implies the existence of a Zig compilation unit based on
-                // whether there is a root source file. If there is no root
-                // source file, then this is not a zig compilation unit - it is
-                // perhaps a set of linker objects, or C source files instead.
-                // Linker objects are added to the CLI globally, while C source
-                // files must have a module parent.
-                if (dep.module.root_source_file) |lp| {
-                    const src = lp.getPath2(dep.module.owner, step);
-                    try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
-                } else if (moduleNeedsCliArg(dep.module)) {
-                    try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
+                // Inherit dependencies on system libraries and static libraries.
+                for (mod.link_objects.items) |link_object| {
+                    switch (link_object) {
+                        .static_path => |static_path| {
+                            if (my_responsibility) {
+                                try zig_args.append(static_path.getPath2(mod.owner, step));
+                                total_linker_objects += 1;
+                            }
+                        },
+                        .system_lib => |system_lib| {
+                            const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
+                            if (system_lib_gop.found_existing) {
+                                try zig_args.appendSlice(system_lib_gop.value_ptr.*);
+                                continue;
+                            } else {
+                                system_lib_gop.value_ptr.* = &.{};
+                            }
+
+                            if (already_linked)
+                                continue;
+
+                            if ((system_lib.search_strategy != prev_search_strategy or
+                                system_lib.preferred_link_mode != prev_preferred_link_mode) and
+                                compile.linkage != .static)
+                            {
+                                switch (system_lib.search_strategy) {
+                                    .no_fallback => switch (system_lib.preferred_link_mode) {
+                                        .dynamic => try zig_args.append("-search_dylibs_only"),
+                                        .static => try zig_args.append("-search_static_only"),
+                                    },
+                                    .paths_first => switch (system_lib.preferred_link_mode) {
+                                        .dynamic => try zig_args.append("-search_paths_first"),
+                                        .static => try zig_args.append("-search_paths_first_static"),
+                                    },
+                                    .mode_first => switch (system_lib.preferred_link_mode) {
+                                        .dynamic => try zig_args.append("-search_dylibs_first"),
+                                        .static => try zig_args.append("-search_static_first"),
+                                    },
+                                }
+                                prev_search_strategy = system_lib.search_strategy;
+                                prev_preferred_link_mode = system_lib.preferred_link_mode;
+                            }
+
+                            const prefix: []const u8 = prefix: {
+                                if (system_lib.needed) break :prefix "-needed-l";
+                                if (system_lib.weak) break :prefix "-weak-l";
+                                break :prefix "-l";
+                            };
+                            switch (system_lib.use_pkg_config) {
+                                .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
+                                .yes, .force => {
+                                    if (compile.runPkgConfig(system_lib.name)) |result| {
+                                        try zig_args.appendSlice(result.cflags);
+                                        try zig_args.appendSlice(result.libs);
+                                        try seen_system_libs.put(arena, system_lib.name, result.cflags);
+                                    } else |err| switch (err) {
+                                        error.PkgConfigInvalidOutput,
+                                        error.PkgConfigCrashed,
+                                        error.PkgConfigFailed,
+                                        error.PkgConfigNotInstalled,
+                                        error.PackageNotFound,
+                                        => switch (system_lib.use_pkg_config) {
+                                            .yes => {
+                                                // pkg-config failed, so fall back to linking the library
+                                                // by name directly.
+                                                try zig_args.append(b.fmt("{s}{s}", .{
+                                                    prefix,
+                                                    system_lib.name,
+                                                }));
+                                            },
+                                            .force => {
+                                                panic("pkg-config failed for library {s}", .{system_lib.name});
+                                            },
+                                            .no => unreachable,
+                                        },
+
+                                        else => |e| return e,
+                                    }
+                                },
+                            }
+                        },
+                        .other_step => |other| {
+                            switch (other.kind) {
+                                .exe => return step.fail("cannot link with an executable build artifact", .{}),
+                                .@"test" => return step.fail("cannot link with a test", .{}),
+                                .obj => {
+                                    const included_in_lib_or_obj = !my_responsibility and
+                                        (dep_compile.kind == .lib or dep_compile.kind == .obj);
+                                    if (!already_linked and !included_in_lib_or_obj) {
+                                        try zig_args.append(other.getEmittedBin().getPath2(b, step));
+                                        total_linker_objects += 1;
+                                    }
+                                },
+                                .lib => l: {
+                                    const other_produces_implib = other.producesImplib();
+                                    const other_is_static = other_produces_implib or other.isStaticLibrary();
+
+                                    if (compile.isStaticLibrary() and other_is_static) {
+                                        // Avoid putting a static library inside a static library.
+                                        break :l;
+                                    }
+
+                                    // For DLLs, we must link against the implib.
+                                    // For everything else, we directly link
+                                    // against the library file.
+                                    const full_path_lib = if (other_produces_implib)
+                                        other.getGeneratedFilePath("generated_implib", &compile.step)
+                                    else
+                                        other.getGeneratedFilePath("generated_bin", &compile.step);
+
+                                    try zig_args.append(full_path_lib);
+                                    total_linker_objects += 1;
+
+                                    if (other.linkage == .dynamic and
+                                        compile.rootModuleTarget().os.tag != .windows)
+                                    {
+                                        if (fs.path.dirname(full_path_lib)) |dirname| {
+                                            try zig_args.append("-rpath");
+                                            try zig_args.append(dirname);
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                        .assembly_file => |asm_file| l: {
+                            if (!my_responsibility) break :l;
+
+                            if (prev_has_cflags) {
+                                try zig_args.append("-cflags");
+                                try zig_args.append("--");
+                                prev_has_cflags = false;
+                            }
+                            try zig_args.append(asm_file.getPath2(mod.owner, step));
+                            total_linker_objects += 1;
+                        },
+
+                        .c_source_file => |c_source_file| l: {
+                            if (!my_responsibility) break :l;
+
+                            if (prev_has_cflags or c_source_file.flags.len != 0) {
+                                try zig_args.append("-cflags");
+                                for (c_source_file.flags) |arg| {
+                                    try zig_args.append(arg);
+                                }
+                                try zig_args.append("--");
+                            }
+                            prev_has_cflags = (c_source_file.flags.len != 0);
+
+                            if (c_source_file.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
+                            }
+
+                            try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+
+                            if (c_source_file.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
+                            total_linker_objects += 1;
+                        },
+
+                        .c_source_files => |c_source_files| l: {
+                            if (!my_responsibility) break :l;
+
+                            if (prev_has_cflags or c_source_files.flags.len != 0) {
+                                try zig_args.append("-cflags");
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
+                                }
+                                try zig_args.append("--");
+                            }
+                            prev_has_cflags = (c_source_files.flags.len != 0);
+
+                            if (c_source_files.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
+                            }
+
+                            const root_path = c_source_files.root.getPath2(mod.owner, step);
+                            for (c_source_files.files) |file| {
+                                try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            }
+
+                            if (c_source_files.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
+
+                            total_linker_objects += c_source_files.files.len;
+                        },
+
+                        .win32_resource_file => |rc_source_file| l: {
+                            if (!my_responsibility) break :l;
+
+                            if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
+                                if (prev_has_rcflags) {
+                                    try zig_args.append("-rcflags");
+                                    try zig_args.append("--");
+                                    prev_has_rcflags = false;
+                                }
+                            } else {
+                                try zig_args.append("-rcflags");
+                                for (rc_source_file.flags) |arg| {
+                                    try zig_args.append(arg);
+                                }
+                                for (rc_source_file.include_paths) |include_path| {
+                                    try zig_args.append("/I");
+                                    try zig_args.append(include_path.getPath2(mod.owner, step));
+                                }
+                                try zig_args.append("--");
+                                prev_has_rcflags = true;
+                            }
+                            try zig_args.append(rc_source_file.file.getPath2(mod.owner, step));
+                            total_linker_objects += 1;
+                        },
+                    }
+                }
+
+                // We need to emit the --mod argument here so that the above link objects
+                // have the correct parent module, but only if the module is part of
+                // this compilation.
+                if (!my_responsibility) continue;
+                if (cli_named_modules.modules.getIndex(mod)) |module_cli_index| {
+                    const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
+                    try mod.appendZigProcessFlags(&zig_args, step);
+
+                    // --dep arguments
+                    try zig_args.ensureUnusedCapacity(mod.import_table.count() * 2);
+                    for (mod.import_table.keys(), mod.import_table.values()) |name, import| {
+                        const import_index = cli_named_modules.modules.getIndex(import).?;
+                        const import_cli_name = cli_named_modules.names.keys()[import_index];
+                        zig_args.appendAssumeCapacity("--dep");
+                        if (std.mem.eql(u8, import_cli_name, name)) {
+                            zig_args.appendAssumeCapacity(import_cli_name);
+                        } else {
+                            zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, import_cli_name }));
+                        }
+                    }
+
+                    // When the CLI sees a -M argument, it determines whether it
+                    // implies the existence of a Zig compilation unit based on
+                    // whether there is a root source file. If there is no root
+                    // source file, then this is not a zig compilation unit - it is
+                    // perhaps a set of linker objects, or C source files instead.
+                    // Linker objects are added to the CLI globally, while C source
+                    // files must have a module parent.
+                    if (mod.root_source_file) |lp| {
+                        const src = lp.getPath2(mod.owner, step);
+                        try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
+                    } else if (moduleNeedsCliArg(mod)) {
+                        try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
+                    }
                 }
             }
         }
@@ -1391,7 +1421,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(test_runner.getPath2(b, step));
+        try zig_args.append(test_runner.path.getPath2(b, step));
     }
 
     for (b.debug_log_scopes) |log_scope| {
@@ -1498,7 +1528,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             try zig_args.append(b.fmt("{}", .{version}));
         }
 
-        if (compile.rootModuleTarget().isDarwin()) {
+        if (compile.rootModuleTarget().os.tag.isDarwin()) {
             const install_name = compile.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
                 compile.rootModuleTarget().libPrefix(),
                 compile.name,
@@ -1529,8 +1559,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.force_load_objc) {
         try zig_args.append("-ObjC");
     }
+    if (compile.discard_local_symbols) {
+        try zig_args.append("--discard-all");
+    }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
+    try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
     try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
         try zig_args.append("-rdynamic");
@@ -1765,7 +1799,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     const zig_args = try getZigArgs(compile, false);
 
-    const maybe_output_bin_path = step.evalZigProcess(
+    const maybe_output_dir = step.evalZigProcess(
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
@@ -1779,53 +1813,51 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     };
 
     // Update generated files
-    if (maybe_output_bin_path) |output_bin_path| {
-        const output_dir = fs.path.dirname(output_bin_path).?;
-
+    if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = output_dir;
+            lp.path = b.fmt("{}", .{output_dir});
         }
 
         // -femit-bin[=path]         (default) Output machine code
         if (compile.generated_bin) |bin| {
-            bin.path = b.pathJoin(&.{ output_dir, compile.out_filename });
+            bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
         }
 
-        const sep = std.fs.path.sep;
+        const sep = std.fs.path.sep_str;
 
         // output PDB if someone requested it
         if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{s}{c}{s}.pdb", .{ output_dir, sep, compile.name });
+            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
         }
 
         // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
         if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{s}{c}{s}.lib", .{ output_dir, sep, compile.name });
+            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
         }
 
         // -femit-h[=path]           Generate a C header file (.h)
         if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.h", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
         }
 
         // -femit-docs[=path]        Create a docs/ dir with html documentation
         if (compile.generated_docs) |generated_docs| {
-            generated_docs.path = b.pathJoin(&.{ output_dir, "docs" });
+            generated_docs.path = output_dir.joinString(b.allocator, "docs") catch @panic("OOM");
         }
 
         // -femit-asm[=path]         Output .s (assembly code)
         if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.s", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
         if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.ll", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
         if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.bc", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
         }
     }
 
@@ -1841,7 +1873,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) ![]const u8 {
+pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     const gpa = c.step.owner.allocator;
 
     c.step.result_error_msgs.clearRetainingCapacity();
@@ -1937,24 +1969,58 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     const arena = compile.step.owner.allocator;
 
-    var actual_stderr_list = std.ArrayList(u8).init(arena);
+    var actual_errors_list = std.ArrayList(u8).init(arena);
     try actual_eb.renderToWriter(.{
         .ttyconf = .no_color,
         .include_reference_trace = false,
         .include_source_line = false,
-    }, actual_stderr_list.writer());
-    const actual_stderr = try actual_stderr_list.toOwnedSlice();
+    }, actual_errors_list.writer());
+    const actual_errors = try actual_errors_list.toOwnedSlice();
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
     const expect_errors = compile.expect_errors.?;
 
-    var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+    var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
     switch (expect_errors) {
+        .starts_with => |expect_starts_with| {
+            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
+            return compile.step.fail(
+                \\
+                \\========= should start with: ============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_starts_with, actual_errors });
+        },
         .contains => |expect_line| {
             while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return compile.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_errors });
+        },
+        .stderr_contains => |expect_line| {
+            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
+                compile.step.result_error_msgs.items[0]
+            else
+                &.{};
+            compile.step.result_error_msgs.clearRetainingCapacity();
+
+            var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+
+            while (stderr_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;
                 return;
             }
@@ -1984,7 +2050,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 try expected_generated.append('\n');
             }
 
-            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+            if (mem.eql(u8, expected_generated.items, actual_errors)) return;
 
             return compile.step.fail(
                 \\
@@ -1993,7 +2059,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 \\========= but found: ====================
                 \\{s}
                 \\=========================================
-            , .{ expected_generated.items, actual_stderr });
+            , .{ expected_generated.items, actual_errors });
         },
     }
 }
@@ -2025,4 +2091,36 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
+}
+
+/// Return the full set of `Step.Compile` which `start` depends on, recursively. `start` itself is
+/// always returned as the first element. If `chase_dynamic` is `false`, then dynamic libraries are
+/// not included, and their dependencies are not considered; if `chase_dynamic` is `true`, dynamic
+/// libraries are treated the same as other linked `Compile`s.
+pub fn getCompileDependencies(start: *Compile, chase_dynamic: bool) []const *Compile {
+    const arena = start.step.owner.graph.arena;
+
+    var compiles: std.AutoArrayHashMapUnmanaged(*Compile, void) = .empty;
+    var next_idx: usize = 0;
+
+    compiles.putNoClobber(arena, start, {}) catch @panic("OOM");
+
+    while (next_idx < compiles.count()) {
+        const compile = compiles.keys()[next_idx];
+        next_idx += 1;
+
+        for (compile.root_module.getGraph().modules) |mod| {
+            for (mod.link_objects.items) |lo| {
+                switch (lo) {
+                    .other_step => |other_compile| {
+                        if (!chase_dynamic and other_compile.isDynamicLibrary()) continue;
+                        compiles.put(arena, other_compile, {}) catch @panic("OOM");
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+
+    return compiles.keys();
 }

@@ -16,9 +16,9 @@ pub export fn entry() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
-// :15:28: error: expected type '*const fn (comptime type, u8, u8) u32', found '*const fn (void, u8, u8) u32'
-// :15:28: note: pointer type child 'fn (void, u8, u8) u32' cannot cast into pointer type child 'fn (comptime type, u8, u8) u32'
+// :15:28: error: expected type '*const fn (type, u8, u8) u32', found '*const fn (void, u8, u8) u32'
+// :15:28: note: pointer type child 'fn (void, u8, u8) u32' cannot cast into pointer type child 'fn (type, u8, u8) u32'
 // :15:28: note: non-generic function cannot cast into a generic function

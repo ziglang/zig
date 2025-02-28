@@ -44,7 +44,7 @@ pub const Class = enum {
     }
 };
 
-pub fn classifyWindows(ty: Type, pt: Zcu.PerThread) Class {
+pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -53,27 +53,27 @@ pub fn classifyWindows(ty: Type, pt: Zcu.PerThread) Class {
     // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.zigTypeTag(pt.zcu)) {
-        .Pointer,
-        .Int,
-        .Bool,
-        .Enum,
-        .Void,
-        .NoReturn,
-        .ErrorSet,
-        .Struct,
-        .Union,
-        .Optional,
-        .Array,
-        .ErrorUnion,
-        .AnyFrame,
-        .Frame,
-        => switch (ty.abiSize(pt)) {
+    switch (ty.zigTypeTag(zcu)) {
+        .pointer,
+        .int,
+        .bool,
+        .@"enum",
+        .void,
+        .noreturn,
+        .error_set,
+        .@"struct",
+        .@"union",
+        .optional,
+        .array,
+        .error_union,
+        .@"anyframe",
+        .frame,
+        => switch (ty.abiSize(zcu)) {
             0 => unreachable,
             1, 2, 4, 8 => return .integer,
-            else => switch (ty.zigTypeTag(pt.zcu)) {
-                .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout(pt.zcu) == .@"packed") {
+            else => switch (ty.zigTypeTag(zcu)) {
+                .int => return .win_i128,
+                .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed") {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -82,16 +82,16 @@ pub fn classifyWindows(ty: Type, pt: Zcu.PerThread) Class {
             },
         },
 
-        .Float, .Vector => return .sse,
+        .float, .vector => return .sse,
 
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
         => unreachable,
     }
 }
@@ -100,15 +100,15 @@ pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
     var result = [1]Class{.none} ** 8;
-    switch (ty.zigTypeTag(pt.zcu)) {
-        .Pointer => switch (ty.ptrSize(pt.zcu)) {
-            .Slice => {
+    switch (ty.zigTypeTag(zcu)) {
+        .pointer => switch (ty.ptrSize(zcu)) {
+            .slice => {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;
@@ -118,8 +118,8 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
                 return result;
             },
         },
-        .Int, .Enum, .ErrorSet => {
-            const bits = ty.intInfo(pt.zcu).bits;
+        .int, .@"enum", .error_set => {
+            const bits = ty.intInfo(zcu).bits;
             if (bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -144,11 +144,11 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
             }
             return memory_class;
         },
-        .Bool, .Void, .NoReturn => {
+        .bool, .void, .noreturn => {
             result[0] = .integer;
             return result;
         },
-        .Float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target)) {
             16 => {
                 if (ctx == .field) {
                     result[0] = .memory;
@@ -184,9 +184,9 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
             },
             else => unreachable,
         },
-        .Vector => {
-            const elem_ty = ty.childType(pt.zcu);
-            const bits = elem_ty.bitSize(pt) * ty.arrayLen(pt.zcu);
+        .vector => {
+            const elem_ty = ty.childType(zcu);
+            const bits = elem_ty.bitSize(zcu) * ty.arrayLen(zcu);
             if (elem_ty.toIntern() == .bool_type) {
                 if (bits <= 32) return .{
                     .integer, .none, .none, .none,
@@ -242,27 +242,30 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .none,
             };
-            // LLVM always returns vectors byval
-            if (bits <= 512 or ctx == .ret) return .{
+            if (bits <= 512 or (ctx == .ret and bits <= @as(u64, if (std.Target.x86.featureSetHas(target.cpu.features, .avx512f))
+                2048
+            else if (std.Target.x86.featureSetHas(target.cpu.features, .avx))
+                1024
+            else
+                512))) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .sseup,
             };
             return memory_class;
         },
-        .Optional => {
-            if (ty.isPtrLikeOptional(pt.zcu)) {
-                result[0] = .integer;
-                return result;
+        .optional => {
+            if (ty.optionalReprIsPayload(zcu)) {
+                return classifySystemV(ty.optionalChild(zcu), zcu, target, ctx);
             }
             return memory_class;
         },
-        .Struct, .Union => {
+        .@"struct", .@"union" => {
             // "If the size of an object is larger than eight eightbytes, or
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(pt);
-            switch (ty.containerLayout(pt.zcu)) {
+            const ty_size = ty.abiSize(zcu);
+            switch (ty.containerLayout(zcu)) {
                 .auto, .@"extern" => {},
                 .@"packed" => {
                     assert(ty_size <= 16);
@@ -274,10 +277,10 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
             if (ty_size > 64)
                 return memory_class;
 
-            _ = if (pt.zcu.typeToStruct(ty)) |loaded_struct|
-                classifySystemVStruct(&result, 0, loaded_struct, pt, target)
-            else if (pt.zcu.typeToUnion(ty)) |loaded_union|
-                classifySystemVUnion(&result, 0, loaded_union, pt, target)
+            _ = if (zcu.typeToStruct(ty)) |loaded_struct|
+                classifySystemVStruct(&result, 0, loaded_struct, zcu, target)
+            else if (zcu.typeToUnion(ty)) |loaded_union|
+                classifySystemVUnion(&result, 0, loaded_union, zcu, target)
             else
                 unreachable;
 
@@ -305,8 +308,8 @@ pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Con
             }
             return result;
         },
-        .Array => {
-            const ty_size = ty.abiSize(pt);
+        .array => {
+            const ty_size = ty.abiSize(zcu);
             if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
@@ -326,10 +329,10 @@ fn classifySystemVStruct(
     result: *[8]Class,
     starting_byte_offset: u64,
     loaded_struct: InternPool.LoadedStructType,
-    pt: Zcu.PerThread,
+    zcu: *Zcu,
     target: std.Target,
 ) u64 {
-    const ip = &pt.zcu.intern_pool;
+    const ip = &zcu.intern_pool;
     var byte_offset = starting_byte_offset;
     var field_it = loaded_struct.iterateRuntimeOrder(ip);
     while (field_it.next()) |field_index| {
@@ -338,29 +341,29 @@ fn classifySystemVStruct(
         byte_offset = std.mem.alignForward(
             u64,
             byte_offset,
-            field_align.toByteUnits() orelse field_ty.abiAlignment(pt).toByteUnits().?,
+            field_align.toByteUnits() orelse field_ty.abiAlignment(zcu).toByteUnits().?,
         );
-        if (pt.zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
                 .auto, .@"extern" => {
-                    byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, pt, target);
+                    byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
                 .@"packed" => {},
             }
-        } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
+        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
-                    byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, pt, target);
+                    byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, pt, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
         for (result[@intCast(byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
-        byte_offset += field_ty.abiSize(pt);
+        byte_offset += field_ty.abiSize(zcu);
     }
     const final_byte_offset = starting_byte_offset + loaded_struct.sizeUnordered(ip);
     std.debug.assert(final_byte_offset == std.mem.alignForward(
@@ -375,35 +378,60 @@ fn classifySystemVUnion(
     result: *[8]Class,
     starting_byte_offset: u64,
     loaded_union: InternPool.LoadedUnionType,
-    pt: Zcu.PerThread,
+    zcu: *Zcu,
     target: std.Target,
 ) u64 {
-    const ip = &pt.zcu.intern_pool;
+    const ip = &zcu.intern_pool;
     for (0..loaded_union.field_types.len) |field_index| {
         const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-        if (pt.zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
                 .auto, .@"extern" => {
-                    _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, pt, target);
+                    _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
                 .@"packed" => {},
             }
-        } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
+        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
-                    _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, pt, target);
+                    _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, pt, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
         for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
     }
     return starting_byte_offset + loaded_union.sizeUnordered(ip);
 }
+
+pub const zigcc = struct {
+    pub const stack_align: ?InternPool.Alignment = null;
+    pub const return_in_regs = true;
+    pub const params_in_regs = true;
+
+    const volatile_gpr = gp_regs.len - 5;
+    const volatile_x87 = x87_regs.len - 1;
+    const volatile_sse = sse_avx_regs.len;
+
+    /// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+    /// for anything else but stack offset tracking therefore we exclude them from this set.
+    pub const callee_preserved_regs = gp_regs[volatile_gpr..] ++ x87_regs[volatile_x87 .. x87_regs.len - 1] ++ sse_avx_regs[volatile_sse..];
+    /// These registers need to be preserved (saved on the stack) and restored by the caller before
+    /// the caller relinquishes control to a subroutine via call instruction (or similar).
+    /// In other words, these registers are free to use by the callee.
+    pub const caller_preserved_regs = gp_regs[0..volatile_gpr] ++ x87_regs[0..volatile_x87] ++ sse_avx_regs[0..volatile_sse];
+
+    const int_param_regs = gp_regs[0 .. volatile_gpr - 1];
+    const x87_param_regs = x87_regs[0..volatile_x87];
+    const sse_param_regs = sse_avx_regs[0 .. volatile_sse / 2];
+    const int_return_regs = gp_regs[0..volatile_gpr];
+    const x87_return_regs = x87_regs[0..volatile_x87];
+    const sse_return_regs = sse_avx_regs[0..volatile_gpr];
+};
 
 pub const SysV = struct {
     /// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
@@ -415,9 +443,11 @@ pub const SysV = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-    pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
+    pub const c_abi_x87_param_regs = x87_regs[0..0];
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..8];
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
-    pub const c_abi_sse_return_regs = sse_avx_regs[0..2].*;
+    pub const c_abi_x87_return_regs = x87_regs[0..2];
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..4];
 };
 
 pub const Win64 = struct {
@@ -430,74 +460,100 @@ pub const Win64 = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
-    pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
+    pub const c_abi_x87_param_regs = x87_regs[0..0];
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..4];
     pub const c_abi_int_return_regs = [_]Register{.rax};
-    pub const c_abi_sse_return_regs = sse_avx_regs[0..1].*;
+    pub const c_abi_x87_return_regs = x87_regs[0..0];
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..1];
 };
 
-pub fn resolveCallingConvention(
-    cc: std.builtin.CallingConvention,
-    target: std.Target,
-) std.builtin.CallingConvention {
+pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
-        .Unspecified, .C => switch (target.os.tag) {
-            else => .SysV,
-            .windows => .Win64,
+        .auto => zigcc.callee_preserved_regs,
+        .x86_64_sysv => &SysV.callee_preserved_regs,
+        .x86_64_win => &Win64.callee_preserved_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+    return switch (cc) {
+        .auto => zigcc.caller_preserved_regs,
+        .x86_64_sysv => &SysV.caller_preserved_regs,
+        .x86_64_win => &Win64.caller_preserved_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+    return switch (cc) {
+        .auto => zigcc.int_param_regs,
+        .x86_64_sysv => &SysV.c_abi_int_param_regs,
+        .x86_64_win => &Win64.c_abi_int_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiX87ParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+    return switch (cc) {
+        .auto => zigcc.x87_param_regs,
+        .x86_64_sysv => SysV.c_abi_x87_param_regs,
+        .x86_64_win => Win64.c_abi_x87_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention.Tag, target: *const std.Target) []const Register {
+    return switch (cc) {
+        .auto => switch (target.cpu.arch) {
+            else => unreachable,
+            .x86 => zigcc.sse_param_regs[0 .. zigcc.sse_param_regs.len / 2],
+            .x86_64 => zigcc.sse_param_regs,
         },
-        else => cc,
-    };
-}
-
-pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
-    return switch (cc) {
-        .SysV => &SysV.callee_preserved_regs,
-        .Win64 => &Win64.callee_preserved_regs,
+        .x86_64_sysv => SysV.c_abi_sse_param_regs,
+        .x86_64_win => Win64.c_abi_sse_param_regs,
         else => unreachable,
     };
 }
 
-pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
-        .SysV => &SysV.caller_preserved_regs,
-        .Win64 => &Win64.caller_preserved_regs,
+        .auto => zigcc.int_return_regs,
+        .x86_64_sysv => &SysV.c_abi_int_return_regs,
+        .x86_64_win => &Win64.c_abi_int_return_regs,
         else => unreachable,
     };
 }
 
-pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
+pub fn getCAbiX87ReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_int_param_regs,
-        .Win64 => &Win64.c_abi_int_param_regs,
+        .auto => zigcc.x87_return_regs,
+        .x86_64_sysv => SysV.c_abi_x87_return_regs,
+        .x86_64_win => Win64.c_abi_x87_return_regs,
         else => unreachable,
     };
 }
 
-pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
+pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_sse_param_regs,
-        .Win64 => &Win64.c_abi_sse_param_regs,
+        .auto => zigcc.sse_return_regs,
+        .x86_64_sysv => SysV.c_abi_sse_return_regs,
+        .x86_64_win => Win64.c_abi_sse_return_regs,
         else => unreachable,
     };
 }
 
-pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+pub fn getCAbiLinkerScratchReg(cc: std.builtin.CallingConvention.Tag) Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_int_return_regs,
-        .Win64 => &Win64.c_abi_int_return_regs,
-        else => unreachable,
-    };
-}
-
-pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
-    return switch (cc) {
-        .SysV => &SysV.c_abi_sse_return_regs,
-        .Win64 => &Win64.c_abi_sse_return_regs,
+        .auto => zigcc.int_return_regs[zigcc.int_return_regs.len - 1],
+        .x86_64_sysv => SysV.c_abi_int_return_regs[0],
+        .x86_64_win => Win64.c_abi_int_return_regs[0],
         else => unreachable,
     };
 }
 
 const gp_regs = [_]Register{
-    .rax, .rcx, .rdx, .rbx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
+    .rax, .rdx, .rbx, .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
 };
 const x87_regs = [_]Register{
     .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7,

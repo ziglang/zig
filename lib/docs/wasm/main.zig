@@ -14,8 +14,15 @@ const missing_feature_url_escape = @import("html_render.zig").missing_feature_ur
 const gpa = std.heap.wasm_allocator;
 
 const js = struct {
-    extern "js" fn log(ptr: [*]const u8, len: usize) void;
-    extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
+    /// Keep in sync with the `LOG_` constants in `main.js`.
+    const LogLevel = enum(u8) {
+        err,
+        warn,
+        info,
+        debug,
+    };
+
+    extern "js" fn log(level: LogLevel, ptr: [*]const u8, len: usize) void;
 };
 
 pub const std_options: std.Options = .{
@@ -36,14 +43,13 @@ fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const level_txt = comptime message_level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";
     var buf: [500]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, level_txt ++ prefix2 ++ format, args) catch l: {
+    const line = std.fmt.bufPrint(&buf, prefix ++ format, args) catch l: {
         buf[buf.len - 3 ..][0..3].* = "...".*;
         break :l &buf;
     };
-    js.log(line.ptr, line.len);
+    js.log(@field(js.LogLevel, @tagName(message_level)), line.ptr, line.len);
 }
 
 export fn alloc(n: usize) [*]u8 {
@@ -56,12 +62,12 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
     //log.debug("received {d} bytes of tar file", .{tar_bytes.len});
 
     unpackInner(tar_bytes) catch |err| {
-        fatal("unable to unpack tar: {s}", .{@errorName(err)});
+        std.debug.panic("unable to unpack tar: {s}", .{@errorName(err)});
     };
 }
 
-var query_string: std.ArrayListUnmanaged(u8) = .{};
-var query_results: std.ArrayListUnmanaged(Decl.Index) = .{};
+var query_string: std.ArrayListUnmanaged(u8) = .empty;
+var query_results: std.ArrayListUnmanaged(Decl.Index) = .empty;
 
 /// Resizes the query string to be the correct length; returns the pointer to
 /// the query string.
@@ -93,11 +99,11 @@ fn query_exec_fallible(query: []const u8, ignore_case: bool) !void {
         segments: u16,
     };
     const g = struct {
-        var full_path_search_text: std.ArrayListUnmanaged(u8) = .{};
-        var full_path_search_text_lower: std.ArrayListUnmanaged(u8) = .{};
-        var doc_search_text: std.ArrayListUnmanaged(u8) = .{};
+        var full_path_search_text: std.ArrayListUnmanaged(u8) = .empty;
+        var full_path_search_text_lower: std.ArrayListUnmanaged(u8) = .empty;
+        var doc_search_text: std.ArrayListUnmanaged(u8) = .empty;
         /// Each element matches a corresponding query_results element.
-        var scores: std.ArrayListUnmanaged(Score) = .{};
+        var scores: std.ArrayListUnmanaged(Score) = .empty;
     };
 
     // First element stores the size of the list.
@@ -255,8 +261,8 @@ const ErrorIdentifier = packed struct(u64) {
     }
 };
 
-var string_result: std.ArrayListUnmanaged(u8) = .{};
-var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .{};
+var string_result: std.ArrayListUnmanaged(u8) = .empty;
+var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .empty;
 
 export fn decl_error_set(decl_index: Decl.Index) Slice(ErrorIdentifier) {
     return Slice(ErrorIdentifier).init(decl_error_set_fallible(decl_index) catch @panic("OOM"));
@@ -380,16 +386,43 @@ export fn decl_params(decl_index: Decl.Index) Slice(Ast.Node.Index) {
 }
 
 fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
-    const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .{};
-    };
-    g.result.clearRetainingCapacity();
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
+
+    switch (decl.categorize()) {
+        .type_function => {
+            const node_tags = ast.nodes.items(.tag);
+
+            // If the type function returns a reference to another type function, get the fields from there
+            if (decl.get_type_fn_return_type_fn()) |function_decl| {
+                return decl_fields_fallible(function_decl);
+            }
+            // If the type function returns a container, such as a `struct`, read that container's fields
+            if (decl.get_type_fn_return_expr()) |return_expr| {
+                switch (node_tags[return_expr]) {
+                    .container_decl, .container_decl_trailing, .container_decl_two, .container_decl_two_trailing, .container_decl_arg, .container_decl_arg_trailing => {
+                        return ast_decl_fields_fallible(ast, return_expr);
+                    },
+                    else => {},
+                }
+            }
+            return &.{};
+        },
+        else => {
+            const value_node = decl.value_node() orelse return &.{};
+            return ast_decl_fields_fallible(ast, value_node);
+        },
+    }
+}
+
+fn ast_decl_fields_fallible(ast: *Ast, ast_index: Ast.Node.Index) ![]Ast.Node.Index {
+    const g = struct {
+        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
+    };
+    g.result.clearRetainingCapacity();
     const node_tags = ast.nodes.items(.tag);
-    const value_node = decl.value_node() orelse return &.{};
     var buf: [2]Ast.Node.Index = undefined;
-    const container_decl = ast.fullContainerDecl(&buf, value_node) orelse return &.{};
+    const container_decl = ast.fullContainerDecl(&buf, ast_index) orelse return &.{};
     for (container_decl.ast.members) |member_node| switch (node_tags[member_node]) {
         .container_field_init,
         .container_field_align,
@@ -403,7 +436,7 @@ fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
 
 fn decl_params_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
     const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .{};
+        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
     const decl = decl_index.get();
@@ -514,7 +547,7 @@ export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) Stri
         .collapse_whitespace = true,
         .fn_link = if (linkify_fn_name) decl_index else .none,
     }) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -524,7 +557,7 @@ export fn decl_source_html(decl_index: Decl.Index) String {
 
     string_result.clearRetainingCapacity();
     fileSourceHtml(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -536,7 +569,7 @@ export fn decl_doctest_html(decl_index: Decl.Index) String {
 
     string_result.clearRetainingCapacity();
     fileSourceHtml(decl.file, &string_result, doctest_ast_node, .{}) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -672,7 +705,7 @@ fn render_docs(
     defer parsed_doc.deinit(gpa);
 
     const g = struct {
-        var link_buffer: std.ArrayListUnmanaged(u8) = .{};
+        var link_buffer: std.ArrayListUnmanaged(u8) = .empty;
     };
 
     const Writer = std.ArrayListUnmanaged(u8).Writer;
@@ -740,7 +773,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
                     .skip_comments = true,
                     .collapse_whitespace = true,
                 }) catch |e| {
-                    fatal("unable to render html: {s}", .{@errorName(e)});
+                    std.debug.panic("unable to render html: {s}", .{@errorName(e)});
                 };
                 string_result.appendSlice(gpa, "</code>") catch @panic("OOM");
                 break :t;
@@ -791,15 +824,6 @@ fn unpackInner(tar_bytes: []u8) !void {
     }
 }
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    var buf: [500]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, format, args) catch l: {
-        buf[buf.len - 3 ..][0..3].* = "...".*;
-        break :l &buf;
-    };
-    js.panic(line.ptr, line.len);
-}
-
 fn ascii_lower(bytes: []u8) void {
     for (bytes) |*b| b.* = std.ascii.toLower(b.*);
 }
@@ -817,7 +841,7 @@ export fn find_module_root(pkg: Walk.ModuleIndex) Decl.Index {
 }
 
 /// Set by `set_input_string`.
-var input_string: std.ArrayListUnmanaged(u8) = .{};
+var input_string: std.ArrayListUnmanaged(u8) = .empty;
 
 export fn set_input_string(len: usize) [*]u8 {
     input_string.resize(gpa, len) catch @panic("OOM");
@@ -839,7 +863,7 @@ export fn find_decl() Decl.Index {
     if (result != .none) return result;
 
     const g = struct {
-        var match_fqn: std.ArrayListUnmanaged(u8) = .{};
+        var match_fqn: std.ArrayListUnmanaged(u8) = .empty;
     };
     for (Walk.decls.items, 0..) |*decl, decl_index| {
         g.match_fqn.clearRetainingCapacity();
@@ -883,12 +907,19 @@ export fn categorize_decl(decl_index: Decl.Index, resolve_alias_count: usize) Wa
 }
 
 export fn type_fn_members(parent: Decl.Index, include_private: bool) Slice(Decl.Index) {
+    const decl = parent.get();
+
+    // If the type function returns another type function, get the members of that function
+    if (decl.get_type_fn_return_type_fn()) |function_decl| {
+        return namespace_members(function_decl, include_private);
+    }
+
     return namespace_members(parent, include_private);
 }
 
 export fn namespace_members(parent: Decl.Index, include_private: bool) Slice(Decl.Index) {
     const g = struct {
-        var members: std.ArrayListUnmanaged(Decl.Index) = .{};
+        var members: std.ArrayListUnmanaged(Decl.Index) = .empty;
     };
 
     g.members.clearRetainingCapacity();

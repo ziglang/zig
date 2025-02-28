@@ -21,7 +21,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp, class _Compare>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI constexpr const _Tp&
+[[nodiscard]] inline _LIBCPP_HIDE_FROM_ABI constexpr const _Tp&
 clamp(_LIBCPP_LIFETIMEBOUND const _Tp& __v,
       _LIBCPP_LIFETIMEBOUND const _Tp& __lo,
       _LIBCPP_LIFETIMEBOUND const _Tp& __hi,
@@ -31,7 +31,7 @@ clamp(_LIBCPP_LIFETIMEBOUND const _Tp& __v,
 }
 
 template <class _Tp>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI constexpr const _Tp&
+[[nodiscard]] inline _LIBCPP_HIDE_FROM_ABI constexpr const _Tp&
 clamp(_LIBCPP_LIFETIMEBOUND const _Tp& __v,
       _LIBCPP_LIFETIMEBOUND const _Tp& __lo,
       _LIBCPP_LIFETIMEBOUND const _Tp& __hi) {

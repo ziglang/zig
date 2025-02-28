@@ -12,14 +12,14 @@ const testing = std.testing;
 pub fn log10(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .ComptimeFloat => {
+        .comptime_float => {
             return @as(comptime_float, @log10(x));
         },
-        .Float => return @log10(x),
-        .ComptimeInt => {
+        .float => return @log10(x),
+        .comptime_int => {
             return @as(comptime_int, @floor(@log10(@as(f64, x))));
         },
-        .Int => |IntType| switch (IntType.signedness) {
+        .int => |IntType| switch (IntType.signedness) {
             .signed => @compileError("log10 not implemented for signed integers"),
             .unsigned => return log10_int(x),
         },
@@ -37,12 +37,12 @@ pub fn log10(x: anytype) @TypeOf(x) {
 pub fn log10_int(x: anytype) std.math.Log2Int(@TypeOf(x)) {
     const T = @TypeOf(x);
     const OutT = std.math.Log2Int(T);
-    if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
+    if (@typeInfo(T) != .int or @typeInfo(T).int.signedness != .unsigned)
         @compileError("log10_int requires an unsigned integer, found " ++ @typeName(T));
 
     std.debug.assert(x != 0);
 
-    const bit_size = @typeInfo(T).Int.bits;
+    const bit_size = @typeInfo(T).int.bits;
 
     if (bit_size <= 8) {
         return @as(OutT, @intCast(log10_int_u8(x)));
@@ -135,7 +135,7 @@ test log10_int {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
 
     inline for (
         .{ u8, u16, u32, u64, u128, u256, u512 },

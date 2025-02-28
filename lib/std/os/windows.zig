@@ -132,6 +132,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .SHARING_VIOLATION => return error.AccessDenied,
             .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
+            .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             .FILE_IS_A_DIRECTORY => return error.IsDir,
@@ -599,6 +600,8 @@ pub const ReadFileError = error{
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
     OperationAborted,
+    /// Unable to read file due to lock.
+    LockViolation,
     Unexpected,
 };
 
@@ -630,6 +633,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .BROKEN_PIPE => return 0,
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
+                .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -679,7 +683,7 @@ pub fn WriteFile(
             .OPERATION_ABORTED => return error.OperationAborted,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
-            .BROKEN_PIPE => return error.BrokenPipe,
+            .NO_DATA => return error.BrokenPipe,
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
@@ -798,6 +802,7 @@ pub fn CreateSymbolicLink(
         error.NotDir => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
@@ -1107,7 +1112,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
-pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
+pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
     const old_path_w = try sliceToPrefixedFileW(null, old_path);
     const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
@@ -1463,6 +1468,7 @@ fn mountmgrIsVolumeName(name: []const u16) bool {
 }
 
 test mountmgrIsVolumeName {
+    @setEvalBranchQuota(2000);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
     try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
@@ -1515,7 +1521,7 @@ pub const GetFileAttributesError = error{
     Unexpected,
 };
 
-pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
+pub fn GetFileAttributes(filename: []const u8) (GetFileAttributesError || Wtf8ToPrefixedFileWError)!DWORD {
     const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
@@ -1664,7 +1670,7 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
 
 pub fn sendmsg(
     s: ws2_32.SOCKET,
-    msg: *const ws2_32.WSAMSG,
+    msg: *ws2_32.WSAMSG_const,
     flags: u32,
 ) i32 {
     var bytes_send: DWORD = undefined;
@@ -2010,18 +2016,6 @@ pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
 }
 
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
-    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
-}
-
-pub fn HeapDestroy(hHeap: HANDLE) void {
-    assert(kernel32.HeapDestroy(hHeap) != 0);
-}
-
-pub fn LocalFree(hMem: HLOCAL) void {
-    assert(kernel32.LocalFree(hMem) == null);
-}
-
 pub const SetFileTimeError = error{Unexpected};
 
 pub fn SetFileTime(
@@ -2098,35 +2092,41 @@ pub fn UnlockFile(
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
-extern fn zig_x86_windows_teb() callconv(.C) *anyopaque;
-extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
+extern fn zig_thumb_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_aarch64_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_x86_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_x86_64_windows_teb() callconv(.c) *anyopaque;
 
 pub fn teb() *TEB {
     return switch (native_arch) {
-        .x86 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movl %%fs:0x18, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .x86_64 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movq %%gs:0x30, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .aarch64 => asm (
-            \\ mov %[ptr], x18
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .thumb => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_thumb_windows_teb()))
+        else
+            asm (
+                \\ mrc p15, 0, %[ptr], c13, c0, 2
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .aarch64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_aarch64_windows_teb()))
+        else
+            asm (
+                \\ mov %[ptr], x18
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_windows_teb()))
+        else
+            asm (
+                \\ movl %%fs:0x18, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86_64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_64_windows_teb()))
+        else
+            asm (
+                \\ movq %%gs:0x30, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
         else => @compileError("unsupported arch"),
     };
 }
@@ -2817,10 +2817,8 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86)
-    .Stdcall
-else
-    .C;
+/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
+pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
@@ -3563,7 +3561,7 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.C) DWORD;
+pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.winapi) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -3742,7 +3740,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.C) void;
+pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.winapi) void;
 
 pub const PROV_RSA_FULL = 1;
 
@@ -3840,7 +3838,7 @@ pub const RTL_QUERY_REGISTRY_ROUTINE = ?*const fn (
     ULONG,
     ?*anyopaque,
     ?*anyopaque,
-) callconv(WINAPI) NTSTATUS;
+) callconv(.winapi) NTSTATUS;
 
 /// Path is a full path
 pub const RTL_REGISTRY_ABSOLUTE = 0;
@@ -3937,7 +3935,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.winapi) void;
 
 pub const FileNotifyChangeFilter = packed struct(DWORD) {
     file_name: bool = false,
@@ -4000,7 +3998,7 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL;
+pub const INIT_ONCE_FN = *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.winapi) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*anyopaque,
@@ -4121,6 +4119,10 @@ pub const XMM_SAVE_AREA32 = switch (native_arch) {
 };
 
 pub const NEON128 = switch (native_arch) {
+    .thumb => extern struct {
+        Low: ULONGLONG,
+        High: LONGLONG,
+    },
     .aarch64 => extern union {
         DUMMYSTRUCTNAME: extern struct {
             Low: ULONGLONG,
@@ -4249,6 +4251,54 @@ pub const CONTEXT = switch (native_arch) {
             ctx.Rsp = sp;
         }
     },
+    .thumb => extern struct {
+        ContextFlags: ULONG,
+        R0: ULONG,
+        R1: ULONG,
+        R2: ULONG,
+        R3: ULONG,
+        R4: ULONG,
+        R5: ULONG,
+        R6: ULONG,
+        R7: ULONG,
+        R8: ULONG,
+        R9: ULONG,
+        R10: ULONG,
+        R11: ULONG,
+        R12: ULONG,
+        Sp: ULONG,
+        Lr: ULONG,
+        Pc: ULONG,
+        Cpsr: ULONG,
+        Fpcsr: ULONG,
+        Padding: ULONG,
+        DUMMYUNIONNAME: extern union {
+            Q: [16]NEON128,
+            D: [32]ULONGLONG,
+            S: [32]ULONG,
+        },
+        Bvr: [8]ULONG,
+        Bcr: [8]ULONG,
+        Wvr: [1]ULONG,
+        Wcr: [1]ULONG,
+        Padding2: [2]ULONG,
+
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{
+                .bp = ctx.DUMMYUNIONNAME.S[11],
+                .ip = ctx.Pc,
+                .sp = ctx.Sp,
+            };
+        }
+
+        pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+            ctx.Pc = ip;
+        }
+
+        pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+            ctx.Sp = sp;
+        }
+    },
     .aarch64 => extern struct {
         ContextFlags: ULONG align(16),
         Cpsr: ULONG,
@@ -4323,6 +4373,23 @@ pub const RUNTIME_FUNCTION = switch (native_arch) {
         EndAddress: DWORD,
         UnwindData: DWORD,
     },
+    .thumb => extern struct {
+        BeginAddress: DWORD,
+        DUMMYUNIONNAME: extern union {
+            UnwindData: DWORD,
+            DUMMYSTRUCTNAME: packed struct {
+                Flag: u2,
+                FunctionLength: u11,
+                Ret: u2,
+                H: u1,
+                Reg: u3,
+                R: u1,
+                L: u1,
+                C: u1,
+                StackAdjust: u10,
+            },
+        },
+    },
     .aarch64 => extern struct {
         BeginAddress: DWORD,
         DUMMYUNIONNAME: extern union {
@@ -4345,6 +4412,25 @@ pub const KNONVOLATILE_CONTEXT_POINTERS = switch (native_arch) {
     .x86_64 => extern struct {
         FloatingContext: [16]?*M128A,
         IntegerContext: [16]?*ULONG64,
+    },
+    .thumb => extern struct {
+        R4: ?*DWORD,
+        R5: ?*DWORD,
+        R6: ?*DWORD,
+        R7: ?*DWORD,
+        R8: ?*DWORD,
+        R9: ?*DWORD,
+        R10: ?*DWORD,
+        R11: ?*DWORD,
+        Lr: ?*DWORD,
+        D8: ?*ULONGLONG,
+        D9: ?*ULONGLONG,
+        D10: ?*ULONGLONG,
+        D11: ?*ULONGLONG,
+        D12: ?*ULONGLONG,
+        D13: ?*ULONGLONG,
+        D14: ?*ULONGLONG,
+        D15: ?*ULONGLONG,
     },
     .aarch64 => extern struct {
         X19: ?*DWORD64,
@@ -4376,7 +4462,7 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *CONTEXT,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.winapi) c_long;
 
 pub const EXCEPTION_DISPOSITION = i32;
 pub const EXCEPTION_ROUTINE = *const fn (
@@ -4384,7 +4470,7 @@ pub const EXCEPTION_ROUTINE = *const fn (
     EstablisherFrame: PVOID,
     ContextRecord: *(Self.CONTEXT),
     DispatcherContext: PVOID,
-) callconv(WINAPI) EXCEPTION_DISPOSITION;
+) callconv(.winapi) EXCEPTION_DISPOSITION;
 
 pub const UNWIND_HISTORY_TABLE_SIZE = 12;
 pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
@@ -4706,14 +4792,14 @@ pub const PEB_LDR_DATA = extern struct {
 ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
 ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
 pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    Reserved1: [2]PVOID,
+    InLoadOrderLinks: LIST_ENTRY,
     InMemoryOrderLinks: LIST_ENTRY,
-    Reserved2: [2]PVOID,
+    InInitializationOrderLinks: LIST_ENTRY,
     DllBase: PVOID,
     EntryPoint: PVOID,
     SizeOfImage: ULONG,
     FullDllName: UNICODE_STRING,
-    Reserved4: [8]BYTE,
+    BaseDllName: UNICODE_STRING,
     Reserved5: [3]PVOID,
     DUMMYUNIONNAME: extern union {
         CheckSum: ULONG,
@@ -4760,7 +4846,7 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
     DosPath: UNICODE_STRING,
 };
 
-pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.C) void;
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.winapi) void;
 
 pub const FILE_DIRECTORY_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
@@ -4814,7 +4900,7 @@ pub fn FileInformationIterator(comptime FileInformationType: type) type {
     };
 }
 
-pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
+pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.winapi) void;
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
@@ -4918,8 +5004,8 @@ pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
     PeakUsage: SIZE_T,
 };
 
-pub const PENUM_PAGE_FILE_CALLBACKW = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
-pub const PENUM_PAGE_FILE_CALLBACKA = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKW = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.winapi) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKA = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.winapi) BOOL;
 
 pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
     BasicInfo: PSAPI_WS_WATCH_INFORMATION,
@@ -5031,7 +5117,7 @@ pub const CTRL_CLOSE_EVENT: DWORD = 2;
 pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
-pub const HANDLER_ROUTINE = *const fn (dwCtrlType: DWORD) callconv(WINAPI) BOOL;
+pub const HANDLER_ROUTINE = *const fn (dwCtrlType: DWORD) callconv(.winapi) BOOL;
 
 /// Processor feature enumeration.
 pub const PF = enum(DWORD) {

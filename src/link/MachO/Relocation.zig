@@ -92,7 +92,6 @@ fn formatPretty(
         .signed4 => "X86_64_RELOC_SIGNED_4",
         .got_load => "X86_64_RELOC_GOT_LOAD",
         .tlv => "X86_64_RELOC_TLV",
-        .zig_got_load => "ZIG_GOT_LOAD",
         .page => "ARM64_RELOC_PAGE21",
         .pageoff => "ARM64_RELOC_PAGEOFF12",
         .got_load_page => "ARM64_RELOC_GOT_LOAD_PAGE21",
@@ -137,8 +136,6 @@ pub const Type = enum {
     got_load,
     /// RIP-relative TLV load (X86_64_RELOC_TLV)
     tlv,
-    /// Zig-specific __got_zig indirection
-    zig_got_load,
 
     // arm64
     /// PC-relative load (distance to page, ARM64_RELOC_PAGE21)

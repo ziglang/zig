@@ -42,9 +42,9 @@ template <class _A1,
           __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value && is_arithmetic<_A3>::value, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2, _A3>::type fma(_A1 __x, _A2 __y, _A3 __z) _NOEXCEPT {
   using __result_type = typename __promote<_A1, _A2, _A3>::type;
-  static_assert((!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value &&
-                   _IsSame<_A3, __result_type>::value)),
-                "");
+  static_assert(
+      !(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value && _IsSame<_A3, __result_type>::value),
+      "");
   return __builtin_fma((__result_type)__x, (__result_type)__y, (__result_type)__z);
 }
 

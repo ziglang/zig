@@ -16,8 +16,6 @@
 #  pragma GCC system_header
 #endif
 
-#ifndef _LIBCPP_HAS_NO_THREADS
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Mutex>
@@ -29,25 +27,22 @@ private:
   mutex_type& __m_;
 
 public:
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI explicit lock_guard(mutex_type& __m)
-      _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m))
+  _LIBCPP_NODISCARD
+  _LIBCPP_HIDE_FROM_ABI explicit lock_guard(mutex_type& __m) _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m))
       : __m_(__m) {
     __m_.lock();
   }
 
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI lock_guard(mutex_type& __m, adopt_lock_t)
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI lock_guard(mutex_type& __m, adopt_lock_t)
       _LIBCPP_THREAD_SAFETY_ANNOTATION(requires_capability(__m))
       : __m_(__m) {}
   _LIBCPP_HIDE_FROM_ABI ~lock_guard() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) { __m_.unlock(); }
 
-private:
   lock_guard(lock_guard const&)            = delete;
   lock_guard& operator=(lock_guard const&) = delete;
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(lock_guard);
 
 _LIBCPP_END_NAMESPACE_STD
-
-#endif // _LIBCPP_HAS_NO_THREADS
 
 #endif // _LIBCPP___MUTEX_LOCK_GUARD_H

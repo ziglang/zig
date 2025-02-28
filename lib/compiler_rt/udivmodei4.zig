@@ -7,8 +7,8 @@ const shl = std.math.shl;
 const max_limbs = std.math.divCeil(usize, 65535, 32) catch unreachable; // max supported type is u65535
 
 comptime {
-    @export(__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umodei4, .{ .name = "__umodei4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umodei4, .{ .name = "__umodei4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 const endian = builtin.cpu.arch.endian();
@@ -27,8 +27,8 @@ inline fn limb_set(x: []u32, i: usize, v: u32) void {
     }
 }
 
-// Uses Knuth's Algorithm D, 4.3.1, p. 272.
-fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
+/// Uses Knuth's Algorithm D, 4.3.1, p. 272.
+pub fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
     if (q) |q_| @memset(q_[0..], 0);
     if (r) |r_| @memset(r_[0..], 0);
 

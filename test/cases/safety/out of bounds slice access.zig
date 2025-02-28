@@ -17,5 +17,5 @@ fn bar(a: []const i32) i32 {
 }
 fn baz(_: i32) void {}
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

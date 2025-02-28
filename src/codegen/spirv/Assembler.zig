@@ -45,6 +45,9 @@ const Token = struct {
         pipe,
         /// =.
         equals,
+        /// $identifier. This is used (for now) for constant values, like integers.
+        /// These can be used in place of a normal `value`.
+        placeholder,
 
         fn name(self: Tag) []const u8 {
             return switch (self) {
@@ -56,6 +59,7 @@ const Token = struct {
                 .string => "<string literal>",
                 .pipe => "'|'",
                 .equals => "'='",
+                .placeholder => "<placeholder>",
             };
         }
     };
@@ -128,12 +132,23 @@ const AsmValue = union(enum) {
     /// This result-value represents a type registered into the module's type system.
     ty: IdRef,
 
+    /// This is a pre-supplied constant integer value.
+    constant: u32,
+
+    /// This is a pre-supplied constant string value.
+    string: []const u8,
+
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
     /// forward declaration, not in the process of being declared, etc).
     pub fn resultId(self: AsmValue) IdRef {
         return switch (self) {
-            .just_declared, .unresolved_forward_reference => unreachable,
+            .just_declared,
+            .unresolved_forward_reference,
+            // TODO: Lower this value as constant?
+            .constant,
+            .string,
+            => unreachable,
             .value => |result| result,
             .ty => |result| result,
         };
@@ -148,10 +163,11 @@ const AsmValueMap = std.StringArrayHashMapUnmanaged(AsmValue);
 gpa: Allocator,
 
 /// A list of errors that occured during processing the assembly.
-errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
+errors: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 
 /// The source code that is being assembled.
-src: []const u8,
+/// This is set when calling `assemble()`.
+src: []const u8 = undefined,
 
 /// The module that this assembly is associated to.
 /// Instructions like OpType*, OpDecorate, etc are emitted into this module.
@@ -161,7 +177,7 @@ spv: *SpvModule,
 func: *SpvModule.Fn,
 
 /// `self.src` tokenized.
-tokens: std.ArrayListUnmanaged(Token) = .{},
+tokens: std.ArrayListUnmanaged(Token) = .empty,
 
 /// The token that is next during parsing.
 current_token: u32 = 0,
@@ -172,9 +188,9 @@ inst: struct {
     /// The opcode of the current instruction.
     opcode: Opcode = undefined,
     /// Operands of the current instruction.
-    operands: std.ArrayListUnmanaged(Operand) = .{},
+    operands: std.ArrayListUnmanaged(Operand) = .empty,
     /// This is where string data resides. Strings are zero-terminated.
-    string_bytes: std.ArrayListUnmanaged(u8) = .{},
+    string_bytes: std.ArrayListUnmanaged(u8) = .empty,
 
     /// Return a reference to the result of this instruction, if any.
     fn result(self: @This()) ?AsmValue.Ref {
@@ -196,7 +212,7 @@ value_map: AsmValueMap = .{},
 /// This set is used to quickly transform from an opcode name to the
 /// index in its instruction set. The index of the key is the
 /// index in `spec.InstructionSet.core.instructions()`.
-instruction_map: std.StringArrayHashMapUnmanaged(void) = .{},
+instruction_map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// Free the resources owned by this assembler.
 pub fn deinit(self: *Assembler) void {
@@ -211,7 +227,10 @@ pub fn deinit(self: *Assembler) void {
     self.instruction_map.deinit(self.gpa);
 }
 
-pub fn assemble(self: *Assembler) Error!void {
+pub fn assemble(self: *Assembler, src: []const u8) Error!void {
+    self.src = src;
+    self.errors.clearRetainingCapacity();
+
     // Populate the opcode map if it isn't already
     if (self.instruction_map.count() == 0) {
         const instructions = spec.InstructionSet.core.instructions();
@@ -258,6 +277,16 @@ fn processInstruction(self: *Assembler) !void {
     const result: AsmValue = switch (self.inst.opcode) {
         .OpEntryPoint => {
             return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
+        },
+        .OpCapability => {
+            try self.spv.addCapability(@enumFromInt(self.inst.operands.items[0].value));
+            return;
+        },
+        .OpExtension => {
+            const ext_name_offset = self.inst.operands.items[0].string;
+            const ext_name = std.mem.sliceTo(self.inst.string_bytes.items[ext_name_offset..], 0);
+            try self.spv.addExtension(ext_name);
+            return;
         },
         .OpExtInstImport => blk: {
             const set_name_offset = self.inst.operands.items[1].string;
@@ -369,6 +398,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
 /// - Function-local instructions are emitted in `self.func`.
 fn processGenericInstruction(self: *Assembler) !?AsmValue {
     const operands = self.inst.operands.items;
+    var maybe_spv_decl_index: ?SpvModule.Decl.Index = null;
     const section = switch (self.inst.opcode.class()) {
         .ConstantCreation => &self.spv.sections.types_globals_constants,
         .Annotation => &self.spv.sections.annotations,
@@ -378,13 +408,16 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
-                .UniformConstant => &self.spv.sections.types_globals_constants,
-                else => {
-                    // This is currently disabled because global variables are required to be
-                    // emitted in the proper order, and this should be honored in inline assembly
-                    // as well.
-                    return self.todo("global variables", .{});
+                .Input, .Output => section: {
+                    maybe_spv_decl_index = try self.spv.allocDecl(.global);
+                    try self.func.decl_deps.put(self.spv.gpa, maybe_spv_decl_index.?, {});
+                    // TODO: In theory this can be non-empty if there is an initializer which depends on another global...
+                    try self.spv.declareDeclDeps(maybe_spv_decl_index.?, &.{});
+                    break :section &self.spv.sections.types_globals_constants;
                 },
+                // These don't need to be marked in the dependency system.
+                // Probably we should add them anyway, then filter out PushConstant globals.
+                else => &self.spv.sections.types_globals_constants,
             },
             // Default case - to be worked out further.
             else => &self.func.body,
@@ -409,7 +442,10 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
                 section.writeDoubleWord(dword);
             },
             .result_id => {
-                maybe_result_id = self.spv.allocId();
+                maybe_result_id = if (maybe_spv_decl_index) |spv_decl_index|
+                    self.spv.declPtr(spv_decl_index).result_id
+                else
+                    self.spv.allocId();
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
                 section.writeOperand(IdResult, maybe_result_id.?);
             },
@@ -475,8 +511,8 @@ fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !IdRef {
 /// error message has been emitted into `self.errors`.
 fn parseInstruction(self: *Assembler) !void {
     self.inst.opcode = undefined;
-    self.inst.operands.shrinkRetainingCapacity(0);
-    self.inst.string_bytes.shrinkRetainingCapacity(0);
+    self.inst.operands.clearRetainingCapacity();
+    self.inst.string_bytes.clearRetainingCapacity();
 
     const lhs_result_tok = self.currentToken();
     const maybe_lhs_result: ?AsmValue.Ref = if (self.eatToken(.result_id_assign)) blk: {
@@ -613,6 +649,28 @@ fn parseBitEnum(self: *Assembler, kind: spec.OperandKind) !void {
 /// Also handles parsing any required extra operands.
 fn parseValueEnum(self: *Assembler, kind: spec.OperandKind) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .value = literal32 });
+            },
+            .string => |str| {
+                const enumerant = for (kind.enumerants()) |enumerant| {
+                    if (std.mem.eql(u8, enumerant.name, str)) break enumerant;
+                } else {
+                    return self.fail(tok.start, "'{s}' is not a valid value for enumeration {s}", .{ str, @tagName(kind) });
+                };
+                try self.inst.operands.append(self.gpa, .{ .value = enumerant.value });
+            },
+            else => return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name}),
+        }
+        return;
+    }
+
     try self.expectToken(.value);
 
     const text = self.tokenText(tok);
@@ -654,6 +712,22 @@ fn parseRefId(self: *Assembler) !void {
 
 fn parseLiteralInteger(self: *Assembler) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
     // According to the SPIR-V machine readable grammar, a LiteralInteger
     // may consist of one or more words. From the SPIR-V docs it seems like there
@@ -669,6 +743,22 @@ fn parseLiteralInteger(self: *Assembler) !void {
 
 fn parseLiteralExtInstInteger(self: *Assembler) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
     const text = self.tokenText(tok);
     const value = std.fmt.parseInt(u32, text, 0) catch {
@@ -745,6 +835,22 @@ fn parseContextDependentNumber(self: *Assembler) !void {
 
 fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness, width: u32) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
 
     if (width == 0 or width > 2 * @bitSizeOf(spec.Word)) {
@@ -848,6 +954,8 @@ fn tokenText(self: Assembler, tok: Token) []const u8 {
 /// Tokenize `self.src` and put the tokens in `self.tokens`.
 /// Any errors encountered are appended to `self.errors`.
 fn tokenize(self: *Assembler) !void {
+    self.tokens.clearRetainingCapacity();
+
     var offset: u32 = 0;
     while (true) {
         const tok = try self.nextToken(offset);
@@ -890,6 +998,7 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
         string,
         string_end,
         escape,
+        placeholder,
     } = .start;
     var token_start = start_offset;
     var offset = start_offset;
@@ -917,6 +1026,10 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
                     offset += 1;
                     break;
                 },
+                '$' => {
+                    state = .placeholder;
+                    tag = .placeholder;
+                },
                 else => {
                     state = .value;
                     tag = .value;
@@ -932,11 +1045,11 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
                 ' ', '\t', '\r', '\n', '=', '|' => break,
                 else => {},
             },
-            .result_id => switch (c) {
+            .result_id, .placeholder => switch (c) {
                 '_', 'a'...'z', 'A'...'Z', '0'...'9' => {},
                 ' ', '\t', '\r', '\n', '=', '|' => break,
                 else => {
-                    try self.addError(offset, "illegal character in result-id", .{});
+                    try self.addError(offset, "illegal character in result-id or placeholder", .{});
                     // Again, probably a forgotten delimiter here.
                     break;
                 },

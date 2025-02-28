@@ -3,11 +3,11 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
 fn isFieldOptional(comptime T: type, field_index: usize) !bool {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     return switch (field_index) {
         // This prong is analyzed twice with `idx` being a
         // comptime-known value each time.
-        inline 0, 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
+        inline 0, 1 => |idx| @typeInfo(fields[idx].type) == .optional,
         else => return error.IndexOutOfBounds,
     };
 }

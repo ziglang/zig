@@ -181,9 +181,8 @@ struct __fn : __range_adaptor_closure<__fn> {
   template <class _Range>
     requires(!__is_reverse_view<remove_cvref_t<_Range>> && !__is_sized_reverse_subrange<remove_cvref_t<_Range>> &&
              !__is_unsized_reverse_subrange<remove_cvref_t<_Range>>)
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const
-      noexcept(noexcept(reverse_view{std::forward<_Range>(__range)}))
-          -> decltype(reverse_view{std::forward<_Range>(__range)}) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const noexcept(noexcept(reverse_view{
+      std::forward<_Range>(__range)})) -> decltype(reverse_view{std::forward<_Range>(__range)}) {
     return reverse_view{std::forward<_Range>(__range)};
   }
 };

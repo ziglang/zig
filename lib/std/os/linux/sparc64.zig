@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
@@ -190,7 +191,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i0, %%g2
         \\ mov %%i3, %%g3
         \\ # Shuffle the arguments
-        \\ mov 217, %%g1 # SYS_clone
+        \\ mov 217, %%g1 // SYS_clone
         \\ mov %%i2, %%o0
         \\ # Add some extra space for the initial frame
         \\ sub %%i1, 176 + 2047, %%o1
@@ -198,29 +199,38 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i5, %%o3
         \\ ldx [%%fp + 0x8af], %%o4
         \\ t 0x6d
-        \\ bcs,pn %%xcc, 2f
+        \\ bcs,pn %%xcc, 1f
         \\ nop
         \\ # The child pid is returned in o0 while o1 tells if this
         \\ # process is # the child (=1) or the parent (=0).
-        \\ brnz %%o1, 1f
+        \\ brnz %%o1, 2f
         \\ nop
         \\ # Parent process, return the child pid
         \\ mov %%o0, %%i0
         \\ ret
         \\ restore
         \\1:
-        \\ # Child process, call func(arg)
-        \\ mov %%g0, %%fp
-        \\ call %%g2
-        \\ mov %%g3, %%o0
-        \\ # Exit
-        \\ mov 1, %%g1 # SYS_exit
-        \\ t 0x6d
-        \\2:
         \\ # The syscall failed
         \\ sub %%g0, %%o0, %%i0
         \\ ret
         \\ restore
+        \\2:
+        \\ # Child process
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined %%i7
+    );
+    asm volatile (
+        \\ mov %%g0, %%fp
+        \\ mov %%g0, %%i7
+        \\
+        \\ # call func(arg)
+        \\ mov %%g0, %%fp
+        \\ call %%g2
+        \\ mov %%g3, %%o0
+        \\ # Exit
+        \\ mov 1, %%g1 // SYS_exit
+        \\ t 0x6d
     );
 }
 
@@ -228,7 +238,7 @@ pub const restore = restore_rt;
 
 // Need to use C ABI here instead of naked
 // to prevent an infinite loop when calling rt_sigreturn.
-pub fn restore_rt() callconv(.C) void {
+pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),
@@ -448,63 +458,3 @@ pub const ucontext_t = extern struct {
 
 /// TODO
 pub const getcontext = {};
-
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
-
-    /// Largest file that can be created, in bytes.
-    FSIZE,
-
-    /// Maximum size of data segment, in bytes.
-    DATA,
-
-    /// Maximum size of stack segment, in bytes.
-    STACK,
-
-    /// Largest core file that can be created, in bytes.
-    CORE,
-
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
-
-    /// Number of open files.
-    NOFILE,
-
-    /// Number of processes.
-    NPROC,
-
-    /// Locked-in-memory address space.
-    MEMLOCK,
-
-    /// Address space limit.
-    AS,
-
-    /// Maximum number of file locks.
-    LOCKS,
-
-    /// Maximum number of pending signals.
-    SIGPENDING,
-
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
-
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
-
-    /// Maximum realtime priority allowed for non-privileged
-    /// processes.
-    RTPRIO,
-
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
-
-    _,
-};

@@ -9,10 +9,35 @@ pub fn writeSetSub6(comptime op: enum { set, sub }, code: *[1]u8, addend: anytyp
     mem.writeInt(u8, code, value, .little);
 }
 
+pub fn writeSetSubUleb(comptime op: enum { set, sub }, stream: *std.io.FixedBufferStream([]u8), addend: i64) !void {
+    switch (op) {
+        .set => try overwriteUleb(stream, @intCast(addend)),
+        .sub => {
+            const position = try stream.getPos();
+            const value: u64 = try std.leb.readUleb128(u64, stream.reader());
+            try stream.seekTo(position);
+            try overwriteUleb(stream, value -% @as(u64, @intCast(addend)));
+        },
+    }
+}
+
+fn overwriteUleb(stream: *std.io.FixedBufferStream([]u8), addend: u64) !void {
+    var value: u64 = addend;
+    const writer = stream.writer();
+
+    while (true) {
+        const byte = stream.buffer[stream.pos];
+        if (byte & 0x80 == 0) break;
+        try writer.writeByte(0x80 | @as(u8, @truncate(value & 0x7f)));
+        value >>= 7;
+    }
+    stream.buffer[stream.pos] = @truncate(value & 0x7f);
+}
+
 pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },
-    code: *[@typeInfo(Int).Int.bits / 8]u8,
+    code: *[@typeInfo(Int).int.bits / 8]u8,
     value: anytype,
 ) void {
     var V: Int = mem.readInt(Int, code, .little);
@@ -70,18 +95,20 @@ fn bitSlice(
     return @truncate((value >> low) & (1 << (high - low + 1)) - 1);
 }
 
-pub const RiscvEflags = packed struct(u32) {
+pub const Eflags = packed struct(u32) {
     rvc: bool,
-    fabi: enum(u2) {
+    fabi: FloatAbi,
+    rve: bool,
+    tso: bool,
+    _reserved: u19 = 0,
+    _unused: u8 = 0,
+
+    pub const FloatAbi = enum(u2) {
         soft = 0b00,
         single = 0b01,
         double = 0b10,
         quad = 0b11,
-    },
-    rve: bool,
-    tso: bool,
-    _reserved: u19,
-    _unused: u8,
+    };
 };
 
 const mem = std.mem;

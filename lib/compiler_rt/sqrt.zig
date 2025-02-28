@@ -7,15 +7,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__sqrth, .{ .name = "__sqrth", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sqrtf, .{ .name = "sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sqrt, .{ .name = "sqrt", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sqrth, .{ .name = "__sqrth", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sqrtf, .{ .name = "sqrtf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sqrt, .{ .name = "sqrt", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sqrtq, .{ .name = "sqrtq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sqrtl, .{ .name = "sqrtl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sqrtq, .{ .name = "sqrtq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sqrtl, .{ .name = "sqrtl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sqrth(x: f16) callconv(.C) f16 {
@@ -243,7 +243,7 @@ pub fn sqrtq(x: f128) callconv(.C) f128 {
 }
 
 pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sqrth(x),
         32 => return sqrtf(x),
         64 => return sqrt(x),

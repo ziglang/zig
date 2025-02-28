@@ -24,7 +24,7 @@ pub const DevicePath = extern struct {
 
     /// Returns the next DevicePath node in the sequence, if any.
     pub fn next(self: *DevicePath) ?*DevicePath {
-        if (self.type == .End and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .EndEntire)
+        if (self.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
         return @as(*DevicePath, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
@@ -55,8 +55,8 @@ pub const DevicePath = extern struct {
         // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
         var new = @as(*uefi.DevicePath.Media.FilePathDevicePath, @ptrCast(buf.ptr + path_size - 4));
 
-        new.type = .Media;
-        new.subtype = .FilePath;
+        new.type = .media;
+        new.subtype = .file_path;
         new.length = @sizeOf(uefi.DevicePath.Media.FilePathDevicePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
 
         // The same as new.getPath(), but not const as we're filling it in.
@@ -68,15 +68,15 @@ pub const DevicePath = extern struct {
         ptr[path.len] = 0;
 
         var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
-        end.type = .End;
-        end.subtype = .EndEntire;
+        end.type = .end;
+        end.subtype = .end_entire;
         end.length = @sizeOf(uefi.DevicePath.End.EndEntireDevicePath);
 
         return @as(*DevicePath, @ptrCast(buf.ptr));
     }
 
     pub fn getDevicePath(self: *const DevicePath) ?uefi.DevicePath {
-        inline for (@typeInfo(uefi.DevicePath).Union.fields) |ufield| {
+        inline for (@typeInfo(uefi.DevicePath).@"union".fields) |ufield| {
             const enum_value = std.meta.stringToEnum(uefi.DevicePath.Type, ufield.name);
 
             // Got the associated union type for self.type, now
@@ -84,7 +84,7 @@ pub const DevicePath = extern struct {
             if (self.type == enum_value) {
                 const subtype = self.initSubtype(ufield.type);
                 if (subtype) |sb| {
-                    // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
+                    // e.g. return .{ .hardware = .{ .pci = @ptrCast(...) } }
                     return @unionInit(uefi.DevicePath, ufield.name, sb);
                 }
             }
@@ -94,7 +94,7 @@ pub const DevicePath = extern struct {
     }
 
     pub fn initSubtype(self: *const DevicePath, comptime TUnion: type) ?TUnion {
-        const type_info = @typeInfo(TUnion).Union;
+        const type_info = @typeInfo(TUnion).@"union";
         const TTag = type_info.tag_type.?;
 
         inline for (type_info.fields) |subtype| {
@@ -102,7 +102,7 @@ pub const DevicePath = extern struct {
             const tag_val: u8 = @intFromEnum(@field(TTag, subtype.name));
 
             if (self.subtype == tag_val) {
-                // e.g. expr = .{ .Pci = @ptrCast(...) }
+                // e.g. expr = .{ .pci = @ptrCast(...) }
                 return @unionInit(TUnion, subtype.name, @as(subtype.type, @ptrCast(self)));
             }
         }

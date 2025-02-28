@@ -35,10 +35,7 @@ pub fn intMaxType(target: std.Target) Type {
 
 /// intptr_t for this target
 pub fn intPtrType(target: std.Target) Type {
-    switch (target.os.tag) {
-        .haiku => return .{ .specifier = .long },
-        else => {},
-    }
+    if (target.os.tag == .haiku) return .{ .specifier = .long };
 
     switch (target.cpu.arch) {
         .aarch64, .aarch64_be => switch (target.os.tag) {
@@ -120,11 +117,19 @@ pub fn int64Type(target: std.Target) Type {
 
         .sparc64 => return intMaxType(target),
 
-        .x86, .x86_64 => if (!target.isDarwin()) return intMaxType(target),
-        .aarch64, .aarch64_be => if (!target.isDarwin() and target.os.tag != .openbsd and target.os.tag != .windows) return .{ .specifier = .long },
+        .x86, .x86_64 => if (!target.os.tag.isDarwin()) return intMaxType(target),
+        .aarch64, .aarch64_be => if (!target.os.tag.isDarwin() and target.os.tag != .openbsd and target.os.tag != .windows) return .{ .specifier = .long },
         else => {},
     }
     return .{ .specifier = .long_long };
+}
+
+pub fn float80Type(target: std.Target) ?Type {
+    switch (target.cpu.arch) {
+        .x86, .x86_64 => return .{ .specifier = .long_double },
+        else => {},
+    }
+    return null;
 }
 
 /// This function returns 1 if function alignment is not observable or settable.
@@ -139,7 +144,7 @@ pub fn defaultFunctionAlignment(target: std.Target) u8 {
 }
 
 pub fn isTlsSupported(target: std.Target) bool {
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         var supported = false;
         switch (target.os.tag) {
             .macos => supported = !(target.os.isAtLeast(.macos, .{ .major = 10, .minor = 7, .patch = 0 }) orelse false),
@@ -194,7 +199,7 @@ pub fn minZeroWidthBitfieldAlignment(target: std.Target) ?u29 {
 pub fn unnamedFieldAffectsAlignment(target: std.Target) bool {
     switch (target.cpu.arch) {
         .aarch64 => {
-            if (target.isDarwin() or target.os.tag == .windows) return false;
+            if (target.os.tag.isDarwin() or target.os.tag == .windows) return false;
             return true;
         },
         .armeb => {
@@ -224,7 +229,7 @@ pub fn packAllEnums(target: std.Target) bool {
 pub fn defaultAlignment(target: std.Target) u29 {
     switch (target.cpu.arch) {
         .avr => return 1,
-        .arm => if (target.isAndroid() or target.os.tag == .ios) return 16 else return 8,
+        .arm => if (target.abi.isAndroid() or target.os.tag == .ios) return 16 else return 8,
         .sparc => if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) return 16 else return 8,
         .mips, .mipsel => switch (target.abi) {
             .none, .gnuabi64 => return 16,
@@ -237,9 +242,8 @@ pub fn defaultAlignment(target: std.Target) u29 {
 pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
     // Android is linux but not gcc, so these checks go first
     // the rest for documentation as fn returns .clang
-    if (target.isDarwin() or
-        target.isAndroid() or
-        target.isBSD() or
+    if (target.abi.isAndroid() or
+        target.os.tag.isBSD() or
         target.os.tag == .fuchsia or
         target.os.tag == .solaris or
         target.os.tag == .haiku or
@@ -263,7 +267,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
-    if (target.isDarwin()) return false;
+    if (target.os.tag.isDarwin()) return false;
     if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
@@ -306,7 +310,7 @@ pub const FPSemantics = enum {
     /// Only intended for generating float.h macros for the preprocessor
     pub fn forType(ty: std.Target.CType, target: std.Target) FPSemantics {
         std.debug.assert(ty == .float or ty == .double or ty == .longdouble);
-        return switch (target.c_type_bit_size(ty)) {
+        return switch (target.cTypeBitSize(ty)) {
             32 => .IEEESingle,
             64 => .IEEEDouble,
             80 => .x87ExtendedDouble,
@@ -350,7 +354,7 @@ pub const FPSemantics = enum {
 };
 
 pub fn isLP64(target: std.Target) bool {
-    return target.c_type_bit_size(.int) == 32 and target.ptrBitWidth() == 64;
+    return target.cTypeBitSize(.int) == 32 and target.ptrBitWidth() == 64;
 }
 
 pub fn isKnownWindowsMSVCEnvironment(target: std.Target) bool {
@@ -432,9 +436,18 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .loongarch64 => "elf64loongarch",
         .mips => "elf32btsmip",
         .mipsel => "elf32ltsmip",
-        .mips64 => if (target.abi == .gnuabin32) "elf32btsmipn32" else "elf64btsmip",
-        .mips64el => if (target.abi == .gnuabin32) "elf32ltsmipn32" else "elf64ltsmip",
-        .x86_64 => if (target.abi == .gnux32 or target.abi == .muslx32) "elf32_x86_64" else "elf_x86_64",
+        .mips64 => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "elf32btsmipn32",
+            else => "elf64btsmip",
+        },
+        .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "elf32ltsmipn32",
+            else => "elf64ltsmip",
+        },
+        .x86_64 => switch (target.abi) {
+            .gnux32, .muslx32 => "elf32_x86_64",
+            else => "elf_x86_64",
+        },
         .ve => "elf64ve",
         .csky => "cskyelf_linux",
         else => null,
@@ -447,7 +460,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .amdgcn,
         .avr,
         .msp430,
-        .spu_2,
         .ve,
         .bpfel,
         .bpfeb,
@@ -474,9 +486,9 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .kalimba,
         .lanai,
         .wasm32,
+        .spirv,
         .spirv32,
         .loongarch32,
-        .dxil,
         .xtensa,
         => {}, // Already 32 bit
 
@@ -503,13 +515,11 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .arc,
         .avr,
         .csky,
-        .dxil,
         .hexagon,
         .kalimba,
         .lanai,
         .m68k,
         .msp430,
-        .spu_2,
         .xcore,
         .xtensa,
         => return null,
@@ -544,6 +554,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle => copy.cpu.arch = .powerpc64le,
         .riscv32 => copy.cpu.arch = .riscv64,
         .sparc => copy.cpu.arch = .sparc64,
+        .spirv => copy.cpu.arch = .spirv64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -571,7 +582,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .bpfel => "bpfel",
         .bpfeb => "bpfeb",
         .csky => "csky",
-        .dxil => "dxil",
         .hexagon => "hexagon",
         .loongarch32 => "loongarch32",
         .loongarch64 => "loongarch64",
@@ -599,6 +609,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -606,8 +617,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        // Note: spu_2 is not supported in LLVM; this is the Zig arch name
-        .spu_2 => "spu_2",
     };
     writer.writeAll(llvm_arch) catch unreachable;
     writer.writeByte('-') catch unreachable;
@@ -626,7 +635,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
-        .minix => "minix",
         .rtems => "rtems",
         .aix => "aix",
         .cuda => "cuda",
@@ -647,12 +655,11 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ios => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
-        .visionos => "xros",
         .driverkit => "driverkit",
-        .shadermodel => "shadermodel",
-        .liteos => "liteos",
+        .visionos => "xros",
+        .serenity => "serenity",
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,
@@ -680,12 +687,15 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnuilp32",
+        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
+        .androideabi => "androideabi",
         .musl => "musl",
+        .muslabin32 => "muslabin32",
+        .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",
@@ -694,21 +704,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .pixel => "pixel",
-        .vertex => "vertex",
-        .geometry => "geometry",
-        .hull => "hull",
-        .domain => "domain",
-        .compute => "compute",
-        .library => "library",
-        .raygeneration => "raygeneration",
-        .intersection => "intersection",
-        .anyhit => "anyhit",
-        .closesthit => "closesthit",
-        .miss => "miss",
-        .callable => "callable",
-        .mesh => "mesh",
-        .amplification => "amplification",
+        .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();
@@ -717,8 +714,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 test "alignment functions - smoke test" {
     var target: std.Target = undefined;
     const x86 = std.Target.Cpu.Arch.x86_64;
-    target.cpu = std.Target.Cpu.baseline(x86);
-    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
+    target.cpu = std.Target.Cpu.baseline(x86, target.os);
     target.abi = std.Target.Abi.default(x86, target.os);
 
     try std.testing.expect(isTlsSupported(target));
@@ -730,8 +727,8 @@ test "alignment functions - smoke test" {
     try std.testing.expect(systemCompiler(target) == .gcc);
 
     const arm = std.Target.Cpu.Arch.arm;
-    target.cpu = std.Target.Cpu.baseline(arm);
-    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
+    target.cpu = std.Target.Cpu.baseline(arm, target.os);
     target.abi = std.Target.Abi.default(arm, target.os);
 
     try std.testing.expect(!isTlsSupported(target));
@@ -749,7 +746,7 @@ test "target size/align tests" {
     const x86 = std.Target.Cpu.Arch.x86;
     comp.target.cpu.arch = x86;
     comp.target.cpu.model = &std.Target.x86.cpu.i586;
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     comp.target.abi = std.Target.Abi.gnu;
 
     const tt: Type = .{
@@ -761,7 +758,7 @@ test "target size/align tests" {
 
     const arm = std.Target.Cpu.Arch.arm;
     comp.target.cpu = std.Target.Cpu.Model.toCpu(&std.Target.arm.cpu.cortex_r4, arm);
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     comp.target.abi = std.Target.Abi.none;
 
     const ct: Type = .{

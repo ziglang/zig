@@ -63,18 +63,18 @@ pub fn deinit(self: *Pdb) void {
 }
 
 pub fn parseDbiStream(self: *Pdb) !void {
-    var stream = self.getStream(pdb.StreamType.Dbi) orelse
+    var stream = self.getStream(pdb.StreamType.dbi) orelse
         return error.InvalidDebugInfo;
     const reader = stream.reader();
 
     const header = try reader.readStruct(std.pdb.DbiStreamHeader);
-    if (header.VersionHeader != 19990903) // V70, only value observed by LLVM team
+    if (header.version_header != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     // if (header.Age != age)
     //     return error.UnmatchingPDB;
 
-    const mod_info_size = header.ModInfoSize;
-    const section_contrib_size = header.SectionContributionSize;
+    const mod_info_size = header.mod_info_size;
+    const section_contrib_size = header.section_contribution_size;
 
     var modules = std.ArrayList(Module).init(self.allocator);
     errdefer modules.deinit();
@@ -143,7 +143,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
 }
 
 pub fn parseInfoStream(self: *Pdb) !void {
-    var stream = self.getStream(pdb.StreamType.Pdb) orelse
+    var stream = self.getStream(pdb.StreamType.pdb) orelse
         return error.InvalidDebugInfo;
     const reader = stream.reader();
 
@@ -168,23 +168,23 @@ pub fn parseInfoStream(self: *Pdb) !void {
         try reader.readNoEof(name_bytes);
 
         const HashTableHeader = extern struct {
-            Size: u32,
-            Capacity: u32,
+            size: u32,
+            capacity: u32,
 
             fn maxLoad(cap: u32) u32 {
                 return cap * 2 / 3 + 1;
             }
         };
         const hash_tbl_hdr = try reader.readStruct(HashTableHeader);
-        if (hash_tbl_hdr.Capacity == 0)
+        if (hash_tbl_hdr.capacity == 0)
             return error.InvalidDebugInfo;
 
-        if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
+        if (hash_tbl_hdr.size > HashTableHeader.maxLoad(hash_tbl_hdr.capacity))
             return error.InvalidDebugInfo;
 
         const present = try readSparseBitVector(&reader, self.allocator);
         defer self.allocator.free(present);
-        if (present.len != hash_tbl_hdr.Size)
+        if (present.len != hash_tbl_hdr.size)
             return error.InvalidDebugInfo;
         const deleted = try readSparseBitVector(&reader, self.allocator);
         defer self.allocator.free(deleted);
@@ -212,19 +212,19 @@ pub fn getSymbolName(self: *Pdb, module: *Module, address: u64) ?[]const u8 {
 
     var symbol_i: usize = 0;
     while (symbol_i != module.symbols.len) {
-        const prefix = @as(*align(1) pdb.RecordPrefix, @ptrCast(&module.symbols[symbol_i]));
-        if (prefix.RecordLen < 2)
+        const prefix: *align(1) pdb.RecordPrefix = @ptrCast(&module.symbols[symbol_i]);
+        if (prefix.record_len < 2)
             return null;
-        switch (prefix.RecordKind) {
-            .S_LPROC32, .S_GPROC32 => {
-                const proc_sym = @as(*align(1) pdb.ProcSym, @ptrCast(&module.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]));
-                if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
-                    return std.mem.sliceTo(@as([*:0]u8, @ptrCast(&proc_sym.Name[0])), 0);
+        switch (prefix.record_kind) {
+            .lproc32, .gproc32 => {
+                const proc_sym: *align(1) pdb.ProcSym = @ptrCast(&module.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
+                if (address >= proc_sym.code_offset and address < proc_sym.code_offset + proc_sym.code_size) {
+                    return std.mem.sliceTo(@as([*:0]u8, @ptrCast(&proc_sym.name[0])), 0);
                 }
             },
             else => {},
         }
-        symbol_i += prefix.RecordLen + @sizeOf(u16);
+        symbol_i += prefix.record_len + @sizeOf(u16);
     }
 
     return null;
@@ -238,44 +238,44 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
     var skip_len: usize = undefined;
     const checksum_offset = module.checksum_offset orelse return error.MissingDebugInfo;
     while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-        const subsect_hdr = @as(*align(1) pdb.DebugSubsectionHeader, @ptrCast(&subsect_info[sect_offset]));
-        skip_len = subsect_hdr.Length;
+        const subsect_hdr: *align(1) pdb.DebugSubsectionHeader = @ptrCast(&subsect_info[sect_offset]);
+        skip_len = subsect_hdr.length;
         sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
 
-        switch (subsect_hdr.Kind) {
-            .Lines => {
+        switch (subsect_hdr.kind) {
+            .lines => {
                 var line_index = sect_offset;
 
-                const line_hdr = @as(*align(1) pdb.LineFragmentHeader, @ptrCast(&subsect_info[line_index]));
-                if (line_hdr.RelocSegment == 0)
+                const line_hdr: *align(1) pdb.LineFragmentHeader = @ptrCast(&subsect_info[line_index]);
+                if (line_hdr.reloc_segment == 0)
                     return error.MissingDebugInfo;
                 line_index += @sizeOf(pdb.LineFragmentHeader);
-                const frag_vaddr_start = line_hdr.RelocOffset;
-                const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+                const frag_vaddr_start = line_hdr.reloc_offset;
+                const frag_vaddr_end = frag_vaddr_start + line_hdr.code_size;
 
                 if (address >= frag_vaddr_start and address < frag_vaddr_end) {
                     // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
                     // from now on. We will iterate through them, and eventually find a SourceLocation that we're interested in,
                     // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-                    const subsection_end_index = sect_offset + subsect_hdr.Length;
+                    const subsection_end_index = sect_offset + subsect_hdr.length;
 
                     while (line_index < subsection_end_index) {
-                        const block_hdr = @as(*align(1) pdb.LineBlockFragmentHeader, @ptrCast(&subsect_info[line_index]));
+                        const block_hdr: *align(1) pdb.LineBlockFragmentHeader = @ptrCast(&subsect_info[line_index]);
                         line_index += @sizeOf(pdb.LineBlockFragmentHeader);
                         const start_line_index = line_index;
 
-                        const has_column = line_hdr.Flags.LF_HaveColumns;
+                        const has_column = line_hdr.flags.have_columns;
 
                         // All line entries are stored inside their line block by ascending start address.
                         // Heuristic: we want to find the last line entry
                         // that has a vaddr_start <= address.
                         // This is done with a simple linear search.
                         var line_i: u32 = 0;
-                        while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                            const line_num_entry = @as(*align(1) pdb.LineNumberEntry, @ptrCast(&subsect_info[line_index]));
+                        while (line_i < block_hdr.num_lines) : (line_i += 1) {
+                            const line_num_entry: *align(1) pdb.LineNumberEntry = @ptrCast(&subsect_info[line_index]);
                             line_index += @sizeOf(pdb.LineNumberEntry);
 
-                            const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                            const vaddr_start = frag_vaddr_start + line_num_entry.offset;
                             if (address < vaddr_start) {
                                 break;
                             }
@@ -283,28 +283,27 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
 
                         // line_i == 0 would mean that no matching pdb.LineNumberEntry was found.
                         if (line_i > 0) {
-                            const subsect_index = checksum_offset + block_hdr.NameIndex;
-                            const chksum_hdr = @as(*align(1) pdb.FileChecksumEntryHeader, @ptrCast(&module.subsect_info[subsect_index]));
-                            const strtab_offset = @sizeOf(pdb.StringTableHeader) + chksum_hdr.FileNameOffset;
+                            const subsect_index = checksum_offset + block_hdr.name_index;
+                            const chksum_hdr: *align(1) pdb.FileChecksumEntryHeader = @ptrCast(&module.subsect_info[subsect_index]);
+                            const strtab_offset = @sizeOf(pdb.StringTableHeader) + chksum_hdr.file_name_offset;
                             try self.string_table.?.seekTo(strtab_offset);
                             const source_file_name = try self.string_table.?.reader().readUntilDelimiterAlloc(self.allocator, 0, 1024);
 
                             const line_entry_idx = line_i - 1;
 
                             const column = if (has_column) blk: {
-                                const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.num_lines;
                                 const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
-                                const col_num_entry = @as(*align(1) pdb.ColumnNumberEntry, @ptrCast(&subsect_info[col_index]));
-                                break :blk col_num_entry.StartColumn;
+                                const col_num_entry: *align(1) pdb.ColumnNumberEntry = @ptrCast(&subsect_info[col_index]);
+                                break :blk col_num_entry.start_column;
                             } else 0;
 
                             const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
                             const line_num_entry: *align(1) pdb.LineNumberEntry = @ptrCast(&subsect_info[found_line_index]);
-                            const flags: *align(1) pdb.LineNumberEntry.Flags = @ptrCast(&line_num_entry.Flags);
 
                             return .{
                                 .file_name = source_file_name,
-                                .line = flags.Start,
+                                .line = line_num_entry.flags.start,
                                 .column = column,
                             };
                         }
@@ -335,12 +334,12 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
         return mod;
 
     // At most one can be non-zero.
-    if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
+    if (mod.mod_info.c11_byte_size != 0 and mod.mod_info.c13_byte_size != 0)
         return error.InvalidDebugInfo;
-    if (mod.mod_info.C13ByteSize == 0)
+    if (mod.mod_info.c13_byte_size == 0)
         return error.InvalidDebugInfo;
 
-    const stream = self.getStreamById(mod.mod_info.ModuleSymStream) orelse
+    const stream = self.getStreamById(mod.mod_info.module_sym_stream) orelse
         return error.MissingDebugInfo;
     const reader = stream.reader();
 
@@ -348,23 +347,23 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
     if (signature != 4)
         return error.InvalidDebugInfo;
 
-    mod.symbols = try self.allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
+    mod.symbols = try self.allocator.alloc(u8, mod.mod_info.sym_byte_size - 4);
     errdefer self.allocator.free(mod.symbols);
     try reader.readNoEof(mod.symbols);
 
-    mod.subsect_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
+    mod.subsect_info = try self.allocator.alloc(u8, mod.mod_info.c13_byte_size);
     errdefer self.allocator.free(mod.subsect_info);
     try reader.readNoEof(mod.subsect_info);
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
     while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
-        const subsect_hdr = @as(*align(1) pdb.DebugSubsectionHeader, @ptrCast(&mod.subsect_info[sect_offset]));
-        skip_len = subsect_hdr.Length;
+        const subsect_hdr: *align(1) pdb.DebugSubsectionHeader = @ptrCast(&mod.subsect_info[sect_offset]);
+        skip_len = subsect_hdr.length;
         sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
 
-        switch (subsect_hdr.Kind) {
-            .FileChecksums => {
+        switch (subsect_hdr.kind) {
+            .file_checksums => {
                 mod.checksum_offset = sect_offset;
                 break;
             },
@@ -401,30 +400,30 @@ const Msf = struct {
         const superblock = try in.readStruct(pdb.SuperBlock);
 
         // Sanity checks
-        if (!std.mem.eql(u8, &superblock.FileMagic, pdb.SuperBlock.file_magic))
+        if (!std.mem.eql(u8, &superblock.file_magic, pdb.SuperBlock.expect_magic))
             return error.InvalidDebugInfo;
-        if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
+        if (superblock.free_block_map_block != 1 and superblock.free_block_map_block != 2)
             return error.InvalidDebugInfo;
         const file_len = try file.getEndPos();
-        if (superblock.NumBlocks * superblock.BlockSize != file_len)
+        if (superblock.num_blocks * superblock.block_size != file_len)
             return error.InvalidDebugInfo;
-        switch (superblock.BlockSize) {
+        switch (superblock.block_size) {
             // llvm only supports 4096 but we can handle any of these values
             512, 1024, 2048, 4096 => {},
             else => return error.InvalidDebugInfo,
         }
 
-        const dir_block_count = blockCountFromSize(superblock.NumDirectoryBytes, superblock.BlockSize);
-        if (dir_block_count > superblock.BlockSize / @sizeOf(u32))
+        const dir_block_count = blockCountFromSize(superblock.num_directory_bytes, superblock.block_size);
+        if (dir_block_count > superblock.block_size / @sizeOf(u32))
             return error.UnhandledBigDirectoryStream; // cf. BlockMapAddr comment.
 
-        try file.seekTo(superblock.BlockSize * superblock.BlockMapAddr);
+        try file.seekTo(superblock.block_size * superblock.block_map_addr);
         const dir_blocks = try allocator.alloc(u32, dir_block_count);
         for (dir_blocks) |*b| {
             b.* = try in.readInt(u32, .little);
         }
         var directory = MsfStream.init(
-            superblock.BlockSize,
+            superblock.block_size,
             file,
             dir_blocks,
         );
@@ -440,7 +439,7 @@ const Msf = struct {
         const Nil = 0xFFFFFFFF;
         for (stream_sizes) |*s| {
             const size = try directory.reader().readInt(u32, .little);
-            s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.BlockSize);
+            s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.block_size);
         }
 
         const streams = try allocator.alloc(MsfStream, stream_count);
@@ -455,15 +454,15 @@ const Msf = struct {
                 var j: u32 = 0;
                 while (j < size) : (j += 1) {
                     const block_id = try directory.reader().readInt(u32, .little);
-                    const n = (block_id % superblock.BlockSize);
+                    const n = (block_id % superblock.block_size);
                     // 0 is for pdb.SuperBlock, 1 and 2 for FPMs.
-                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > file_len)
+                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.block_size > file_len)
                         return error.InvalidBlockIndex;
                     blocks[j] = block_id;
                 }
 
                 stream.* = MsfStream.init(
-                    superblock.BlockSize,
+                    superblock.block_size,
                     file,
                     blocks,
                 );
@@ -471,7 +470,7 @@ const Msf = struct {
         }
 
         const end = directory.pos;
-        if (end - begin != superblock.NumDirectoryBytes)
+        if (end - begin != superblock.num_directory_bytes)
             return error.InvalidStreamDirectory;
 
         return Msf{
@@ -495,7 +494,7 @@ const MsfStream = struct {
     blocks: []u32 = undefined,
     block_size: u32 = undefined,
 
-    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
+    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).@"fn".return_type.?).error_union.error_set;
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
         const stream = MsfStream{

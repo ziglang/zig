@@ -15,7 +15,7 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     const args = try std.process.argsAlloc(arena);
@@ -40,6 +40,9 @@ fn cmdObjCopy(
     var only_keep_debug: bool = false;
     var compress_debug_sections: bool = false;
     var listen = false;
+    var add_section: ?AddSection = null;
+    var set_section_alignment: ?SetSectionAlignment = null;
+    var set_section_flags: ?SetSectionFlags = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -104,6 +107,37 @@ fn cmdObjCopy(
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
             opt_extract = args[i];
+        } else if (mem.eql(u8, arg, "--set-section-alignment")) {
+            i += 1;
+            if (i >= args.len) fatal("expected section name and alignment arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                const alignment = std.fmt.parseInt(u32, split.second, 10) catch |err| {
+                    fatal("unable to parse alignment number: '{s}': {s}", .{ split.second, @errorName(err) });
+                };
+                if (!std.math.isPowerOfTwo(alignment)) fatal("alignment must be a power of two", .{});
+                set_section_alignment = .{ .section_name = split.first, .alignment = alignment };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<alignment>", .{args[i]});
+            }
+        } else if (mem.eql(u8, arg, "--set-section-flags")) {
+            i += 1;
+            if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                set_section_flags = .{ .section_name = split.first, .flags = parseSectionFlags(split.second) };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<flags>", .{args[i]});
+            }
+        } else if (mem.eql(u8, arg, "--add-section")) {
+            i += 1;
+            if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                add_section = .{ .section_name = split.first, .file_path = split.second };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<file>", .{args[i]});
+            }
         } else {
             fatal("unrecognized argument: '{s}'", .{arg});
         }
@@ -151,6 +185,12 @@ fn cmdObjCopy(
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --strip", .{});
             if (opt_extract != null)
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
+            if (add_section != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --add-section", .{});
+            if (set_section_alignment != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --set_section_alignment", .{});
+            if (set_section_flags != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --set_section_flags", .{});
 
             try emitElf(arena, in_file, out_file, elf_hdr, .{
                 .ofmt = out_fmt,
@@ -175,6 +215,9 @@ fn cmdObjCopy(
                 .add_debuglink = opt_add_debuglink,
                 .extract_to = opt_extract,
                 .compress_debug = compress_debug_sections,
+                .add_section = add_section,
+                .set_section_alignment = set_section_alignment,
+                .set_section_flags = set_section_flags,
             });
             return std.process.cleanExit();
         },
@@ -201,9 +244,10 @@ fn cmdObjCopy(
                     if (seen_update) fatal("zig objcopy only supports 1 update for now", .{});
                     seen_update = true;
 
-                    try server.serveEmitBinPath(output, .{
-                        .flags = .{ .cache_hit = false },
-                    });
+                    // The build system already knows what the output is at this point, we
+                    // only need to communicate that the process has finished.
+                    // Use the empty error bundle to indicate that the update is done.
+                    try server.serveErrorBundle(std.zig.ErrorBundle.empty);
                 },
                 else => fatal("unsupported message: {s}", .{@tagName(hdr.tag)}),
             }
@@ -216,18 +260,21 @@ const usage =
     \\Usage: zig objcopy [options] input output
     \\
     \\Options:
-    \\  -h, --help                  Print this help and exit
-    \\  --output-target=<value>     Format of the output file
-    \\  -O <value>                  Alias for --output-target
-    \\  --only-section=<section>    Remove all but <section>
-    \\  -j <value>                  Alias for --only-section
-    \\  --pad-to <addr>             Pad the last section up to address <addr>
-    \\  --strip-debug, -g           Remove all debug sections from the output.
-    \\  --strip-all, -S             Remove all debug sections and symbol table from the output.
-    \\  --only-keep-debug           Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
-    \\  --add-gnu-debuglink=<file>  Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
-    \\  --extract-to <file>         Extract the removed sections into <file>, and add a .gnu-debuglink section.
-    \\  --compress-debug-sections   Compress DWARF debug sections with zlib
+    \\  -h, --help                              Print this help and exit
+    \\  --output-target=<value>                 Format of the output file
+    \\  -O <value>                              Alias for --output-target
+    \\  --only-section=<section>                Remove all but <section>
+    \\  -j <value>                              Alias for --only-section
+    \\  --pad-to <addr>                         Pad the last section up to address <addr>
+    \\  --strip-debug, -g                       Remove all debug sections from the output.
+    \\  --strip-all, -S                         Remove all debug sections and symbol table from the output.
+    \\  --only-keep-debug                       Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
+    \\  --add-gnu-debuglink=<file>              Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
+    \\  --extract-to <file>                     Extract the removed sections into <file>, and add a .gnu-debuglink section.
+    \\  --compress-debug-sections               Compress DWARF debug sections with zlib
+    \\  --set-section-alignment <name>=<align>  Set alignment of section <name> to <align> bytes. Must be a power of two.
+    \\  --set-section-flags <name>=<file>       Set flags of section <name> to <flags> represented as a comma separated set of flags.
+    \\  --add-section <name>=<file>             Add file content from <file> with the a new section named <name>.
     \\
 ;
 
@@ -235,6 +282,24 @@ pub const EmitRawElfOptions = struct {
     ofmt: std.Target.ObjectFormat,
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
+    add_section: ?AddSection = null,
+    set_section_alignment: ?SetSectionAlignment = null,
+    set_section_flags: ?SetSectionFlags = null,
+};
+
+const AddSection = struct {
+    section_name: []const u8,
+    file_path: []const u8,
+};
+
+const SetSectionAlignment = struct {
+    section_name: []const u8,
+    alignment: u32,
+};
+
+const SetSectionFlags = struct {
+    section_name: []const u8,
+    flags: SectionFlags,
 };
 
 fn emitElf(
@@ -391,7 +456,7 @@ const BinaryElfOutput = struct {
             if (phdr.p_type == elf.PT_LOAD) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 
-                newSegment.physicalAddress = if (phdr.p_paddr != 0) phdr.p_paddr else phdr.p_vaddr;
+                newSegment.physicalAddress = phdr.p_paddr;
                 newSegment.virtualAddress = phdr.p_vaddr;
                 newSegment.fileSize = @intCast(phdr.p_filesz);
                 newSegment.elfOffset = phdr.p_offset;
@@ -677,6 +742,9 @@ const StripElfOptions = struct {
     strip_debug: bool = false,
     only_keep_debug: bool = false,
     compress_debug: bool = false,
+    add_section: ?AddSection,
+    set_section_alignment: ?SetSectionAlignment,
+    set_section_flags: ?SetSectionFlags,
 };
 
 fn stripElf(
@@ -720,6 +788,14 @@ fn stripElf(
             var elf_file = try ElfFile(is_64).parse(allocator, in_file, elf_hdr);
             defer elf_file.deinit();
 
+            if (options.add_section) |user_section| {
+                for (elf_file.sections) |section| {
+                    if (std.mem.eql(u8, section.name, user_section.section_name)) {
+                        fatal("zig objcopy: unable to add section '{s}'. Section already exists in input", .{user_section.section_name});
+                    }
+                }
+            }
+
             if (filter_complement) |flt| {
                 // write the .dbg file and close it, so it can be read back to compute the debuglink checksum.
                 const path = options.extract_to.?;
@@ -732,7 +808,14 @@ fn stripElf(
             }
 
             const debuglink: ?DebugLink = if (debuglink_path) |path| ElfFileHelper.createDebugLink(path) else null;
-            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink, .compress_debug = options.compress_debug });
+            try elf_file.emit(allocator, out_file, in_file, .{
+                .section_filter = filter,
+                .debuglink = debuglink,
+                .compress_debug = options.compress_debug,
+                .add_section = options.add_section,
+                .set_section_alignment = options.set_section_alignment,
+                .set_section_flags = options.set_section_flags,
+            });
         },
     }
 }
@@ -749,7 +832,6 @@ fn ElfFile(comptime is_64: bool) type {
     const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
     const Elf_Chdr = if (is_64) elf.Elf64_Chdr else elf.Elf32_Chdr;
     const Elf_Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
-    const Elf_Verdef = if (is_64) elf.Elf64_Verdef else elf.Elf32_Verdef;
     const Elf_OffSize = if (is_64) elf.Elf64_Off else elf.Elf32_Off;
 
     return struct {
@@ -785,7 +867,7 @@ fn ElfFile(comptime is_64: bool) type {
             // program header: list of segments
             const program_segments = blk: {
                 if (@sizeOf(Elf_Phdr) != header.phentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected phentsize ({d})", .{header.phentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected phentsize ({d})", .{header.phentsize});
 
                 const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
                 const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
@@ -797,7 +879,7 @@ fn ElfFile(comptime is_64: bool) type {
             // section header
             const sections = blk: {
                 if (@sizeOf(Elf_Shdr) != header.shentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected shentsize ({d})", .{header.shentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected shentsize ({d})", .{header.shentsize});
 
                 const section_header = try allocator.alloc(Section, header.shnum);
 
@@ -895,6 +977,9 @@ fn ElfFile(comptime is_64: bool) type {
             section_filter: Filter = .all,
             debuglink: ?DebugLink = null,
             compress_debug: bool = false,
+            add_section: ?AddSection = null,
+            set_section_alignment: ?SetSectionAlignment = null,
+            set_section_flags: ?SetSectionFlags = null,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
@@ -933,6 +1018,10 @@ fn ElfFile(comptime is_64: bool) type {
                 if (options.debuglink != null)
                     next_idx += 1;
 
+                if (options.add_section != null) {
+                    next_idx += 1;
+                }
+
                 break :blk next_idx;
             };
 
@@ -946,6 +1035,28 @@ fn ElfFile(comptime is_64: bool) type {
                 const update = &sections_update[self.raw_elf_header.e_shstrndx];
 
                 const name: []const u8 = ".gnu_debuglink";
+                const new_offset: u32 = @intCast(strtab.payload.?.len);
+                const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
+                @memcpy(buf[0..new_offset], strtab.payload.?);
+                @memcpy(buf[new_offset..][0..name.len], name);
+                buf[new_offset + name.len] = 0;
+
+                assert(update.action == .keep);
+                update.payload = buf;
+
+                break :blk new_offset;
+            };
+
+            // add user section to the string table if needed
+            const user_section_name: u32 = blk: {
+                if (options.add_section == null) break :blk elf.SHN_UNDEF;
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &self.sections[self.raw_elf_header.e_shstrndx];
+                const update = &sections_update[self.raw_elf_header.e_shstrndx];
+
+                const name = options.add_section.?.section_name;
                 const new_offset: u32 = @intCast(strtab.payload.?.len);
                 const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
                 @memcpy(buf[0..new_offset], strtab.payload.?);
@@ -1017,7 +1128,7 @@ fn ElfFile(comptime is_64: bool) type {
                         if (section.section.sh_type == elf.SHT_NOBITS)
                             continue;
                         if (section.section.sh_offset < offset) {
-                            fatal("zig objcopy: unsuported ELF file", .{});
+                            fatal("zig objcopy: unsupported ELF file", .{});
                         }
                         offset = section.section.sh_offset;
                     }
@@ -1067,11 +1178,11 @@ fn ElfFile(comptime is_64: bool) type {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
                                     @memcpy(data, src_data);
 
-                                    const defs = @as([*]Elf_Verdef, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(Elf_Verdef)];
-                                    for (defs) |*def| {
-                                        if (def.vd_ndx != elf.SHN_UNDEF)
-                                            def.vd_ndx = sections_update[src.sh_info].remap_idx;
-                                    }
+                                    const defs = @as([*]elf.Verdef, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(elf.Verdef)];
+                                    for (defs) |*def| switch (def.ndx) {
+                                        .LOCAL, .GLOBAL => {},
+                                        else => def.ndx = @enumFromInt(sections_update[src.sh_info].remap_idx),
+                                    };
 
                                     break :dst_data data;
                                 },
@@ -1133,9 +1244,99 @@ fn ElfFile(comptime is_64: bool) type {
                     eof_offset += @as(Elf_OffSize, @intCast(payload.len));
                 }
 
+                // --add-section
+                if (options.add_section) |add_section| {
+                    var section_file = fs.cwd().openFile(add_section.file_path, .{}) catch |err|
+                        fatal("unable to open '{s}': {s}", .{ add_section.file_path, @errorName(err) });
+                    defer section_file.close();
+
+                    const payload = try section_file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize));
+
+                    dest_sections[dest_section_idx] = Elf_Shdr{
+                        .sh_name = user_section_name,
+                        .sh_type = elf.SHT_PROGBITS,
+                        .sh_flags = 0,
+                        .sh_addr = 0,
+                        .sh_offset = eof_offset,
+                        .sh_size = @intCast(payload.len),
+                        .sh_link = elf.SHN_UNDEF,
+                        .sh_info = elf.SHN_UNDEF,
+                        .sh_addralign = 4,
+                        .sh_entsize = 0,
+                    };
+                    dest_section_idx += 1;
+
+                    cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
+                    eof_offset += @as(Elf_OffSize, @intCast(payload.len));
+                }
+
                 assert(dest_section_idx == new_shnum);
                 break :blk dest_sections;
             };
+
+            // --set-section-alignment: overwrite alignment
+            if (options.set_section_alignment) |set_align| {
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
+                for (updated_section_header) |*section| {
+                    const section_name = std.mem.span(@as([*:0]const u8, @ptrCast(&strtab.payload.?[section.sh_name])));
+                    if (std.mem.eql(u8, section_name, set_align.section_name)) {
+                        section.sh_addralign = set_align.alignment;
+                        break;
+                    }
+                } else std.log.warn("Skipping --set-section-alignment. Section '{s}' not found", .{set_align.section_name});
+            }
+
+            // --set-section-flags: overwrite flags
+            if (options.set_section_flags) |set_flags| {
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
+                for (updated_section_header) |*section| {
+                    const section_name = std.mem.span(@as([*:0]const u8, @ptrCast(&strtab.payload.?[section.sh_name])));
+                    if (std.mem.eql(u8, section_name, set_flags.section_name)) {
+                        section.sh_flags = std.elf.SHF_WRITE; // default is writable cleared by "readonly"
+                        const f = set_flags.flags;
+
+                        // Supporting a subset of GNU and LLVM objcopy for ELF only
+                        // GNU:
+                        // alloc: add SHF_ALLOC
+                        // contents: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+                        // load: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
+                        // noload: not ELF relevant
+                        // readonly: clear default SHF_WRITE flag
+                        // code: add SHF_EXECINSTR
+                        // data: not ELF relevant
+                        // rom: ignored
+                        // exclude: add SHF_EXCLUDE
+                        // share: not ELF relevant
+                        // debug: not ELF relevant
+                        // large: add SHF_X86_64_LARGE. Fatal error if target is not x86_64
+                        if (f.alloc) section.sh_flags |= std.elf.SHF_ALLOC;
+                        if (f.contents or f.load) {
+                            if (section.sh_type == std.elf.SHT_NOBITS) section.sh_type = std.elf.SHT_PROGBITS;
+                        }
+                        if (f.readonly) section.sh_flags &= ~@as(@TypeOf(section.sh_type), std.elf.SHF_WRITE);
+                        if (f.code) section.sh_flags |= std.elf.SHF_EXECINSTR;
+                        if (f.exclude) section.sh_flags |= std.elf.SHF_EXCLUDE;
+                        if (f.large) {
+                            if (updated_elf_header.e_machine != std.elf.EM.X86_64)
+                                fatal("zig objcopy: 'large' section flag is only supported on x86_64 targets", .{});
+                            section.sh_flags |= std.elf.SHF_X86_64_LARGE;
+                        }
+
+                        // LLVM:
+                        // merge: add SHF_MERGE
+                        // strings: add SHF_STRINGS
+                        if (f.merge) section.sh_flags |= std.elf.SHF_MERGE;
+                        if (f.strings) section.sh_flags |= std.elf.SHF_STRINGS;
+                        break;
+                    }
+                } else std.log.warn("Skipping --set-section-flags. Section '{s}' not found", .{set_flags.section_name});
+            }
 
             // write the section header at the tail
             {
@@ -1360,3 +1561,111 @@ const ElfFileHelper = struct {
         return hasher.final();
     }
 };
+
+const SectionFlags = packed struct {
+    alloc: bool = false,
+    contents: bool = false,
+    load: bool = false,
+    noload: bool = false,
+    readonly: bool = false,
+    code: bool = false,
+    data: bool = false,
+    rom: bool = false,
+    exclude: bool = false,
+    shared: bool = false,
+    debug: bool = false,
+    large: bool = false,
+    merge: bool = false,
+    strings: bool = false,
+};
+
+fn parseSectionFlags(comma_separated_flags: []const u8) SectionFlags {
+    const P = struct {
+        fn parse(flags: *SectionFlags, string: []const u8) void {
+            if (string.len == 0) return;
+
+            if (std.mem.eql(u8, string, "alloc")) {
+                flags.alloc = true;
+            } else if (std.mem.eql(u8, string, "contents")) {
+                flags.contents = true;
+            } else if (std.mem.eql(u8, string, "load")) {
+                flags.load = true;
+            } else if (std.mem.eql(u8, string, "noload")) {
+                flags.noload = true;
+            } else if (std.mem.eql(u8, string, "readonly")) {
+                flags.readonly = true;
+            } else if (std.mem.eql(u8, string, "code")) {
+                flags.code = true;
+            } else if (std.mem.eql(u8, string, "data")) {
+                flags.data = true;
+            } else if (std.mem.eql(u8, string, "rom")) {
+                flags.rom = true;
+            } else if (std.mem.eql(u8, string, "exclude")) {
+                flags.exclude = true;
+            } else if (std.mem.eql(u8, string, "shared")) {
+                flags.shared = true;
+            } else if (std.mem.eql(u8, string, "debug")) {
+                flags.debug = true;
+            } else if (std.mem.eql(u8, string, "large")) {
+                flags.large = true;
+            } else if (std.mem.eql(u8, string, "merge")) {
+                flags.merge = true;
+            } else if (std.mem.eql(u8, string, "strings")) {
+                flags.strings = true;
+            } else {
+                std.log.warn("Skipping unrecognized section flag '{s}'", .{string});
+            }
+        }
+    };
+
+    var flags = SectionFlags{};
+    var offset: usize = 0;
+    for (comma_separated_flags, 0..) |c, i| {
+        if (c == ',') {
+            defer offset = i + 1;
+            const string = comma_separated_flags[offset..i];
+            P.parse(&flags, string);
+        }
+    }
+    P.parse(&flags, comma_separated_flags[offset..]);
+    return flags;
+}
+
+test "Parse section flags" {
+    const F = SectionFlags;
+    try std.testing.expectEqual(F{}, parseSectionFlags(""));
+    try std.testing.expectEqual(F{}, parseSectionFlags(","));
+    try std.testing.expectEqual(F{}, parseSectionFlags("abc"));
+    try std.testing.expectEqual(F{ .alloc = true }, parseSectionFlags("alloc"));
+    try std.testing.expectEqual(F{ .data = true }, parseSectionFlags("data,"));
+    try std.testing.expectEqual(F{ .alloc = true, .code = true }, parseSectionFlags("alloc,code"));
+    try std.testing.expectEqual(F{ .alloc = true, .code = true }, parseSectionFlags("alloc,code,not_supported"));
+}
+
+const SplitResult = struct { first: []const u8, second: []const u8 };
+
+fn splitOption(option: []const u8) ?SplitResult {
+    const separator = '=';
+    if (option.len < 3) return null; // minimum "a=b"
+    for (1..option.len - 1) |i| {
+        if (option[i] == separator) return .{
+            .first = option[0..i],
+            .second = option[i + 1 ..],
+        };
+    }
+    return null;
+}
+
+test "Split option" {
+    {
+        const split = splitOption(".abc=123");
+        try std.testing.expect(split != null);
+        try std.testing.expectEqualStrings(".abc", split.?.first);
+        try std.testing.expectEqualStrings("123", split.?.second);
+    }
+
+    try std.testing.expectEqual(null, splitOption(""));
+    try std.testing.expectEqual(null, splitOption("=abc"));
+    try std.testing.expectEqual(null, splitOption("abc="));
+    try std.testing.expectEqual(null, splitOption("abc"));
+}

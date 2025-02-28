@@ -557,15 +557,15 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
     const check_object: *CheckObject = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(check_object.source);
 
-    const src_path = check_object.source.getPath2(b, step);
-    const contents = fs.cwd().readFileAllocOptions(
+    const src_path = check_object.source.getPath3(b, step);
+    const contents = src_path.root_dir.handle.readFileAllocOptions(
         gpa,
-        src_path,
+        src_path.sub_path,
         check_object.max_bytes,
         null,
         @alignOf(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
 
     var vars = std.StringHashMap(u64).init(gpa);
     for (check_object.checks.items) |chk| {
@@ -640,8 +640,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\{s}
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: =================================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -655,8 +660,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\*{s}*
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: =================================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -669,8 +679,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\{s}
                             \\========= but parsed file does contain it: ========
                             \\{s}
-                            \\===================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: ==============================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -684,8 +699,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\{s}
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ act.phrase.resolve(b, step), fmtMessageString(chk.kind, output) });
+                            \\========= file path: ==============================
+                            \\{}
+                        , .{
+                            act.phrase.resolve(b, step),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -713,12 +733,12 @@ const MachODumper = struct {
         gpa: Allocator,
         data: []const u8,
         header: macho.mach_header_64,
-        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
-        sections: std.ArrayListUnmanaged(macho.section_64) = .{},
-        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-        strtab: std.ArrayListUnmanaged(u8) = .{},
-        indsymtab: std.ArrayListUnmanaged(u32) = .{},
-        imports: std.ArrayListUnmanaged([]const u8) = .{},
+        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
+        sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
+        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+        strtab: std.ArrayListUnmanaged(u8) = .empty,
+        indsymtab: std.ArrayListUnmanaged(u32) = .empty,
+        imports: std.ArrayListUnmanaged([]const u8) = .empty,
 
         fn parse(ctx: *ObjectContext) !void {
             var it = ctx.getLoadCommandIterator();
@@ -1797,9 +1817,9 @@ const ElfDumper = struct {
     const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
+        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .empty,
         strtab: []const u8,
-        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .{},
+        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
 
         fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
             var stream = std.io.fixedBufferStream(raw);
@@ -2404,7 +2424,22 @@ const WasmDumper = struct {
         }
 
         var output = std.ArrayList(u8).init(gpa);
-        errdefer output.deinit();
+        defer output.deinit();
+        parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
+            error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
+            else => |e| return e,
+        };
+        return output.toOwnedSlice();
+    }
+
+    fn parseAndDumpInner(
+        step: *Step,
+        check: Check,
+        bytes: []const u8,
+        fbs: *std.io.FixedBufferStream([]const u8),
+        output: *std.ArrayList(u8),
+    ) !void {
+        const reader = fbs.reader();
         const writer = output.writer();
 
         switch (check.kind) {
@@ -2422,8 +2457,6 @@ const WasmDumper = struct {
 
             else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
-
-        return output.toOwnedSlice();
     }
 
     fn parseAndDumpSection(
@@ -2662,7 +2695,7 @@ const WasmDumper = struct {
             else => unreachable,
         }
         const end_opcode = try std.leb.readUleb128(u8, reader);
-        if (end_opcode != std.wasm.opcode(.end)) {
+        if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }

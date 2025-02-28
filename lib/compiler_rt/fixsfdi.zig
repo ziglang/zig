@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const common = @import("./common.zig");
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
@@ -5,9 +6,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_f2lz, .{ .name = "__aeabi_f2lz", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_f2lz, .{ .name = "__aeabi_f2lz", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__fixsfdi, .{ .name = "__fixsfdi", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixsfdi, .{ .name = if (common.want_windows_arm_abi) "__stoi64" else "__fixsfdi", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

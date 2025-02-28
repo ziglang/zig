@@ -295,10 +295,9 @@ pub fn dump(step: *Step, file: std.fs.File) void {
         }) catch {};
         return;
     };
-    const ally = debug_info.allocator;
     if (step.getStackTrace()) |stack_trace| {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
             w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };
@@ -317,6 +316,8 @@ const Build = std.Build;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const Cache = Build.Cache;
+const Path = Cache.Path;
 
 pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
     const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
@@ -338,7 +339,7 @@ pub fn captureChildProcess(
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
-    }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+    }) catch |err| return s.fail("failed to run {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
@@ -373,7 +374,7 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
-) !?[]const u8 {
+) !?Path {
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
@@ -422,7 +423,7 @@ pub fn evalZigProcess(
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
 
-    child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
+    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
         argv[0], @errorName(err),
     });
 
@@ -477,7 +478,7 @@ pub fn evalZigProcess(
     return result;
 }
 
-fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     const b = s.owner;
     const arena = b.allocator;
 
@@ -487,7 +488,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
 
     const Header = std.zig.Server.Message.Header;
-    var result: ?[]const u8 = null;
+    var result: ?Path = null;
 
     const stdout = zp.poller.fifo(.stdout);
 
@@ -531,16 +532,15 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
                     break;
                 }
             },
-            .emit_bin_path => {
-                const EbpHdr = std.zig.Server.Message.EmitBinPath;
-                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                s.result_cached = ebp_hdr.flags.cache_hit;
-                result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
-                if (watch) {
-                    // This message indicates the end of the update.
-                    stdout.discard(body.len);
-                    break;
-                }
+            .emit_digest => {
+                const EmitDigest = std.zig.Server.Message.EmitDigest;
+                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                s.result_cached = emit_digest.flags.cache_hit;
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                result = .{
+                    .root_dir = b.cache_root,
+                    .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
+                };
             },
             .file_system_inputs => {
                 s.clearWatchInputs();
@@ -714,7 +714,7 @@ pub fn allocPrintCmd2(
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .{};
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
     if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
@@ -754,11 +754,24 @@ pub fn cacheHitAndWatch(s: *Step, man: *Build.Cache.Manifest) !bool {
     return is_hit;
 }
 
-fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror) anyerror {
-    const i = man.failed_file_index orelse return err;
-    const pp = man.files.keys()[i].prefixed_path;
-    const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-    return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
+fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cache.Manifest.HitError) error{ OutOfMemory, MakeFailed } {
+    switch (err) {
+        error.CacheCheckFailed => switch (man.diagnostic) {
+            .none => unreachable,
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
+                @tagName(man.diagnostic), @errorName(e),
+            }),
+            .file_open, .file_stat, .file_read, .file_hash => |op| {
+                const pp = man.files.keys()[op.file_index].prefixed_path;
+                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                return s.fail("failed to check cache: '{s}{s}' {s} {s}", .{
+                    prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
+                });
+            },
+        },
+        error.OutOfMemory => return error.OutOfMemory,
+        error.InvalidFormat => return s.fail("failed to check cache: invalid manifest file format", .{}),
+    }
 }
 
 /// Prefer `writeManifestAndWatch` unless you already added watch inputs

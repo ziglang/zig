@@ -167,11 +167,20 @@ test "Macro that uses division operator. Issue #13162" {
             true,
         ),
     );
+
     try expectEqual(
         @as(c_int, 21),
         h.DIVIDE_ARGS(
             @as(i8, 42),
             @as(i8, 2),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_uint, 21),
+        h.DIVIDE_ARGS(
+            @as(u32, 42),
+            @as(u32, 2),
         ),
     );
 
@@ -222,7 +231,7 @@ test "Macro that uses remainder operator. Issue #13346" {
 test "@typeInfo on @cImport result" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    try expect(@typeInfo(h).Struct.decls.len > 1);
+    try expect(@typeInfo(h).@"struct".decls.len > 1);
 }
 
 test "Macro that uses Long type concatenation casting" {

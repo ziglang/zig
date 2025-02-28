@@ -26,6 +26,61 @@ test "parse and render IP addresses at comptime" {
     }
 }
 
+test "format IPv6 address with no zero runs" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const addr = try std.net.Address.parseIp6("2001:db8:1:2:3:4:5:6", 0);
+
+    var buffer: [50]u8 = undefined;
+    const result = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
+
+    try std.testing.expectEqualStrings("[2001:db8:1:2:3:4:5:6]:0", result);
+}
+
+test "parse IPv6 addresses and check compressed form" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const alloc = testing.allocator;
+
+    // 1) Parse an IPv6 address that should compress to [2001:db8::1:0:0:2]:0
+    const addr1 = try std.net.Address.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0);
+
+    // 2) Parse an IPv6 address that should compress to [2001:db8::1:2]:0
+    const addr2 = try std.net.Address.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0);
+
+    // 3) Parse an IPv6 address that should compress to [2001:db8:1:0:1::2]:0
+    const addr3 = try std.net.Address.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0);
+
+    // Print each address in Zig's default "[ipv6]:port" form.
+    const printed1 = try std.fmt.allocPrint(alloc, "{any}", .{addr1});
+    defer testing.allocator.free(printed1);
+    const printed2 = try std.fmt.allocPrint(alloc, "{any}", .{addr2});
+    defer testing.allocator.free(printed2);
+    const printed3 = try std.fmt.allocPrint(alloc, "{any}", .{addr3});
+    defer testing.allocator.free(printed3);
+
+    // Check the exact compressed forms we expect.
+    try std.testing.expectEqualStrings("[2001:db8::1:0:0:2]:0", printed1);
+    try std.testing.expectEqualStrings("[2001:db8::1:2]:0", printed2);
+    try std.testing.expectEqualStrings("[2001:db8:1:0:1::2]:0", printed3);
+}
+
+test "parse IPv6 address, check raw bytes" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const expected_raw: [16]u8 = .{
+        0x20, 0x01, 0x0d, 0xb8, // 2001:db8
+        0x00, 0x00, 0x00, 0x00, // :0000:0000
+        0x00, 0x01, 0x00, 0x00, // :0001:0000
+        0x00, 0x00, 0x00, 0x02, // :0000:0002
+    };
+
+    const addr = try std.net.Address.parseIp6("2001:db8:0000:0000:0001:0000:0000:0002", 0);
+
+    const actual_raw = addr.in6.sa.addr[0..];
+    try std.testing.expectEqualSlices(u8, expected_raw[0..], actual_raw);
+}
+
 test "parse and render IPv6 addresses" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
@@ -294,6 +349,21 @@ test "listen on a unix socket, send bytes, receive bytes" {
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+}
+
+test "listen on a unix socket with reuse_port option" {
+    if (!net.has_unix_sockets) return error.SkipZigTest;
+    // Windows doesn't implement reuse port option.
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const socket_path = try generateFileName("socket.unix");
+    defer testing.allocator.free(socket_path);
+
+    const socket_addr = try net.Address.initUnix(socket_path);
+    defer std.fs.cwd().deleteFile(socket_path) catch {};
+
+    var server = try socket_addr.listen(.{ .reuse_port = true });
+    server.deinit();
 }
 
 fn generateFileName(base_name: []const u8) ![]const u8 {

@@ -7,7 +7,7 @@ fn concat() [16]f32 {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :3:17: error: expected type '[4]f32', found '[16]f32'

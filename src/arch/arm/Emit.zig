@@ -16,16 +16,15 @@ const assert = std.debug.assert;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch32_emit);
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const CodeGen = @import("CodeGen.zig");
 
 mir: Mir,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -41,16 +40,16 @@ saved_regs_stack_space: u32,
 stack_size: u32,
 
 /// The branch type of every branch
-branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .empty,
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
-branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .empty,
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
 /// For forward branches: stores the code offset of the branch
 /// instruction
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
 
 const InnerError = error{
     OutOfMemory,
@@ -265,7 +264,7 @@ fn lowerBranches(emit: *Emit) !void {
                 if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
                     try origin_list.append(gpa, inst);
                 } else {
-                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
+                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty;
                     try origin_list.append(gpa, inst);
                     try emit.branch_forward_origins.put(gpa, target_inst, origin_list);
                 }
@@ -343,12 +342,14 @@ fn lowerBranches(emit: *Emit) !void {
 }
 
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
     const endian = emit.target.cpu.arch.endian();
-    std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
+    std.mem.writeInt(u32, try emit.code.addManyAsArray(gpa, 4), instruction.toU32(), endian);
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(emit.err_msg == null);
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;

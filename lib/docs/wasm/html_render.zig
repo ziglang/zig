@@ -38,7 +38,7 @@ pub fn fileSourceHtml(
     const file = file_index.get();
 
     const g = struct {
-        var field_access_buffer: std.ArrayListUnmanaged(u8) = .{};
+        var field_access_buffer: std.ArrayListUnmanaged(u8) = .empty;
     };
 
     const token_tags = ast.tokens.items(.tag);

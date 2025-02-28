@@ -60,6 +60,12 @@ const hashes = [_]Hash{
         .name = "crc32",
     },
     Hash{
+        .ty = hash.RapidHash,
+        .name = "rapidhash",
+        .has_iterative_api = false,
+        .init_u64 = 0,
+    },
+    Hash{
         .ty = hash.CityHash32,
         .name = "cityhash-32",
         .has_iterative_api = false,
@@ -329,6 +335,7 @@ fn usage() void {
         \\  --count     [int]
         \\  --key-size  [int]
         \\  --iterative-only
+        \\  --small-key-only
         \\  --help
         \\
     , .{});
@@ -349,6 +356,7 @@ pub fn main() !void {
     var count: usize = mode(128 * MiB);
     var key_size: ?usize = null;
     var seed: u32 = 0;
+    var test_small_key_only = false;
     var test_iterative_only = false;
     var test_arrays = false;
 
@@ -399,6 +407,8 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
             test_iterative_only = true;
+        } else if (std.mem.eql(u8, args[i], "--small-key-only")) {
+            test_small_key_only = true;
         } else if (std.mem.eql(u8, args[i], "--include-array")) {
             test_arrays = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
@@ -410,7 +420,13 @@ pub fn main() !void {
         }
     }
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    if (test_iterative_only and test_small_key_only) {
+        try stdout.print("Cannot use iterative-only and small-key-only together!\n", .{});
+        usage();
+        std.process.exit(1);
+    }
+
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -421,7 +437,7 @@ pub fn main() !void {
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.
-                if (H.has_iterative_api) {
+                if (H.has_iterative_api and !test_small_key_only) {
                     prng.seed(seed);
                     const result = try benchmarkHash(H, count, allocator);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });

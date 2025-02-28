@@ -88,7 +88,7 @@ inline _LIBCPP_HIDE_FROM_ABI long double atan2(long double __y, long double __x)
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type atan2(_A1 __y, _A2 __x) _NOEXCEPT {
   using __result_type = typename __promote<_A1, _A2>::type;
-  static_assert((!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value)), "");
+  static_assert(!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value), "");
   return __math::atan2((__result_type)__y, (__result_type)__x);
 }
 

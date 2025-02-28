@@ -43,7 +43,7 @@ struct __fn {
             class _Type,
             class _Proj                                                             = identity,
             indirect_strict_weak_order<const _Type*, projected<_Iter, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Iter
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Iter
   operator()(_Iter __first, _Sent __last, const _Type& __value, _Comp __comp = {}, _Proj __proj = {}) const {
     return std::__lower_bound<_RangeAlgPolicy>(__first, __last, __value, __comp, __proj);
   }
@@ -52,7 +52,7 @@ struct __fn {
             class _Type,
             class _Proj                                                                          = identity,
             indirect_strict_weak_order<const _Type*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Range>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Range>
   operator()(_Range&& __r, const _Type& __value, _Comp __comp = {}, _Proj __proj = {}) const {
     return std::__lower_bound<_RangeAlgPolicy>(ranges::begin(__r), ranges::end(__r), __value, __comp, __proj);
   }

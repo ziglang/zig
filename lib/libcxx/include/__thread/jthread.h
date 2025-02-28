@@ -10,13 +10,12 @@
 #ifndef _LIBCPP___THREAD_JTHREAD_H
 #define _LIBCPP___THREAD_JTHREAD_H
 
-#include <__availability>
 #include <__config>
 #include <__functional/invoke.h>
 #include <__stop_token/stop_source.h>
 #include <__stop_token/stop_token.h>
+#include <__thread/support.h>
 #include <__thread/thread.h>
-#include <__threading_support>
 #include <__type_traits/decay.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_same.h>

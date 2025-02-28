@@ -24,6 +24,7 @@ fn testTruncate(x: u32) u8 {
 }
 
 test "truncate to non-power-of-two integers" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testTrunc(u32, u1, 0b10101, 0b1);
@@ -107,13 +108,90 @@ test "non const ptr to aliased type" {
     try expect(?*int == ?*i32);
 }
 
-test "cold function" {
-    thisIsAColdFn();
-    comptime thisIsAColdFn();
+test "function branch hints" {
+    const S = struct {
+        fn none() void {
+            @branchHint(.none);
+        }
+        fn likely() void {
+            @branchHint(.likely);
+        }
+        fn unlikely() void {
+            @branchHint(.unlikely);
+        }
+        fn cold() void {
+            @branchHint(.cold);
+        }
+        fn unpredictable() void {
+            @branchHint(.unpredictable);
+        }
+    };
+    S.none();
+    S.likely();
+    S.unlikely();
+    S.cold();
+    S.unpredictable();
+    comptime S.none();
+    comptime S.likely();
+    comptime S.unlikely();
+    comptime S.cold();
+    comptime S.unpredictable();
 }
 
-fn thisIsAColdFn() void {
-    @setCold(true);
+test "if branch hints" {
+    var t: bool = undefined;
+    t = true;
+    if (t) {
+        @branchHint(.likely);
+    } else {
+        @branchHint(.cold);
+    }
+}
+
+test "switch branch hints" {
+    var t: bool = undefined;
+    t = true;
+    switch (t) {
+        true => {
+            @branchHint(.likely);
+        },
+        false => {
+            @branchHint(.cold);
+        },
+    }
+}
+
+test "orelse branch hints" {
+    var x: ?u32 = undefined;
+    x = 123;
+    const val = x orelse val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "catch branch hints" {
+    var x: error{Bad}!u32 = undefined;
+    x = 123;
+    const val = x catch val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "and/or branch hints" {
+    var t: bool = undefined;
+    t = true;
+    try expect(t or b: {
+        @branchHint(.unlikely);
+        break :b false;
+    });
+    try expect(t and b: {
+        @branchHint(.likely);
+        break :b true;
+    });
 }
 
 test "unicode escape in character literal" {
@@ -131,12 +209,14 @@ fn first4KeysOfHomeRow() []const u8 {
 }
 
 test "return string from function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 test "hex escape" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
@@ -144,6 +224,7 @@ test "hex escape" {
 
 test "multiline string" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -156,6 +237,7 @@ test "multiline string" {
 
 test "multiline string comments at start" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         //\\one
@@ -168,6 +250,7 @@ test "multiline string comments at start" {
 
 test "multiline string comments at end" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -180,6 +263,7 @@ test "multiline string comments at end" {
 
 test "multiline string comments in middle" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -192,6 +276,7 @@ test "multiline string comments in middle" {
 
 test "multiline string comments at multiple places" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -205,11 +290,14 @@ test "multiline string comments at multiple places" {
 }
 
 test "string concatenation simple" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 test "array mult operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
@@ -231,6 +319,8 @@ const global_a: i32 = 1234;
 const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @as(*const f32, @ptrCast(global_b));
 test "compile time global reinterpret" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const d = @as(*const i32, @ptrCast(global_c));
     try expect(d.* == 1234);
 }
@@ -358,6 +448,8 @@ fn f2(x: bool) []const u8 {
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var x: i32 = 1234;
     _ = hereIsAnOpaqueType(@as(*OpaqueA, @ptrCast(&x)));
 }
@@ -380,6 +472,8 @@ fn testTakeAddressOfParameter(f: f32) !void {
 }
 
 test "pointer to void return type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() anyerror!void {
@@ -395,6 +489,7 @@ test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][1]f32{
         [_]f32{1.0},
@@ -407,6 +502,7 @@ test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][2]f32{
         [_]f32{ 3.0, 4.239 },
@@ -419,6 +515,7 @@ test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_3d_vertexes = [_][2][2]f32{
         [_][2]f32{
@@ -474,6 +571,8 @@ fn testStructInFn() !void {
 
 test "fn call returning scalar optional in equality expression" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(getNull() == null);
 }
 
@@ -484,6 +583,7 @@ fn getNull() ?*i32 {
 test "global variable assignment with optional unwrapping with var initialized to undefined" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 1234;
@@ -599,6 +699,7 @@ test "self reference through fn ptr field" {
 
 test "global variable initialized to global variable array element" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(global_ptr == &gdt[0]);
 }
@@ -631,6 +732,7 @@ test "global constant is loaded with a runtime-known index" {
 
 test "multiline string literal is null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -645,6 +747,7 @@ test "string escapes" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expectEqualStrings("\"", "\x22");
     try expectEqualStrings("\'", "\x27");
@@ -662,6 +765,8 @@ test "explicit cast optional pointers" {
 }
 
 test "pointer comparison" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const a = @as([]const u8, "a");
     const b = &a;
     try expect(ptrEql(b, b));
@@ -712,6 +817,7 @@ fn maybe(x: bool) anyerror!?u32 {
 test "auto created variables have correct alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(str: [*]const u8) u32 {
@@ -733,9 +839,8 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    @export(&var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
 }
 extern var opaque_extern_var: opaque {};
@@ -1076,6 +1181,8 @@ test "orelse coercion as function argument" {
 }
 
 test "runtime-known globals initialized with undefined" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         var array: [10]u32 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         var vp: [*]u32 = undefined;
@@ -1093,14 +1200,10 @@ test "arrays and vectors with big integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    // TODO: only aarch64-windows didn't pass in the PR that added this code.
-    //       figure out why if you can run this target.
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
 
     inline for (.{ u65528, u65529, u65535 }) |Int| {
         var a: [1]Int = undefined;
@@ -1117,7 +1220,7 @@ test "pointer to struct literal with runtime field is constant" {
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
-    try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
+    try expect(@typeInfo(@TypeOf(ptr)).pointer.is_const);
 }
 
 fn testSignedCmp(comptime T: type) !void {
@@ -1172,6 +1275,8 @@ fn testUnsignedCmp(comptime T: type) !void {
 }
 
 test "integer compare <= 64 bits" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
         try testUnsignedCmp(T);
         try comptime testUnsignedCmp(T);
@@ -1184,6 +1289,7 @@ test "integer compare <= 64 bits" {
 
 test "integer compare <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ u65, u96, u127, u128 }) |T| {
         try testUnsignedCmp(T);
@@ -1213,7 +1319,7 @@ test "reference to inferred local variable works as expected" {
 
 test "@Type returned from block" {
     const T = comptime b: {
-        break :b @Type(.{ .Int = .{
+        break :b @Type(.{ .int = .{
             .signedness = .unsigned,
             .bits = 8,
         } });
@@ -1228,7 +1334,7 @@ test "comptime variable initialized with addresses of literals" {
     };
     _ = &st;
 
-    inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(st)).@"struct".fields) |field| {
         _ = field;
     }
 }
@@ -1245,12 +1351,12 @@ test "proper value is returned from labeled block" {
     const S = struct {
         fn hash(v: *u32, key: anytype) void {
             const Key = @TypeOf(key);
-            if (@typeInfo(Key) == .ErrorSet) {
+            if (@typeInfo(Key) == .error_set) {
                 v.* += 1;
                 return;
             }
             switch (@typeInfo(Key)) {
-                .ErrorUnion => blk: {
+                .error_union => blk: {
                     const payload = key catch |err| {
                         hash(v, err);
                         break :blk;
@@ -1349,10 +1455,7 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
     }
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
-        return error.SkipZigTest; // TODO
-    }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     try expect(@sizeOf(u24) == 4);
     try expect(@sizeOf([1]u24) == 4);

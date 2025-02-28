@@ -35,7 +35,7 @@ struct __fn {
   template <class _Type,
             class _Proj                                                      = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr const _Type& operator()(
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr const _Type& operator()(
       const _Type& __value, const _Type& __low, const _Type& __high, _Comp __comp = {}, _Proj __proj = {}) const {
     _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
         !bool(std::invoke(__comp, std::invoke(__proj, __high), std::invoke(__proj, __low))),

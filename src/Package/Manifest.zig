@@ -5,21 +5,20 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const testing = std.testing;
-const hex_charset = std.fmt.hex_charset;
+const Package = @import("../Package.zig");
 
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
-pub const Hash = std.crypto.hash.sha2.Sha256;
-pub const Digest = [Hash.digest_length]u8;
-pub const multihash_len = 1 + 1 + Hash.digest_length;
-pub const multihash_hex_digest_len = 2 * multihash_len;
-pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
+pub const max_name_len = 32;
+pub const max_version_len = 32;
 
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
+    location_node: Ast.Node.Index,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+    hash_node: Ast.Node.Index,
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
@@ -36,36 +35,8 @@ pub const ErrorMessage = struct {
     off: u32,
 };
 
-pub const MultihashFunction = enum(u16) {
-    identity = 0x00,
-    sha1 = 0x11,
-    @"sha2-256" = 0x12,
-    @"sha2-512" = 0x13,
-    @"sha3-512" = 0x14,
-    @"sha3-384" = 0x15,
-    @"sha3-256" = 0x16,
-    @"sha3-224" = 0x17,
-    @"sha2-384" = 0x20,
-    @"sha2-256-trunc254-padded" = 0x1012,
-    @"sha2-224" = 0x1013,
-    @"sha2-512-224" = 0x1014,
-    @"sha2-512-256" = 0x1015,
-    @"blake2b-256" = 0xb220,
-    _,
-};
-
-pub const multihash_function: MultihashFunction = switch (Hash) {
-    std.crypto.hash.sha2.Sha256 => .@"sha2-256",
-    else => @compileError("unreachable"),
-};
-comptime {
-    // We avoid unnecessary uleb128 code in hexDigest by asserting here the
-    // values are small enough to be contained in the one-byte encoding.
-    assert(@intFromEnum(multihash_function) < 127);
-    assert(Hash.digest_length < 127);
-}
-
 name: []const u8,
+id: u32,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -78,6 +49,10 @@ arena_state: std.heap.ArenaAllocator.State,
 
 pub const ParseOptions = struct {
     allow_missing_paths_field: bool = false,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_name_string: bool = true,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_missing_fingerprint: bool = true,
 };
 
 pub const Error = Allocator.Error;
@@ -98,12 +73,15 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .errors = .{},
 
         .name = undefined,
+        .id = 0,
         .version = undefined,
         .version_node = 0,
         .dependencies = .{},
         .dependencies_node = 0,
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
+        .allow_name_string = options.allow_name_string,
+        .allow_missing_fingerprint = options.allow_missing_fingerprint,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -119,6 +97,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
 
     return .{
         .name = p.name,
+        .id = p.id,
         .version = p.version,
         .version_node = p.version_node,
         .dependencies = try p.dependencies.clone(p.arena),
@@ -162,22 +141,6 @@ pub fn copyErrorsIntoBundle(
     }
 }
 
-pub fn hexDigest(digest: Digest) MultiHashHexDigest {
-    var result: MultiHashHexDigest = undefined;
-
-    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
-    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
-
-    result[2] = hex_charset[Hash.digest_length >> 4];
-    result[3] = hex_charset[Hash.digest_length & 15];
-
-    for (digest, 0..) |byte, i| {
-        result[4 + i * 2] = hex_charset[byte >> 4];
-        result[5 + i * 2] = hex_charset[byte & 15];
-    }
-    return result;
-}
-
 const Parse = struct {
     gpa: Allocator,
     ast: Ast,
@@ -186,12 +149,15 @@ const Parse = struct {
     errors: std.ArrayListUnmanaged(ErrorMessage),
 
     name: []const u8,
+    id: u32,
     version: std.SemanticVersion,
     version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
     dependencies_node: Ast.Node.Index,
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
+    allow_name_string: bool,
+    allow_missing_fingerprint: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
@@ -209,6 +175,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
+        var fingerprint: ?Package.Fingerprint = null;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -223,11 +190,16 @@ const Parse = struct {
                 have_included_paths = true;
                 try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
-                p.name = try parseString(p, field_init);
+                p.name = try parseName(p, field_init);
                 have_name = true;
+            } else if (mem.eql(u8, field_name, "fingerprint")) {
+                fingerprint = try parseFingerprint(p, field_init);
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
+                if (version_text.len > max_version_len) {
+                    try appendError(p, main_tokens[field_init], "version string length {d} exceeds maximum of {d}", .{ version_text.len, max_version_len });
+                }
                 p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v undefined;
@@ -247,6 +219,21 @@ const Parse = struct {
 
         if (!have_name) {
             try appendError(p, main_token, "missing top-level 'name' field", .{});
+        } else {
+            if (fingerprint) |n| {
+                if (!n.validate(p.name)) {
+                    return fail(p, main_token, "invalid fingerprint: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
+                        n.int(), Package.Fingerprint.generate(p.name).int(),
+                    });
+                }
+                p.id = n.id;
+            } else if (!p.allow_missing_fingerprint) {
+                try appendError(p, main_token, "missing top-level 'fingerprint' field; suggested value: 0x{x}", .{
+                    Package.Fingerprint.generate(p.name).int(),
+                });
+            } else {
+                p.id = 0;
+            }
         }
 
         if (!have_version) {
@@ -293,8 +280,10 @@ const Parse = struct {
         var dep: Dependency = .{
             .location = undefined,
             .location_tok = 0,
+            .location_node = undefined,
             .hash = null,
             .hash_tok = 0,
+            .hash_node = undefined,
             .node = node,
             .name_tok = 0,
             .lazy = false,
@@ -320,6 +309,7 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "path")) {
                 if (has_location) {
                     return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
@@ -332,12 +322,14 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+                dep.hash_node = field_init;
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
@@ -393,6 +385,59 @@ const Parse = struct {
         }
     }
 
+    fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Package.Fingerprint {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+        if (node_tags[node] != .number_literal) {
+            return fail(p, main_token, "expected integer literal", .{});
+        }
+        const token_bytes = ast.tokenSlice(main_token);
+        const parsed = std.zig.parseNumberLiteral(token_bytes);
+        switch (parsed) {
+            .int => |n| return @bitCast(n),
+            .big_int, .float => return fail(p, main_token, "expected u64 integer literal, found {s}", .{
+                @tagName(parsed),
+            }),
+            .failure => |err| return fail(p, main_token, "bad integer literal: {s}", .{@tagName(err)}),
+        }
+    }
+
+    fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+
+        if (p.allow_name_string and node_tags[node] == .string_literal) {
+            const name = try parseString(p, node);
+            if (!std.zig.isValidId(name))
+                return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
+
+            if (name.len > max_name_len)
+                return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+                    std.zig.fmtId(name), max_name_len,
+                });
+
+            return name;
+        }
+
+        if (node_tags[node] != .enum_literal)
+            return fail(p, main_token, "expected enum literal", .{});
+
+        const ident_name = ast.tokenSlice(main_token);
+        if (mem.startsWith(u8, ident_name, "@"))
+            return fail(p, main_token, "name must be a valid bare zig identifier", .{});
+
+        if (ident_name.len > max_name_len)
+            return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+                std.zig.fmtId(ident_name), max_name_len,
+            });
+
+        return ident_name;
+    }
+
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
@@ -414,21 +459,8 @@ const Parse = struct {
         const tok = main_tokens[node];
         const h = try parseString(p, node);
 
-        if (h.len >= 2) {
-            const their_multihash_func = std.fmt.parseInt(u8, h[0..2], 16) catch |err| {
-                return fail(p, tok, "invalid multihash value: unable to parse hash function: {s}", .{
-                    @errorName(err),
-                });
-            };
-            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
-                return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
-            }
-        }
-
-        if (h.len != multihash_hex_digest_len) {
-            return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                multihash_hex_digest_len, h.len,
-            });
+        if (h.len > Package.Hash.max_len) {
+            return fail(p, tok, "hash length exceeds maximum: {d}", .{h.len});
         }
 
         return h;

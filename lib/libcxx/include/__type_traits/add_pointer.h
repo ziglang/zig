@@ -11,9 +11,7 @@
 
 #include <__config>
 #include <__type_traits/is_referenceable.h>
-#include <__type_traits/is_same.h>
 #include <__type_traits/is_void.h>
-#include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_reference.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

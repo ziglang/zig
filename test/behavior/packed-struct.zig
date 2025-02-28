@@ -891,7 +891,7 @@ test "runtime init of unnamed packed struct type" {
     }{ .x = z }).m();
 }
 
-test "packed struct passed to callconv(.C) function" {
+test "packed struct passed to callconv(.c) function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -906,7 +906,7 @@ test "packed struct passed to callconv(.C) function" {
             d: u46 = 0,
         };
 
-        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.C) bool {
+        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.c) bool {
             return p.a == 12345 and p.b == true and p.c == true and p.d == 0 and a1 == 5 and a2 == 4 and a3 == 3 and a4 == 2 and a5 == 1;
         }
     };
@@ -1186,9 +1186,9 @@ test "packed struct field pointer aligned properly" {
     };
 
     var f1: *align(16) Foo = @alignCast(@as(*align(1) Foo, @ptrCast(&Foo.buffer[0])));
-    try expect(@typeInfo(@TypeOf(f1)).Pointer.alignment == 16);
+    try expect(@typeInfo(@TypeOf(f1)).pointer.alignment == 16);
     try expect(@intFromPtr(f1) == @intFromPtr(&f1.a));
-    try expect(@typeInfo(@TypeOf(&f1.a)).Pointer.alignment == 16);
+    try expect(@typeInfo(@TypeOf(&f1.a)).pointer.alignment == 16);
 }
 
 test "load flag from packed struct in union" {
@@ -1270,7 +1270,7 @@ test "2-byte packed struct argument in C calling convention" {
         x: u15 = 0,
         y: u1 = 0,
 
-        fn foo(s: @This()) callconv(.C) i32 {
+        fn foo(s: @This()) callconv(.c) i32 {
             return s.x;
         }
         fn bar(s: @This()) !void {
@@ -1296,4 +1296,56 @@ test "packed struct contains optional pointer" {
         a: ?*@This() = null,
     } = .{};
     try expect(foo.a == null);
+}
+
+test "packed struct equality" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+
+    const S = struct {
+        fn doTest(x: Foo, y: Foo) !void {
+            try expect(x == y);
+            try expect(!(x != y));
+        }
+    };
+
+    const x: Foo = .{ .a = 1, .b = 2 };
+    const y: Foo = .{ .b = 2, .a = 1 };
+
+    try S.doTest(x, y);
+    comptime try S.doTest(x, y);
+}
+
+test "packed struct with signed field" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var s: packed struct {
+        a: i2,
+        b: u6,
+    } = .{ .a = -1, .b = 42 };
+    s = s;
+    try expect(s.a == -1);
+    try expect(s.b == 42);
+}
+
+test "assign packed struct initialized with RLS to packed struct literal field" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Inner = packed struct { x: u17 };
+    const Outer = packed struct { inner: Inner, x: u15 };
+
+    var x: u15 = undefined;
+    x = 23385;
+    var inner: Inner = undefined;
+    inner = .{ .x = x };
+    const outer = Outer{ .x = x, .inner = inner };
+    try expect(outer.inner.x == x);
+    try expect(outer.x == x);
 }

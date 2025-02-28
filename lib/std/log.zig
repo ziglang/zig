@@ -28,7 +28,7 @@
 //!
 //! pub fn myLogFn(
 //!     comptime level: std.log.Level,
-//!     comptime scope: @TypeOf(.EnumLiteral),
+//!     comptime scope: @Type(.enum_literal),
 //!     comptime format: []const u8,
 //!     args: anytype,
 //! ) void {
@@ -108,7 +108,7 @@ pub const default_level: Level = switch (builtin.mode) {
 const level = std.options.log_level;
 
 pub const ScopeLevel = struct {
-    scope: @Type(.EnumLiteral),
+    scope: @Type(.enum_literal),
     level: Level,
 };
 
@@ -116,7 +116,7 @@ const scope_levels = std.options.log_scope_levels;
 
 fn log(
     comptime message_level: Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -126,7 +126,7 @@ fn log(
 }
 
 /// Determine if a specific log message level and scope combination are enabled for logging.
-pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.EnumLiteral)) bool {
+pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.enum_literal)) bool {
     inline for (scope_levels) |scope_level| {
         if (scope_level.scope == scope) return @intFromEnum(message_level) <= @intFromEnum(scope_level.level);
     }
@@ -142,7 +142,7 @@ pub fn defaultLogEnabled(comptime message_level: Level) bool {
 /// forward log messages to this function.
 pub fn defaultLog(
     comptime message_level: Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -162,7 +162,7 @@ pub fn defaultLog(
 
 /// Returns a scoped logging namespace that logs all messages using the scope
 /// provided here.
-pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
+pub fn scoped(comptime scope: @Type(.enum_literal)) type {
     return struct {
         /// Log an error message. This log level is intended to be used
         /// when something has gone wrong. This might be recoverable or might
@@ -171,7 +171,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
             comptime format: []const u8,
             args: anytype,
         ) void {
-            @setCold(true);
+            @branchHint(.cold);
             log(.err, scope, format, args);
         }
 

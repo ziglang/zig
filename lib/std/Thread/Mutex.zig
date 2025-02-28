@@ -158,7 +158,7 @@ const FutexImpl = struct {
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
-        if (comptime builtin.target.cpu.arch.isX86()) {
+        if (builtin.target.cpu.arch.isX86()) {
             const locked_bit = @ctz(locked);
             return self.state.bitSet(locked_bit, .acquire) == 0;
         }
@@ -169,7 +169,7 @@ const FutexImpl = struct {
     }
 
     fn lockSlow(self: *@This()) void {
-        @setCold(true);
+        @branchHint(.cold);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.

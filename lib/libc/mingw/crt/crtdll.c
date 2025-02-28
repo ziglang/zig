@@ -97,7 +97,8 @@ WINBOOL WINAPI _CRT_INIT (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 	{
 	  __native_startup_state = __initializing;
 	  
-	  _initterm ((_PVFV *) (void *) __xi_a, (_PVFV *) (void *) __xi_z);
+	  if (_initterm_e (__xi_a, __xi_z) != 0)
+	    return FALSE;
 	}
       if (__native_startup_state == __initializing)
 	{
@@ -147,15 +148,15 @@ WINBOOL WINAPI
 DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
   __mingw_app_type = 0;
-  if (dwReason == DLL_PROCESS_ATTACH)
-    {
-#if defined(__x86_64__) && !defined(__SEH__)
-      __mingw_init_ehandler ();
-#endif
-    }
   return __DllMainCRTStartup (hDllHandle, dwReason, lpreserved);
 }
 
+static
+#if defined(__i386__) || defined(_X86_)
+/* We need to make sure that we align the stack to 16 bytes for the sake of SSE
+   opts in DllMain/DllEntryPoint or in functions called from DllMain/DllEntryPoint.  */
+__attribute__((force_align_arg_pointer))
+#endif
 __declspec(noinline) WINBOOL
 __DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
@@ -168,6 +169,12 @@ __DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 	goto i__leave;
     }
   _pei386_runtime_relocator ();
+
+#if defined(__x86_64__) && !defined(__SEH__)
+  if (dwReason == DLL_PROCESS_ATTACH)
+    __mingw_init_ehandler ();
+#endif
+
   if (dwReason == DLL_PROCESS_ATTACH || dwReason == DLL_THREAD_ATTACH)
     {
         retcode = _CRT_INIT (hDllHandle, dwReason, lpreserved);
@@ -204,6 +211,8 @@ i__leave:
 
 int __cdecl atexit (_PVFV func)
 {
+    /* Do not use msvcrt's atexit() or UCRT's _crt_atexit() function as it
+     * cannot be called from DLL library which may be unloaded at runtime. */
     return _register_onexit_function(&atexit_table, (_onexit_t)func);
 }
 

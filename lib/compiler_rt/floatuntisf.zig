@@ -6,9 +6,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__floatuntisf_windows_x86_64, .{ .name = "__floatuntisf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__floatuntisf_windows_x86_64, .{ .name = "__floatuntisf", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__floatuntisf, .{ .name = "__floatuntisf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__floatuntisf, .{ .name = "__floatuntisf", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

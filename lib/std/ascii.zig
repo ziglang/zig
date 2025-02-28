@@ -135,10 +135,10 @@ pub fn isPrint(c: u8) bool {
 
 /// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
-    return for (whitespace) |other| {
-        if (c == other)
-            break true;
-    } else false;
+    return switch (c) {
+        ' ', '\t'...'\r' => true,
+        else => false,
+    };
 }
 
 /// Whitespace for general use.
@@ -182,20 +182,14 @@ pub const isASCII = isAscii;
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
-    if (isLower(c)) {
-        return c & 0b11011111;
-    } else {
-        return c;
-    }
+    const mask = @as(u8, @intFromBool(isLower(c))) << 5;
+    return c ^ mask;
 }
 
 /// Lowercases the character and returns it as-is if already lowercase or not a letter.
 pub fn toLower(c: u8) u8 {
-    if (isUpper(c)) {
-        return c | 0b00100000;
-    } else {
-        return c;
-    }
+    const mask = @as(u8, @intFromBool(isUpper(c))) << 5;
+    return c | mask;
 }
 
 test "ASCII character classes" {

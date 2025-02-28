@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -14,7 +15,8 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -28,7 +30,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ .set noat
         \\ .set noreorder
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
         \\ nop
         \\ b 2f
         \\ subu $2, $0, $2
@@ -46,7 +48,8 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -59,7 +62,8 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -73,7 +77,8 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -88,7 +93,8 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -108,7 +114,8 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ sw %[arg5], 16($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -141,7 +148,8 @@ pub fn syscall6(
         \\ sw %[arg6], 20($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -174,7 +182,8 @@ pub fn syscall7(
         \\ sw %[arg7], 24($sp)
         \\ syscall
         \\ addu $sp, $sp, 32
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -223,6 +232,14 @@ pub fn clone() callconv(.Naked) usize {
         \\  jr $ra
         \\  nop
         \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\  .cfi_undefined $ra
+    );
+    asm volatile (
+        \\  move $fp, $zero
+        \\  move $ra, $zero
+        \\
         \\  lw $25, 0($sp)
         \\  lw $4, 4($sp)
         \\  jalr $25
@@ -314,7 +331,7 @@ pub const msghdr_const = extern struct {
     flags: i32,
 };
 
-pub const blksize_t = i32;
+pub const blksize_t = u32;
 pub const nlink_t = u32;
 pub const time_t = i32;
 pub const mode_t = u32;
@@ -323,36 +340,47 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-// The `stat` definition used by the Linux kernel.
+// The `stat64` definition used by the Linux kernel.
 pub const Stat = extern struct {
-    dev: u32,
-    __pad0: [3]u32, // Reserved for st_dev expansion
+    dev: dev_t,
+    __pad0: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
     uid: uid_t,
     gid: gid_t,
-    rdev: u32,
-    __pad1: [3]u32,
+    rdev: dev_t,
+    __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: i32,
+    atim_nsec: u32,
+    mtim: i32,
+    mtim_nsec: u32,
+    ctim: i32,
+    ctim_nsec: u32,
     blksize: blksize_t,
     __pad3: u32,
     blocks: blkcnt_t,
-    __pad4: [14]usize,
 
     pub fn atime(self: @This()) timespec {
-        return self.atim;
+        return .{
+            .sec = self.atim,
+            .nsec = self.atim_nsec,
+        };
     }
 
     pub fn mtime(self: @This()) timespec {
-        return self.mtim;
+        return .{
+            .sec = self.mtim,
+            .nsec = self.mtim_nsec,
+        };
     }
 
     pub fn ctime(self: @This()) timespec {
-        return self.ctim;
+        return .{
+            .sec = self.ctim,
+            .nsec = self.ctim_nsec,
+        };
     }
 };
 
@@ -367,66 +395,6 @@ pub const timezone = extern struct {
 };
 
 pub const Elf_Symndx = u32;
-
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
-
-    /// Largest file that can be created, in bytes.
-    FSIZE,
-
-    /// Maximum size of data segment, in bytes.
-    DATA,
-
-    /// Maximum size of stack segment, in bytes.
-    STACK,
-
-    /// Largest core file that can be created, in bytes.
-    CORE,
-
-    /// Number of open files.
-    NOFILE,
-
-    /// Address space limit.
-    AS,
-
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
-
-    /// Number of processes.
-    NPROC,
-
-    /// Locked-in-memory address space.
-    MEMLOCK,
-
-    /// Maximum number of file locks.
-    LOCKS,
-
-    /// Maximum number of pending signals.
-    SIGPENDING,
-
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
-
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
-
-    /// Maximum realtime priority allowed for non-privileged
-    /// processes.
-    RTPRIO,
-
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
-
-    _,
-};
 
 /// TODO
 pub const ucontext_t = void;
