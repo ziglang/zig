@@ -2302,11 +2302,6 @@ fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    if (safety) {
-        // TODO if the value is undef, write 0xaa bytes to dest
-    } else {
-        // TODO if the value is undef, don't lower this instruction
-    }
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const lhs = try cg.resolveInst(bin_op.lhs);
@@ -2314,6 +2309,10 @@ fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
     const ptr_ty = cg.typeOf(bin_op.lhs);
     const ptr_info = ptr_ty.ptrInfo(zcu);
     const ty = ptr_ty.childType(zcu);
+
+    if (!safety and bin_op.rhs == .undef) {
+        return cg.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
+    }
 
     if (ptr_info.packed_offset.host_size == 0) {
         try cg.store(lhs, rhs, ty, 0);
@@ -4756,11 +4755,6 @@ fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 
 fn airMemset(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
     const zcu = cg.pt.zcu;
-    if (safety) {
-        // TODO if the value is undef, write 0xaa bytes to dest
-    } else {
-        // TODO if the value is undef, don't lower this instruction
-    }
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr = try cg.resolveInst(bin_op.lhs);
@@ -4776,6 +4770,10 @@ fn airMemset(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
         ptr_ty.childType(zcu).childType(zcu)
     else
         ptr_ty.childType(zcu);
+
+    if (!safety and bin_op.rhs == .undef) {
+        return cg.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
+    }
 
     const dst_ptr = try cg.sliceOrArrayPtr(ptr, ptr_ty);
     try cg.memset(elem_ty, dst_ptr, len, value);
