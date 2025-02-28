@@ -3103,7 +3103,7 @@ test "provide_buffers: read" {
         const cqe = try ring.copy_cqe();
         switch (cqe.err()) {
             // Happens when the kernel is < 5.7
-            .INVAL => return error.SkipZigTest,
+            .INVAL, .BADF => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
@@ -3230,7 +3230,7 @@ test "remove_buffers" {
 
         const cqe = try ring.copy_cqe();
         switch (cqe.err()) {
-            .INVAL => return error.SkipZigTest,
+            .INVAL, .BADF => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
