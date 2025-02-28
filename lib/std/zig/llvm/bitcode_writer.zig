@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 
 pub const AbbrevOp = union(enum) {
     literal: u32, // 0

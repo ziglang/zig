@@ -13168,7 +13168,12 @@ fn metadataConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
     return @enumFromInt(gop.index);
 }
 
-pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
+pub const Producer = struct {
+    name: []const u8,
+    version: std.SemanticVersion,
+};
+
+pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitcode_writer.Error![]const u32 {
     const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
     var bitcode = BitcodeWriter.init(allocator, .{
         std.math.log2_int_ceil(usize, self.type_items.items.len),
@@ -13187,14 +13192,15 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         const Identification = ir.Identification;
         var identification_block = try bitcode.enterTopBlock(Identification);
 
-        const producer = try std.fmt.allocPrint(self.gpa, "zig {d}.{d}.{d}", .{
-            build_options.semver.major,
-            build_options.semver.minor,
-            build_options.semver.patch,
+        const producer_str = try std.fmt.allocPrint(self.gpa, "{s} {d}.{d}.{d}", .{
+            producer.name,
+            producer.version.major,
+            producer.version.minor,
+            producer.version.patch,
         });
-        defer self.gpa.free(producer);
+        defer self.gpa.free(producer_str);
 
-        try identification_block.writeAbbrev(Identification.Version{ .string = producer });
+        try identification_block.writeAbbrev(Identification.Version{ .string = producer_str });
         try identification_block.writeAbbrev(Identification.Epoch{ .epoch = 0 });
 
         try identification_block.end();
@@ -15216,10 +15222,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const bitcode_writer = @import("bitcode_writer.zig");
-const build_options = @import("build_options");
 const Builder = @This();
 const builtin = @import("builtin");
 const DW = std.dwarf;
 const ir = @import("ir.zig");
 const log = std.log.scoped(.llvm);
-const std = @import("std");
+const std = @import("../../std.zig");

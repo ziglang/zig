@@ -6,7 +6,7 @@ const log = std.log.scoped(.codegen);
 const math = std.math;
 const DW = std.dwarf;
 
-const Builder = @import("llvm/Builder.zig");
+const Builder = std.zig.llvm.Builder;
 const llvm = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
@@ -1216,7 +1216,10 @@ pub const Object = struct {
                 }
             }
 
-            const bitcode = try o.builder.toBitcode(o.gpa);
+            const bitcode = try o.builder.toBitcode(o.gpa, .{
+                .name = "zig",
+                .version = build_options.semver,
+            });
             defer o.gpa.free(bitcode);
             o.builder.clearAndFree();
 

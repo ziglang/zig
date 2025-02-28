@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const Builder = @import("Builder.zig");
 const bitcode_writer = @import("bitcode_writer.zig");
 

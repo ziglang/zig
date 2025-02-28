@@ -80,6 +80,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .root_builder = undefined, // populated below
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -94,6 +95,7 @@ pub fn main() !void {
         local_cache_directory,
         dependencies.root_deps,
     );
+    graph.root_builder = builder;
 
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
@@ -260,6 +262,10 @@ pub fn main() !void {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
                 graph.incremental = false;
+            } else if (mem.eql(u8, arg, "-fallow-deprecated")) {
+                graph.allow_deprecated = true;
+            } else if (mem.eql(u8, arg, "-fno-allow-deprecated")) {
+                graph.allow_deprecated = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -430,6 +436,13 @@ pub fn main() !void {
                 //   many addresses to source locations).
                 .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
                 else => {},
+            }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
             }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
@@ -1283,6 +1296,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\    new                        Omit cached steps
         \\    failures                   (Default) Only print failed steps
         \\    none                       Do not print the build summary
+        \\  -fallow-deprecated           Allow usage of deprecated code for the entire build graph
+        \\  -fno-allow-deprecated        Disallow usage of deprecated code for the entire build graph
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss

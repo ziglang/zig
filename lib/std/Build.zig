@@ -121,6 +121,8 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    allow_deprecated: ?bool = null,
+    root_builder: *std.Build,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
