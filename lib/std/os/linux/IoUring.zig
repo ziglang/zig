@@ -1272,6 +1272,16 @@ pub fn unregister_buffers(self: *IoUring) !void {
     }
 }
 
+/// Returns a io_uring_probe which is used to probe the capabilities of the
+/// io_uring subsystem of the running kernel. The io_uring_probe contains the
+/// list of supported operations.
+pub fn get_probe(self: *IoUring) !linux.io_uring_probe {
+    var probe = mem.zeroInit(linux.io_uring_probe, .{});
+    const res = linux.io_uring_register(self.fd, .REGISTER_PROBE, &probe, probe.ops.len);
+    try handle_register_buf_ring_result(res);
+    return probe;
+}
+
 fn handle_registration_result(res: usize) !void {
     switch (linux.E.init(res)) {
         .SUCCESS => {},
@@ -4355,15 +4365,17 @@ test "copy_cqes with wrapping sq.cqes buffer" {
     }
 }
 
-test "bind" {
-    try skipKernelLessThan(.{ .major = 6, .minor = 11, .patch = 0 });
-
+test "bind/listen/connect" {
     var ring = IoUring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
         else => return err,
     };
     defer ring.deinit();
+
+    const probe = ring.get_probe() catch return error.SkipZigTest;
+    // LISTEN is higher required operation
+    if (!probe.is_supported(.LISTEN)) return error.SkipZigTest;
 
     var addr = net.Address.initIp4([4]u8{ 127, 0, 0, 1 }, 0);
     const proto: u32 = if (addr.any.family == linux.AF.UNIX) 0 else linux.IPPROTO.TCP;
