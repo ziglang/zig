@@ -582,6 +582,7 @@ fn prepareTables(
     ws.coverage_mutex.lock();
     defer ws.coverage_mutex.unlock();
 
+    std.debug.print("SET {}\n", .{coverage_id});
     const gop = try ws.coverage_files.getOrPut(gpa, coverage_id);
     if (gop.found_existing) {
         // We are fuzzing the same executable with multiple threads.
@@ -676,6 +677,7 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     ws.coverage_mutex.lock();
     defer ws.coverage_mutex.unlock();
 
+    std.debug.print("GET {}\n", .{coverage_id});
     const coverage_map = ws.coverage_files.getPtr(coverage_id).?;
     const header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
     const pcs = header.pcAddrs();

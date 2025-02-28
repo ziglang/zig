@@ -687,18 +687,28 @@ pub const Module = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                const o_file_info = self.ofiles.getPtr(o_file_path) orelse
-                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                        error.FileNotFound,
-                        error.MissingDebugInfo,
-                        error.InvalidDebugInfo,
-                        => return .{
-                            .relocated_address = relocated_address,
-                            .symbol = symbol,
-                        },
-                        else => return err,
-                    });
 
+                std.debug.print("loading '{s}'\n", .{o_file_path});
+
+                const clean_name = if (std.mem.endsWith(u8, o_file_path, ".a.o)")) blk: {
+                    var it = std.mem.tokenizeScalar(u8, o_file_path, '(');
+                    break :blk std.fmt.allocPrint(allocator, "{s}.o", .{it.next().?}) catch unreachable;
+                } else o_file_path;
+                std.debug.print("clean '{s}'\n", .{clean_name});
+
+                const o_file_info = self.ofiles.getPtr(clean_name) orelse
+                    (self.loadOFile(allocator, clean_name) catch |err| switch (err) {
+                    error.FileNotFound,
+                    error.MissingDebugInfo,
+                    error.InvalidDebugInfo,
+                    => return .{
+                        .relocated_address = relocated_address,
+                        .symbol = symbol,
+                    },
+                    else => return err,
+                });
+
+                std.debug.print("success\n", .{});
                 return .{
                     .relocated_address = relocated_address,
                     .symbol = symbol,
@@ -846,7 +856,7 @@ pub const WindowsModule = struct {
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
+pub fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
     const mapped_mem = try mapWholeFile(macho_file);
 
     const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
