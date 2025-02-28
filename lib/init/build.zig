@@ -118,11 +118,11 @@ pub fn build(b: *std.Build) void {
     // menu, and can be selected like this: `zig build docs`
     // This will generate the package documentation from the doc comments.
     const docs_step = b.step("docs", "Build the package documentation");
-    const docs_obj = b.addObject(.{ .name = "$", .root_module = lib_mod });
+    const docs_obj = b.addObject(.{ .name = ".NAME", .root_module = lib_mod });
     const install_docs = b.addInstallDirectory(.{
         .source_dir = docs_obj.getEmittedDocs(),
         .install_dir = .prefix,
-        .install_subdir = "docs/$",
+        .install_subdir = "docs/.NAME",
     });
     docs_step.dependOn(&install_docs.step);
 }
