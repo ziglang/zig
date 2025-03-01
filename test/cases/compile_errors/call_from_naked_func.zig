@@ -17,7 +17,7 @@ export fn comptimeBuiltinCall() callconv(.Naked) void {
 fn f() void {}
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:6: error: runtime call not allowed in naked function

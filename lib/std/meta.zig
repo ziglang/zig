@@ -261,7 +261,7 @@ test containerLayout {
     try testing.expect(containerLayout(U3) == .@"extern");
 }
 
-/// Instead of this function, prefer to use e.g. `@typeInfo(foo).Struct.decls`
+/// Instead of this function, prefer to use e.g. `@typeInfo(foo).@"struct".decls`
 /// directly when you know what kind of type it is.
 pub fn declarations(comptime T: type) []const Type.Declaration {
     return switch (@typeInfo(T)) {
@@ -418,12 +418,9 @@ test fieldInfo {
     try testing.expect(comptime uf.type == u8);
 }
 
+/// Deprecated: use @FieldType
 pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
-    if (@typeInfo(T) != .@"struct" and @typeInfo(T) != .@"union") {
-        @compileError("Expected struct or union, found '" ++ @typeName(T) ++ "'");
-    }
-
-    return fieldInfo(T, field).type;
+    return @FieldType(T, @tagName(field));
 }
 
 test FieldType {

@@ -469,7 +469,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
-    const arch_name = target.osArchName();
+    const arch_name = std.zig.target.osArchName(target);
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
         comp.zig_lib_directory.path.?, arch_name,

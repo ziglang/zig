@@ -6,7 +6,7 @@ const log = std.log.scoped(.codegen);
 const math = std.math;
 const DW = std.dwarf;
 
-const Builder = @import("llvm/Builder.zig");
+const Builder = std.zig.llvm.Builder;
 const llvm = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
@@ -98,9 +98,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable, // Gated by hasLlvmSupport().
 
     };
@@ -1220,7 +1218,10 @@ pub const Object = struct {
                 }
             }
 
-            const bitcode = try o.builder.toBitcode(o.gpa);
+            const bitcode = try o.builder.toBitcode(o.gpa, .{
+                .name = "zig",
+                .version = build_options.semver,
+            });
             defer o.gpa.free(bitcode);
             o.builder.clearAndFree();
 
@@ -1304,7 +1305,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.abi.float() == .hard)
             .Hard
         else
             .Soft;
@@ -1337,7 +1338,6 @@ pub const Object = struct {
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
             .asan = options.sanitize_address,
-            .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
@@ -1345,6 +1345,9 @@ pub const Object = struct {
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
             .bitcode_filename = null,
+
+            // `.coverage` value is only used when `.sancov` is enabled.
+            .sancov = options.fuzz or comp.config.san_cov_trace_pc_guard,
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
@@ -1352,7 +1355,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = options.fuzz,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
@@ -1453,6 +1456,19 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.optforfuzzing);
             try attributes.addFnAttr(.skipprofile, &o.builder);
             try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
+        }
+
+        const disable_intrinsics = func_analysis.disable_intrinsics or owner_mod.no_builtin;
+        if (disable_intrinsics) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -1758,6 +1774,7 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+            .disable_intrinsics = disable_intrinsics,
         };
         defer fg.deinit();
         deinit_wip = false;
@@ -2948,7 +2965,7 @@ pub const Object = struct {
             function_index.setLinkage(.internal, &o.builder);
             function_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         } else {
-            if (target.isWasm()) {
+            if (target.cpu.arch.isWasm()) {
                 try attributes.addFnAttr(.{ .string = .{
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(nav.name.toSlice(ip)),
@@ -3137,17 +3154,6 @@ pub const Object = struct {
                 &o.builder,
             );
         }
-        if (owner_mod.no_builtin) {
-            // The intent here is for compiler-rt and libc functions to not generate
-            // infinite recursion. For example, if we are compiling the memcpy function,
-            // and llvm detects that the body is equivalent to memcpy, it may replace the
-            // body of memcpy with a call to memcpy, which would then cause a stack
-            // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
-            } }, &o.builder);
-        }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
@@ -3165,7 +3171,7 @@ pub const Object = struct {
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
-        if (target.floatAbi() == .soft) {
+        if (target.abi.float() == .soft) {
             // `use-soft-float` means "use software routines for floating point computations". In
             // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
             // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
@@ -4839,7 +4845,7 @@ pub const NavGen = struct {
             const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                     if (lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
@@ -4925,6 +4931,8 @@ pub const FuncGen = struct {
     switch_dispatch_info: std.AutoHashMapUnmanaged(Air.Inst.Index, SwitchDispatchInfo),
 
     sync_scope: Builder.SyncScope,
+
+    disable_intrinsics: bool,
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
@@ -5161,7 +5169,6 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .int_from_bool  => try self.airIntFromBool(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -5169,11 +5176,11 @@ pub const FuncGen = struct {
                 .try_cold       => try self.airTry(body[i..], true),
                 .try_ptr        => try self.airTryPtr(inst, false),
                 .try_ptr_cold   => try self.airTryPtr(inst, true),
-                .intcast        => try self.airIntCast(inst),
+                .intcast        => try self.airIntCast(inst, false),
+                .intcast_safe   => try self.airIntCast(inst, true),
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
@@ -5452,7 +5459,7 @@ pub const FuncGen = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        if (self.ng.ownerModule().no_builtin) {
+        if (self.disable_intrinsics) {
             try attributes.addFnAttr(.nobuiltin, &o.builder);
         }
 
@@ -5779,6 +5786,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    self.disable_intrinsics,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5829,6 +5837,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
+                self.disable_intrinsics,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -5910,7 +5919,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -5921,7 +5930,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{src_list.typeOfWip(&self.wip)}, &.{src_list}, "");
         return .none;
     }
 
@@ -5935,7 +5944,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -6577,7 +6586,7 @@ pub const FuncGen = struct {
             // Workaround for:
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
-            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+            if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -9253,20 +9262,110 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
+    fn airIntCast(fg: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
+        const o = fg.ng.object;
         const zcu = o.pt.zcu;
-        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const dest_ty = self.typeOfIndex(inst);
+        const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+        const dest_ty = fg.typeOfIndex(inst);
         const dest_llvm_ty = try o.lowerType(dest_ty);
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_ty = self.typeOf(ty_op.operand);
+        const operand = try fg.resolveInst(ty_op.operand);
+        const operand_ty = fg.typeOf(ty_op.operand);
         const operand_info = operand_ty.intInfo(zcu);
 
-        return self.wip.conv(switch (operand_info.signedness) {
+        const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
+
+        safety: {
+            if (!safety) break :safety;
+            const dest_scalar = dest_ty.scalarType(zcu);
+            const operand_scalar = operand_ty.scalarType(zcu);
+
+            const dest_info = dest_ty.intInfo(zcu);
+
+            const have_min_check, const have_max_check = c: {
+                const dest_pos_bits = dest_info.bits - @intFromBool(dest_info.signedness == .signed);
+                const operand_pos_bits = operand_info.bits - @intFromBool(operand_info.signedness == .signed);
+
+                const dest_allows_neg = dest_info.signedness == .signed and dest_info.bits > 0;
+                const operand_maybe_neg = operand_info.signedness == .signed and operand_info.bits > 0;
+
+                break :c .{
+                    operand_maybe_neg and (!dest_allows_neg or dest_info.bits < operand_info.bits),
+                    dest_pos_bits < operand_pos_bits,
+                };
+            };
+
+            if (!have_min_check and !have_max_check) break :safety;
+
+            const operand_llvm_ty = try o.lowerType(operand_ty);
+            const operand_scalar_llvm_ty = try o.lowerType(operand_scalar);
+
+            const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+            assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
+
+            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
+                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
+                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
+                break :id .{ .cast_truncated_data, .cast_truncated_data };
+            };
+
+            if (have_min_check) {
+                const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const min_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, min_const_scalar) else min_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .gte, operand_ty, operand, min_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMinFail");
+                const ok_block = try fg.wip.block(1, "IntMinOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(min_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+
+            if (have_max_check) {
+                const max_const_scalar = try maxIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const max_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, max_const_scalar) else max_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .lte, operand_ty, operand, max_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMaxFail");
+                const ok_block = try fg.wip.block(1, "IntMaxOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(max_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+        }
+
+        const result = try fg.wip.conv(switch (operand_info.signedness) {
             .signed => .signed,
             .unsigned => .unsigned,
         }, operand, dest_llvm_ty, "");
+
+        if (safety and dest_is_enum and !dest_ty.isNonexhaustiveEnum(zcu)) {
+            const llvm_fn = try fg.getIsNamedEnumValueFunction(dest_ty);
+            const is_valid_enum_val = try fg.wip.call(
+                .normal,
+                .fastcc,
+                .none,
+                llvm_fn.typeOf(&o.builder),
+                llvm_fn.toValue(&o.builder),
+                &.{result},
+                "",
+            );
+            const fail_block = try fg.wip.block(1, "ValidEnumFail");
+            const ok_block = try fg.wip.block(1, "ValidEnumOk");
+            _ = try fg.wip.brCond(is_valid_enum_val, ok_block, fail_block, .none);
+            fg.wip.cursor = .{ .block = fail_block };
+            try fg.buildSimplePanic(.invalid_enum_value);
+            fg.wip.cursor = .{ .block = ok_block };
+        }
+
+        return result;
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9351,16 +9450,6 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        const ptr_ty = self.typeOf(un_op);
-        const operand_ptr = try self.sliceOrArrayPtr(operand, ptr_ty);
-        const dest_llvm_ty = try o.lowerType(self.typeOfIndex(inst));
-        return self.wip.cast(.ptrtoint, operand_ptr, dest_llvm_ty, "");
-    }
-
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9390,6 +9479,10 @@ pub const FuncGen = struct {
 
         if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
+        }
+
+        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+            return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
@@ -9478,12 +9571,6 @@ pub const FuncGen = struct {
         }
 
         return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
-    }
-
-    fn airIntFromBool(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        return operand;
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9664,6 +9751,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                self.disable_intrinsics,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -9956,7 +10044,7 @@ pub const FuncGen = struct {
         // of the length. This means we need to emit a check where we skip the memset when the length
         // is 0 as we allow for undefined pointers in 0-sized slices.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.isWasm() and
+        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
             ptr_ty.isSlice(zcu) and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
 
@@ -9971,9 +10059,22 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
@@ -9990,9 +10091,22 @@ pub const FuncGen = struct {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 return .none;
             }
@@ -10007,9 +10121,22 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                try self.safeWasmMemset(
+                    dest_ptr,
+                    fill_byte,
+                    len,
+                    dest_ptr_align,
+                    access_kind,
+                );
             } else {
-                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
             }
             return .none;
         }
@@ -10061,6 +10188,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
+                self.disable_intrinsics,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10088,7 +10216,14 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+        _ = try self.wip.callMemSet(
+            dest_ptr,
+            dest_ptr_align,
+            fill_byte,
+            len,
+            access_kind,
+            self.disable_intrinsics,
+        );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -10113,7 +10248,7 @@ pub const FuncGen = struct {
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
         // We only have to do this for slices as arrays will have a valid pointer.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.isWasm() and
+        if (o.target.cpu.arch.isWasm() and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
             dest_ptr_ty.isSlice(zcu))
         {
@@ -10130,6 +10265,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
+                self.disable_intrinsics,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10143,6 +10279,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
+            self.disable_intrinsics,
         );
         return .none;
     }
@@ -11276,6 +11413,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
+            fg.disable_intrinsics,
         );
         return result_ptr;
     }
@@ -11443,6 +11581,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
+            self.disable_intrinsics,
         );
     }
 
@@ -11698,16 +11837,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .x86_interrupt => .x86_intrcc,
         .aarch64_vfabi => .aarch64_vector_pcs,
         .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
-        .arm_apcs => .arm_apcscc,
         .arm_aapcs => .arm_aapcscc,
-        .arm_aapcs_vfp => if (target.os.tag != .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
-        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
+        .arm_aapcs_vfp => .arm_aapcs_vfpcc,
         .riscv64_lp64_v => .riscv_vectorcallcc,
         .riscv32_ilp32_v => .riscv_vectorcallcc,
         .avr_builtin => .avr_builtincc,
@@ -11751,7 +11882,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .powerpc_sysv_altivec,
         .powerpc_aix,
         .powerpc_aix_altivec,
-        .wasm_watc,
+        .wasm_mvp,
         .arc_sysv,
         .avr_gnu,
         .bpf_std,
@@ -11764,8 +11895,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
-        .propeller1_sysv,
-        .propeller2_sysv,
+        .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
         .ve_sysv,
@@ -11929,12 +12059,12 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
-        .wasm_watc => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -11984,7 +12114,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12014,7 +12144,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                 return o.builder.structType(.normal, types[0..types_len]);
             },
         },
-        .wasm_watc => {
+        .wasm_mvp => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
             }
@@ -12233,7 +12363,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
+            .arm_aapcs, .arm_aapcs_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
@@ -12279,7 +12409,7 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
-            .wasm_watc => {
+            .wasm_mvp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (isScalar(zcu, ty)) {
@@ -12464,7 +12594,7 @@ fn ccAbiPromoteInt(
             else => null,
         },
         else => switch (target.cpu.arch) {
-            .riscv64 => switch (int_info.bits) {
+            .loongarch64, .riscv64 => switch (int_info.bits) {
                 0...16 => int_info.signedness,
                 32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
                 17...31, 33...63 => int_info.signedness,
@@ -12637,7 +12767,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12664,7 +12794,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12954,9 +13084,46 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable,
     }
+}
+
+fn minIntConst(b: *Builder, min_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = min_ty.intInfo(zcu);
+    if (info.signedness == .unsigned or info.bits == 0) {
+        return b.intConst(as_ty, 0);
+    }
+    if (std.math.cast(u6, info.bits - 1)) |shift| {
+        const min_val: i64 = @as(i64, std.math.minInt(i64)) >> (63 - shift);
+        return b.intConst(as_ty, min_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
+}
+
+fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = max_ty.intInfo(zcu);
+    switch (info.bits) {
+        0 => return b.intConst(as_ty, 0),
+        1 => switch (info.signedness) {
+            .signed => return b.intConst(as_ty, 0),
+            .unsigned => return b.intConst(as_ty, 1),
+        },
+        else => {},
+    }
+    const unsigned_bits = switch (info.signedness) {
+        .unsigned => info.bits,
+        .signed => info.bits - 1,
+    };
+    if (std.math.cast(u6, unsigned_bits)) |shift| {
+        const max_val: u64 = (@as(u64, 1) << shift) - 1;
+        return b.intConst(as_ty, max_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
 }

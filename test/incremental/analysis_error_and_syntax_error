@@ -1,0 +1,42 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+#update=initial version
+#file=main.zig
+pub fn main() !void {
+    @compileError("uh oh");
+}
+#expect_error=main.zig:2:5: error: uh oh
+
+#update=add parse error
+#file=main.zig
+pub fn main() !void {
+    @compileError("uh oh");
+#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+
+#update=fix parse error
+#file=main.zig
+pub fn main() !void {
+    @compileError("uh oh");
+}
+#expect_error=main.zig:2:5: error: uh oh
+
+#update=add parse error again
+#file=main.zig
+pub fn main() !void {
+    @compileError("uh oh");
+#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+
+#update=comment @compileError call
+#file=main.zig
+pub fn main() !void {
+    //@compileError("uh oh");
+#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+
+#update=fix parse error again
+#file=main.zig
+pub fn main() !void {
+    //@compileError("uh oh");
+}
+#expect_stdout=""

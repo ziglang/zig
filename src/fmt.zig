@@ -120,7 +120,7 @@ pub fn run(
                     process.exit(2);
                 }
             } else {
-                const zoir = try std.zig.ZonGen.generate(gpa, tree);
+                const zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
                 defer zoir.deinit(gpa);
 
                 if (zoir.hasCompileErrors()) {
@@ -214,6 +214,7 @@ const FmtError = error{
     Unseekable,
     NotOpenForWriting,
     UnsupportedEncoding,
+    InvalidEncoding,
     ConnectionResetByPeer,
     SocketNotConnected,
     LockViolation,
@@ -335,7 +336,7 @@ fn fmtPathFile(
                 }
             },
             .zon => {
-                var zoir = try std.zig.ZonGen.generate(gpa, tree);
+                var zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
                 defer zoir.deinit(gpa);
 
                 if (zoir.hasCompileErrors()) {

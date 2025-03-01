@@ -851,7 +851,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
-            return callExpr(gz, scope, ri, node, tree.fullCall(&buf, node).?);
+            return callExpr(gz, scope, ri, .none, node, tree.fullCall(&buf, node).?);
         },
 
         .unreachable_literal => {
@@ -920,7 +920,10 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.start);
             const end = if (full.ast.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end) else .none;
-            const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
+            const sentinel = if (full.ast.sentinel != 0) s: {
+                const sentinel_ty = try gz.addUnNode(.slice_sentinel_ty, lhs, node);
+                break :s try expr(gz, scope, .{ .rl = .{ .coerced_ty = sentinel_ty } }, full.ast.sentinel);
+            } else .none;
             try emitDbgStmt(gz, cursor);
             if (sentinel != .none) {
                 const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
@@ -2855,6 +2858,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_end,
             .slice_sentinel,
             .slice_length,
+            .slice_sentinel_ty,
             .import,
             .switch_block,
             .switch_block_ref,
@@ -2952,6 +2956,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .extended => switch (gz.astgen.instructions.items(.data)[@intFromEnum(inst)].extended.opcode) {
                 .breakpoint,
                 .disable_instrumentation,
+                .disable_intrinsics,
                 .set_float_mode,
                 .branch_hint,
                 => break :b true,
@@ -3009,8 +3014,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_ptr_array_init,
             .validate_ref_ty,
             .validate_const,
-            .try_operand_ty,
-            .try_ref_operand_ty,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -5094,18 +5097,16 @@ fn structDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    {
-        const is_tuple = for (container_decl.ast.members) |member_node| {
+    is_tuple: {
+        const tuple_field_node = for (container_decl.ast.members) |member_node| {
             const container_field = tree.fullContainerField(member_node) orelse continue;
-            if (container_field.ast.tuple_like) break true;
-        } else false;
+            if (container_field.ast.tuple_like) break member_node;
+        } else break :is_tuple;
 
-        if (is_tuple) {
-            if (node == 0) {
-                return astgen.failTok(0, "file cannot be a tuple", .{});
-            } else {
-                return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
-            }
+        if (node == 0) {
+            return astgen.failNode(tuple_field_node, "file cannot be a tuple", .{});
+        } else {
+            return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
         }
     }
 
@@ -5911,6 +5912,10 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
 
+            if (container_decl.layout_token) |layout_token| {
+                return astgen.failTok(layout_token, "opaque types do not support 'packed' or 'extern'", .{});
+            }
+
             for (container_decl.ast.members) |member_node| {
                 const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);
                 if (res == .field) {
@@ -6158,20 +6163,24 @@ fn tryExpr(
     const try_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const operand_rl: ResultInfo.Loc, const block_tag: Zir.Inst.Tag = switch (ri.rl) {
-        .ref => .{ .ref, .try_ptr },
-        .ref_coerced_ty => |payload_ptr_ty| .{
-            .{ .ref_coerced_ty = try parent_gz.addUnNode(.try_ref_operand_ty, payload_ptr_ty, node) },
-            .try_ptr,
-        },
-        else => if (try ri.rl.resultType(parent_gz, node)) |payload_ty| .{
-            // `coerced_ty` is OK due to the `rvalue` call below
-            .{ .coerced_ty = try parent_gz.addUnNode(.try_operand_ty, payload_ty, node) },
-            .@"try",
-        } else .{ .none, .@"try" },
+        .ref, .ref_coerced_ty => .{ .ref, .try_ptr },
+        else => .{ .none, .@"try" },
     };
     const operand_ri: ResultInfo = .{ .rl = operand_rl, .ctx = .error_handling_expr };
-    // This could be a pointer or value depending on the `ri` parameter.
-    const operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);
+    const operand = operand: {
+        // As a special case, we need to detect this form:
+        // `try .foo(...)`
+        // This is a decl literal form, even though we don't propagate a result type through `try`.
+        var buf: [1]Ast.Node.Index = undefined;
+        if (astgen.tree.fullCall(&buf, operand_node)) |full_call| {
+            const res_ty: Zir.Inst.Ref = try ri.rl.resultType(parent_gz, operand_node) orelse .none;
+            break :operand try callExpr(parent_gz, scope, operand_ri, res_ty, operand_node, full_call);
+        }
+
+        // This could be a pointer or value depending on the `ri` parameter.
+        break :operand try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);
+    };
+
     const try_inst = try parent_gz.makeBlockInst(block_tag, node);
     try parent_gz.instructions.append(astgen.gpa, try_inst);
 
@@ -9446,7 +9455,18 @@ fn builtinCall(
             } else if (str.len == 0) {
                 return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
             }
-            const result = try gz.addStrTok(.import, str.index, str_lit_token);
+            const res_ty = try ri.rl.resultType(gz, node) orelse .none;
+            const payload_index = try addExtra(gz.astgen, Zir.Inst.Import{
+                .res_ty = res_ty,
+                .path = str.index,
+            });
+            const result = try gz.add(.{
+                .tag = .import,
+                .data = .{ .pl_tok = .{
+                    .src_tok = gz.tokenIndexToRelative(str_lit_token),
+                    .payload_index = payload_index,
+                } },
+            });
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = str_lit_token;
@@ -9557,6 +9577,7 @@ fn builtinCall(
         .frame_address           => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,           node), node),
         .breakpoint              => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,              node), node),
         .disable_instrumentation => return rvalue(gz, ri, try gz.addNodeExtended(.disable_instrumentation, node), node),
+        .disable_intrinsics      => return rvalue(gz, ri, try gz.addNodeExtended(.disable_intrinsics,      node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
@@ -10236,12 +10257,15 @@ fn callExpr(
     gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,
+    /// If this is not `.none` and this call is a decl literal form (`.foo(...)`), then this
+    /// type is used as the decl literal result type instead of the result type from `ri.rl`.
+    override_decl_literal_type: Zir.Inst.Ref,
     node: Ast.Node.Index,
     call: Ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
-    const callee = try calleeExpr(gz, scope, ri.rl, call.ast.fn_expr);
+    const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
         if (call.async_token != null) {
             break :blk .async_kw;
@@ -10367,6 +10391,9 @@ fn calleeExpr(
     gz: *GenZir,
     scope: *Scope,
     call_rl: ResultInfo.Loc,
+    /// If this is not `.none` and this call is a decl literal form (`.foo(...)`), then this
+    /// type is used as the decl literal result type instead of the result type from `call_rl`.
+    override_decl_literal_type: Zir.Inst.Ref,
     node: Ast.Node.Index,
 ) InnerError!Callee {
     const astgen = gz.astgen;
@@ -10393,7 +10420,14 @@ fn calleeExpr(
                 .field_name_start = str_index,
             } };
         },
-        .enum_literal => if (try call_rl.resultType(gz, node)) |res_ty| {
+        .enum_literal => {
+            const res_ty = res_ty: {
+                if (override_decl_literal_type != .none) break :res_ty override_decl_literal_type;
+                break :res_ty try call_rl.resultType(gz, node) orelse {
+                    // No result type; lower to a literal call of an enum literal.
+                    return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) };
+                };
+            };
             // Decl literal call syntax, e.g.
             // `const foo: T = .init();`
             // Look up `init` in `T`, but don't try and coerce it.
@@ -10403,8 +10437,6 @@ fn calleeExpr(
                 .field_name_start = str_index,
             });
             return .{ .direct = callee };
-        } else {
-            return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) };
         },
         else => return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) },
     }
@@ -11538,9 +11570,21 @@ fn parseStrLit(
     }
 }
 
-fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
+fn failWithStrLitError(
+    astgen: *AstGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+    offset: u32,
+) InnerError {
     const raw_string = bytes[offset..];
-    return err.lower(raw_string, offset, AstGen.failOff, .{ astgen, token });
+    return failOff(
+        astgen,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn failNode(
@@ -13980,6 +14024,39 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
+
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+    const parse_err = tree.errors[0];
+    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    const tok_start = token_starts[tok];
+    const start_char = tree.source[tok_start];
+
+    if (token_tags[tok] == .invalid and
+        (start_char == '\"' or start_char == '\'' or start_char == '/' or mem.startsWith(u8, tree.source[tok_start..], "\\\\")))
+    {
+        const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
+        const tok_end = tok_start + tok_len;
+        const bad_off = blk: {
+            var idx = tok_start;
+            while (idx < tok_end) : (idx += 1) {
+                switch (tree.source[idx]) {
+                    0x00...0x09, 0x0b...0x1f, 0x7f => break,
+                    else => {},
+                }
+            }
+            break :blk idx - tok_start;
+        };
+
+        const err: Ast.Error = .{
+            .tag = Ast.Error.Tag.invalid_byte,
+            .token = tok,
+            .extra = .{ .offset = bad_off },
+        };
+        msg.clearRetainingCapacity();
+        try tree.renderError(err, msg.writer(gpa));
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+    }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {

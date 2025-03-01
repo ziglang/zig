@@ -1541,6 +1541,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
+    const ubsan_rt_path: ?Path = blk: {
+        if (comp.ubsan_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1575,6 +1580,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
+        try man.addOptionalFilePath(ubsan_rt_path);
         try man.addOptionalFilePath(if (comp.tsan_lib) |l| l.full_object_path else null);
         try man.addOptionalFilePath(if (comp.asan_lib) |l| l.full_object_path else null);
         try man.addOptionalFilePath(if (comp.fuzzer_lib) |l| l.full_object_path else null);
@@ -1711,7 +1717,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         try argv.appendSlice(&.{
             "-mllvm",
-            try std.fmt.allocPrint(arena, "-float-abi={s}", .{if (target.abi.floatAbi() == .hard) "hard" else "soft"}),
+            try std.fmt.allocPrint(arena, "-float-abi={s}", .{if (target.abi.float() == .hard) "hard" else "soft"}),
         });
 
         if (comp.config.lto != .none) {
@@ -1981,6 +1987,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append(try lib.full_object_path.toString(arena));
         }
 
+        if (ubsan_rt_path) |p| {
+            try argv.append(try p.toString(arena));
+        }
+
         // libc
         if (is_exe_or_dyn_lib and
             !comp.skip_linker_dependencies and
@@ -2060,7 +2070,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         try argv.append(lib_path);
                     }
                     try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-                } else if (target.isMusl()) {
+                } else if (target.abi.isMusl()) {
                     try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",

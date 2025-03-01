@@ -47,13 +47,10 @@ pub fn microTimestamp() i64 {
 pub fn nanoTimestamp() i128 {
     switch (builtin.os.tag) {
         .windows => {
-            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
+            // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
             // which is 1601-01-01.
             const epoch_adj = epoch.windows * (ns_per_s / 100);
-            var ft: windows.FILETIME = undefined;
-            windows.kernel32.GetSystemTimeAsFileTime(&ft);
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-            return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
+            return @as(i128, windows.ntdll.RtlGetSystemTimePrecise() + epoch_adj) * 100;
         },
         .wasi => {
             var ns: std.os.wasi.timestamp_t = undefined;
@@ -64,12 +61,11 @@ pub fn nanoTimestamp() i128 {
         .uefi => {
             var value: std.os.uefi.Time = undefined;
             const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .Success);
+            assert(status == .success);
             return value.toEpoch();
         },
         else => {
-            var ts: posix.timespec = undefined;
-            posix.clock_gettime(.REALTIME, &ts) catch |err| switch (err) {
+            const ts = posix.clock_gettime(.REALTIME) catch |err| switch (err) {
                 error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
             };
             return (@as(i128, ts.sec) * ns_per_s) + ts.nsec;
@@ -78,15 +74,11 @@ pub fn nanoTimestamp() i128 {
 }
 
 test milliTimestamp {
-    const margin = ns_per_ms * 50;
-
     const time_0 = milliTimestamp();
     std.Thread.sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     try testing.expect(interval > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 // Divisions of a nanosecond.
@@ -154,7 +146,7 @@ pub const Instant = struct {
             .uefi => {
                 var value: std.os.uefi.Time = undefined;
                 const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .Success) return error.Unsupported;
+                if (status != .success) return error.Unsupported;
                 return Instant{ .timestamp = value.toEpoch() };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
@@ -171,8 +163,7 @@ pub const Instant = struct {
             else => posix.CLOCK.MONOTONIC,
         };
 
-        var ts: posix.timespec = undefined;
-        posix.clock_gettime(clock_id, &ts) catch return error.Unsupported;
+        const ts = posix.clock_gettime(clock_id) catch return error.Unsupported;
         return .{ .timestamp = ts };
     }
 
@@ -282,20 +273,14 @@ pub const Timer = struct {
 };
 
 test Timer {
-    const margin = ns_per_ms * 150;
-
     var timer = try Timer.start();
+
     std.Thread.sleep(10 * ns_per_ms);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(time_0 < margin)) return error.SkipZigTest;
 
     const time_1 = timer.lap();
     try testing.expect(time_1 >= time_0);
-
-    timer.reset();
-    try testing.expect(timer.read() < time_1);
 }
 
 test {

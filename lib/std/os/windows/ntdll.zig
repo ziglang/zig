@@ -92,6 +92,7 @@ pub extern "ntdll" fn RtlVirtualUnwind(
     EstablisherFrame: *DWORD64,
     ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
 ) callconv(.winapi) *EXCEPTION_ROUTINE;
+pub extern "ntdll" fn RtlGetSystemTimePrecise() callconv(.winapi) LARGE_INTEGER;
 pub extern "ntdll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,

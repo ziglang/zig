@@ -1,5 +1,3 @@
-//! This is intended to be merged into GeneralPurposeAllocator at some point.
-
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
@@ -9,14 +7,18 @@ const wasm = std.wasm;
 const math = std.math;
 
 comptime {
-    if (!builtin.target.isWasm()) {
-        @compileError("WasmPageAllocator is only available for wasm32 arch");
+    if (!builtin.target.cpu.arch.isWasm()) {
+        @compileError("only available for wasm32 arch");
+    }
+    if (!builtin.single_threaded) {
+        @compileError("TODO implement support for multi-threaded wasm");
     }
 }
 
-pub const vtable = Allocator.VTable{
+pub const vtable: Allocator.VTable = .{
     .alloc = alloc,
     .resize = resize,
+    .remap = remap,
     .free = free,
 };
 
@@ -37,18 +39,17 @@ const size_class_count = math.log2(bigpage_size) - min_class;
 /// etc.
 const big_size_class_count = math.log2(bigpage_count);
 
-var next_addrs = [1]usize{0} ** size_class_count;
+var next_addrs: [size_class_count]usize = @splat(0);
 /// For each size class, points to the freed pointer.
-var frees = [1]usize{0} ** size_class_count;
+var frees: [size_class_count]usize = @splat(0);
 /// For each big size class, points to the freed pointer.
-var big_frees = [1]usize{0} ** big_size_class_count;
+var big_frees: [big_size_class_count]usize = @splat(0);
 
-fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
+fn alloc(ctx: *anyopaque, len: usize, alignment: mem.Alignment, return_address: usize) ?[*]u8 {
     _ = ctx;
     _ = return_address;
     // Make room for the freelist next pointer.
-    const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
-    const actual_len = @max(len +| @sizeOf(usize), alignment);
+    const actual_len = @max(len +| @sizeOf(usize), alignment.toByteUnits());
     const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
     const class = math.log2(slot_size) - min_class;
     if (class < size_class_count) {
@@ -83,7 +84,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*
 fn resize(
     ctx: *anyopaque,
     buf: []u8,
-    log2_buf_align: u8,
+    alignment: mem.Alignment,
     new_len: usize,
     return_address: usize,
 ) bool {
@@ -91,7 +92,7 @@ fn resize(
     _ = return_address;
     // We don't want to move anything from one size class to another, but we
     // can recover bytes in between powers of two.
-    const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+    const buf_align = alignment.toByteUnits();
     const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
     const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
@@ -108,15 +109,25 @@ fn resize(
     }
 }
 
+fn remap(
+    context: *anyopaque,
+    memory: []u8,
+    alignment: mem.Alignment,
+    new_len: usize,
+    return_address: usize,
+) ?[*]u8 {
+    return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+}
+
 fn free(
     ctx: *anyopaque,
     buf: []u8,
-    log2_buf_align: u8,
+    alignment: mem.Alignment,
     return_address: usize,
 ) void {
     _ = ctx;
     _ = return_address;
-    const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+    const buf_align = alignment.toByteUnits();
     const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
     const class = math.log2(slot_size) - min_class;
@@ -157,7 +168,7 @@ fn allocBigPages(n: usize) usize {
     return @as(usize, @intCast(page_index)) * wasm.page_size;
 }
 
-const test_ally = Allocator{
+const test_ally: Allocator = .{
     .ptr = undefined,
     .vtable = &vtable,
 };

@@ -3879,6 +3879,11 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
         break :blk null;
     };
+    const ubsan_rt_path: ?Path = blk: {
+        if (comp.ubsan_rt_lib) |lib| break :blk lib.full_object_path;
+        if (comp.ubsan_rt_obj) |obj| break :blk obj.full_object_path;
+        break :blk null;
+    };
 
     const id_symlink_basename = "lld.id";
 
@@ -3901,6 +3906,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
+        try man.addOptionalFilePath(ubsan_rt_path);
         man.hash.addOptionalBytes(wasm.entry_name.slice(wasm));
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
@@ -4146,6 +4152,10 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
         if (compiler_rt_path) |p| {
             try argv.append(try p.toString(arena));
+        }
+
+        if (ubsan_rt_path) |p| {
+            try argv.append(try p.toStringZ(arena));
         }
 
         if (comp.verbose_link) {
@@ -4600,7 +4610,7 @@ fn convertZcuFnType(
     if (CodeGen.firstParamSRet(cc, return_type, zcu, target)) {
         try params_buffer.append(gpa, .i32); // memory address is always a 32-bit handle
     } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        if (cc == .wasm_watc) {
+        if (cc == .wasm_mvp) {
             const res_classes = abi.classifyType(return_type, zcu);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
             const scalar_type = abi.scalarType(return_type, zcu);
@@ -4618,7 +4628,7 @@ fn convertZcuFnType(
         if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
         switch (cc) {
-            .wasm_watc => {
+            .wasm_mvp => {
                 const param_classes = abi.classifyType(param_type, zcu);
                 if (param_classes[1] == .none) {
                     if (param_classes[0] == .direct) {

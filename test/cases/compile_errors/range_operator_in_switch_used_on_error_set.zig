@@ -13,7 +13,7 @@ fn foo(x: i32) !void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:34: error: ranges not allowed when switching on type '@typeInfo(@typeInfo(@TypeOf(tmp.foo)).@"fn".return_type.?).error_union.error_set'

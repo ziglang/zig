@@ -7,7 +7,7 @@ comptime {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:5: error: cannot return from naked function

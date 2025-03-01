@@ -685,8 +685,7 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-        if (opts.update_tracking)
-    {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
+        if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
         stack.get(),
@@ -1517,6 +1516,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
 
             .cmp_lt,
@@ -1556,7 +1556,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try func.airFpext(inst),
             .intcast         => try func.airIntCast(inst),
             .trunc           => try func.airTrunc(inst),
-            .int_from_bool   => try func.airIntFromBool(inst),
             .is_non_null     => try func.airIsNonNull(inst),
             .is_non_null_ptr => try func.airIsNonNullPtr(inst),
             .is_null         => try func.airIsNull(inst),
@@ -1568,7 +1567,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .load            => try func.airLoad(inst),
             .loop            => try func.airLoop(inst),
             .not             => try func.airNot(inst),
-            .int_from_ptr    => try func.airIntFromPtr(inst),
             .ret             => try func.airRet(inst, false),
             .ret_safe        => try func.airRet(inst, true),
             .ret_load        => try func.airRetLoad(inst),
@@ -2261,7 +2259,7 @@ fn airIntCast(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
             math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
-            math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+                math.divCeil(u32, src_storage_bits, 64) catch unreachable and
             func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try func.allocRegOrMem(dst_ty, inst, true);
             try func.genCopy(min_ty, dst_mcv, src_mcv);
@@ -2298,13 +2296,6 @@ fn airTrunc(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
 }
 
-fn airIntFromBool(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try func.resolveInst(un_op);
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else operand;
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airNot(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
@@ -2319,9 +2310,9 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_reg: Register =
             if (func.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
-            operand.register
-        else
-            (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
+                operand.register
+            else
+                (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
 
         switch (ty.zigTypeTag(zcu)) {
             .bool => {
@@ -6230,11 +6221,11 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
         const instruction: union(enum) { mnem: Mnemonic, pseudo: Pseudo } =
             if (std.meta.stringToEnum(Mnemonic, mnem_str)) |mnem|
-            .{ .mnem = mnem }
-        else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
-            .{ .pseudo = pseudo }
-        else
-            return func.fail("invalid mnem str '{s}'", .{mnem_str});
+                .{ .mnem = mnem }
+            else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
+                .{ .pseudo = pseudo }
+            else
+                return func.fail("invalid mnem str '{s}'", .{mnem_str});
 
         const Operand = union(enum) {
             none,
@@ -7261,21 +7252,6 @@ fn genSetMem(
     }
 }
 
-fn airIntFromPtr(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = result: {
-        const src_mcv = try func.resolveInst(un_op);
-        const src_ty = func.typeOfIndex(inst);
-        if (func.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
-
-        const dst_mcv = try func.allocRegOrMem(src_ty, inst, true);
-        const dst_ty = func.typeOfIndex(inst);
-        try func.genCopy(dst_ty, dst_mcv, src_mcv);
-        break :result dst_mcv;
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
     const pt = func.pt;
     const zcu = pt.zcu;
@@ -7284,8 +7260,9 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
     const result = if (func.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = try func.resolveInst(ty_op.operand);
 
-        const dst_ty = func.typeOfIndex(inst);
         const src_ty = func.typeOf(ty_op.operand);
+        if (src_ty.toIntern() == .bool_type) break :result src_mcv;
+        const dst_ty = func.typeOfIndex(inst);
 
         const src_lock = if (src_mcv.getReg()) |reg| func.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| func.register_manager.unlockReg(lock);

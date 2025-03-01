@@ -159,7 +159,6 @@ pub const Condition = enum(u5) {
             .ae => .be,
             .b => .a,
             .be => .ae,
-            .c => .a,
             .g => .l,
             .ge => .le,
             .l => .g,
@@ -168,7 +167,6 @@ pub const Condition = enum(u5) {
             .nae => .nbe,
             .nb => .na,
             .nbe => .nae,
-            .nc => .na,
             .ng => .nl,
             .nge => .nle,
             .nl => .ng,
@@ -179,7 +177,13 @@ pub const Condition = enum(u5) {
 
 /// The immediate operand of vcvtps2ph.
 pub const RoundMode = packed struct(u5) {
-    mode: enum(u4) {
+    direction: Direction = .mxcsr,
+    precision: enum(u1) {
+        normal = 0b0,
+        inexact = 0b1,
+    } = .normal,
+
+    pub const Direction = enum(u4) {
         /// Round to nearest (even)
         nearest = 0b0_00,
         /// Round down (toward -∞)
@@ -190,11 +194,7 @@ pub const RoundMode = packed struct(u5) {
         zero = 0b0_11,
         /// Use current rounding mode of MXCSR.RC
         mxcsr = 0b1_00,
-    } = .mxcsr,
-    precision: enum(u1) {
-        normal = 0b0,
-        inexact = 0b1,
-    } = .normal,
+    };
 
     pub fn imm(mode: RoundMode) Immediate {
         return .u(@as(@typeInfo(RoundMode).@"struct".backing_integer.?, @bitCast(mode)));
@@ -704,6 +704,7 @@ pub const Memory = struct {
     pub const Size = enum(u4) {
         none,
         ptr,
+        gpr,
         byte,
         word,
         dword,
@@ -744,6 +745,11 @@ pub const Memory = struct {
             return switch (s) {
                 .none => 0,
                 .ptr => target.ptrBitWidth(),
+                .gpr => switch (target.cpu.arch) {
+                    else => unreachable,
+                    .x86 => 32,
+                    .x86_64 => 64,
+                },
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -765,7 +771,7 @@ pub const Memory = struct {
             try writer.writeAll(@tagName(s));
             switch (s) {
                 .none => unreachable,
-                .ptr => {},
+                .ptr, .gpr => {},
                 else => {
                     try writer.writeByte(' ');
                     try writer.writeAll("ptr");
