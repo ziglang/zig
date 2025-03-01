@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: zig
-      - run: sed -i 's/ZIG_VERSION="0.14.0-dev.2257+e6d2e1641"/ZIG_VERSION="0.14.0-dev.2987+183bb8b08"/' build
+      - run: sed -i 's/ZIG_VERSION="0.14.0-dev.2257+e6d2e1641"/ZIG_VERSION="0.14.0-dev.3430+dea72d15d"/' build
       - run: sed -i 's/Doptimize=ReleaseFast/Doptimize=${{ matrix.release_mode }}/' build
       - run: cat build
       - run: CMAKE_GENERATOR=Ninja ./build ${{ matrix.target }} baseline
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zigtools/zls
-          ref: d746d19a27729c519c58581838e17e733d35444d
+          ref: 30b0da02c708ff0443557505676775109120df89
       - uses: actions/download-artifact@v4
       - name: chmod
         run: |
