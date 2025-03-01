@@ -137,7 +137,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isArm() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArm() and target.abi.float() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");

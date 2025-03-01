@@ -270,7 +270,7 @@ pub fn getUnsignedIntInner(
         else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
             .undef => unreachable,
             .int => |int| switch (int.storage) {
-                .big_int => |big_int| big_int.to(u64) catch null,
+                .big_int => |big_int| big_int.toInt(u64) catch null,
                 .u64 => |x| x,
                 .i64 => |x| std.math.cast(u64, x),
                 .lazy_align => |ty| (try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), zcu, tid)).scalar.toByteUnits() orelse 0,
@@ -311,7 +311,7 @@ pub fn toSignedInt(val: Value, zcu: *const Zcu) i64 {
         .bool_true => 1,
         else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
-                .big_int => |big_int| big_int.to(i64) catch unreachable,
+                .big_int => |big_int| big_int.toInt(i64) catch unreachable,
                 .i64 => |x| x,
                 .u64 => |x| @intCast(x),
                 .lazy_align => |ty| @intCast(Type.fromInterned(ty).abiAlignment(zcu).toByteUnits() orelse 0),
@@ -898,7 +898,7 @@ pub fn readFromPackedMemory(
 pub fn toFloat(val: Value, comptime T: type, zcu: *Zcu) T {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| @floatCast(bigIntToFloat(big_int.limbs, big_int.positive)),
+            .big_int => |big_int| big_int.toFloat(T),
             inline .u64, .i64 => |x| {
                 if (T == f80) {
                     @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
@@ -913,25 +913,6 @@ pub fn toFloat(val: Value, comptime T: type, zcu: *Zcu) T {
         },
         else => unreachable,
     };
-}
-
-/// TODO move this to std lib big int code
-fn bigIntToFloat(limbs: []const std.math.big.Limb, positive: bool) f128 {
-    if (limbs.len == 0) return 0;
-
-    const base = std.math.maxInt(std.math.big.Limb) + 1;
-    var result: f128 = 0;
-    var i: usize = limbs.len;
-    while (i != 0) {
-        i -= 1;
-        const limb: f128 = @floatFromInt(limbs[i]);
-        result = @mulAdd(f128, base, result, limb);
-    }
-    if (positive) {
-        return result;
-    } else {
-        return -result;
-    }
 }
 
 pub fn clz(val: Value, ty: Type, zcu: *Zcu) u64 {
@@ -1548,7 +1529,7 @@ pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptim
         .undef => try pt.undefValue(float_ty),
         .int => |int| switch (int.storage) {
             .big_int => |big_int| {
-                const float = bigIntToFloat(big_int.limbs, big_int.positive);
+                const float = big_int.toFloat(f128);
                 return pt.floatValue(float_ty, float);
             },
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, pt),
@@ -3709,7 +3690,7 @@ pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
-    return if (x) Value.true else Value.false;
+    return if (x) .true else .false;
 }
 
 /// `parent_ptr` must be a single-pointer to some optional.
@@ -4583,7 +4564,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .int => switch (ip.indexToKey(val.toIntern()).int.storage) {
             .lazy_align, .lazy_size => unreachable, // `val` is fully resolved
             inline .u64, .i64 => |x| std.math.cast(T, x) orelse return error.TypeMismatch,
-            .big_int => |big| big.to(T) catch return error.TypeMismatch,
+            .big_int => |big| big.toInt(T) catch return error.TypeMismatch,
         },
 
         .float => val.toFloat(T, zcu),
@@ -4754,4 +4735,71 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
             },
         },
     };
+}
+
+/// Returns whether `ptr_val_a[0..elem_count]` and `ptr_val_b[0..elem_count]` overlap.
+/// `ptr_val_a` and `ptr_val_b` are indexable pointers (not slices) whose element types are in-memory coercible.
+pub fn doPointersOverlap(ptr_val_a: Value, ptr_val_b: Value, elem_count: u64, zcu: *const Zcu) bool {
+    const ip = &zcu.intern_pool;
+
+    const a_elem_ty = ptr_val_a.typeOf(zcu).indexablePtrElem(zcu);
+    const b_elem_ty = ptr_val_b.typeOf(zcu).indexablePtrElem(zcu);
+
+    const a_ptr = ip.indexToKey(ptr_val_a.toIntern()).ptr;
+    const b_ptr = ip.indexToKey(ptr_val_b.toIntern()).ptr;
+
+    // If `a_elem_ty` is not comptime-only, then overlapping pointers have identical
+    // `base_addr`, and we just need to look at the byte offset. If it *is* comptime-only,
+    // then `base_addr` may be an `arr_elem`, and we'll have to consider the element index.
+    if (a_elem_ty.comptimeOnly(zcu)) {
+        assert(a_elem_ty.toIntern() == b_elem_ty.toIntern()); // IMC comptime-only types are equivalent
+
+        const a_base_addr: InternPool.Key.Ptr.BaseAddr, const a_idx: u64 = switch (a_ptr.base_addr) {
+            else => .{ a_ptr.base_addr, 0 },
+            .arr_elem => |arr_elem| a: {
+                const base_ptr = Value.fromInterned(arr_elem.base);
+                const base_child_ty = base_ptr.typeOf(zcu).childType(zcu);
+                if (base_child_ty.toIntern() == a_elem_ty.toIntern()) {
+                    // This `arr_elem` is indexing into the element type we want.
+                    const base_ptr_info = ip.indexToKey(base_ptr.toIntern()).ptr;
+                    if (base_ptr_info.byte_offset != 0) {
+                        return false; // this pointer is invalid, just let the access fail
+                    }
+                    break :a .{ base_ptr_info.base_addr, arr_elem.index };
+                }
+                break :a .{ a_ptr.base_addr, 0 };
+            },
+        };
+        const b_base_addr: InternPool.Key.Ptr.BaseAddr, const b_idx: u64 = switch (a_ptr.base_addr) {
+            else => .{ b_ptr.base_addr, 0 },
+            .arr_elem => |arr_elem| b: {
+                const base_ptr = Value.fromInterned(arr_elem.base);
+                const base_child_ty = base_ptr.typeOf(zcu).childType(zcu);
+                if (base_child_ty.toIntern() == b_elem_ty.toIntern()) {
+                    // This `arr_elem` is indexing into the element type we want.
+                    const base_ptr_info = ip.indexToKey(base_ptr.toIntern()).ptr;
+                    if (base_ptr_info.byte_offset != 0) {
+                        return false; // this pointer is invalid, just let the access fail
+                    }
+                    break :b .{ base_ptr_info.base_addr, arr_elem.index };
+                }
+                break :b .{ b_ptr.base_addr, 0 };
+            },
+        };
+        if (!std.meta.eql(a_base_addr, b_base_addr)) return false;
+        const diff = if (a_idx >= b_idx) a_idx - b_idx else b_idx - a_idx;
+        return diff < elem_count;
+    } else {
+        assert(a_elem_ty.abiSize(zcu) == b_elem_ty.abiSize(zcu));
+
+        if (!std.meta.eql(a_ptr.base_addr, b_ptr.base_addr)) return false;
+
+        const bytes_diff = if (a_ptr.byte_offset >= b_ptr.byte_offset)
+            a_ptr.byte_offset - b_ptr.byte_offset
+        else
+            b_ptr.byte_offset - a_ptr.byte_offset;
+
+        const need_bytes_diff = elem_count * a_elem_ty.abiSize(zcu);
+        return bytes_diff < need_bytes_diff;
+    }
 }

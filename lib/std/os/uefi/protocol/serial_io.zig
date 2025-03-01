@@ -21,8 +21,8 @@ pub const SerialIo = extern struct {
     }
 
     /// Sets the baud rate, receive FIFO depth, transmit/receive time out, parity, data bits, and stop bits on a serial device.
-    pub fn setAttribute(self: *const SerialIo, baudRate: u64, receiverFifoDepth: u32, timeout: u32, parity: ParityType, dataBits: u8, stopBits: StopBitsType) Status {
-        return self._set_attribute(self, baudRate, receiverFifoDepth, timeout, parity, dataBits, stopBits);
+    pub fn setAttribute(self: *const SerialIo, baud_rate: u64, receiver_fifo_depth: u32, timeout: u32, parity: ParityType, data_bits: u8, stop_bits: StopBitsType) Status {
+        return self._set_attribute(self, baud_rate, receiver_fifo_depth, timeout, parity, data_bits, stop_bits);
     }
 
     /// Sets the control bits on a serial device.
@@ -36,13 +36,13 @@ pub const SerialIo = extern struct {
     }
 
     /// Writes data to a serial device.
-    pub fn write(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
-        return self._write(self, bufferSize, buffer);
+    pub fn write(self: *const SerialIo, buffer_size: *usize, buffer: *anyopaque) Status {
+        return self._write(self, buffer_size, buffer);
     }
 
     /// Reads data from a serial device.
-    pub fn read(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
-        return self._read(self, bufferSize, buffer);
+    pub fn read(self: *const SerialIo, buffer_size: *usize, buffer: *anyopaque) Status {
+        return self._read(self, buffer_size, buffer);
     }
 
     pub const guid align(8) = Guid{
@@ -55,19 +55,19 @@ pub const SerialIo = extern struct {
     };
 
     pub const ParityType = enum(u32) {
-        DefaultParity,
-        NoParity,
-        EvenParity,
-        OddParity,
-        MarkParity,
-        SpaceParity,
+        default_parity,
+        no_parity,
+        even_parity,
+        odd_parity,
+        mark_parity,
+        space_parity,
     };
 
     pub const StopBitsType = enum(u32) {
-        DefaultStopBits,
-        OneStopBit,
-        OneFiveStopBits,
-        TwoStopBits,
+        default_stop_bits,
+        one_stop_bit,
+        one_five_stop_bits,
+        two_stop_bits,
     };
 
     pub const Mode = extern struct {

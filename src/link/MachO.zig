@@ -139,6 +139,8 @@ no_implicit_dylibs: bool = false,
 /// Whether the linker should parse and always force load objects containing ObjC in archives.
 // TODO: in Zig we currently take -ObjC as always on
 force_load_objc: bool = true,
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -221,6 +223,7 @@ pub fn createEmpty(
         .lib_directories = options.lib_directories,
         .framework_dirs = options.framework_dirs,
         .force_load_objc = options.force_load_objc,
+        .discard_local_symbols = options.discard_local_symbols,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -341,11 +344,21 @@ pub fn deinit(self: *MachO) void {
     self.thunks.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     try self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -409,6 +422,16 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     if (comp.config.any_fuzz) {
         try positionals.append(try link.openObjectInput(diags, comp.fuzzer_lib.?.full_object_path));
+    }
+
+    if (comp.ubsan_rt_lib) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openArchiveInput(diags, path, false, false)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
+    } else if (comp.ubsan_rt_obj) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openObjectInput(diags, path)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
     }
 
     for (positionals.items) |link_input| {
@@ -725,6 +748,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append("-ObjC");
         }
 
+        if (self.discard_local_symbols) {
+            try argv.append("-x");
+        }
+
         if (self.entry_name) |entry_name| {
             try argv.appendSlice(&.{ "-e", entry_name });
         }
@@ -817,6 +844,8 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
+        if (comp.ubsan_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
+        if (comp.ubsan_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -1621,14 +1650,14 @@ fn initOutputSections(self: *MachO) !void {
     }
     self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
         try self.addSection("__TEXT", "__text", .{
-        .alignment = switch (self.getTarget().cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable,
-        },
-        .flags = macho.S_REGULAR |
-            macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-    });
+            .alignment = switch (self.getTarget().cpu.arch) {
+                .x86_64 => 0,
+                .aarch64 => 2,
+                else => unreachable,
+            },
+            .flags = macho.S_REGULAR |
+                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
     self.data_sect_index = self.getSectionByName("__DATA", "__data") orelse
         try self.addSection("__DATA", "__data", .{});
 }
@@ -3567,7 +3596,7 @@ pub fn getTarget(self: MachO) std.Target {
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+    if (builtin.target.os.tag.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
 }

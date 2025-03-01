@@ -734,7 +734,7 @@ const PosixThreadImpl = struct {
             else => {
                 var count: c_int = undefined;
                 var count_len: usize = @sizeOf(c_int);
-                const name = if (comptime target.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
+                const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -769,7 +769,7 @@ const PosixThreadImpl = struct {
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = @max(config.stack_size, 16 * 1024);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
+        assert(c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(
@@ -1155,7 +1155,7 @@ const LinuxThreadImpl = struct {
         completion: Completion = Completion.init(.running),
         child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
         parent_tid: i32 = undefined,
-        mapped: []align(std.mem.page_size) u8,
+        mapped: []align(std.heap.page_size_min) u8,
 
         /// Calls `munmap(mapped.ptr, mapped.len)` then `exit(1)` without touching the stack (which lives in `mapped.ptr`).
         /// Ported over from musl libc's pthread detached implementation:
@@ -1362,7 +1362,7 @@ const LinuxThreadImpl = struct {
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
-        const page_size = std.mem.page_size;
+        const page_size = std.heap.pageSize();
         const Args = @TypeOf(args);
         const Instance = struct {
             fn_args: Args,
@@ -1420,6 +1420,7 @@ const LinuxThreadImpl = struct {
             error.PermissionDenied => unreachable,
             error.ProcessFdQuotaExceeded => unreachable,
             error.SystemFdQuotaExceeded => unreachable,
+            error.MappingAlreadyExists => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);

@@ -120,11 +120,11 @@ pub const Ip6 = extern struct {
     };
 
     pub const NeighborState = enum(u32) {
-        Incomplete,
-        Reachable,
-        Stale,
-        Delay,
-        Probe,
+        incomplete,
+        reachable,
+        stale,
+        delay,
+        probe,
     };
 
     pub const NeighborCache = extern struct {

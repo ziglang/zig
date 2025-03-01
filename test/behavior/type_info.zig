@@ -161,6 +161,7 @@ test "type info: error set, error union info, anyerror" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testErrorSet();
     try comptime testErrorSet();
@@ -192,6 +193,7 @@ test "type info: error set single value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TestSet = error.One;
 
@@ -205,6 +207,7 @@ test "type info: error set merged" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TestSet = error{ One, Two } || error{Three};
 
@@ -220,6 +223,7 @@ test "type info: enum info" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testEnum();
     try comptime testEnum();
@@ -282,6 +286,7 @@ fn testUnion() !void {
 
 test "type info: struct info" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testStruct();
     try comptime testStruct();
@@ -551,6 +556,7 @@ test "type info for async frames" {
 
 test "Declarations are returned in declaration order" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         pub const a = 1;
@@ -572,6 +578,8 @@ test "Struct.is_tuple for anon list literal" {
 }
 
 test "Struct.is_tuple for anon struct literal" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const info = @typeInfo(@TypeOf(.{ .a = 0 }));
@@ -586,6 +594,8 @@ test "StructField.is_comptime" {
 }
 
 test "typeInfo resolves usingnamespace declarations" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const A = struct {
         pub const f1 = 42;
     };
@@ -611,6 +621,7 @@ test "value from struct @typeInfo default_value_ptr can be loaded at comptime" {
 test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         pub const x = 5;
@@ -651,6 +662,8 @@ test "type info of tuple of string literal default value" {
 }
 
 test "@typeInfo only contains pub decls" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const other = struct {
         const std = @import("std");
 
@@ -674,4 +687,13 @@ test "@typeInfo only contains pub decls" {
     try std.testing.expectEqual(2, decls.len);
     try std.testing.expectEqualStrings("Enum", decls[0].name);
     try std.testing.expectEqualStrings("Struct", decls[1].name);
+}
+
+test "@typeInfo function with generic return type and inferred error set" {
+    const S = struct {
+        fn testFn(comptime T: type) !T {}
+    };
+
+    const ret_ty = @typeInfo(@TypeOf(S.testFn)).@"fn".return_type;
+    comptime assert(ret_ty == null);
 }

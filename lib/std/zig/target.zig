@@ -72,7 +72,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .sparc, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 2, .minor = 1, .patch = 19 }, .glibc_triple = "sparcv9-linux-gnu" },
     .{ .arch = .sparc64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 2, .minor = 1, .patch = 19 } },
     .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
-    .{ .arch = .x86, .os = .linux, .abi = .gnu },
+    .{ .arch = .x86, .os = .linux, .abi = .gnu, .glibc_triple = "i686-linux-gnu" },
     .{ .arch = .x86, .os = .linux, .abi = .musl },
     .{ .arch = .x86, .os = .windows, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 2, .minor = 6, .patch = 4 } },
@@ -126,6 +126,23 @@ pub fn glibcRuntimeTriple(
         .hurd => std.Target.hurdTupleSimple(allocator, arch, abi),
         .linux => std.Target.linuxTripleSimple(allocator, arch, os, abi),
         else => unreachable,
+    };
+}
+
+pub fn osArchName(target: std.Target) [:0]const u8 {
+    return switch (target.os.tag) {
+        .linux => switch (target.cpu.arch) {
+            .arm, .armeb, .thumb, .thumbeb => "arm",
+            .aarch64, .aarch64_be => "aarch64",
+            .loongarch32, .loongarch64 => "loongarch",
+            .mips, .mipsel, .mips64, .mips64el => "mips",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
+            .riscv32, .riscv64 => "riscv",
+            .sparc, .sparc64 => "sparc",
+            .x86, .x86_64 => "x86",
+            else => @tagName(target.cpu.arch),
+        },
+        else => @tagName(target.cpu.arch),
     };
 }
 
@@ -195,11 +212,7 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "ksguid"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "ksuser"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "largeint"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
@@ -213,13 +226,7 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "moldname"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml2"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml6"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "ntoskrnl"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
             return true;
@@ -234,6 +241,8 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "uuid"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "wiaguid"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "winpthread"))
             return true;

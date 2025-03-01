@@ -8,6 +8,7 @@ const posix = std.posix;
 const linux = std.os.linux;
 const testing = std.testing;
 const is_linux = builtin.os.tag == .linux;
+const page_size_min = std.heap.page_size_min;
 
 fd: posix.fd_t = -1,
 sq: SubmissionQueue,
@@ -1185,6 +1186,28 @@ pub fn register_files_update(self: *IoUring, offset: u32, fds: []const posix.fd_
     try handle_registration_result(res);
 }
 
+/// Registers an empty (-1) file table of `nr_files` number of file descriptors.
+pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
+    assert(self.fd >= 0);
+
+    const reg = &linux.io_uring_rsrc_register{
+        .nr = nr_files,
+        .flags = linux.IORING_RSRC_REGISTER_SPARSE,
+        .resv2 = 0,
+        .data = 0,
+        .tags = 0,
+    };
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .REGISTER_FILES2,
+        @ptrCast(reg),
+        @as(u32, @sizeOf(linux.io_uring_rsrc_register)),
+    );
+
+    return handle_registration_result(res);
+}
+
 /// Registers the file descriptor for an eventfd that will be notified of completion events on
 ///  an io_uring instance.
 /// Only a single a eventfd can be registered at any given point in time.
@@ -1341,8 +1364,8 @@ pub const SubmissionQueue = struct {
     dropped: *u32,
     array: []u32,
     sqes: []linux.io_uring_sqe,
-    mmap: []align(mem.page_size) u8,
-    mmap_sqes: []align(mem.page_size) u8,
+    mmap: []align(page_size_min) u8,
+    mmap_sqes: []align(page_size_min) u8,
 
     // We use `sqe_head` and `sqe_tail` in the same way as liburing:
     // We increment `sqe_tail` (but not `tail`) for each call to `get_sqe()`.
@@ -1460,7 +1483,7 @@ pub const BufferGroup = struct {
     /// Pointer to the memory shared by the kernel.
     /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
     /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
-    br: *align(mem.page_size) linux.io_uring_buf_ring,
+    br: *align(page_size_min) linux.io_uring_buf_ring,
     /// Contiguous block of memory of size (buffers_count * buffer_size).
     buffers: []u8,
     /// Size of each buffer in buffers.
@@ -1555,7 +1578,7 @@ pub const BufferGroup = struct {
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
 /// `entries` is the number of entries requested in the buffer ring, must be power of 2.
 /// `group_id` is the chosen buffer group ID, unique in IO_Uring.
-pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
+pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(page_size_min) linux.io_uring_buf_ring {
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
@@ -1571,7 +1594,7 @@ pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.p
     errdefer posix.munmap(mmap);
     assert(mmap.len == mmap_size);
 
-    const br: *align(mem.page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
+    const br: *align(page_size_min) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
     try register_buf_ring(fd, @intFromPtr(br), entries, group_id);
     return br;
 }
@@ -1613,9 +1636,9 @@ fn handle_register_buf_ring_result(res: usize) !void {
 }
 
 // Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
-pub fn free_buf_ring(fd: posix.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
+pub fn free_buf_ring(fd: posix.fd_t, br: *align(page_size_min) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
     unregister_buf_ring(fd, group_id) catch {};
-    var mmap: []align(mem.page_size) u8 = undefined;
+    var mmap: []align(page_size_min) u8 = undefined;
     mmap.ptr = @ptrCast(br);
     mmap.len = entries * @sizeOf(linux.io_uring_buf);
     posix.munmap(mmap);

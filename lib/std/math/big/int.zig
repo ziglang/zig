@@ -57,8 +57,11 @@ pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
     return calcMulLimbsBufferLen(limb_count, limb_count, 2);
 }
 
+/// Assumes `string_len` doesn't account for minus signs if the number is negative.
 pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
-    return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
+    const base_f: f32 = @floatFromInt(base);
+    const string_len_f: f32 = @floatFromInt(string_len);
+    return 1 + @as(usize, @intFromFloat(@ceil(string_len_f * std.math.log2(base_f) / limb_bits)));
 }
 
 pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
@@ -280,7 +283,7 @@ pub const Mutable = struct {
     ///
     /// Asserts there is enough memory for the value in `self.limbs`. An upper bound on number of limbs can
     /// be determined with `calcSetStringLimbCount`.
-    /// Asserts the base is in the range [2, 16].
+    /// Asserts the base is in the range [2, 36].
     ///
     /// Returns an error if the value has invalid digits for the requested base.
     ///
@@ -296,7 +299,8 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
         allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
-        assert(base >= 2 and base <= 16);
+        assert(base >= 2);
+        assert(base <= 36);
 
         var i: usize = 0;
         var positive = true;
@@ -1793,9 +1797,13 @@ pub const Mutable = struct {
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
     pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
+        const abs_trunc_a: Const = .{
+            .positive = true,
+            .limbs = a.limbs[0..@min(a.limbs.len, req_limbs)],
+        };
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqlZero()) {
+        if (req_limbs == 0 or abs_trunc_a.eqlZero()) {
             r.set(0);
             return;
         }
@@ -1810,15 +1818,10 @@ pub const Mutable = struct {
             // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
             // target bit count.
 
-            r.addScalar(a.abs(), -1);
+            r.addScalar(abs_trunc_a, -1);
 
             // Zero-extend the result
-            if (req_limbs > r.len) {
-                @memset(r.limbs[r.len..req_limbs], 0);
-            }
-
-            // Truncate to required number of limbs.
-            assert(r.limbs.len >= req_limbs);
+            @memset(r.limbs[r.len..req_limbs], 0);
             r.len = req_limbs;
 
             // Without truncating, we can already peek at the sign bit of the result here.
@@ -1846,16 +1849,10 @@ pub const Mutable = struct {
                 r.normalize(r.len);
             }
         } else {
-            if (a.limbs.len < req_limbs) {
-                // Integer fits within target bits, no wrapping required.
-                r.copy(a);
-                return;
-            }
+            r.copy(abs_trunc_a);
+            // If the integer fits within target bits, no wrapping is required.
+            if (r.len < req_limbs) return;
 
-            r.copy(.{
-                .positive = a.positive,
-                .limbs = a.limbs[0..req_limbs],
-            });
             r.limbs[r.len - 1] &= mask;
             r.normalize(r.len);
 
@@ -2175,10 +2172,13 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Const, comptime T: type) ConvertError!T {
+    pub fn toInt(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .int => |info| {
                 // Make sure -0 is handled correctly.
@@ -2216,7 +2216,26 @@ pub const Const = struct {
                     }
                 }
             },
-            else => @compileError("cannot convert Const to type " ++ @typeName(T)),
+            else => @compileError("expected int type, found '" ++ @typeName(T) ++ "'"),
+        }
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Const, comptime T: type) T {
+        if (self.limbs.len == 0) return 0;
+
+        const base = std.math.maxInt(std.math.big.Limb) + 1;
+        var result: f128 = 0;
+        var i: usize = self.limbs.len;
+        while (i != 0) {
+            i -= 1;
+            const limb: f128 = @floatFromInt(self.limbs[i]);
+            result = @mulAdd(f128, base, result, limb);
+        }
+        if (self.positive) {
+            return @floatCast(result);
+        } else {
+            return @floatCast(-result);
         }
     }
 
@@ -2268,11 +2287,11 @@ pub const Const = struct {
 
     /// Converts self to a string in the requested base.
     /// Caller owns returned memory.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// See also `toString`, a lower level function than this.
     pub fn toStringAlloc(self: Const, allocator: Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
@@ -2287,7 +2306,7 @@ pub const Const = struct {
     }
 
     /// Converts self to a string in the requested base.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// `string` is a caller-provided slice of at least `sizeInBaseUpperBound` bytes,
     /// where the result is written to.
     /// Returns the length of the string.
@@ -2297,7 +2316,7 @@ pub const Const = struct {
     /// See also `toStringAlloc`, a higher level function than this.
     pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             string[0] = '0';
@@ -2529,8 +2548,7 @@ pub const Const = struct {
         const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
-            const limb = a.limbs[i];
-            const this_limb_lz = @clz(limb);
+            const this_limb_lz = @clz(a.limbs[i]);
             total_limb_lz += this_limb_lz;
             if (this_limb_lz != bits_per_limb) break;
         }
@@ -2542,6 +2560,7 @@ pub const Const = struct {
     pub fn ctz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order. Converting a negative number to twos-complement
         // flips all bits above the lowest set bit, which does not affect the trailing zero count.
+        if (a.eqlZero()) return bits;
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
@@ -2775,11 +2794,19 @@ pub const Managed = struct {
 
     pub const ConvertError = Const.ConvertError;
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Managed, comptime T: type) ConvertError!T {
-        return self.toConst().to(T);
+    pub fn toInt(self: Managed, comptime T: type) ConvertError!T {
+        return self.toConst().toInt(T);
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Managed, comptime T: type) T {
+        return self.toConst().toFloat(T);
     }
 
     /// Set self from the string representation `value`.
@@ -2793,7 +2820,7 @@ pub const Managed = struct {
     ///
     /// self's allocator is used for temporary storage to boost multiplication performance.
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
         const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
         defer self.allocator.free(limbs_buffer);
@@ -2820,7 +2847,7 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         return self.toConst().toStringAlloc(allocator, base, case);
     }
 

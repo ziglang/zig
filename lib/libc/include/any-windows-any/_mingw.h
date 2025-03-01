@@ -237,6 +237,10 @@ limitations in handling dllimport attribute.  */
 # endif
 #endif
 
+#if !defined(__CRTDLL__) && __MSVCRT_VERSION__ == 0x00
+#define __CRTDLL__
+#endif
+
 #if !defined(_UCRT) && ((__MSVCRT_VERSION__ >= 0x1400) || (__MSVCRT_VERSION__ >= 0xE00 && __MSVCRT_VERSION__ < 0x1000))
 /* Allow both 0x1400 and 0xE00 to identify UCRT */
 #define _UCRT
@@ -594,12 +598,12 @@ extern "C" {
 void __cdecl __debugbreak(void);
 __MINGW_INTRIN_INLINE void __cdecl __debugbreak(void)
 {
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
+  __asm__ __volatile__("brk #0xf000");
+#elif defined(__i386__) || defined(__x86_64__)
   __asm__ __volatile__("int {$}3":);
 #elif defined(__arm__)
   __asm__ __volatile__("udf #0xfe");
-#elif defined(__aarch64__)
-  __asm__ __volatile__("brk #0xf000");
 #else
   __asm__ __volatile__("unimplemented");
 #endif
@@ -615,14 +619,14 @@ __MINGW_INTRIN_INLINE void __cdecl __debugbreak(void)
 void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned int code);
 __MINGW_INTRIN_INLINE void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned int code)
 {
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
+  register unsigned int w0 __asm__("w0") = code;
+  __asm__ __volatile__("brk #0xf003"::"r"(w0));
+#elif defined(__i386__) || defined(__x86_64__)
   __asm__ __volatile__("int {$}0x29"::"c"(code));
 #elif defined(__arm__)
   register unsigned int r0 __asm__("r0") = code;
   __asm__ __volatile__("udf #0xfb"::"r"(r0));
-#elif defined(__aarch64__)
-  register unsigned int w0 __asm__("w0") = code;
-  __asm__ __volatile__("brk #0xf003"::"r"(w0));
 #else
   __asm__ __volatile__("unimplemented");
 #endif
@@ -636,13 +640,13 @@ __MINGW_INTRIN_INLINE void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned i
 #define __MINGW_PREFETCH_IMPL 1
 #endif
 #if __MINGW_PREFETCH_IMPL == 1
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(__arm__) || defined(__aarch64__) || defined(__arm64ec__)
 void __cdecl __prefetch(const void *addr);
 __MINGW_INTRIN_INLINE void __cdecl __prefetch(const void *addr)
 {
 #if defined(__arm__)
   __asm__ __volatile__("pld [%0]"::"r"(addr));
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__arm64ec__)
   __asm__ __volatile__("prfm pldl1keep, [%0]"::"r"(addr));
 #endif
 }

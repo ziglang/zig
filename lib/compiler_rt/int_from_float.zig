@@ -1,5 +1,6 @@
-const Int = @import("std").meta.Int;
-const math = @import("std").math;
+const std = @import("std");
+const Int = std.meta.Int;
+const math = std.math;
 const Log2Int = math.Log2Int;
 
 pub inline fn intFromFloat(comptime I: type, a: anytype) I {
@@ -48,6 +49,55 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     if ((@typeInfo(I).int.signedness == .signed) and negative)
         return ~result +% 1;
     return result;
+}
+
+pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, result: []u32, a: anytype) void {
+    switch (result.len) {
+        0 => return,
+        inline 1...4 => |limbs_len| {
+            result[0..limbs_len].* = @bitCast(@as(
+                @Type(.{ .int = .{ .signedness = signedness, .bits = 32 * limbs_len } }),
+                @intFromFloat(a),
+            ));
+            return;
+        },
+        else => {},
+    }
+
+    // sign implicit fraction
+    const significand_bits = 1 + math.floatFractionalBits(@TypeOf(a));
+    const I = @Type(comptime .{ .int = .{
+        .signedness = signedness,
+        .bits = @as(u16, @intFromBool(signedness == .signed)) + significand_bits,
+    } });
+
+    const parts = math.frexp(a);
+    const exponent = @max(parts.exponent - significand_bits, 0);
+    const int: I = @intFromFloat(switch (exponent) {
+        0 => a,
+        else => math.ldexp(parts.significand, significand_bits),
+    });
+    switch (signedness) {
+        .signed => {
+            const endian = @import("builtin").cpu.arch.endian();
+            const exponent_limb = switch (endian) {
+                .little => exponent / 32,
+                .big => result.len - 1 - exponent / 32,
+            };
+            const sign_bits: u32 = if (int < 0) math.maxInt(u32) else 0;
+            @memset(result[0..exponent_limb], switch (endian) {
+                .little => 0,
+                .big => sign_bits,
+            });
+            result[exponent_limb] = sign_bits << @truncate(exponent);
+            @memset(result[exponent_limb + 1 ..], switch (endian) {
+                .little => sign_bits,
+                .big => 0,
+            });
+        },
+        .unsigned => @memset(result, 0),
+    }
+    std.mem.writePackedIntNative(I, std.mem.sliceAsBytes(result), exponent, int);
 }
 
 test {

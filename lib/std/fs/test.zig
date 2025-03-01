@@ -361,9 +361,12 @@ test "openDirAbsolute" {
 }
 
 test "openDir cwd parent '..'" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    var dir = try fs.cwd().openDir("..", .{});
+    var dir = fs.cwd().openDir("..", .{}) catch |err| {
+        if (native_os == .wasi and err == error.AccessDenied) {
+            return; // This is okay. WASI disallows escaping from the fs sandbox
+        }
+        return err;
+    };
     defer dir.close();
 }
 
@@ -1678,8 +1681,6 @@ test "read from locked file" {
 }
 
 test "walker" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1731,8 +1732,6 @@ test "walker" {
 }
 
 test "walker without fully iterating" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1754,8 +1753,6 @@ test "walker without fully iterating" {
 }
 
 test "'.' and '..' in fs.Dir functions" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     if (native_os == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;

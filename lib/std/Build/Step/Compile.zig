@@ -40,6 +40,7 @@ compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
+bundle_ubsan_rt: ?bool = null,
 rdynamic: bool,
 import_memory: bool = false,
 export_memory: bool = false,
@@ -159,6 +160,9 @@ dead_strip_dylibs: bool = false,
 
 /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
 force_load_objc: bool = false,
+
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
 
 /// Position Independent Executable
 pie: ?bool = null,
@@ -465,7 +469,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (compile.linkage != null and compile.linkage.? == .static) {
             compile.out_lib_filename = compile.out_filename;
         } else if (compile.version) |version| {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     compile.name,
                     version.major,
@@ -480,7 +484,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.out_lib_filename = compile.out_filename;
             }
         } else {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
                 compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
@@ -1259,45 +1263,54 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         .c_source_file => |c_source_file| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_file.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_file.flags.len != 0) {
                                 try zig_args.append("-cflags");
                                 for (c_source_file.flags) |arg| {
                                     try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
                             }
+                            prev_has_cflags = (c_source_file.flags.len != 0);
+
+                            if (c_source_file.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
+                            }
+
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+
+                            if (c_source_file.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
                             total_linker_objects += 1;
                         },
 
                         .c_source_files => |c_source_files| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_files.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_files.flags.len != 0) {
                                 try zig_args.append("-cflags");
-                                for (c_source_files.flags) |flag| {
-                                    try zig_args.append(flag);
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
+                            }
+                            prev_has_cflags = (c_source_files.flags.len != 0);
+
+                            if (c_source_files.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
                             for (c_source_files.files) |file| {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            }
+
+                            if (c_source_files.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
                             }
 
                             total_linker_objects += c_source_files.files.len;
@@ -1515,7 +1528,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             try zig_args.append(b.fmt("{}", .{version}));
         }
 
-        if (compile.rootModuleTarget().isDarwin()) {
+        if (compile.rootModuleTarget().os.tag.isDarwin()) {
             const install_name = compile.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
                 compile.rootModuleTarget().libPrefix(),
                 compile.name,
@@ -1546,8 +1559,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.force_load_objc) {
         try zig_args.append("-ObjC");
     }
+    if (compile.discard_local_symbols) {
+        try zig_args.append("--discard-all");
+    }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
+    try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
     try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
         try zig_args.append("-rdynamic");

@@ -628,13 +628,13 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
                     if (data.fitsInTwosComp(.unsigned, 32)) {
                         i.items.appendAssumeCapacity(.{
                             .tag = .u32,
-                            .data = data.to(u32) catch unreachable,
+                            .data = data.toInt(u32) catch unreachable,
                         });
                         break :int;
                     } else if (data.fitsInTwosComp(.signed, 32)) {
                         i.items.appendAssumeCapacity(.{
                             .tag = .i32,
-                            .data = @bitCast(data.to(i32) catch unreachable),
+                            .data = @bitCast(data.toInt(i32) catch unreachable),
                         });
                         break :int;
                     }

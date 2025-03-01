@@ -36,5 +36,5 @@ fn assert(ok: bool) void {
 // TODO: enable this for native backend
 
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=aarch64-linux,aarch64-macos

@@ -39,10 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = switch (builtin.zig_backend) {
-    else => std.Thread.SpawnConfig.default_stack_size,
-    .stage2_x86_64 => 32 << 20,
-};
+const thread_stack_size = 32 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -171,30 +168,31 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
+var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = build_options.mem_leak_frames,
-}){};
+}) = .init;
 
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and native_os != .wasi;
-    const gpa = gpa: {
-        if (native_os == .wasi) {
-            break :gpa std.heap.wasm_allocator;
+    const gpa, const is_debug = gpa: {
+        if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
+        if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
+        if (builtin.link_libc) {
+            // We would prefer to use raw libc allocator here, but cannot use
+            // it if it won't support the alignment we need.
+            if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
+                break :gpa .{ std.heap.c_allocator, false };
+            }
+            break :gpa .{ std.heap.raw_c_allocator, false };
         }
-        if (use_gpa) {
-            break :gpa general_purpose_allocator.allocator();
-        }
-        // We would prefer to use raw libc allocator here, but cannot
-        // use it if it won't support the alignment we need.
-        if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
-            break :gpa std.heap.c_allocator;
-        }
-        break :gpa std.heap.raw_c_allocator;
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
     };
-    defer if (use_gpa) {
-        _ = general_purpose_allocator.deinit();
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
@@ -565,6 +563,8 @@ const usage_build_generic =
     \\  -fno-lld                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
     \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
+    \\  -fubsan-rt                     Always include ubsan-rt symbols in the output
+    \\  -fno-ubsan-rt                  Prevent including ubsan-rt symbols in the output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
@@ -828,9 +828,9 @@ fn buildOutputType(
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -853,6 +853,7 @@ fn buildOutputType(
     var emit_h: Emit = .no;
     var soname: SOName = undefined;
     var want_compiler_rt: ?bool = null;
+    var want_ubsan_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var linker_repro: ?bool = null;
@@ -922,6 +923,7 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var force_load_objc: bool = false;
+    var discard_local_symbols: bool = false;
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
@@ -1008,9 +1010,9 @@ fn buildOutputType(
     // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or try EnvVar.NO_COLOR.isSet(arena))
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
         .off
-    else if (try EnvVar.CLICOLOR_FORCE.isSet(arena))
+    else if (EnvVar.CLICOLOR_FORCE.isSet())
         .on
     else
         .auto;
@@ -1155,6 +1157,8 @@ fn buildOutputType(
                         entry = .{ .named = arg["-fentry=".len..] };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
+                    } else if (mem.eql(u8, arg, "--discard-all")) {
+                        discard_local_symbols = true;
                     } else if (mem.eql(u8, arg, "--stack")) {
                         stack_size = parseStackSize(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--image-base")) {
@@ -1377,6 +1381,10 @@ fn buildOutputType(
                         want_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
                         want_compiler_rt = false;
+                    } else if (mem.eql(u8, arg, "-fubsan-rt")) {
+                        want_ubsan_rt = true;
+                    } else if (mem.eql(u8, arg, "-fno-ubsan-rt")) {
+                        want_ubsan_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         create_module.each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -1967,6 +1975,7 @@ fn buildOutputType(
                             try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                                 .name = it.only_arg,
                                 .query = .{
+                                    .must_link = must_link,
                                     .needed = needed,
                                     .weak = false,
                                     .preferred_mode = lib_preferred_mode,
@@ -2520,10 +2529,26 @@ fn buildOutputType(
                     entry = .{ .named = linker_args_it.nextOrFatal() };
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
+                } else if (mem.eql(u8, arg, "-x") or mem.eql(u8, arg, "--discard-all")) {
+                    discard_local_symbols = true;
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     image_base = parseImageBase(linker_args_it.nextOrFatal());
+                } else if (mem.eql(u8, arg, "--enable-auto-image-base") or
+                    mem.eql(u8, arg, "--disable-auto-image-base"))
+                {
+                    // `--enable-auto-image-base` is a flag that binutils added in ~2000 for MinGW.
+                    // It does a hash of the file and uses that as part of the image base value.
+                    // Presumably the idea was to avoid DLLs needing to be relocated when loaded.
+                    // This is practically irrelevant today as all PEs produced since Windows Vista
+                    // have ASLR enabled by default anyway, and Windows 10+ has Mandatory ASLR which
+                    // doesn't even care what the PE file wants and relocates it anyway.
+                    //
+                    // Unfortunately, Libtool hardcodes usage of this archaic flag when targeting
+                    // MinGW, so to make `zig cc` for that use case work, accept and ignore the
+                    // flag, and warn the user that it has no effect.
+                    warn("auto-image-base options are unimplemented and ignored", .{});
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -2727,7 +2752,9 @@ fn buildOutputType(
             switch (c_out_mode orelse .link) {
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
-                    emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    if (emit_bin != .no) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    }
                     if (emit_llvm) {
                         fatal("-emit-llvm cannot be used when linking", .{});
                     }
@@ -2777,10 +2804,13 @@ fn buildOutputType(
                         emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
                         clang_preprocessor_mode = .pch;
                     } else {
-                        if (out_path) |p| {
-                            emit_bin = .{ .yes = p };
+                        // If the output path is "-" (stdout), then we need to emit the preprocessed output to stdout
+                        // like "clang -E main.c -o -" does.
+                        if (out_path != null and !mem.eql(u8, out_path.?, "-")) {
+                            emit_bin = .{ .yes = out_path.? };
                             clang_preprocessor_mode = .yes;
                         } else {
+                            emit_bin = .no;
                             clang_preprocessor_mode = .stdout;
                         }
                     }
@@ -3492,6 +3522,7 @@ fn buildOutputType(
         .windows_lib_names = create_module.windows_libs.keys(),
         .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
+        .want_ubsan_rt = want_ubsan_rt,
         .hash_style = hash_style,
         .linker_script = linker_script,
         .version_script = version_script,
@@ -3572,6 +3603,7 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .force_load_objc = force_load_objc,
+        .discard_local_symbols = discard_local_symbols,
         .reference_trace = reference_trace,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
@@ -3627,7 +3659,7 @@ fn buildOutputType(
 
     if (show_builtin) {
         const builtin_mod = comp.root_mod.getBuiltinDependency();
-        const source = builtin_mod.builtin_file.?.source;
+        const source = builtin_mod.builtin_file.?.source.?;
         return std.io.getStdOut().writeAll(source);
     }
     switch (listen) {
@@ -3976,7 +4008,7 @@ fn createModule(
         }
         create_module.lib_dir_args = undefined; // From here we use lib_directories instead.
 
-        if (resolved_target.is_native_os and target.isDarwin()) {
+        if (resolved_target.is_native_os and target.os.tag.isDarwin()) {
             // If we want to link against frameworks, we need system headers.
             if (create_module.frameworks.count() > 0)
                 create_module.want_native_include_dirs = true;
@@ -4722,6 +4754,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     const cwd_path = try process.getCwdAlloc(arena);
     const cwd_basename = fs.path.basename(cwd_path);
+    const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
 
     const s = fs.path.sep_str;
     const template_paths = [_][]const u8{
@@ -4732,8 +4765,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     var ok_count: usize = 0;
 
+    const fingerprint: Package.Fingerprint = .generate(sanitized_root_name);
+
     for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
+        if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
             std.log.info("created {s}", .{template_path});
             ok_count += 1;
         } else |err| switch (err) {
@@ -4750,6 +4785,37 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     return cleanExit();
 }
 
+fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    for (bytes, 0..) |byte, i| switch (byte) {
+        '0'...'9' => {
+            if (i == 0) try result.append(arena, '_');
+            try result.append(arena, byte);
+        },
+        '_', 'a'...'z', 'A'...'Z' => try result.append(arena, byte),
+        '-', '.', ' ' => try result.append(arena, '_'),
+        else => continue,
+    };
+    if (result.items.len == 0) return "foo";
+    if (result.items.len > Package.Manifest.max_name_len)
+        result.shrinkRetainingCapacity(Package.Manifest.max_name_len);
+
+    return result.toOwnedSlice(arena);
+}
+
+test sanitizeExampleName {
+    var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    try std.testing.expectEqualStrings("foo_bar", try sanitizeExampleName(arena, "foo bar+"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, ""));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "!"));
+    try std.testing.expectEqualStrings("a", try sanitizeExampleName(arena, "!a"));
+    try std.testing.expectEqualStrings("a_b", try sanitizeExampleName(arena, "a.b!"));
+    try std.testing.expectEqualStrings("_01234", try sanitizeExampleName(arena, "01234"));
+}
+
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.build_command);
 
@@ -4762,9 +4828,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -4947,7 +5013,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     const work_around_btrfs_bug = native_os == .linux and
-        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -5010,8 +5076,16 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        const dir = fs.cwd().makeOpenPath(p, .{}) catch |err| {
+            const base_msg = "unable to open or create the global Zig cache at '{s}': {s}.{s}";
+            const extra = "\nIf this location is not writable then consider specifying an " ++
+                "alternative with the ZIG_GLOBAL_CACHE_DIR environment variable or the " ++
+                "--global-cache-dir option.";
+            const show_extra = err == error.AccessDenied or err == error.ReadOnlyFileSystem;
+            fatal(base_msg, .{ p, @errorName(err), if (show_extra) extra else "" });
+        };
         break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .handle = dir,
             .path = p,
         };
     };
@@ -5164,13 +5238,15 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
+                    .allow_missing_fingerprint = false,
+                    .allow_name_string = false,
                     .use_latest_commit = false,
 
                     .package_root = undefined,
                     .error_bundle = undefined,
                     .manifest = null,
                     .manifest_ast = undefined,
-                    .actual_hash = undefined,
+                    .computed_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
                     .latest_commit = null,
@@ -5217,13 +5293,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     const hashes = job_queue.table.keys();
                     const fetches = job_queue.table.values();
                     try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
-                    for (hashes, fetches) |hash, f| {
+                    for (hashes, fetches) |*hash, f| {
                         if (f == &fetch) {
                             // The first one is a dummy package for the current project.
                             continue;
                         }
                         if (!f.has_build_zig)
                             continue;
+                        const hash_slice = hash.toSlice();
                         const m = try Package.Module.create(arena, .{
                             .global_cache_directory = global_cache_directory,
                             .paths = .{
@@ -5233,7 +5310,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .fully_qualified_name = try std.fmt.allocPrint(
                                 arena,
                                 "root.@dependencies.{s}",
-                                .{&hash},
+                                .{hash_slice},
                             ),
                             .cc_argv = &.{},
                             .inherited = .{},
@@ -5242,7 +5319,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .builtin_mod = builtin_mod,
                             .builtin_modules = null, // `builtin_mod` is specified
                         });
-                        const hash_cloned = try arena.dupe(u8, &hash);
+                        const hash_cloned = try arena.dupe(u8, hash_slice);
                         deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
                         f.module = m;
                     }
@@ -5358,23 +5435,22 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         var any_errors = false;
                         while (it.next()) |hash| {
                             if (hash.len == 0) continue;
-                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).array.len;
-                            if (hash.len != digest_len) {
-                                std.log.err("invalid digest (length {d} instead of {d}): '{s}'", .{
-                                    hash.len, digest_len, hash,
+                            if (hash.len > Package.Hash.max_len) {
+                                std.log.err("invalid digest (length {d} exceeds maximum): '{s}'", .{
+                                    hash.len, hash,
                                 });
                                 any_errors = true;
                                 continue;
                             }
-                            try unlazy_set.put(arena, hash[0..digest_len].*, {});
+                            try unlazy_set.put(arena, .fromSlice(hash), {});
                         }
                         if (any_errors) process.exit(3);
                         if (system_pkg_dir_path) |p| {
                             // In this mode, the system needs to provide these packages; they
                             // cannot be fetched by Zig.
-                            for (unlazy_set.keys()) |hash| {
+                            for (unlazy_set.keys()) |*hash| {
                                 std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
-                                    p, hash,
+                                    p, hash.toSlice(),
                                 });
                             }
                             std.log.info("remote package fetching disabled due to --system mode", .{});
@@ -5446,7 +5522,7 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
-    const optimize_mode: std.builtin.OptimizeMode = if (try EnvVar.ZIG_DEBUG_CMD.isSet(arena))
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
         .Debug
     else
         .ReleaseFast;
@@ -5900,8 +5976,8 @@ pub const ClangArgIterator = struct {
 
             self.arg_iterator_response_file =
                 initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
-                fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
-            };
+                    fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
+                };
             // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
             // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
 
@@ -6119,15 +6195,12 @@ fn cmdAstCheck(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
         .sub_file_path = undefined,
-        .source = undefined,
         .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
+        .source = null,
+        .tree = null,
+        .zir = null,
+        .zoir = null,
         .mod = undefined,
     };
     if (zig_source_file) |file_name| {
@@ -6148,7 +6221,6 @@ fn cmdAstCheck(
 
         file.sub_file_path = file_name;
         file.source = source;
-        file.source_loaded = true;
         file.stat = .{
             .size = stat.size,
             .inode = stat.inode,
@@ -6161,7 +6233,6 @@ fn cmdAstCheck(
         };
         file.sub_file_path = "<stdin>";
         file.source = source;
-        file.source_loaded = true;
         file.stat.size = source.len;
     }
 
@@ -6181,17 +6252,15 @@ fn cmdAstCheck(
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, mode);
-    file.tree_loaded = true;
-    defer file.tree.deinit(gpa);
+    file.tree = try Ast.parse(gpa, file.source.?, mode);
+    defer file.tree.?.deinit(gpa);
 
     switch (mode) {
         .zig => {
-            file.zir = try AstGen.generate(gpa, file.tree);
-            file.zir_loaded = true;
-            defer file.zir.deinit(gpa);
+            file.zir = try AstGen.generate(gpa, file.tree.?);
+            defer file.zir.?.deinit(gpa);
 
-            if (file.zir.hasCompileErrors()) {
+            if (file.zir.?.hasCompileErrors()) {
                 var wip_errors: std.zig.ErrorBundle.Wip = undefined;
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
@@ -6200,13 +6269,13 @@ fn cmdAstCheck(
                 defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(color.renderOptions());
 
-                if (file.zir.loweringFailed()) {
+                if (file.zir.?.loweringFailed()) {
                     process.exit(1);
                 }
             }
 
             if (!want_output_text) {
-                if (file.zir.hasCompileErrors()) {
+                if (file.zir.?.hasCompileErrors()) {
                     process.exit(1);
                 } else {
                     return cleanExit();
@@ -6218,18 +6287,18 @@ fn cmdAstCheck(
 
             {
                 const token_bytes = @sizeOf(Ast.TokenList) +
-                    file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
-                const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+                    file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+                const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
-                    @sizeOf(Ast.Node.Data) +
-                    @sizeOf(Ast.TokenIndex));
-                const instruction_bytes = file.zir.instructions.len *
+                        @sizeOf(Ast.Node.Data) +
+                        @sizeOf(Ast.TokenIndex));
+                const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
                     (@sizeOf(Zir.Inst.Tag) + 8);
-                const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+                const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
                 const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-                    file.zir.string_bytes.len * @sizeOf(u8);
+                    file.zir.?.string_bytes.len * @sizeOf(u8);
                 const stdout = io.getStdOut();
                 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
                 // zig fmt: off
@@ -6243,27 +6312,27 @@ fn cmdAstCheck(
                     \\# Extra Data Items:   {d} ({})
                     \\
                 , .{
-                    fmtIntSizeBin(file.source.len),
-                    file.tree.tokens.len, fmtIntSizeBin(token_bytes),
-                    file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+                    fmtIntSizeBin(file.source.?.len),
+                    file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
+                    file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
                     fmtIntSizeBin(total_bytes),
-                    file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-                    fmtIntSizeBin(file.zir.string_bytes.len),
-                    file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+                    file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
+                    fmtIntSizeBin(file.zir.?.string_bytes.len),
+                    file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
                 });
                 // zig fmt: on
             }
 
             try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
 
-            if (file.zir.hasCompileErrors()) {
+            if (file.zir.?.hasCompileErrors()) {
                 process.exit(1);
             } else {
                 return cleanExit();
             }
         },
         .zon => {
-            const zoir = try ZonGen.generate(gpa, file.tree);
+            const zoir = try ZonGen.generate(gpa, file.tree.?, .{});
             defer zoir.deinit(gpa);
 
             if (zoir.hasCompileErrors()) {
@@ -6274,7 +6343,7 @@ fn cmdAstCheck(
                 {
                     const src_path = try file.fullPath(gpa);
                     defer gpa.free(src_path);
-                    try wip_errors.addZoirErrorMessages(zoir, file.tree, file.source, src_path);
+                    try wip_errors.addZoirErrorMessages(zoir, file.tree.?, file.source.?, src_path);
                 }
 
                 var error_bundle = try wip_errors.toOwnedBundle("");
@@ -6503,27 +6572,24 @@ fn cmdDumpZir(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = true,
         .sub_file_path = undefined,
-        .source = undefined,
         .stat = undefined,
-        .tree = undefined,
+        .source = null,
+        .tree = null,
         .zir = try Zcu.loadZirCache(gpa, f),
+        .zoir = null,
         .mod = undefined,
     };
-    defer file.zir.deinit(gpa);
+    defer file.zir.?.deinit(gpa);
 
     {
-        const instruction_bytes = file.zir.instructions.len *
+        const instruction_bytes = file.zir.?.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.
             (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+        const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
+            file.zir.?.string_bytes.len * @sizeOf(u8);
         const stdout = io.getStdOut();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
@@ -6535,9 +6601,9 @@ fn cmdDumpZir(
             \\
         , .{
             fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(file.zir.?.string_bytes.len),
+            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
         });
         // zig fmt: on
     }
@@ -6571,19 +6637,16 @@ fn cmdChangelist(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
         .sub_file_path = old_source_file,
-        .source = undefined,
         .stat = .{
             .size = stat.size,
             .inode = stat.inode,
             .mtime = stat.mtime,
         },
-        .tree = undefined,
-        .zir = undefined,
+        .source = null,
+        .tree = null,
+        .zir = null,
+        .zoir = null,
         .mod = undefined,
     };
 
@@ -6598,17 +6661,14 @@ fn cmdChangelist(
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
     file.source = source;
-    file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
-    file.tree_loaded = true;
-    defer file.tree.deinit(gpa);
+    file.tree = try Ast.parse(gpa, file.source.?, .zig);
+    defer file.tree.?.deinit(gpa);
 
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+    file.zir = try AstGen.generate(gpa, file.tree.?);
+    defer file.zir.?.deinit(gpa);
 
-    if (file.zir.loweringFailed()) {
+    if (file.zir.?.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6637,13 +6697,12 @@ fn cmdChangelist(
     var new_tree = try Ast.parse(gpa, new_source, .zig);
     defer new_tree.deinit(gpa);
 
-    var old_zir = file.zir;
+    var old_zir = file.zir.?;
     defer old_zir.deinit(gpa);
-    file.zir_loaded = false;
+    file.zir = null;
     file.zir = try AstGen.generate(gpa, new_tree);
-    file.zir_loaded = true;
 
-    if (file.zir.loweringFailed()) {
+    if (file.zir.?.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6657,7 +6716,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     defer inst_map.deinit(gpa);
 
-    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
+    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir.?, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();
@@ -6957,6 +7016,16 @@ const usage_fetch =
     \\Usage: zig fetch [options] <path>
     \\
     \\    Copy a package into the global cache and print its hash.
+    \\    <url> must point to one of the following:
+    \\      - A git+http / git+https server for the package
+    \\      - A tarball file (with or without compression) containing
+    \\        package source
+    \\      - A git bundle file containing package source
+    \\
+    \\Examples:
+    \\
+    \\  zig fetch --save git+https://example.com/andrewrk/fun-example-tool.git
+    \\  zig fetch --save https://example.com/andrewrk/fun-example-tool/archive/refs/heads/master.tar.gz
     \\
     \\Options:
     \\  -h, --help                    Print this help and exit
@@ -6978,7 +7047,7 @@ fn cmdFetch(
 
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
-        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
@@ -7071,13 +7140,15 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
+        .allow_missing_fingerprint = true,
+        .allow_name_string = true,
         .use_latest_commit = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
         .manifest = null,
         .manifest_ast = undefined,
-        .actual_hash = undefined,
+        .computed_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
         .latest_commit = null,
@@ -7097,14 +7168,15 @@ fn cmdFetch(
         process.exit(1);
     }
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const package_hash = fetch.computedPackageHash();
+    const package_hash_slice = package_hash.toSlice();
 
     root_prog_node.end();
     root_prog_node = .{ .index = .none };
 
     const name = switch (save) {
         .no => {
-            try io.getStdOut().writeAll(hex_digest ++ "\n");
+            try io.getStdOut().writer().print("{s}\n", .{package_hash_slice});
             return cleanExit();
         },
         .yes, .exact => |name| name: {
@@ -7125,7 +7197,7 @@ fn cmdFetch(
     // The name to use in case the manifest file needs to be created now.
     const init_root_name = fs.path.basename(build_root.directory.path orelse cwd_path);
     var manifest, var ast = try loadManifest(gpa, arena, .{
-        .root_name = init_root_name,
+        .root_name = try sanitizeExampleName(arena, init_root_name),
         .dir = build_root.directory.handle,
         .color = color,
     });
@@ -7174,7 +7246,7 @@ fn cmdFetch(
         \\        }}
     , .{
         std.zig.fmtEscapes(saved_path_or_url),
-        std.zig.fmtEscapes(&hex_digest),
+        std.zig.fmtEscapes(package_hash_slice),
     });
 
     const new_node_text = try std.fmt.allocPrint(arena, ".{p_} = {s},\n", .{
@@ -7193,7 +7265,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
+                    if (mem.eql(u8, h, package_hash_slice) and mem.eql(u8, u, saved_path_or_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
@@ -7210,7 +7282,7 @@ fn cmdFetch(
         const hash_replace = try std.fmt.allocPrint(
             arena,
             "\"{}\"",
-            .{std.zig.fmtEscapes(&hex_digest)},
+            .{std.zig.fmtEscapes(package_hash_slice)},
         );
 
         warn("overwriting existing dependency named '{s}'", .{name});
@@ -7409,10 +7481,10 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
+                const fingerprint: Package.Fingerprint = .generate(options.root_name);
                 var templates = findTemplates(gpa, arena);
                 defer templates.deinit();
-
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
+                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, fingerprint) catch |e| {
                     fatal("unable to write {s}: {s}", .{
                         Package.Manifest.basename, @errorName(e),
                     });
@@ -7470,6 +7542,7 @@ const Templates = struct {
         out_dir: fs.Dir,
         root_name: []const u8,
         template_path: []const u8,
+        fingerprint: Package.Fingerprint,
     ) !void {
         if (fs.path.dirname(template_path)) |dirname| {
             out_dir.makePath(dirname) catch |err| {
@@ -7483,12 +7556,30 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
-        for (contents) |c| {
-            if (c == '$') {
-                try templates.buffer.appendSlice(root_name);
-            } else {
-                try templates.buffer.append(c);
+        var i: usize = 0;
+        while (i < contents.len) {
+            if (contents[i] == '.') {
+                if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
+                    try templates.buffer.append('.');
+                    try templates.buffer.appendSlice(root_name);
+                    i += ".LITNAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".NAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += ".NAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".FINGERPRINT")) {
+                    try templates.buffer.writer().print("0x{x}", .{fingerprint.int()});
+                    i += ".FINGERPRINT".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".ZIGVER")) {
+                    try templates.buffer.appendSlice(build_options.version);
+                    i += ".ZIGVER".len;
+                    continue;
+                }
             }
+            try templates.buffer.append(contents[i]);
+            i += 1;
         }
 
         return out_dir.writeFile(.{
