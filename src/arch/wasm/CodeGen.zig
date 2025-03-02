@@ -3154,19 +3154,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
                     .@"extern", .@"packed" => unreachable,
                 },
                 .@"union" => switch (base_ty.containerLayout(zcu)) {
-                    .auto => off: {
-                        // Keep in sync with the `un` case of `generateSymbol`.
-                        const layout = base_ty.unionGetLayout(zcu);
-                        if (layout.payload_size == 0) break :off 0;
-                        if (layout.tag_size == 0) break :off 0;
-                        if (layout.tag_align.compare(.gte, layout.payload_align)) {
-                            // Tag first.
-                            break :off layout.tag_size;
-                        } else {
-                            // Payload first.
-                            break :off 0;
-                        }
-                    },
+                    .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
                     .@"extern", .@"packed" => unreachable,
                 },
                 else => unreachable,
@@ -3312,16 +3300,16 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        .un => |un| {
-            // in this case we have a packed union which will not be passed by reference.
-            const constant_ty = if (un.tag == .none)
-                try ty.unionBackingType(pt)
-            else field_ty: {
-                const union_obj = zcu.typeToUnion(ty).?;
-                const field_index = zcu.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
-                break :field_ty Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
-            };
-            return cg.lowerConstant(Value.fromInterned(un.val), constant_ty);
+        .un => {
+            const int_type = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
+
+            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+            val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
+            const int_val = try pt.intValue(
+                int_type,
+                mem.readInt(u64, &buf, .little),
+            );
+            return cg.lowerConstant(int_val, int_type);
         },
         .memoized_call => unreachable,
     }
@@ -3368,6 +3356,14 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
         .@"struct" => {
             const packed_struct = zcu.typeToPackedStruct(ty).?;
             return cg.emitUndefined(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)));
+        },
+        .@"union" => switch (ty.containerLayout(zcu)) {
+            .@"packed" => switch (ty.bitSize(zcu)) {
+                0...32 => return .{ .imm32 = 0xaaaaaaaa },
+                33...64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
+                else => unreachable,
+            },
+            else => unreachable,
         },
         else => return cg.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag(zcu)}),
     }
@@ -4211,7 +4207,6 @@ fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
             assert(isByRef(eu_ty, zcu, cg.target));
             break :result try cg.load(operand, payload_ty, pl_offset);
         }
-
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
@@ -5691,13 +5686,25 @@ fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
 }
 
 fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
+    const pt = cg.pt;
+    const zcu = pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
     const field_ptr = try cg.resolveInst(extra.field_ptr);
-    const parent_ty = ty_pl.ty.toType().childType(zcu);
-    const field_offset = parent_ty.structFieldOffset(extra.field_index, zcu);
+    const parent_ptr_ty = cg.typeOfIndex(inst);
+    const parent_ty = parent_ptr_ty.childType(zcu);
+    const field_ptr_ty = cg.typeOf(extra.field_ptr);
+    const field_index = extra.field_index;
+    const field_offset = switch (parent_ty.containerLayout(zcu)) {
+        .auto, .@"extern" => parent_ty.structFieldOffset(field_index, zcu),
+        .@"packed" => offset: {
+            const parent_ptr_offset = parent_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
+            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
+            const field_ptr_offset = field_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
+            break :offset @divExact(parent_ptr_offset + field_offset - field_ptr_offset, 8);
+        },
+    };
 
     const result = if (field_offset != 0) result: {
         const base = try cg.buildPointerOffset(field_ptr, 0, .new);
