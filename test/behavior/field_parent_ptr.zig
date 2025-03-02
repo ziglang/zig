@@ -588,7 +588,6 @@ test "@fieldParentPtr extern struct last zero-bit field" {
 test "@fieldParentPtr unaligned packed struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -727,7 +726,6 @@ test "@fieldParentPtr unaligned packed struct" {
 test "@fieldParentPtr aligned packed struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -865,7 +863,6 @@ test "@fieldParentPtr aligned packed struct" {
 
 test "@fieldParentPtr nested packed struct" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1028,7 +1025,6 @@ test "@fieldParentPtr nested packed struct" {
 
 test "@fieldParentPtr packed struct first zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1134,7 +1130,6 @@ test "@fieldParentPtr packed struct first zero-bit field" {
 
 test "@fieldParentPtr packed struct middle zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1240,7 +1235,6 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
 
 test "@fieldParentPtr packed struct last zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1753,7 +1747,6 @@ test "@fieldParentPtr extern union" {
 }
 
 test "@fieldParentPtr packed union" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.target.cpu.arch.endian() == .big) return error.SkipZigTest; // TODO
@@ -1892,7 +1885,6 @@ test "@fieldParentPtr packed union" {
 
 test "@fieldParentPtr tagged union all zero-bit fields" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
