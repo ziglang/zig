@@ -1399,20 +1399,67 @@ pub fn listen(
     return sqe;
 }
 
-fn cmd_sock(
+/// Prepares an cmd request for a socket.
+/// See: https://man7.org/linux/man-pages/man3/io_uring_prep_cmd.3.html
+/// Available since 6.7.
+pub fn cmd_sock(
     self: *IoUring,
     user_data: u64,
     cmd_op: linux.IO_URING_SOCKET_OP,
     fd: linux.fd_t,
-    level: u32,
-    optname: u32,
-    optval: u64,
-    optlen: u32,
+    level: u32, // linux.SOL
+    optname: u32, // linux.SO
+    optval: u64, // pointer to the option value
+    optlen: u32, // size of the option value
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_cmd_sock(cmd_op, fd, level, optname, optval, optlen);
     sqe.user_data = user_data;
     return sqe;
+}
+
+/// Prepares set socket option for the optname argument, at the protocol
+/// level specified by the level argument.
+/// Available since 6.7.n
+pub fn setsockopt(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    level: u32, // linux.SOL
+    optname: u32, // linux.SO
+    opt: []const u8,
+) !*linux.io_uring_sqe {
+    return try self.cmd_sock(
+        user_data,
+        .SETSOCKOPT,
+        fd,
+        level,
+        optname,
+        @intFromPtr(opt.ptr),
+        @intCast(opt.len),
+    );
+}
+
+/// Prepares get socket option to retrieve the value for the option specified by
+/// the option_name argument for the socket specified by the fd argument.
+/// Available since 6.7.
+pub fn getsockopt(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    level: u32, // linux.SOL
+    optname: u32, // linux.SO
+    opt: []u8,
+) !*linux.io_uring_sqe {
+    return try self.cmd_sock(
+        user_data,
+        .GETSOCKOPT,
+        fd,
+        level,
+        optname,
+        @intFromPtr(opt.ptr),
+        @intCast(opt.len),
+    );
 }
 
 pub const SubmissionQueue = struct {
@@ -4391,13 +4438,10 @@ test "bind/listen/connect" {
         try testing.expect(listen_fd > 2);
 
         // Prepare: set socket option * 2, bind, listen
-        var sock_opt: u32 = 1;
-        var sqe = try ring.cmd_sock(2, .SETSOCKOPT, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, @intFromPtr(&sock_opt), @sizeOf(u32));
-        sqe.flags |= linux.IOSQE_IO_LINK;
-        sqe = try ring.cmd_sock(3, .SETSOCKOPT, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEPORT, @intFromPtr(&sock_opt), @sizeOf(u32));
-        sqe.flags |= linux.IOSQE_IO_LINK;
-        sqe = try ring.bind(4, listen_fd, &addr.any, addr.getOsSockLen(), 0);
-        sqe.flags |= linux.IOSQE_IO_LINK;
+        var optval: u32 = 1;
+        (try ring.setsockopt(2, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, mem.asBytes(&optval))).link_next();
+        (try ring.setsockopt(3, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEPORT, mem.asBytes(&optval))).link_next();
+        (try ring.bind(4, listen_fd, &addr.any, addr.getOsSockLen(), 0)).link_next();
         _ = try ring.listen(5, listen_fd, 1, 0);
         // Submit 4 operations
         try testing.expectEqual(4, try ring.submit());
@@ -4409,13 +4453,13 @@ test "bind/listen/connect" {
         }
 
         // Check that socket option is set
-        sock_opt = 0xff;
-        _ = try ring.cmd_sock(5, .GETSOCKOPT, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, @intFromPtr(&sock_opt), @sizeOf(u32));
+        optval = 0;
+        _ = try ring.getsockopt(5, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, mem.asBytes(&optval));
         try testing.expectEqual(1, try ring.submit());
         cqe = try ring.copy_cqe();
         try testing.expectEqual(5, cqe.user_data);
         try testing.expectEqual(posix.E.SUCCESS, cqe.err());
-        try testing.expectEqual(1, sock_opt);
+        try testing.expectEqual(1, optval);
 
         // Read system assigned port into addr
         var addr_len: posix.socklen_t = addr.getOsSockLen();
@@ -4460,8 +4504,7 @@ test "bind/listen/connect" {
 
     // Shutdown and close all sockets
     for ([_]posix.socket_t{ connect_fd, accept_fd, listen_fd }) |fd| {
-        var sqe = try ring.shutdown(9, fd, posix.SHUT.RDWR);
-        sqe.flags |= linux.IOSQE_IO_LINK;
+        (try ring.shutdown(9, fd, posix.SHUT.RDWR)).link_next();
         _ = try ring.close(10, fd);
         try testing.expectEqual(2, try ring.submit());
         for (0..2) |i| {
@@ -4477,8 +4520,7 @@ fn testSendRecv(ring: *IoUring, send_fd: posix.socket_t, recv_fd: posix.socket_t
     var buffer_recv: [buffer_send.len * 2]u8 = undefined;
 
     // 2 sends
-    var sqe = try ring.send(1, send_fd, buffer_send, linux.MSG.WAITALL);
-    sqe.flags |= linux.IOSQE_IO_LINK;
+    _ = try ring.send(1, send_fd, buffer_send, linux.MSG.WAITALL);
     _ = try ring.send(2, send_fd, buffer_send, linux.MSG.WAITALL);
     try testing.expectEqual(2, try ring.submit());
     for (0..2) |i| {
