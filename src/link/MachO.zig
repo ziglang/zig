@@ -3279,13 +3279,13 @@ const InitMetadataOptions = struct {
 
 pub fn closeDebugInfo(self: *MachO) bool {
     const d_sym = &(self.d_sym orelse return false);
-    d_sym.deinit();
-    self.d_sym = null;
+    d_sym.file.?.close();
+    d_sym.file = null;
     return true;
 }
 
 pub fn reopenDebugInfo(self: *MachO) !void {
-    assert(self.d_sym == null);
+    assert(self.d_sym.?.file == null);
 
     assert(!self.base.comp.config.use_llvm);
     assert(self.base.comp.config.debug_format == .dwarf);
@@ -3302,13 +3302,10 @@ pub fn reopenDebugInfo(self: *MachO) !void {
     var d_sym_bundle = try self.base.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
     defer d_sym_bundle.close();
 
-    const d_sym_file = try d_sym_bundle.createFile(self.base.emit.sub_path, .{
+    self.d_sym.?.file = try d_sym_bundle.createFile(fs.path.basename(self.base.emit.sub_path), .{
         .truncate = false,
         .read = true,
     });
-
-    self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
-    try self.d_sym.?.initMetadata(self);
 }
 
 // TODO: move to ZigObject
@@ -3367,7 +3364,9 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         if (options.zo.dwarf) |*dwarf| {
             // Create dSYM bundle.
             log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
+            self.d_sym = .{ .allocator = self.base.comp.gpa, .file = null };
             try self.reopenDebugInfo();
+            try self.d_sym.?.initMetadata(self);
             try dwarf.initMetadata();
         }
     }
