@@ -666,4 +666,14 @@ pub const io_uring_sqe = extern struct {
         // addr3 is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L102
         sqe.addr3 = optval;
     }
+
+    pub fn set_flags(sqe: *linux.io_uring_sqe, flags: u8) void {
+        sqe.flags |= flags;
+    }
+
+    /// This SQE forms a link with the next SQE in the submission ring. Next SQE
+    /// will not be started before this one completes. Forms a chain of SQEs.
+    pub fn link_next(sqe: *linux.io_uring_sqe) void {
+        sqe.flags |= linux.IOSQE_IO_LINK;
+    }
 };

@@ -6154,6 +6154,7 @@ pub const io_uring_probe = extern struct {
     resv2: [3]u32,
     ops: [256]io_uring_probe_op,
 
+    /// Is the operation supported on the running kernel.
     pub fn is_supported(self: @This(), op: IORING_OP) bool {
         const i = @intFromEnum(op);
         if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
