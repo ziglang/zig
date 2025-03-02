@@ -1132,6 +1132,8 @@ pub fn compareHeteroAdvanced(
             else => {},
         }
     }
+
+    if (lhs.isNan(zcu) or rhs.isNan(zcu)) return op == .neq;
     return (try orderAdvanced(lhs, rhs, strat, zcu, tid)).compare(op);
 }
 
