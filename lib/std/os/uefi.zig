@@ -132,12 +132,12 @@ pub const Time = extern struct {
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
 
-    fn daysInYear(year: u16, maxMonth: u4) u32 {
-        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
-        var days: u32 = 0;
+    fn daysInYear(year: u16, max_month: u4) u9 {
+        const leap_year: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
+        var days: u9 = 0;
         var month: u4 = 0;
-        while (month < maxMonth) : (month += 1) {
-            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+        while (month < max_month) : (month += 1) {
+            days += std.time.epoch.getDaysInMonth(leap_year, @enumFromInt(month + 1));
         }
         return days;
     }
@@ -151,9 +151,9 @@ pub const Time = extern struct {
         }
 
         days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
-        const hours = self.hour + (days * 24);
-        const minutes = self.minute + (hours * 60);
-        const seconds = self.second + (minutes * std.time.s_per_min);
+        const hours: u64 = self.hour + (days * 24);
+        const minutes: u64 = self.minute + (hours * 60);
+        const seconds: u64 = self.second + (minutes * std.time.s_per_min);
         return self.nanosecond + (seconds * std.time.ns_per_s);
     }
 };
