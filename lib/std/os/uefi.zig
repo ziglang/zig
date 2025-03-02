@@ -113,21 +113,29 @@ pub const Time = extern struct {
     /// 0 - 59
     second: u8,
 
+    _pad1: u8,
+
     /// 0 - 999999999
     nanosecond: u32,
 
     /// The time's offset in minutes from UTC.
     /// Allowed values are -1440 to 1440 or unspecified_timezone
     timezone: i16,
-    daylight: packed struct {
-        _pad1: u6,
-
+    daylight: packed struct(u8) {
         /// If true, the time has been adjusted for daylight savings time.
         in_daylight: bool,
 
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
+
+        _: u6,
     },
+
+    _pad2: u8,
+
+    comptime {
+        std.debug.assert(@sizeOf(Time) == 16);
+    }
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
