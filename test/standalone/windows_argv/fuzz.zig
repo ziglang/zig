@@ -138,7 +138,7 @@ fn spawnVerify(verify_path: [:0]const u16, cmd_line: [:0]const u16) !windows.DWO
             null,
             null,
             windows.TRUE,
-            0,
+            .{},
             null,
             null,
             &startup_info,
