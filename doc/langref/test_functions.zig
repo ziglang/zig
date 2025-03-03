@@ -35,7 +35,7 @@ fn abort() noreturn {
 
 // The naked calling convention makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
-fn _start() callconv(.Naked) noreturn {
+fn _start() callconv(.naked) noreturn {
     abort();
 }
 

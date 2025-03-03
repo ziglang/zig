@@ -1,5 +1,5 @@
-export fn entry2() callconv(.AAPCS) void {}
-export fn entry3() callconv(.AAPCSVFP) void {}
+export fn entry2() callconv(.{ .arm_aapcs = .{} }) void {}
+export fn entry3() callconv(.{ .arm_aapcs_vfp = .{} }) void {}
 
 // error
 // target=x86_64-linux-none

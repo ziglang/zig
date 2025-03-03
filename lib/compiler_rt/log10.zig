@@ -26,12 +26,12 @@ comptime {
     @export(&log10l, .{ .name = "log10l", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __log10h(a: f16) callconv(.C) f16 {
+pub fn __log10h(a: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(log10f(a));
 }
 
-pub fn log10f(x_: f32) callconv(.C) f32 {
+pub fn log10f(x_: f32) callconv(.c) f32 {
     const ivln10hi: f32 = 4.3432617188e-01;
     const ivln10lo: f32 = -3.1689971365e-05;
     const log10_2hi: f32 = 3.0102920532e-01;
@@ -91,7 +91,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
 
-pub fn log10(x_: f64) callconv(.C) f64 {
+pub fn log10(x_: f64) callconv(.c) f64 {
     const ivln10hi: f64 = 4.34294481878168880939e-01;
     const ivln10lo: f64 = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;
@@ -166,17 +166,17 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     return val_lo + val_hi;
 }
 
-pub fn __log10x(a: f80) callconv(.C) f80 {
+pub fn __log10x(a: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(log10q(a));
 }
 
-pub fn log10q(a: f128) callconv(.C) f128 {
+pub fn log10q(a: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return log10(@floatCast(a));
 }
 
-pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn log10l(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __log10h(x),
         32 => return log10f(x),

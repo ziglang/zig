@@ -199,7 +199,7 @@ fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
         \\var x: usize = 1;
         \\export fn strong() void { x += 1; }
         \\comptime { @export(&weakImpl, .{ .name = "weak", .linkage = .weak }); }
-        \\fn weakImpl() callconv(.C) void { x += 1; }
+        \\fn weakImpl() callconv(.c) void { x += 1; }
         \\extern fn weak() void;
         \\pub fn main() void {
         \\    weak();
@@ -937,7 +937,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
 
     const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
         \\export var test_global: u32 linksection("__DATA,__TestGlobal") = undefined;
-        \\export fn testFn() linksection("__TEXT,__TestFn") callconv(.C) void {
+        \\export fn testFn() linksection("__TEXT,__TestFn") callconv(.c) void {
         \\    TestGenericFn("A").f();
         \\}
         \\fn TestGenericFn(comptime suffix: []const u8) type {
@@ -2667,7 +2667,7 @@ fn testUnresolvedError2(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
         \\pub fn main() !void {
         \\    const msg_send_fn = @extern(
-        \\        *const fn () callconv(.C) usize,
+        \\        *const fn () callconv(.c) usize,
         \\        .{ .name = "objc_msgSend$initWithContentRect:styleMask:backing:defer:screen:" },
         \\    );
         \\    _ = @call(

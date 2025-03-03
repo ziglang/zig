@@ -931,7 +931,7 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
     const obj3 = addObject(b, opts, .{
         .name = "a_very_long_file_name_so_that_it_ends_up_in_strtab",
         .zig_source_bytes =
-        \\fn weakFoo() callconv(.C) usize {
+        \\fn weakFoo() callconv(.c) usize {
         \\    return 42;
         \\}
         \\export var strongBar: usize = 100;

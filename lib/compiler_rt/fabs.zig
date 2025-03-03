@@ -17,27 +17,27 @@ comptime {
     @export(&fabsl, .{ .name = "fabsl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fabsh(a: f16) callconv(.C) f16 {
+pub fn __fabsh(a: f16) callconv(.c) f16 {
     return generic_fabs(a);
 }
 
-pub fn fabsf(a: f32) callconv(.C) f32 {
+pub fn fabsf(a: f32) callconv(.c) f32 {
     return generic_fabs(a);
 }
 
-pub fn fabs(a: f64) callconv(.C) f64 {
+pub fn fabs(a: f64) callconv(.c) f64 {
     return generic_fabs(a);
 }
 
-pub fn __fabsx(a: f80) callconv(.C) f80 {
+pub fn __fabsx(a: f80) callconv(.c) f80 {
     return generic_fabs(a);
 }
 
-pub fn fabsq(a: f128) callconv(.C) f128 {
+pub fn fabsq(a: f128) callconv(.c) f128 {
     return generic_fabs(a);
 }
 
-pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn fabsl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fabsh(x),
         32 => return fabsf(x),

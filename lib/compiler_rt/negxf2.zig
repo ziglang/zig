@@ -6,6 +6,6 @@ comptime {
     @export(&__negxf2, .{ .name = "__negxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __negxf2(a: f80) callconv(.C) f80 {
+fn __negxf2(a: f80) callconv(.c) f80 {
     return common.fneg(a);
 }
