@@ -30053,8 +30053,8 @@ fn coerceExtra(
             else => {},
         },
         .@"struct" => blk: {
-            if (inst_ty.isTuple(zcu)) {
-                return sema.coerceTupleToStruct(block, dest_ty, inst, inst_src) catch |err| switch (err) {
+            if (dest_ty.isTuple(zcu) and inst_ty.isTuple(zcu)) {
+                return sema.coerceTupleToTuple(block, dest_ty, inst, inst_src) catch |err| switch (err) {
                     error.NotCoercible => break :blk,
                     else => |e| return e,
                 };
@@ -32133,114 +32133,6 @@ fn coerceTupleToArrayPtrs(
     }
     const ptr_array = try sema.analyzeRef(block, array_ty_src, array_inst);
     return ptr_array;
-}
-
-/// Handles both tuples and anon struct literals. Coerces field-wise. Reports
-/// errors for both extra fields and missing fields.
-fn coerceTupleToStruct(
-    sema: *Sema,
-    block: *Block,
-    struct_ty: Type,
-    inst: Air.Inst.Ref,
-    inst_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    try struct_ty.resolveFields(pt);
-    try struct_ty.resolveStructFieldInits(pt);
-
-    if (struct_ty.isTuple(zcu)) {
-        return sema.coerceTupleToTuple(block, struct_ty, inst, inst_src);
-    }
-
-    const struct_type = zcu.typeToStruct(struct_ty).?;
-    const field_vals = try sema.arena.alloc(InternPool.Index, struct_type.field_types.len);
-    const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
-    @memset(field_refs, .none);
-
-    const inst_ty = sema.typeOf(inst);
-    var runtime_src: ?LazySrcLoc = null;
-    const field_count = switch (ip.indexToKey(inst_ty.toIntern())) {
-        .tuple_type => |tuple| tuple.types.len,
-        .struct_type => ip.loadStructType(inst_ty.toIntern()).field_types.len,
-        else => unreachable,
-    };
-    for (0..field_count) |tuple_field_index| {
-        const field_src = inst_src; // TODO better source location
-        const field_name = inst_ty.structFieldName(tuple_field_index, zcu).unwrap() orelse
-            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls);
-
-        const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
-        const struct_field_ty = Type.fromInterned(struct_type.field_types.get(ip)[struct_field_index]);
-        const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, @intCast(tuple_field_index));
-        const coerced = try sema.coerce(block, struct_field_ty, elem_ref, field_src);
-        field_refs[struct_field_index] = coerced;
-        if (struct_type.fieldIsComptime(ip, struct_field_index)) {
-            const init_val = try sema.resolveValue(coerced) orelse {
-                return sema.failWithNeededComptime(block, field_src, .{ .simple = .stored_to_comptime_field });
-            };
-
-            const field_init = Value.fromInterned(struct_type.field_inits.get(ip)[struct_field_index]);
-            if (!init_val.eql(field_init, struct_field_ty, pt.zcu)) {
-                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, tuple_field_index);
-            }
-        }
-        if (runtime_src == null) {
-            if (try sema.resolveValue(coerced)) |field_val| {
-                field_vals[struct_field_index] = field_val.toIntern();
-            } else {
-                runtime_src = field_src;
-            }
-        }
-    }
-
-    // Populate default field values and report errors for missing fields.
-    var root_msg: ?*Zcu.ErrorMsg = null;
-    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
-
-    for (field_refs, 0..) |*field_ref, i| {
-        if (field_ref.* != .none) continue;
-
-        const field_name = struct_type.field_names.get(ip)[i];
-        const field_default_val = struct_type.fieldInit(ip, i);
-        const field_src = inst_src; // TODO better source location
-        if (field_default_val == .none) {
-            const template = "missing struct field: {}";
-            const args = .{field_name.fmt(ip)};
-            if (root_msg) |msg| {
-                try sema.errNote(field_src, msg, template, args);
-            } else {
-                root_msg = try sema.errMsg(field_src, template, args);
-            }
-            continue;
-        }
-        if (runtime_src == null) {
-            field_vals[i] = field_default_val;
-        } else {
-            field_ref.* = Air.internedToRef(field_default_val);
-        }
-    }
-
-    if (root_msg) |msg| {
-        try sema.addDeclaredHereNote(msg, struct_ty);
-        root_msg = null;
-        return sema.failWithOwnedErrorMsg(block, msg);
-    }
-
-    if (runtime_src) |rs| {
-        try sema.requireRuntimeBlock(block, inst_src, rs);
-        return block.addAggregateInit(struct_ty, field_refs);
-    }
-
-    const struct_val = try pt.intern(.{ .aggregate = .{
-        .ty = struct_ty.toIntern(),
-        .storage = .{ .elems = field_vals },
-    } });
-    // TODO: figure out InternPool removals for incremental compilation
-    //errdefer ip.remove(struct_val);
-
-    return Air.internedToRef(struct_val);
 }
 
 fn coerceTupleToTuple(

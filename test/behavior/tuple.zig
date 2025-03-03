@@ -405,7 +405,7 @@ test "tuple of struct concatenation and coercion to array" {
     const SomeStruct = struct { array: [4]StructWithDefault };
 
     const value1 = SomeStruct{ .array = .{StructWithDefault{}} ++ [_]StructWithDefault{.{}} ** 3 };
-    const value2 = SomeStruct{ .array = .{.{}} ++ [_]StructWithDefault{.{}} ** 3 };
+    const value2 = SomeStruct{ .array = .{ .{}, .{}, .{}, .{} } };
 
     try expectEqual(value1, value2);
 }
