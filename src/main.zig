@@ -4787,7 +4787,7 @@ fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![
         '-', '.', ' ' => try result.append(arena, '_'),
         else => continue,
     };
-    if (result.items.len == 0) return "foo";
+    if (!std.zig.isValidId(result.items)) return "foo";
     if (result.items.len > Package.Manifest.max_name_len)
         result.shrinkRetainingCapacity(Package.Manifest.max_name_len);
 
@@ -4805,6 +4805,10 @@ test sanitizeExampleName {
     try std.testing.expectEqualStrings("a", try sanitizeExampleName(arena, "!a"));
     try std.testing.expectEqualStrings("a_b", try sanitizeExampleName(arena, "a.b!"));
     try std.testing.expectEqualStrings("_01234", try sanitizeExampleName(arena, "01234"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "error"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "test"));
+    try std.testing.expectEqualStrings("tests", try sanitizeExampleName(arena, "tests"));
+    try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
 }
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
