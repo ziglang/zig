@@ -276,7 +276,7 @@ fn todo(self: *Assembler, comptime fmt: []const u8, args: anytype) Error {
 fn processInstruction(self: *Assembler) !void {
     const result: AsmValue = switch (self.inst.opcode) {
         .OpEntryPoint => {
-            return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
+            return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.kernel)", .{});
         },
         .OpCapability => {
             try self.spv.addCapability(@enumFromInt(self.inst.operands.items[0].value));

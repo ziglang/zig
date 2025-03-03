@@ -1096,10 +1096,10 @@ test "zig fmt: block in slice expression" {
 test "zig fmt: async function" {
     try testCanonical(
         \\pub const Server = struct {
-        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
+        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.@"async") void,
         \\};
         \\test "hi" {
-        \\    var ptr: fn (i32) callconv(.Async) void = @ptrCast(other);
+        \\    var ptr: fn (i32) callconv(.@"async") void = @ptrCast(other);
         \\}
         \\
     );
@@ -1259,7 +1259,7 @@ test "zig fmt: threadlocal" {
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
-        \\export fn _start() linksection(".text.boot") callconv(.Naked) noreturn {}
+        \\export fn _start() linksection(".text.boot") callconv(.naked) noreturn {}
         \\
     );
 }
@@ -3926,7 +3926,7 @@ test "zig fmt: fn type" {
         \\}
         \\
         \\const a: fn (u8) u8 = undefined;
-        \\const b: fn (u8) callconv(.Naked) u8 = undefined;
+        \\const b: fn (u8) callconv(.naked) u8 = undefined;
         \\const ap: fn (u8) u8 = a;
         \\
     );

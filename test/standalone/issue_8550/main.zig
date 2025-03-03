@@ -1,4 +1,4 @@
-export fn main(r0: u32, r1: u32, atags: u32) callconv(.C) noreturn {
+export fn main(r0: u32, r1: u32, atags: u32) callconv(.c) noreturn {
     _ = r0;
     _ = r1;
     _ = atags;

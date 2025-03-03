@@ -20,22 +20,22 @@ comptime {
     @export(&fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {
+pub fn __fmodh(x: f16, y: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(fmodf(x, y));
 }
 
-pub fn fmodf(x: f32, y: f32) callconv(.C) f32 {
+pub fn fmodf(x: f32, y: f32) callconv(.c) f32 {
     return generic_fmod(f32, x, y);
 }
 
-pub fn fmod(x: f64, y: f64) callconv(.C) f64 {
+pub fn fmod(x: f64, y: f64) callconv(.c) f64 {
     return generic_fmod(f64, x, y);
 }
 
 /// fmodx - floating modulo large, returns the remainder of division for f80 types
 /// Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
-pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
+pub fn __fmodx(a: f80, b: f80) callconv(.c) f80 {
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 
@@ -133,7 +133,7 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
 
 /// fmodq - floating modulo large, returns the remainder of division for f128 types
 /// Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
-pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
+pub fn fmodq(a: f128, b: f128) callconv(.c) f128 {
     var amod = a;
     var bmod = b;
     const aPtr_u64: [*]u64 = @ptrCast(&amod);
@@ -250,7 +250,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     return amod;
 }
 
-pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
+pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fmodh(a, b),
         32 => return fmodf(a, b),
