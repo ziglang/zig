@@ -2362,6 +2362,9 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
     const pt = cg.pt;
     const zcu = pt.zcu;
     const abi_size = ty.abiSize(zcu);
+
+    if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return;
+
     switch (ty.zigTypeTag(zcu)) {
         .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
