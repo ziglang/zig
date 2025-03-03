@@ -5933,6 +5933,8 @@ pub const IORING_CQE_F_MORE = 1 << 1;
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 /// Set for notification CQEs. Can be used to distinct them from sends.
 pub const IORING_CQE_F_NOTIF = 1 << 3;
+/// If set, the buffer ID set in the completion will get more completions.
+pub const IORING_CQE_F_BUF_MORE = 1 << 4;
 
 pub const IORING_CQE_BUFFER_SHIFT = 16;
 
@@ -6222,8 +6224,13 @@ pub const io_uring_buf_reg = extern struct {
     ring_addr: u64,
     ring_entries: u32,
     bgid: u16,
-    pad: u16,
+    flags: u16,
     resv: [3]u64,
+
+    pub const FLAG = struct {
+        // Incremental buffer consummation.
+        pub const INC: u16 = 2;
+    };
 };
 
 pub const io_uring_getevents_arg = extern struct {
