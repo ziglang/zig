@@ -2273,8 +2273,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
         }
     }
     if (break_label != 0) {
-        const label_name = try astgen.identifierTokenString(break_label);
-        return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
+        const label_name = astgen.fmtIdentifier(break_label);
+        return astgen.failTok(break_label, "label not found: {}", .{label_name});
     } else {
         return astgen.failNode(node, "break expression outside loop", .{});
     }
@@ -2383,8 +2383,8 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
         }
     }
     if (break_label != 0) {
-        const label_name = try astgen.identifierTokenString(break_label);
-        return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
+        const label_name = astgen.fmtIdentifier(break_label);
+        return astgen.failTok(break_label, "label not found: {}", .{label_name});
     } else {
         return astgen.failNode(node, "continue expression outside loop", .{});
     }
@@ -2499,10 +2499,8 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: Ast.Toke
                 const gen_zir = scope.cast(GenZir).?;
                 if (gen_zir.label) |prev_label| {
                     if (try astgen.tokenIdentEql(label, prev_label.token)) {
-                        const label_name = try astgen.identifierTokenString(label);
-                        return astgen.failTokNotes(label, "redefinition of label '{s}'", .{
-                            label_name,
-                        }, &[_]u32{
+                        const label_name = astgen.fmtIdentifier(label);
+                        return astgen.failTokNotes(label, "redefinition of label {}", .{label_name}, &[_]u32{
                             try astgen.errNoteTok(
                                 prev_label.token,
                                 "previous definition here",
@@ -4988,8 +4986,8 @@ fn testDecl(
                 .top => break,
             };
             if (found_already == null) {
-                const ident_name = try astgen.identifierTokenString(test_name_token);
-                return astgen.failTok(test_name_token, "use of undeclared identifier '{s}'", .{ident_name});
+                const ident_name = astgen.fmtIdentifier(test_name_token);
+                return astgen.failTok(test_name_token, "use of undeclared identifier {}", .{ident_name});
             }
 
             break :name try astgen.identAsString(test_name_token);
@@ -8594,8 +8592,8 @@ fn localVarRef(
 
                 // Can't close over a runtime variable
                 if (num_namespaces_out != 0 and !local_ptr.maybe_comptime and !gz.is_typeof) {
-                    const ident_name = try astgen.identifierTokenString(ident_token);
-                    return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
+                    const ident_name = astgen.fmtIdentifier(ident_token);
+                    return astgen.failNodeNotes(ident, "mutable {} not accessible from here", .{ident_name}, &.{
                         try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
                         try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
                     });
@@ -8651,10 +8649,8 @@ fn localVarRef(
         },
         .top => break,
     };
-    if (found_already == null) {
-        const ident_name = try astgen.identifierTokenString(ident_token);
-        return astgen.failNode(ident, "use of undeclared identifier '{s}'", .{ident_name});
-    }
+    if (found_already == null)
+        return astgen.failNode(ident, "use of undeclared identifier {}", .{astgen.fmtIdentifier(ident_token)});
 
     // Decl references happen by name rather than ZIR index so that when unrelated
     // decls are modified, ZIR code containing references to them can be unmodified.
@@ -11498,6 +11494,54 @@ fn rvalueInner(
             }
             return .void_value;
         },
+    }
+}
+
+fn fmtIdentifier(astgen: *AstGen, ident_token: Ast.TokenIndex) std.fmt.Formatter(formatIdentifier) {
+    return .{ .data = .{
+        .self = astgen,
+        .token_idx = ident_token,
+    } };
+}
+
+const IdentifierFmt = struct {
+    self: *AstGen,
+    token_idx: Ast.TokenIndex,
+};
+
+fn formatIdentifier(
+    ctx: IdentifierFmt,
+    comptime unused_format_string: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    comptime assert(unused_format_string.len == 0);
+    const astgen = ctx.self;
+
+    const token_slice = astgen.tree.tokenSlice(ctx.token_idx);
+    var buf: ArrayListUnmanaged(u8) = .{};
+    defer buf.deinit(astgen.gpa);
+
+    const complete_slice = if (token_slice[0] == '@') blk: {
+        try astgen.parseStrLit(ctx.token_idx, &buf, token_slice, 1);
+        break :blk buf.items;
+    } else token_slice;
+
+    const first = complete_slice[0];
+    const needs_escaping = if (!std.ascii.isAlphabetic(first) and first != '_')
+        true
+    else for (complete_slice[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_') {
+            break true;
+        }
+    } else false;
+
+    if (needs_escaping) {
+        try std.zig.fmtId(complete_slice).format("", .{}, writer);
+    } else {
+        try writer.writeByte('\'');
+        try writer.writeAll(complete_slice);
+        try writer.writeByte('\'');
     }
 }
 
