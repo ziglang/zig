@@ -5196,6 +5196,7 @@ pub const FuncGen = struct {
                 .memset         => try self.airMemset(inst, false),
                 .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
+                .memmove        => try self.airMemmove(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
                 .clz            => try self.airClzCtz(inst, .ctlz),
@@ -10221,6 +10222,14 @@ pub const FuncGen = struct {
     }
 
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        return self.copyOp(inst, .memcpy);
+    }
+
+    fn airMemmove(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        return self.copyOp(inst, .memmove);
+    }
+
+    fn copyOp(self: *FuncGen, inst: Air.Inst.Index, op: enum { memcpy, memmove }) !Builder.Value {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -10235,6 +10244,16 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
             dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
 
+        const call_args = .{
+            &self.wip,
+            dest_ptr,
+            dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            src_ptr,
+            src_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            len,
+            access_kind,
+        };
+
         // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
         // This instruction will trap on an invalid address, regardless of the length.
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
@@ -10246,33 +10265,31 @@ pub const FuncGen = struct {
         {
             const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
             const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
-            const memcpy_block = try self.wip.block(1, "MemcpyTrapSkip");
-            const end_block = try self.wip.block(2, "MemcpyTrapEnd");
+            const trap_skip, const trap_end = switch (op) {
+                .memcpy => .{ "MemcpyTrapSkip", "MemcpyTrapEnd" },
+                .memmove => .{ "MemmoveTrapSkip", "MemmoveTrapEnd" },
+            };
+            const memcpy_block = try self.wip.block(1, trap_skip);
+            const end_block = try self.wip.block(2, trap_end);
             _ = try self.wip.brCond(cond, memcpy_block, end_block, .none);
             self.wip.cursor = .{ .block = memcpy_block };
-            _ = try self.wip.callMemCpy(
-                dest_ptr,
-                dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                src_ptr,
-                src_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                len,
-                access_kind,
-                self.disable_intrinsics,
-            );
+            _ = switch (op) {
+                .memcpy => try @call(.auto, Builder.WipFunction.callMemCpy, call_args ++ .{
+                    self.disable_intrinsics,
+                }),
+                .memmove => try @call(.auto, Builder.WipFunction.callMemmove, call_args),
+            };
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
             return .none;
         }
 
-        _ = try self.wip.callMemCpy(
-            dest_ptr,
-            dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
-            src_ptr,
-            src_ptr_ty.ptrAlignment(zcu).toLlvm(),
-            len,
-            access_kind,
-            self.disable_intrinsics,
-        );
+        _ = switch (op) {
+            .memcpy => try @call(.auto, Builder.WipFunction.callMemCpy, call_args ++ .{
+                self.disable_intrinsics,
+            }),
+            .memmove => try @call(.auto, Builder.WipFunction.callMemmove, call_args),
+        };
         return .none;
     }
 

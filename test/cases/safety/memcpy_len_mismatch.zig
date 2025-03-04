@@ -12,6 +12,7 @@ pub fn main() !void {
     var len: usize = 5;
     _ = &len;
     @memcpy(buffer[0..len], buffer[len .. len + 4]);
+    return error.TestFailed;
 }
 // run
 // backend=stage2,llvm
