@@ -82,6 +82,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // glibc tests
         elf_step.dependOn(testAsNeeded(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLibraryPathsCompatibility(b, .{ .target = gnu_target, .use_lld = true }));
         // https://github.com/ziglang/zig/issues/17430
         // elf_step.dependOn(testCanonicalPlt(b, .{ .target = gnu_target }));
         elf_step.dependOn(testCommentString(b, .{ .target = gnu_target }));
@@ -302,6 +303,53 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         check.checkInDynamicSection();
         check.checkExact("NEEDED libfoo.so");
         check.checkExact("NEEDED libbaz.so");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testLibraryPathsCompatibility(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "library-paths-compatibility", opts);
+
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .c_source_bytes =
+        \\#include <stdio.h>
+        \\int foo();
+        \\int main() {
+        \\  printf("%d\n", foo());
+        \\  return 0;
+        \\}
+        \\
+        ,
+    });
+    main_o.linkLibC();
+
+    const libfoo = addSharedLibrary(b, opts, .{ .name = "foo", .soname = false });
+    addCSourceBytes(libfoo, "int foo() { return 42; }", &.{});
+
+    {
+        const scripts = WriteFile.create(b);
+        const path = scripts.addCopyFile(libfoo.getEmittedBin(), "foo/libfoo.so");
+
+        const exe = addExecutable(b, opts, .{ .name = "test" });
+        exe.addObject(main_o);
+
+        exe.addLibraryPath(.{ .generated = .{ .file = &scripts.generated_directory, .sub_path = "foo" } });
+        exe.addRPath(path.dirname());
+
+        exe.linkSystemLibrary2("foo", .{ .needed = false });
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkExact("NEEDED libfoo.so");
+        check.checkNotPresent("NEEDED foo/libfoo.so");
         test_step.dependOn(&check.step);
     }
 
