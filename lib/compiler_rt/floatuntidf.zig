@@ -12,10 +12,10 @@ comptime {
     }
 }
 
-pub fn __floatuntidf(a: u128) callconv(.C) f64 {
+pub fn __floatuntidf(a: u128) callconv(.c) f64 {
     return floatFromInt(f64, a);
 }
 
-fn __floatuntidf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f64 {
+fn __floatuntidf_windows_x86_64(a: @Vector(2, u64)) callconv(.c) f64 {
     return floatFromInt(f64, @as(u128, @bitCast(a)));
 }

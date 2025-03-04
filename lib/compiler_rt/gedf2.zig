@@ -17,20 +17,20 @@ comptime {
 
 /// "These functions return a value greater than or equal to zero if neither
 /// argument is NaN, and a is greater than or equal to b."
-pub fn __gedf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __gedf2(a: f64, b: f64) callconv(.c) i32 {
     return @intFromEnum(comparef.cmpf2(f64, comparef.GE, a, b));
 }
 
 /// "These functions return a value greater than zero if neither argument is NaN,
 /// and a is strictly greater than b."
-pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __gtdf2(a: f64, b: f64) callconv(.c) i32 {
     return __gedf2(a, b);
 }
 
-fn __aeabi_dcmpge(a: f64, b: f64) callconv(.AAPCS) i32 {
+fn __aeabi_dcmpge(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) i32 {
     return @intFromBool(comparef.cmpf2(f64, comparef.GE, a, b) != .Less);
 }
 
-fn __aeabi_dcmpgt(a: f64, b: f64) callconv(.AAPCS) i32 {
+fn __aeabi_dcmpgt(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) i32 {
     return @intFromBool(comparef.cmpf2(f64, comparef.GE, a, b) == .Greater);
 }

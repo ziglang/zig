@@ -453,7 +453,7 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
+var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.c) void = undefined;
 
 export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
     fuzzer_one = testOne;

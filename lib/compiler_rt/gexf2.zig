@@ -8,10 +8,10 @@ comptime {
     @export(&__gtxf2, .{ .name = "__gtxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __gexf2(a: f80, b: f80) callconv(.C) i32 {
+fn __gexf2(a: f80, b: f80) callconv(.c) i32 {
     return @intFromEnum(comparef.cmp_f80(comparef.GE, a, b));
 }
 
-fn __gtxf2(a: f80, b: f80) callconv(.C) i32 {
+fn __gtxf2(a: f80, b: f80) callconv(.c) i32 {
     return __gexf2(a, b);
 }

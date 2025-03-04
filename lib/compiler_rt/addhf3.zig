@@ -7,6 +7,6 @@ comptime {
     @export(&__addhf3, .{ .name = "__addhf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __addhf3(a: f16, b: f16) callconv(.C) f16 {
+fn __addhf3(a: f16, b: f16) callconv(.c) f16 {
     return addf3(f16, a, b);
 }

@@ -34,7 +34,7 @@ const __isPlatformVersionAtLeast = if (have_availability_version_check) struct {
     }
 
     // Darwin-only
-    fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.C) i32 {
+    fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.c) i32 {
         const build_version = dyld_build_version_t{
             .platform = platform,
             .version = constructVersion(major, minor, subminor),

@@ -13,6 +13,6 @@ comptime {
     @export(&__unordtf2, .{ .name = "__unordtf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __unordtf2(a: f128, b: f128) callconv(.C) i32 {
+fn __unordtf2(a: f128, b: f128) callconv(.c) i32 {
     return comparef.unordcmp(f128, a, b);
 }

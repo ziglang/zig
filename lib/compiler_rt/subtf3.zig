@@ -12,11 +12,11 @@ comptime {
     @export(&__subtf3, .{ .name = "__subtf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
+pub fn __subtf3(a: f128, b: f128) callconv(.c) f128 {
     return sub(a, b);
 }
 
-fn _Qp_sub(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
+fn _Qp_sub(c: *f128, a: *const f128, b: *const f128) callconv(.c) void {
     c.* = sub(a.*, b.*);
 }
 

@@ -19,32 +19,32 @@ comptime {
 ///
 /// Note that this matches the definition of `__lehf2`, `__eqhf2`, `__nehf2`, `__cmphf2`,
 /// and `__lthf2`.
-fn __cmphf2(a: f16, b: f16) callconv(.C) i32 {
+fn __cmphf2(a: f16, b: f16) callconv(.c) i32 {
     return @intFromEnum(comparef.cmpf2(f16, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,
 /// and a is less than or equal to b."
-pub fn __lehf2(a: f16, b: f16) callconv(.C) i32 {
+pub fn __lehf2(a: f16, b: f16) callconv(.c) i32 {
     return __cmphf2(a, b);
 }
 
 /// "These functions return zero if neither argument is NaN, and a and b are equal."
 /// Note that due to some kind of historical accident, __eqhf2 and __nehf2 are defined
 /// to have the same return value.
-pub fn __eqhf2(a: f16, b: f16) callconv(.C) i32 {
+pub fn __eqhf2(a: f16, b: f16) callconv(.c) i32 {
     return __cmphf2(a, b);
 }
 
 /// "These functions return a nonzero value if either argument is NaN, or if a and b are unequal."
 /// Note that due to some kind of historical accident, __eqhf2 and __nehf2 are defined
 /// to have the same return value.
-pub fn __nehf2(a: f16, b: f16) callconv(.C) i32 {
+pub fn __nehf2(a: f16, b: f16) callconv(.c) i32 {
     return __cmphf2(a, b);
 }
 
 /// "These functions return a value less than zero if neither argument is NaN, and a
 /// is strictly less than b."
-pub fn __lthf2(a: f16, b: f16) callconv(.C) i32 {
+pub fn __lthf2(a: f16, b: f16) callconv(.c) i32 {
     return __cmphf2(a, b);
 }

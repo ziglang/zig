@@ -7,6 +7,6 @@ comptime {
     @export(&__floatdihf, .{ .name = "__floatdihf", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __floatdihf(a: i64) callconv(.C) f16 {
+fn __floatdihf(a: i64) callconv(.c) f16 {
     return floatFromInt(f16, a);
 }

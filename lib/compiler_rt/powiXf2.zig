@@ -35,23 +35,23 @@ inline fn powiXf2(comptime FT: type, a: FT, b: i32) FT {
     return if (is_recip) 1 / r else r;
 }
 
-pub fn __powihf2(a: f16, b: i32) callconv(.C) f16 {
+pub fn __powihf2(a: f16, b: i32) callconv(.c) f16 {
     return powiXf2(f16, a, b);
 }
 
-pub fn __powisf2(a: f32, b: i32) callconv(.C) f32 {
+pub fn __powisf2(a: f32, b: i32) callconv(.c) f32 {
     return powiXf2(f32, a, b);
 }
 
-pub fn __powidf2(a: f64, b: i32) callconv(.C) f64 {
+pub fn __powidf2(a: f64, b: i32) callconv(.c) f64 {
     return powiXf2(f64, a, b);
 }
 
-pub fn __powitf2(a: f128, b: i32) callconv(.C) f128 {
+pub fn __powitf2(a: f128, b: i32) callconv(.c) f128 {
     return powiXf2(f128, a, b);
 }
 
-pub fn __powixf2(a: f80, b: i32) callconv(.C) f80 {
+pub fn __powixf2(a: f80, b: i32) callconv(.c) f80 {
     return powiXf2(f80, a, b);
 }
 

@@ -5,7 +5,7 @@ comptime {
     @export(&bcmp, .{ .name = "bcmp", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) c_int {
+pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.c) c_int {
     @setRuntimeSafety(false);
 
     var index: usize = 0;

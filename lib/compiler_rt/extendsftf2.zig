@@ -12,10 +12,10 @@ comptime {
     @export(&__extendsftf2, .{ .name = "__extendsftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __extendsftf2(a: f32) callconv(.C) f128 {
+pub fn __extendsftf2(a: f32) callconv(.c) f128 {
     return extendf(f128, f32, @as(u32, @bitCast(a)));
 }
 
-fn _Qp_stoq(c: *f128, a: f32) callconv(.C) void {
+fn _Qp_stoq(c: *f128, a: f32) callconv(.c) void {
     c.* = extendf(f128, f32, @as(u32, @bitCast(a)));
 }

@@ -23,7 +23,7 @@ noinline fn frame3(expected: *[5]usize, unwound: *[5]usize) void {
     frame4(expected, unwound);
 }
 
-fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.C) void {
+fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.c) void {
     expected[2] = @returnAddress();
     frame3(expected, unwound);
 }
@@ -31,7 +31,7 @@ fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.C) void {
 extern fn frame0(
     expected: *[5]usize,
     unwound: *[5]usize,
-    frame_2: *const fn (expected: *[5]usize, unwound: *[5]usize) callconv(.C) void,
+    frame_2: *const fn (expected: *[5]usize, unwound: *[5]usize) callconv(.c) void,
 ) void;
 
 pub fn main() !void {

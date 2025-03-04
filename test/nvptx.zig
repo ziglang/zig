@@ -15,7 +15,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    return a + b;
             \\}
             \\
-            \\pub export fn add_and_substract(a: i32, out: *i32) callconv(.Kernel) void {
+            \\pub export fn add_and_substract(a: i32, out: *i32) callconv(.kernel) void {
             \\    const x = add(a, 7);
             \\    var y = add(2, 0);
             \\    y -= x;
@@ -34,7 +34,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    );
             \\}
             \\
-            \\pub export fn special_reg(a: []const i32, out: []i32) callconv(.Kernel) void {
+            \\pub export fn special_reg(a: []const i32, out: []i32) callconv(.kernel) void {
             \\    const i = threadIdX();
             \\    out[i] = a[i] + 7;
             \\}
@@ -47,7 +47,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         case.addCompile(
             \\var x: i32 addrspace(.global) = 0;
             \\
-            \\pub export fn increment(out: *i32) callconv(.Kernel) void {
+            \\pub export fn increment(out: *i32) callconv(.kernel) void {
             \\    x += 1;
             \\    out.* = x;
             \\}
@@ -64,7 +64,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\}
             \\
             \\ var _sdata: [1024]f32 addrspace(.shared) = undefined;
-            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.Kernel) void {
+            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.kernel) void {
             \\     var sdata: *addrspace(.generic) [1024]f32 = @addrSpaceCast(&_sdata);
             \\     const tid: u32 = threadIdX();
             \\     var sum = d_x[tid];

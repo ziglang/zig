@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
 
-fn add(count: c_int, ...) callconv(.C) c_int {
+fn add(count: c_int, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     var i: usize = 0;

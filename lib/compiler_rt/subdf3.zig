@@ -11,11 +11,11 @@ comptime {
     }
 }
 
-fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
+fn __subdf3(a: f64, b: f64) callconv(.c) f64 {
     return sub(a, b);
 }
 
-fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+fn __aeabi_dsub(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) f64 {
     return sub(a, b);
 }
 

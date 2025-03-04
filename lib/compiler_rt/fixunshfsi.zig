@@ -7,6 +7,6 @@ comptime {
     @export(&__fixunshfsi, .{ .name = "__fixunshfsi", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __fixunshfsi(a: f16) callconv(.C) u32 {
+fn __fixunshfsi(a: f16) callconv(.c) u32 {
     return intFromFloat(u32, a);
 }

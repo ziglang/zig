@@ -11,10 +11,10 @@ comptime {
     }
 }
 
-fn __extendsfdf2(a: f32) callconv(.C) f64 {
+fn __extendsfdf2(a: f32) callconv(.c) f64 {
     return extendf(f64, f32, @as(u32, @bitCast(a)));
 }
 
-fn __aeabi_f2d(a: f32) callconv(.AAPCS) f64 {
+fn __aeabi_f2d(a: f32) callconv(.{ .arm_aapcs = .{} }) f64 {
     return extendf(f64, f32, @as(u32, @bitCast(a)));
 }

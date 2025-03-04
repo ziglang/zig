@@ -1,4 +1,4 @@
-fn foo() callconv(.Naked) void {
+fn foo() callconv(.naked) void {
     return;
 }
 

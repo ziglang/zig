@@ -1,4 +1,4 @@
-export fn a() callconv(.Naked) noreturn {
+export fn a() callconv(.naked) noreturn {
     var x: u32 = 10;
     _ = &x;
 
@@ -6,7 +6,7 @@ export fn a() callconv(.Naked) noreturn {
     _ = y;
 }
 
-export fn b() callconv(.Naked) noreturn {
+export fn b() callconv(.naked) noreturn {
     var x = @as(u32, 10);
     _ = &x;
 
@@ -15,7 +15,7 @@ export fn b() callconv(.Naked) noreturn {
     _ = &z;
 }
 
-export fn c() callconv(.Naked) noreturn {
+export fn c() callconv(.naked) noreturn {
     const Foo = struct {
         y: u32,
     };
@@ -24,7 +24,7 @@ export fn c() callconv(.Naked) noreturn {
     _ = &x;
 }
 
-export fn d() callconv(.Naked) noreturn {
+export fn d() callconv(.naked) noreturn {
     const Foo = struct {
         inline fn bar() void {
             var x: u32 = 10;

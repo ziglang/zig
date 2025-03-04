@@ -15,7 +15,7 @@ comptime {
     }
 }
 
-pub fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
+pub fn _allrem(a: i64, b: i64) callconv(.{ .x86_stdcall = .{} }) i64 {
     const s_a = a >> (64 - 1);
     const s_b = b >> (64 - 1);
 
@@ -27,7 +27,7 @@ pub fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
     return (@as(i64, @bitCast(r)) ^ s) -% s;
 }
 
-pub fn _aullrem() callconv(.Naked) void {
+pub fn _aullrem() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     // The stack layout is:

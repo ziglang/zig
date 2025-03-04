@@ -21,14 +21,14 @@ test "coroutine await struct" {
     try expect(await_final_result.x == 1234);
     try expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
-fn await_amain() callconv(.Async) void {
+fn await_amain() callconv(.@"async") void {
     await_seq('b');
     var p = async await_another();
     await_seq('e');
     await_final_result = await p;
     await_seq('h');
 }
-fn await_another() callconv(.Async) Foo {
+fn await_another() callconv(.@"async") Foo {
     await_seq('c');
     suspend {
         await_seq('d');

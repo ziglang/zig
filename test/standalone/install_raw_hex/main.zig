@@ -1,3 +1,3 @@
-export fn _start() callconv(.C) noreturn {
+export fn _start() callconv(.c) noreturn {
     while (true) {}
 }

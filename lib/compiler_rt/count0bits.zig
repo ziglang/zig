@@ -52,7 +52,7 @@ inline fn clzXi2(comptime T: type, a: T) i32 {
     return @intCast(n - @as(T, @bitCast(x)));
 }
 
-fn __clzsi2_thumb1() callconv(.Naked) void {
+fn __clzsi2_thumb1() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     // Similar to the generic version with the last two rounds replaced by a LUT
@@ -86,7 +86,7 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
     unreachable;
 }
 
-fn __clzsi2_arm32() callconv(.Naked) void {
+fn __clzsi2_arm32() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -135,7 +135,7 @@ fn __clzsi2_arm32() callconv(.Naked) void {
     unreachable;
 }
 
-fn clzsi2_generic(a: i32) callconv(.C) i32 {
+fn clzsi2_generic(a: i32) callconv(.c) i32 {
     return clzXi2(i32, a);
 }
 
@@ -159,11 +159,11 @@ pub const __clzsi2 = switch (builtin.cpu.arch) {
     else => clzsi2_generic,
 };
 
-pub fn __clzdi2(a: i64) callconv(.C) i32 {
+pub fn __clzdi2(a: i64) callconv(.c) i32 {
     return clzXi2(i64, a);
 }
 
-pub fn __clzti2(a: i128) callconv(.C) i32 {
+pub fn __clzti2(a: i128) callconv(.c) i32 {
     return clzXi2(i128, a);
 }
 
@@ -190,15 +190,15 @@ inline fn ctzXi2(comptime T: type, a: T) i32 {
     return @intCast(n - @as(T, @bitCast((x & 1))));
 }
 
-pub fn __ctzsi2(a: i32) callconv(.C) i32 {
+pub fn __ctzsi2(a: i32) callconv(.c) i32 {
     return ctzXi2(i32, a);
 }
 
-pub fn __ctzdi2(a: i64) callconv(.C) i32 {
+pub fn __ctzdi2(a: i64) callconv(.c) i32 {
     return ctzXi2(i64, a);
 }
 
-pub fn __ctzti2(a: i128) callconv(.C) i32 {
+pub fn __ctzti2(a: i128) callconv(.c) i32 {
     return ctzXi2(i128, a);
 }
 
@@ -222,15 +222,15 @@ inline fn ffsXi2(comptime T: type, a: T) i32 {
     return @as(i32, @intCast(n - @as(T, @bitCast((x & 1))))) + 1;
 }
 
-pub fn __ffssi2(a: i32) callconv(.C) i32 {
+pub fn __ffssi2(a: i32) callconv(.c) i32 {
     return ffsXi2(i32, a);
 }
 
-pub fn __ffsdi2(a: i64) callconv(.C) i32 {
+pub fn __ffsdi2(a: i64) callconv(.c) i32 {
     return ffsXi2(i64, a);
 }
 
-pub fn __ffsti2(a: i128) callconv(.C) i32 {
+pub fn __ffsti2(a: i128) callconv(.c) i32 {
     return ffsXi2(i128, a);
 }
 

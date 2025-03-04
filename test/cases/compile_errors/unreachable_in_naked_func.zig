@@ -1,13 +1,13 @@
-fn runtimeSafetyDefault() callconv(.Naked) void {
+fn runtimeSafetyDefault() callconv(.naked) void {
     unreachable;
 }
 
-fn runtimeSafetyOn() callconv(.Naked) void {
+fn runtimeSafetyOn() callconv(.naked) void {
     @setRuntimeSafety(true);
     unreachable;
 }
 
-fn runtimeSafetyOff() callconv(.Naked) void {
+fn runtimeSafetyOff() callconv(.naked) void {
     @setRuntimeSafety(false);
     unreachable;
 }

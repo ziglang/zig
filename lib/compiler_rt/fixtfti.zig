@@ -14,12 +14,12 @@ comptime {
     }
 }
 
-pub fn __fixtfti(a: f128) callconv(.C) i128 {
+pub fn __fixtfti(a: f128) callconv(.c) i128 {
     return intFromFloat(i128, a);
 }
 
 const v2u64 = @Vector(2, u64);
 
-fn __fixtfti_windows_x86_64(a: f128) callconv(.C) v2u64 {
+fn __fixtfti_windows_x86_64(a: f128) callconv(.c) v2u64 {
     return @bitCast(intFromFloat(i128, a));
 }

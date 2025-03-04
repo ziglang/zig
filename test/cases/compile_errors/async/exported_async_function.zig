@@ -1,4 +1,4 @@
-export fn foo() callconv(.Async) void {}
+export fn foo() callconv(.@"async") void {}
 
 // error
 // backend=stage1

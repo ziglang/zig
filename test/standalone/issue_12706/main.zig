@@ -3,7 +3,7 @@ extern fn testFnPtr(n: c_int, ...) void;
 
 const val: c_int = 123;
 
-fn func(a: c_int) callconv(.C) void {
+fn func(a: c_int) callconv(.c) void {
     std.debug.assert(a == val);
 }
 

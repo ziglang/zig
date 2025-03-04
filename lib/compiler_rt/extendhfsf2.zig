@@ -12,14 +12,14 @@ comptime {
     @export(&__extendhfsf2, .{ .name = "__extendhfsf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __extendhfsf2(a: common.F16T(f32)) callconv(.C) f32 {
+pub fn __extendhfsf2(a: common.F16T(f32)) callconv(.c) f32 {
     return extendf(f32, f16, @as(u16, @bitCast(a)));
 }
 
-fn __gnu_h2f_ieee(a: common.F16T(f32)) callconv(.C) f32 {
+fn __gnu_h2f_ieee(a: common.F16T(f32)) callconv(.c) f32 {
     return extendf(f32, f16, @as(u16, @bitCast(a)));
 }
 
-fn __aeabi_h2f(a: u16) callconv(.AAPCS) f32 {
+fn __aeabi_h2f(a: u16) callconv(.{ .arm_aapcs = .{} }) f32 {
     return extendf(f32, f16, @as(u16, @bitCast(a)));
 }

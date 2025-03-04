@@ -1,7 +1,7 @@
 pub inline fn instanceRequestAdapter() void {}
 
 pub inline fn requestAdapter(
-    comptime callbackArg: fn () callconv(.Inline) void,
+    comptime callbackArg: fn () callconv(.@"inline") void,
 ) void {
     _ = &(struct {
         pub fn callback() callconv(.c) void {

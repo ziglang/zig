@@ -26,7 +26,7 @@ fn failing() anyerror!void {
     return second();
 }
 
-fn second() callconv(.Async) anyerror!void {
+fn second() callconv(.@"async") anyerror!void {
     return error.Fail;
 }
 
