@@ -30,7 +30,7 @@ struct __underlying_type_impl<_Tp, true> {
 };
 
 template <class _Tp>
-struct underlying_type : __underlying_type_impl<_Tp, is_enum<_Tp>::value> {};
+struct _LIBCPP_NO_SPECIALIZATIONS underlying_type : __underlying_type_impl<_Tp, is_enum<_Tp>::value> {};
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>

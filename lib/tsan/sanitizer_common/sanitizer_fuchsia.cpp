@@ -94,7 +94,6 @@ void DisableCoreDumperIfNecessary() {}
 void InstallDeadlySignalHandlers(SignalHandlerType handler) {}
 void SetAlternateSignalStack() {}
 void UnsetAlternateSignalStack() {}
-void InitTlsSize() {}
 
 bool SignalContext::IsStackOverflow() const { return false; }
 void SignalContext::DumpAllRegisters(void *context) { UNIMPLEMENTED(); }
@@ -445,6 +444,11 @@ bool IsAccessibleMemoryRange(uptr beg, uptr size) {
   return status == ZX_OK;
 }
 
+bool TryMemCpy(void *dest, const void *src, uptr n) {
+  // TODO: implement.
+  return false;
+}
+
 // FIXME implement on this platform.
 void GetMemoryProfile(fill_profile_f cb, uptr *stats) {}
 
@@ -519,7 +523,6 @@ uptr ReadLongProcessName(/*out*/ char *buf, uptr buf_len) {
 uptr MainThreadStackBase, MainThreadStackSize;
 
 bool GetRandom(void *buffer, uptr length, bool blocking) {
-  CHECK_LE(length, ZX_CPRNG_DRAW_MAX_LEN);
   _zx_cprng_draw(buffer, length);
   return true;
 }

@@ -19,7 +19,6 @@
 #include "DemangleConfig.h"
 #include "StringViewExtras.h"
 #include "Utility.h"
-#include <__cxxabi_config.h>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -31,7 +30,7 @@
 #include <type_traits>
 #include <utility>
 
-#ifdef _LIBCXXABI_COMPILER_CLANG
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-template"
 #endif
@@ -157,6 +156,8 @@ public:
   }
 };
 
+class NodeArray;
+
 // Base class of all AST nodes. The AST is built by the parser, then is
 // traversed by the printLeft/Right functions to produce a demangled string.
 class Node {
@@ -200,8 +201,7 @@ private:
 
   Prec Precedence : 6;
 
-  // FIXME: Make these protected.
-public:
+protected:
   /// Tracks if this node has a component on its right side, in which case we
   /// need to call printRight.
   Cache RHSComponentCache : 2;
@@ -255,6 +255,9 @@ public:
   Kind getKind() const { return K; }
 
   Prec getPrecedence() const { return Precedence; }
+  Cache getRHSComponentCache() const { return RHSComponentCache; }
+  Cache getArrayCache() const { return ArrayCache; }
+  Cache getFunctionCache() const { return FunctionCache; }
 
   virtual bool hasRHSComponentSlow(OutputBuffer &) const { return false; }
   virtual bool hasArraySlow(OutputBuffer &) const { return false; }
@@ -291,6 +294,13 @@ public:
   // Since most types don't have such a component, provide a default
   // implementation.
   virtual void printRight(OutputBuffer &) const {}
+
+  // Print an initializer list of this type. Returns true if we printed a custom
+  // representation, false if nothing has been printed and the default
+  // representation should be used.
+  virtual bool printInitListAsType(OutputBuffer &, const NodeArray &) const {
+    return false;
+  }
 
   virtual std::string_view getBaseName() const { return {}; }
 
@@ -338,6 +348,10 @@ public:
       FirstElement = false;
     }
   }
+
+  // Print an array of integer literals as a string literal. Returns whether we
+  // could do so.
+  bool printAsString(OutputBuffer &OB) const;
 };
 
 struct NodeArrayNode : Node {
@@ -424,8 +438,8 @@ protected:
 
 public:
   QualType(const Node *Child_, Qualifiers Quals_)
-      : Node(KQualType, Child_->RHSComponentCache,
-             Child_->ArrayCache, Child_->FunctionCache),
+      : Node(KQualType, Child_->getRHSComponentCache(), Child_->getArrayCache(),
+             Child_->getFunctionCache()),
         Quals(Quals_), Child(Child_) {}
 
   Qualifiers getQuals() const { return Quals; }
@@ -554,8 +568,8 @@ struct AbiTagAttr : Node {
   std::string_view Tag;
 
   AbiTagAttr(Node *Base_, std::string_view Tag_)
-      : Node(KAbiTagAttr, Base_->RHSComponentCache, Base_->ArrayCache,
-             Base_->FunctionCache),
+      : Node(KAbiTagAttr, Base_->getRHSComponentCache(), Base_->getArrayCache(),
+             Base_->getFunctionCache()),
         Base(Base_), Tag(Tag_) {}
 
   template<typename Fn> void match(Fn F) const { F(Base, Tag); }
@@ -615,7 +629,7 @@ class PointerType final : public Node {
 
 public:
   PointerType(const Node *Pointee_)
-      : Node(KPointerType, Pointee_->RHSComponentCache),
+      : Node(KPointerType, Pointee_->getRHSComponentCache()),
         Pointee(Pointee_) {}
 
   const Node *getPointee() const { return Pointee; }
@@ -699,7 +713,7 @@ class ReferenceType : public Node {
 
 public:
   ReferenceType(const Node *Pointee_, ReferenceKind RK_)
-      : Node(KReferenceType, Pointee_->RHSComponentCache),
+      : Node(KReferenceType, Pointee_->getRHSComponentCache()),
         Pointee(Pointee_), RK(RK_) {}
 
   template<typename Fn> void match(Fn F) const { F(Pointee, RK); }
@@ -742,7 +756,7 @@ class PointerToMemberType final : public Node {
 
 public:
   PointerToMemberType(const Node *ClassType_, const Node *MemberType_)
-      : Node(KPointerToMemberType, MemberType_->RHSComponentCache),
+      : Node(KPointerToMemberType, MemberType_->getRHSComponentCache()),
         ClassType(ClassType_), MemberType(MemberType_) {}
 
   template<typename Fn> void match(Fn F) const { F(ClassType, MemberType); }
@@ -794,6 +808,15 @@ public:
       Dimension->print(OB);
     OB += "]";
     Base->printRight(OB);
+  }
+
+  bool printInitListAsType(OutputBuffer &OB,
+                           const NodeArray &Elements) const override {
+    if (Base->getKind() == KNameType &&
+        static_cast<const NameType *>(Base)->getName() == "char") {
+      return Elements.printAsString(OB);
+    }
+    return false;
   }
 };
 
@@ -1383,16 +1406,14 @@ class ParameterPack final : public Node {
 public:
   ParameterPack(NodeArray Data_) : Node(KParameterPack), Data(Data_) {
     ArrayCache = FunctionCache = RHSComponentCache = Cache::Unknown;
-    if (std::all_of(Data.begin(), Data.end(), [](Node* P) {
-          return P->ArrayCache == Cache::No;
-        }))
+    if (std::all_of(Data.begin(), Data.end(),
+                    [](Node *P) { return P->getArrayCache() == Cache::No; }))
       ArrayCache = Cache::No;
-    if (std::all_of(Data.begin(), Data.end(), [](Node* P) {
-          return P->FunctionCache == Cache::No;
-        }))
+    if (std::all_of(Data.begin(), Data.end(),
+                    [](Node *P) { return P->getFunctionCache() == Cache::No; }))
       FunctionCache = Cache::No;
-    if (std::all_of(Data.begin(), Data.end(), [](Node* P) {
-          return P->RHSComponentCache == Cache::No;
+    if (std::all_of(Data.begin(), Data.end(), [](Node *P) {
+          return P->getRHSComponentCache() == Cache::No;
         }))
       RHSComponentCache = Cache::No;
   }
@@ -2056,17 +2077,23 @@ public:
 class CallExpr : public Node {
   const Node *Callee;
   NodeArray Args;
+  bool IsParen; // (func)(args ...) ?
 
 public:
-  CallExpr(const Node *Callee_, NodeArray Args_, Prec Prec_)
-      : Node(KCallExpr, Prec_), Callee(Callee_), Args(Args_) {}
+  CallExpr(const Node *Callee_, NodeArray Args_, bool IsParen_, Prec Prec_)
+      : Node(KCallExpr, Prec_), Callee(Callee_), Args(Args_),
+        IsParen(IsParen_) {}
 
   template <typename Fn> void match(Fn F) const {
-    F(Callee, Args, getPrecedence());
+    F(Callee, Args, IsParen, getPrecedence());
   }
 
   void printLeft(OutputBuffer &OB) const override {
+    if (IsParen)
+      OB.printOpen();
     Callee->print(OB);
+    if (IsParen)
+      OB.printClose();
     OB.printOpen();
     Args.printWithComma(OB);
     OB.printClose();
@@ -2226,8 +2253,11 @@ public:
   template<typename Fn> void match(Fn F) const { F(Ty, Inits); }
 
   void printLeft(OutputBuffer &OB) const override {
-    if (Ty)
+    if (Ty) {
+      if (Ty->printInitListAsType(OB, Inits))
+        return;
       Ty->print(OB);
+    }
     OB += '{';
     Inits.printWithComma(OB);
     OB += '}';
@@ -2434,6 +2464,8 @@ public:
     if (Type.size() <= 3)
       OB += Type;
   }
+
+  std::string_view value() const { return Value; }
 };
 
 class RequiresExpr : public Node {
@@ -2605,6 +2637,94 @@ template<typename NodeT> struct NodeKind;
   };
 #include "ItaniumNodes.def"
 
+inline bool NodeArray::printAsString(OutputBuffer &OB) const {
+  auto StartPos = OB.getCurrentPosition();
+  auto Fail = [&OB, StartPos] {
+    OB.setCurrentPosition(StartPos);
+    return false;
+  };
+
+  OB += '"';
+  bool LastWasNumericEscape = false;
+  for (const Node *Element : *this) {
+    if (Element->getKind() != Node::KIntegerLiteral)
+      return Fail();
+    int integer_value = 0;
+    for (char c : static_cast<const IntegerLiteral *>(Element)->value()) {
+      if (c < '0' || c > '9' || integer_value > 25)
+        return Fail();
+      integer_value *= 10;
+      integer_value += c - '0';
+    }
+    if (integer_value > 255)
+      return Fail();
+
+    // Insert a `""` to avoid accidentally extending a numeric escape.
+    if (LastWasNumericEscape) {
+      if ((integer_value >= '0' && integer_value <= '9') ||
+          (integer_value >= 'a' && integer_value <= 'f') ||
+          (integer_value >= 'A' && integer_value <= 'F')) {
+        OB += "\"\"";
+      }
+    }
+
+    LastWasNumericEscape = false;
+
+    // Determine how to print this character.
+    switch (integer_value) {
+    case '\a':
+      OB += "\\a";
+      break;
+    case '\b':
+      OB += "\\b";
+      break;
+    case '\f':
+      OB += "\\f";
+      break;
+    case '\n':
+      OB += "\\n";
+      break;
+    case '\r':
+      OB += "\\r";
+      break;
+    case '\t':
+      OB += "\\t";
+      break;
+    case '\v':
+      OB += "\\v";
+      break;
+
+    case '"':
+      OB += "\\\"";
+      break;
+    case '\\':
+      OB += "\\\\";
+      break;
+
+    default:
+      // We assume that the character is ASCII, and use a numeric escape for all
+      // remaining non-printable ASCII characters.
+      if (integer_value < 32 || integer_value == 127) {
+        constexpr char Hex[] = "0123456789ABCDEF";
+        OB += '\\';
+        if (integer_value > 7)
+          OB += 'x';
+        if (integer_value >= 16)
+          OB += Hex[integer_value >> 4];
+        OB += Hex[integer_value & 0xF];
+        LastWasNumericEscape = true;
+        break;
+      }
+
+      // Assume all remaining characters are directly printable.
+      OB += (char)integer_value;
+      break;
+    }
+  }
+  OB += '"';
+  return true;
+}
+
 template <typename Derived, typename Alloc> struct AbstractManglingParser {
   const char *First;
   const char *Last;
@@ -2678,7 +2798,7 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
 
   bool TryToParseTemplateArgs = true;
   bool PermitForwardTemplateReferences = false;
-  bool InConstraintExpr = false;
+  bool HasIncompleteTemplateParameterTracking = false;
   size_t ParsingLambdaParamsAtLevel = (size_t)-1;
 
   unsigned NumSyntheticTemplateParameters[3] = {};
@@ -3240,9 +3360,12 @@ const typename AbstractManglingParser<
      "operator co_await"},
     {"az", OperatorInfo::OfIdOp, /*Type*/ false, Node::Prec::Unary, "alignof "},
     {"cc", OperatorInfo::NamedCast, false, Node::Prec::Postfix, "const_cast"},
-    {"cl", OperatorInfo::Call, false, Node::Prec::Postfix, "operator()"},
+    {"cl", OperatorInfo::Call, /*Paren*/ false, Node::Prec::Postfix,
+     "operator()"},
     {"cm", OperatorInfo::Binary, false, Node::Prec::Comma, "operator,"},
     {"co", OperatorInfo::Prefix, false, Node::Prec::Unary, "operator~"},
+    {"cp", OperatorInfo::Call, /*Paren*/ true, Node::Prec::Postfix,
+     "operator()"},
     {"cv", OperatorInfo::CCast, false, Node::Prec::Cast, "operator"}, // C Cast
     {"dV", OperatorInfo::Binary, false, Node::Prec::Assign, "operator/="},
     {"da", OperatorInfo::Del, /*Ary*/ true, Node::Prec::Unary,
@@ -3319,7 +3442,7 @@ AbstractManglingParser<Derived, Alloc>::parseOperatorEncoding() {
     return nullptr;
 
   // We can't use lower_bound as that can link to symbols in the C++ library,
-  // and this must remain independant of that.
+  // and this must remain independent of that.
   size_t lower = 0u, upper = NumOps - 1; // Inclusive bounds.
   while (upper != lower) {
     size_t middle = (upper + lower) / 2;
@@ -4207,15 +4330,113 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     case 'h':
       First += 2;
       return make<NameType>("half");
-    //                ::= DF <number> _ # ISO/IEC TS 18661 binary floating point (N bits)
+    //       ::= DF16b         # C++23 std::bfloat16_t
+    //       ::= DF <number> _ # ISO/IEC TS 18661 binary floating point (N bits)
     case 'F': {
       First += 2;
+      if (consumeIf("16b"))
+        return make<NameType>("std::bfloat16_t");
       Node *DimensionNumber = make<NameType>(parseNumber());
       if (!DimensionNumber)
         return nullptr;
       if (!consumeIf('_'))
         return nullptr;
       return make<BinaryFPType>(DimensionNumber);
+    }
+    //                ::= [DS] DA  # N1169 fixed-point [_Sat] T _Accum
+    //                ::= [DS] DR  # N1169 fixed-point [_Sat] T _Frac
+    // <fixed-point-size>
+    //                ::= s # short
+    //                ::= t # unsigned short
+    //                ::= i # plain
+    //                ::= j # unsigned
+    //                ::= l # long
+    //                ::= m # unsigned long
+    case 'A': {
+      char c = look(2);
+      First += 3;
+      switch (c) {
+      case 's':
+        return make<NameType>("short _Accum");
+      case 't':
+        return make<NameType>("unsigned short _Accum");
+      case 'i':
+        return make<NameType>("_Accum");
+      case 'j':
+        return make<NameType>("unsigned _Accum");
+      case 'l':
+        return make<NameType>("long _Accum");
+      case 'm':
+        return make<NameType>("unsigned long _Accum");
+      default:
+        return nullptr;
+      }
+    }
+    case 'R': {
+      char c = look(2);
+      First += 3;
+      switch (c) {
+      case 's':
+        return make<NameType>("short _Fract");
+      case 't':
+        return make<NameType>("unsigned short _Fract");
+      case 'i':
+        return make<NameType>("_Fract");
+      case 'j':
+        return make<NameType>("unsigned _Fract");
+      case 'l':
+        return make<NameType>("long _Fract");
+      case 'm':
+        return make<NameType>("unsigned long _Fract");
+      default:
+        return nullptr;
+      }
+    }
+    case 'S': {
+      First += 2;
+      if (look() != 'D')
+        return nullptr;
+      if (look(1) == 'A') {
+        char c = look(2);
+        First += 3;
+        switch (c) {
+        case 's':
+          return make<NameType>("_Sat short _Accum");
+        case 't':
+          return make<NameType>("_Sat unsigned short _Accum");
+        case 'i':
+          return make<NameType>("_Sat _Accum");
+        case 'j':
+          return make<NameType>("_Sat unsigned _Accum");
+        case 'l':
+          return make<NameType>("_Sat long _Accum");
+        case 'm':
+          return make<NameType>("_Sat unsigned long _Accum");
+        default:
+          return nullptr;
+        }
+      }
+      if (look(1) == 'R') {
+        char c = look(2);
+        First += 3;
+        switch (c) {
+        case 's':
+          return make<NameType>("_Sat short _Fract");
+        case 't':
+          return make<NameType>("_Sat unsigned short _Fract");
+        case 'i':
+          return make<NameType>("_Sat _Fract");
+        case 'j':
+          return make<NameType>("_Sat unsigned _Fract");
+        case 'l':
+          return make<NameType>("_Sat long _Fract");
+        case 'm':
+          return make<NameType>("_Sat unsigned long _Fract");
+        default:
+          return nullptr;
+        }
+      }
+      return nullptr;
     }
     //                ::= DB <number> _                             # C23 signed _BitInt(N)
     //                ::= DB <instantiation-dependent expression> _ # C23 signed _BitInt(N)
@@ -4337,6 +4558,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     // parse them, take the second production.
 
     if (TryToParseTemplateArgs && look() == 'I') {
+      Subs.push_back(Result);
       Node *TA = getDerived().parseTemplateArgs();
       if (TA == nullptr)
         return nullptr;
@@ -4819,7 +5041,8 @@ template <typename Derived, typename Alloc>
 Node *AbstractManglingParser<Derived, Alloc>::parseConstraintExpr() {
   // Within this expression, all enclosing template parameter lists are in
   // scope.
-  ScopedOverride<bool> SaveInConstraintExpr(InConstraintExpr, true);
+  ScopedOverride<bool> SaveIncompleteTemplateParameterTracking(
+      HasIncompleteTemplateParameterTracking, true);
   return getDerived().parseExpr();
 }
 
@@ -4888,6 +5111,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseRequiresExpr() {
 //              ::= <binary operator-name> <expression> <expression>
 //              ::= <ternary operator-name> <expression> <expression> <expression>
 //              ::= cl <expression>+ E                                   # call
+//              ::= cp <base-unresolved-name> <expression>* E            # (name) (expr-list), call that would use argument-dependent lookup but for the parentheses
 //              ::= cv <type> <expression>                               # conversion with one argument
 //              ::= cv <type> _ <expression>* E                          # conversion with a different number of arguments
 //              ::= [gs] nw <expression>* _ <type> E                     # new (expr-list) type
@@ -5023,7 +5247,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseExpr() {
         Names.push_back(E);
       }
       return make<CallExpr>(Callee, popTrailingNodeArray(ExprsBegin),
-                            Op->getPrecedence());
+                            /*IsParen=*/Op->getFlag(), Op->getPrecedence());
     }
     case OperatorInfo::CCast: {
       // C Cast: (type)expr
@@ -5210,7 +5434,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseExpr() {
       }
     }
     return make<CallExpr>(Name, popTrailingNodeArray(ExprsBegin),
-                          Node::Prec::Postfix);
+                          /*IsParen=*/false, Node::Prec::Postfix);
   }
 
   // Only unresolved names remain.
@@ -5677,7 +5901,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
   // substitute them all within a <constraint-expression>, so print the
   // parameter numbering instead for now.
   // TODO: Track all enclosing template parameters and substitute them here.
-  if (InConstraintExpr) {
+  if (HasIncompleteTemplateParameterTracking) {
     return make<NameType>(std::string_view(Begin, First - 1 - Begin));
   }
 
@@ -5738,6 +5962,12 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl(
   }
 
   if (consumeIf("Tk")) {
+    // We don't track enclosing template parameter levels well enough to
+    // reliably demangle template parameter substitutions, so print an arbitrary
+    // string in place of a parameter for now.
+    // TODO: Track all enclosing template parameters and demangle substitutions.
+    ScopedOverride<bool> SaveIncompleteTemplateParameterTrackingExpr(
+        HasIncompleteTemplateParameterTracking, true);
     Node *Constraint = getDerived().parseName();
     if (!Constraint)
       return nullptr;
@@ -5948,7 +6178,7 @@ struct ManglingParser : AbstractManglingParser<ManglingParser<Alloc>, Alloc> {
 
 DEMANGLE_NAMESPACE_END
 
-#ifdef _LIBCXXABI_COMPILER_CLANG
+#if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
 

@@ -79,25 +79,6 @@ _LIBCPP_HIDE_FROM_ABI inline constexpr bool operator==(const weekday& __lhs, con
   return __lhs.c_encoding() == __rhs.c_encoding();
 }
 
-// TODO(LLVM 20): Remove the escape hatch
-#  ifdef _LIBCPP_ENABLE_REMOVED_WEEKDAY_RELATIONAL_OPERATORS
-_LIBCPP_HIDE_FROM_ABI inline constexpr bool operator<(const weekday& __lhs, const weekday& __rhs) noexcept {
-  return __lhs.c_encoding() < __rhs.c_encoding();
-}
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr bool operator>(const weekday& __lhs, const weekday& __rhs) noexcept {
-  return __rhs < __lhs;
-}
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr bool operator<=(const weekday& __lhs, const weekday& __rhs) noexcept {
-  return !(__rhs < __lhs);
-}
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr bool operator>=(const weekday& __lhs, const weekday& __rhs) noexcept {
-  return !(__lhs < __rhs);
-}
-#  endif // _LIBCPP_ENABLE_REMOVED_WEEKDAY_RELATIONAL_OPERATORS
-
 _LIBCPP_HIDE_FROM_ABI inline constexpr weekday operator+(const weekday& __lhs, const days& __rhs) noexcept {
   auto const __mu = static_cast<long long>(__lhs.c_encoding()) + __rhs.count();
   auto const __yr = (__mu >= 0 ? __mu : __mu - 6) / 7;

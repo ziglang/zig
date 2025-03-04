@@ -28,10 +28,6 @@
 
 using namespace itanium_demangle;
 
-constexpr const char *itanium_demangle::FloatData<float>::spec;
-constexpr const char *itanium_demangle::FloatData<double>::spec;
-constexpr const char *itanium_demangle::FloatData<long double>::spec;
-
 // <discriminator> := _ <non-negative number>      # when number < 10
 //                 := __ <non-negative number> _   # when number >= 10
 //  extension      := decimal-digit+               # at the end of string
