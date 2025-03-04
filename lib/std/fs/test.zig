@@ -320,14 +320,8 @@ test "accessAbsolute" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(base_path);
 
     try fs.accessAbsolute(base_path, .{});
 }
@@ -338,25 +332,52 @@ test "openDirAbsolute" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.makeDir("subdir");
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const tmp_ino = (try tmp.dir.stat()).inode;
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    try tmp.dir.makeDir("subdir");
+    const sub_path = try tmp.dir.realpathAlloc(testing.allocator, "subdir");
+    defer testing.allocator.free(sub_path);
+
+    // Can open sub_path
+    var tmp_sub = try fs.openDirAbsolute(sub_path, .{});
+    defer tmp_sub.close();
+
+    const sub_ino = (try tmp_sub.stat()).inode;
 
     {
-        var dir = try fs.openDirAbsolute(base_path, .{});
-        defer dir.close();
-    }
+        // Can open sub_path + ".."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, ".." });
+        defer testing.allocator.free(dir_path);
 
-    for ([_][]const u8{ ".", ".." }) |sub_path| {
-        const dir_path = try fs.path.join(allocator, &.{ base_path, sub_path });
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(tmp_ino, ino);
+    }
+
+    {
+        // Can open sub_path + "."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, "." });
+        defer testing.allocator.free(dir_path);
+
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(sub_ino, ino);
+    }
+
+    {
+        // Can open subdir + "..", with some extra "."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, ".", "..", "." });
+        defer testing.allocator.free(dir_path);
+
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(tmp_ino, ino);
     }
 }
 
@@ -409,10 +430,7 @@ test "readLinkAbsolute" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(allocator, ".");
 
     {
         const target_path = try fs.path.join(allocator, &.{ base_path, "file.txt" });
@@ -748,7 +766,6 @@ test "directory operations on files" {
 test "file operations on directories" {
     // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
     if (native_os == .freebsd) return error.SkipZigTest;
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/20747
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -759,18 +776,30 @@ test "file operations on directories" {
             try testing.expectError(error.IsDir, ctx.dir.createFile(test_dir_name, .{}));
             try testing.expectError(error.IsDir, ctx.dir.deleteFile(test_dir_name));
             switch (native_os) {
-                // no error when reading a directory.
-                .dragonfly, .netbsd => {},
-                // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
-                // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
-                .wasi => {},
+                .dragonfly, .netbsd => {
+                    // no error when reading a directory. See https://github.com/ziglang/zig/issues/5732
+                    const buf = try ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize));
+                    testing.allocator.free(buf);
+                },
+                .wasi => {
+                    // WASI return EBADF, which gets mapped to NotOpenForReading.
+                    // See https://github.com/bytecodealliance/wasmtime/issues/1935
+                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                },
                 else => {
                     try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
                 },
             }
-            // Note: The `.mode = .read_write` is necessary to ensure the error occurs on all platforms.
-            // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
-            try testing.expectError(error.IsDir, ctx.dir.openFile(test_dir_name, .{ .mode = .read_write }));
+
+            if (native_os == .wasi and builtin.link_libc) {
+                // wasmtime unexpectedly succeeds here, see https://github.com/ziglang/zig/issues/20747
+                const handle = try ctx.dir.openFile(test_dir_name, .{ .mode = .read_write });
+                handle.close();
+            } else {
+                // Note: The `.mode = .read_write` is necessary to ensure the error occurs on all platforms.
+                // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
+                try testing.expectError(error.IsDir, ctx.dir.openFile(test_dir_name, .{ .mode = .read_write }));
+            }
 
             if (ctx.path_type == .absolute and comptime PathType.absolute.isSupported(builtin.os)) {
                 try testing.expectError(error.IsDir, fs.createFileAbsolute(test_dir_name, .{}));
@@ -993,10 +1022,7 @@ test "renameAbsolute" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp_dir.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
 
     try testing.expectError(error.FileNotFound, fs.renameAbsolute(
         try fs.path.join(allocator, &.{ base_path, "missing_file_name" }),
@@ -1386,7 +1412,6 @@ test "sendfile" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
@@ -1451,7 +1476,6 @@ test "copyRangeAll" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
@@ -1800,10 +1824,7 @@ test "'.' and '..' in absolute functions" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(allocator, ".");
 
     const subdir_path = try fs.path.join(allocator, &.{ base_path, "./subdir" });
     try fs.makeDirAbsolute(subdir_path);
