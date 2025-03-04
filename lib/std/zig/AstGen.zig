@@ -5360,8 +5360,6 @@ fn tupleDecl(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    const node_tags = tree.nodes.items(.tag);
-
     switch (layout) {
         .auto => {},
         .@"extern", .@"packed" => return astgen.failNode(node, "{s} tuples are not supported", .{@tagName(layout)}),
@@ -5383,12 +5381,9 @@ fn tupleDecl(
 
     for (container_decl.ast.members) |member_node| {
         const field = tree.fullContainerField(member_node) orelse {
-            const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
-                .container_field_init,
-                .container_field_align,
-                .container_field,
-                => break maybe_tuple,
-                else => {},
+            const tuple_member = for (container_decl.ast.members) |maybe_tuple| {
+                if ((tree.fullContainerField(maybe_tuple) orelse continue).ast.tuple_like)
+                    break maybe_tuple;
             } else unreachable;
             return astgen.failNodeNotes(
                 member_node,
@@ -5399,7 +5394,16 @@ fn tupleDecl(
         };
 
         if (!field.ast.tuple_like) {
-            return astgen.failTok(field.ast.main_token, "tuple field has a name", .{});
+            const tuple_member = for (container_decl.ast.members) |maybe_tuple| {
+                if ((tree.fullContainerField(maybe_tuple) orelse continue).ast.tuple_like)
+                    break maybe_tuple;
+            } else unreachable;
+            return astgen.failTokNotes(
+                field.ast.main_token,
+                "tuple field has a name",
+                .{},
+                &.{try astgen.errNoteNode(tuple_member, "tuple field here", .{})},
+            );
         }
 
         if (field.ast.align_expr != 0) {
