@@ -36719,7 +36719,7 @@ fn unionFields(
             if (enum_index != field_i) {
                 const msg = msg: {
                     const enum_field_src: LazySrcLoc = .{
-                        .base_node_inst = tag_info.zir_index.unwrap().?,
+                        .base_node_inst = Type.fromInterned(tag_ty).typeDeclInstAllowGeneratedTag(zcu).?,
                         .offset = .{ .container_field_name = enum_index },
                     };
                     const msg = try sema.errMsg(name_src, "union field '{}' ordered differently than corresponding enum field", .{
