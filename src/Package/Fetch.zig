@@ -331,9 +331,17 @@ pub fn run(f: *Fetch) RunError!void {
                 // prefix of "p/$hash/".
                 const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
                 const parent_sub_path = f.parent_package_root.sub_path;
-                const end = std.mem.indexOfScalarPos(u8, parent_sub_path, prefix_len, fs.path.sep) orelse
-                    parent_sub_path.len;
-                const expected_prefix = parent_sub_path[prefix_len..end];
+                const end = find_end: {
+                    if (parent_sub_path.len > prefix_len) {
+                        // Use `isSep` instead of `indexOfScalarPos` to account for
+                        // Windows accepting both `\` and `/` as path separators.
+                        for (parent_sub_path[prefix_len..], prefix_len..) |c, i| {
+                            if (std.fs.path.isSep(c)) break :find_end i;
+                        }
+                    }
+                    break :find_end parent_sub_path.len;
+                };
+                const expected_prefix = parent_sub_path[0..end];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
