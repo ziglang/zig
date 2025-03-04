@@ -171,14 +171,12 @@ pub fn StaticStringMapWithEql(
         }
 
         fn initLenIndexes(self: Self, len_indexes: []u32) void {
-            var len: usize = 0;
             var i: u32 = 0;
-            while (len <= self.max_len) : (len += 1) {
-                // find the first keyword len == len
-                while (len > self.kvs.keys[i].len) {
-                    i += 1;
-                }
-                len_indexes[len] = i;
+            @memset(len_indexes, std.math.maxInt(u32));
+            while (i < self.kvs.len) : (i += 1) {
+                const key_len = self.kvs.keys[i].len;
+                if (len_indexes[key_len] == std.math.maxInt(u32))
+                    len_indexes[key_len] = i;
             }
         }
 
@@ -204,6 +202,9 @@ pub fn StaticStringMapWithEql(
                 return null;
 
             var i = self.len_indexes[str.len];
+            if (i == std.math.maxInt(u32))
+                return null;
+
             while (true) {
                 const key = kvs.keys[i];
                 if (key.len != str.len)
@@ -401,6 +402,17 @@ test "empty" {
 
     const m4 = try StaticStringMapWithEql(usize, eqlAsciiIgnoreCase).init(.{}, test_alloc);
     try testing.expect(null == m4.get("anything"));
+}
+
+test "empty key" {
+    const slice = [_]TestKV{
+        .{ "", .D },
+        .{ "a", .A },
+    };
+
+    const map = TestMap.initComptime(slice);
+    try testing.expectEqual(TestEnum.D, map.get(""));
+    try testing.expectEqual(TestEnum.A, map.get("a"));
 }
 
 test "redundant entries" {
