@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const utf8Encode = std.unicode.utf8EncodeAllowSurrogates;
+const utf8EncodeAllowSurrogates = std.unicode.utf8EncodeAllowSurrogates;
 
 pub const ParseError = error{
     OutOfMemory,
@@ -339,7 +339,7 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                     .success => |codepoint| {
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
-                            const len = utf8Encode(codepoint, &buf) catch |err| switch (err) {
+                            const len = utf8EncodeAllowSurrogates(codepoint, &buf) catch |err| switch (err) {
                                 error.CodepointTooLarge => unreachable, // Checked in `parseEscapeSequence`.
                             };
                             try writer.writeAll(buf[0..len]);
