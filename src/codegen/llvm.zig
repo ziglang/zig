@@ -100,7 +100,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .kalimba,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
-
     };
 
     try llvm_triple.appendSlice(llvm_arch);
@@ -309,467 +308,154 @@ pub fn supportsTailCall(target: std.Target) bool {
     }
 }
 
-const DataLayoutBuilder = struct {
-    target: std.Target,
+pub fn dataLayout(target: std.Target) []const u8 {
+    // These data layouts should match Clang.
+    return switch (target.cpu.arch) {
+        .arc => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-i64:32-f64:32-a:0:32-n32",
+        .xcore => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32-f64:32-a:0:32-n32",
+        .hexagon => "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048",
+        .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
+        .aarch64 => if (target.ofmt == .macho)
+            if (target.os.tag == .windows)
+                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+            else if (target.abi == .ilp32)
+                "e-m:o-p:32:32-i64:64-i128:128-n32:64-S128-Fn32"
+            else
+                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+        else if (target.os.tag == .windows)
+            "e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
+        else
+            "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .aarch64_be => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .arm => if (target.ofmt == .macho)
+            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .armeb, .thumbeb => if (target.ofmt == .macho)
+            "E-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "E-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .thumb => if (target.ofmt == .macho)
+            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else if (target.os.tag == .windows)
+            "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .avr => "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8",
+        .bpfeb => "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .bpfel => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .msp430 => "e-m:e-p:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n8:16-S16",
+        .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+        .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+        .mips64 => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            else => "E-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+        },
+        .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            else => "e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+        },
+        .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
+        .powerpc => if (target.os.tag == .aix)
+            "E-m:a-p:32:32-Fi32-i64:64-n32"
+        else
+            "E-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpc64 => switch (target.os.tag) {
+            .aix => "E-m:a-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .linux => if (target.abi.isMusl())
+                "E-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+            else
+                "E-m:e-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-n32:64",
+            else => if (target.os.tag == .openbsd or
+                (target.os.tag == .freebsd and target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false))
+                "E-m:e-Fn32-i64:64-n32:64"
+            else
+                "E-m:e-Fi64-i64:64-n32:64",
+        },
+        .powerpc64le => if (target.os.tag == .linux)
+            "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+        else
+            "e-m:e-Fn32-i64:64-n32:64",
+        .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+        .riscv32 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+            "e-m:e-p:32:32-i64:64-n32-S32"
+        else
+            "e-m:e-p:32:32-i64:64-n32-S128",
+        .riscv64 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+        else
+            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .sparc => "E-m:e-p:32:32-i64:64-f128:64-n32-S64",
+        .sparc64 => "E-m:e-i64:64-n32:64-S128",
+        .s390x => if (target.os.tag == .zos)
+            "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
+        else
+            "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
+        .x86 => switch (target.os.tag) {
+            .elfiamcu => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:32-f64:32-f128:32-n8:16:32-a:0:32-S32",
+            .windows => switch (target.abi) {
+                .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+                .gnu => if (target.ofmt == .coff)
+                    "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                else
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+                else => blk: {
+                    const msvc = switch (target.abi) {
+                        .none, .msvc => true,
+                        else => false,
+                    };
 
-    pub fn format(
-        self: DataLayoutBuilder,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeByte(switch (self.target.cpu.arch.endian()) {
-            .little => 'e',
-            .big => 'E',
-        });
-        switch (self.target.cpu.arch) {
-            .amdgcn,
-            .nvptx,
-            .nvptx64,
-            => {},
-            .avr => try writer.writeAll("-P1"),
-            else => try writer.print("-m:{c}", .{@as(u8, switch (self.target.cpu.arch) {
-                .mips, .mipsel => 'm', // Mips mangling: Private symbols get a $ prefix.
-                else => switch (self.target.ofmt) {
-                    .elf => 'e', // ELF mangling: Private symbols get a `.L` prefix.
-                    //.goff => 'l', // GOFF mangling: Private symbols get a `@` prefix.
-                    .macho => 'o', // Mach-O mangling: Private symbols get `L` prefix.
-                    // Other symbols get a `_` prefix.
-                    .coff => switch (self.target.os.tag) {
-                        .uefi, .windows => switch (self.target.cpu.arch) {
-                            .x86 => 'x', // Windows x86 COFF mangling: Private symbols get the usual
-                            // prefix. Regular C symbols get a `_` prefix. Functions with `__stdcall`,
-                            //`__fastcall`, and `__vectorcall` have custom mangling that appends `@N`
-                            // where N is the number of bytes used to pass parameters. C++ symbols
-                            // starting with `?` are not mangled in any way.
-                            else => 'w', // Windows COFF mangling: Similar to x, except that normal C
-                            // symbols do not receive a `_` prefix.
-                        },
-                        else => 'e',
-                    },
-                    //.xcoff => 'a', // XCOFF mangling: Private symbols get a `L..` prefix.
-                    else => 'e',
+                    break :blk if (target.ofmt == .coff)
+                        if (msvc)
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                        else
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                    else if (msvc)
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                    else
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
                 },
-            })}),
-        }
-        const stack_abi = self.target.stackAlignment() * 8;
-        if (self.target.cpu.arch == .csky) try writer.print("-S{d}", .{stack_abi});
-        var any_non_integral = false;
-        const ptr_bit_width = self.target.ptrBitWidth();
-        var default_info = struct { size: u16, abi: u16, pref: u16, idx: u16 }{
-            .size = 64,
-            .abi = 64,
-            .pref = 64,
-            .idx = 64,
-        };
-        const addr_space_info = llvmAddrSpaceInfo(self.target);
-        for (addr_space_info, 0..) |info, i| {
-            assert((info.llvm == .default) == (i == 0));
-            if (info.non_integral) {
-                assert(info.llvm != .default);
-                any_non_integral = true;
-            }
-            const size = info.size orelse ptr_bit_width;
-            const abi = info.abi orelse ptr_bit_width;
-            const pref = info.pref orelse abi;
-            const idx = info.idx orelse size;
-            const matches_default =
-                size == default_info.size and
-                abi == default_info.abi and
-                pref == default_info.pref and
-                idx == default_info.idx;
-            if (info.llvm == .default) default_info = .{
-                .size = size,
-                .abi = abi,
-                .pref = pref,
-                .idx = idx,
-            };
-            if (!info.force_in_data_layout and matches_default and
-                self.target.cpu.arch != .riscv64 and
-                self.target.cpu.arch != .loongarch64 and
-                !(self.target.cpu.arch == .aarch64 and
-                    (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
-                self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
-            try writer.writeAll("-p");
-            if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
-            try writer.print(":{d}:{d}", .{ size, abi });
-            if (pref != abi or idx != size or self.target.cpu.arch == .hexagon) {
-                try writer.print(":{d}", .{pref});
-                if (idx != size) try writer.print(":{d}", .{idx});
-            }
-        }
-        if (self.target.cpu.arch.isArm())
-            try writer.writeAll("-Fi8") // for thumb interwork
-        else if (self.target.cpu.arch == .powerpc64 and
-            self.target.os.tag != .freebsd and
-            self.target.os.tag != .openbsd and
-            !self.target.abi.isMusl())
-            try writer.writeAll("-Fi64")
-        else if (self.target.cpu.arch.isPowerPC() and self.target.os.tag == .aix)
-            try writer.writeAll(if (self.target.cpu.arch.isPowerPC64()) "-Fi64" else "-Fi32")
-        else if (self.target.cpu.arch.isPowerPC())
-            try writer.writeAll("-Fn32");
-        if (self.target.cpu.arch != .hexagon) {
-            if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
-                try self.typeAlignment(.integer, 1, 8, 8, false, writer);
-            try self.typeAlignment(.integer, 8, 8, 8, false, writer);
-            try self.typeAlignment(.integer, 16, 16, 16, false, writer);
-            try self.typeAlignment(.integer, 32, 32, 32, false, writer);
-            if (self.target.cpu.arch == .arc)
-                try self.typeAlignment(.float, 32, 32, 32, false, writer);
-            try self.typeAlignment(.integer, 64, 32, 64, false, writer);
-            try self.typeAlignment(.integer, 128, 32, 64, false, writer);
-            if (backendSupportsF16(self.target))
-                try self.typeAlignment(.float, 16, 16, 16, false, writer);
-            if (self.target.cpu.arch != .arc)
-                try self.typeAlignment(.float, 32, 32, 32, false, writer);
-            try self.typeAlignment(.float, 64, 64, 64, false, writer);
-            if (self.target.cpu.arch.isX86()) try self.typeAlignment(.float, 80, 0, 0, false, writer);
-            try self.typeAlignment(.float, 128, 128, 128, false, writer);
-        }
-        switch (self.target.cpu.arch) {
-            .amdgcn => {
-                try self.typeAlignment(.vector, 16, 16, 16, false, writer);
-                try self.typeAlignment(.vector, 24, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 32, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 48, 64, 64, false, writer);
-                try self.typeAlignment(.vector, 96, 128, 128, false, writer);
-                try self.typeAlignment(.vector, 192, 256, 256, false, writer);
-                try self.typeAlignment(.vector, 256, 256, 256, false, writer);
-                try self.typeAlignment(.vector, 512, 512, 512, false, writer);
-                try self.typeAlignment(.vector, 1024, 1024, 1024, false, writer);
-                try self.typeAlignment(.vector, 2048, 2048, 2048, false, writer);
             },
-            .ve => {},
-            else => {
-                try self.typeAlignment(.vector, 16, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 32, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 64, 64, 64, false, writer);
-                try self.typeAlignment(.vector, 128, 128, 128, true, writer);
-            },
-        }
-        const swap_agg_nat = switch (self.target.cpu.arch) {
-            .x86, .x86_64 => switch (self.target.os.tag) {
-                .uefi, .windows => true,
-                else => false,
-            },
-            .avr, .m68k => true,
-            else => false,
-        };
-        if (!swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
-        if (self.target.cpu.arch == .csky) try writer.writeAll("-Fi32");
-        for (@as([]const u24, switch (self.target.cpu.arch) {
-            .avr => &.{8},
-            .msp430 => &.{ 8, 16 },
-            .arc,
-            .arm,
-            .armeb,
-            .csky,
-            .loongarch32,
-            .mips,
-            .mipsel,
-            .powerpc,
-            .powerpcle,
-            .riscv32,
-            .sparc,
-            .thumb,
-            .thumbeb,
-            .xtensa,
-            => &.{32},
-            .aarch64,
-            .aarch64_be,
-            .amdgcn,
-            .bpfeb,
-            .bpfel,
-            .loongarch64,
-            .mips64,
-            .mips64el,
-            .powerpc64,
-            .powerpc64le,
-            .riscv64,
-            .s390x,
-            .sparc64,
-            .ve,
-            .wasm32,
-            .wasm64,
-            => &.{ 32, 64 },
-            .hexagon => &.{ 16, 32 },
-            .m68k,
-            .x86,
-            => &.{ 8, 16, 32 },
-            .nvptx,
-            .nvptx64,
-            => &.{ 16, 32, 64 },
-            .x86_64 => &.{ 8, 16, 32, 64 },
-            else => &.{},
-        }), 0..) |natural, index| switch (index) {
-            0 => try writer.print("-n{d}", .{natural}),
-            else => try writer.print(":{d}", .{natural}),
-        };
-        if (swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
-        if (self.target.cpu.arch == .hexagon) {
-            try self.typeAlignment(.integer, 64, 64, 64, true, writer);
-            try self.typeAlignment(.integer, 32, 32, 32, true, writer);
-            try self.typeAlignment(.integer, 16, 16, 16, true, writer);
-            try self.typeAlignment(.integer, 1, 8, 8, true, writer);
-            try self.typeAlignment(.float, 32, 32, 32, true, writer);
-            try self.typeAlignment(.float, 64, 64, 64, true, writer);
-        }
-        if (stack_abi != ptr_bit_width or self.target.cpu.arch == .msp430 or
-            self.target.os.tag == .uefi or self.target.os.tag == .windows or
-            self.target.cpu.arch == .riscv32)
-            try writer.print("-S{d}", .{stack_abi});
-        if (self.target.cpu.arch.isAARCH64())
-            try writer.writeAll("-Fn32");
-        switch (self.target.cpu.arch) {
-            .hexagon, .ve => {
-                try self.typeAlignment(.vector, 32, 128, 128, true, writer);
-                try self.typeAlignment(.vector, 64, 128, 128, true, writer);
-                try self.typeAlignment(.vector, 128, 128, 128, true, writer);
-            },
-            else => {},
-        }
-        if (self.target.cpu.arch != .amdgcn) {
-            try self.typeAlignment(.vector, 256, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 512, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 1024, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 2048, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 4096, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 8192, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 16384, 128, 128, true, writer);
-        }
-        const alloca_addr_space = llvmAllocaAddressSpace(self.target);
-        if (alloca_addr_space != .default) try writer.print("-A{d}", .{@intFromEnum(alloca_addr_space)});
-        const global_addr_space = llvmDefaultGlobalAddressSpace(self.target);
-        if (global_addr_space != .default) try writer.print("-G{d}", .{@intFromEnum(global_addr_space)});
-        if (any_non_integral) {
-            try writer.writeAll("-ni");
-            for (addr_space_info) |info| if (info.non_integral)
-                try writer.print(":{d}", .{@intFromEnum(info.llvm)});
-        }
-    }
+            else => if (target.ofmt == .macho)
+                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+            else
+                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
+        },
+        .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
+            "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+        else switch (target.abi) {
+            .gnux32, .muslx32 => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+            else => if (target.os.tag == .windows and target.ofmt == .coff)
+                "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+            else
+                "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        },
+        .spirv => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .spirv32 => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .wasm32 => if (target.os.tag == .emscripten)
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+        else
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+        .wasm64 => if (target.os.tag == .emscripten)
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+        else
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+        .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
+        .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
+        .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
+        .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
-    fn typeAlignment(
-        self: DataLayoutBuilder,
-        kind: enum { integer, vector, float, aggregate },
-        size: u24,
-        default_abi: u24,
-        default_pref: u24,
-        default_force_pref: bool,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        var abi = default_abi;
-        var pref = default_pref;
-        var force_abi = false;
-        var force_pref = default_force_pref;
-        if (kind == .float and size == 80) {
-            abi = 128;
-            pref = 128;
-        }
-        for (@as([]const std.Target.CType, switch (kind) {
-            .integer => &.{ .char, .short, .int, .long, .longlong },
-            .float => &.{ .float, .double, .longdouble },
-            .vector, .aggregate => &.{},
-        })) |cty| {
-            if (self.target.cTypeBitSize(cty) != size) continue;
-            abi = self.target.cTypeAlignment(cty) * 8;
-            pref = self.target.cTypePreferredAlignment(cty) * 8;
-            break;
-        }
-        switch (kind) {
-            .integer => {
-                if (self.target.ptrBitWidth() <= 16 and size >= 128) return;
-                abi = @min(abi, Type.maxIntAlignment(self.target) * 8);
-                switch (self.target.cpu.arch) {
-                    .aarch64,
-                    .aarch64_be,
-                    => if (size == 128) {
-                        abi = size;
-                        pref = size;
-                    } else switch (self.target.os.tag) {
-                        .macos, .ios, .watchos, .tvos, .visionos => {},
-                        .uefi, .windows => {
-                            pref = size;
-                            force_abi = size >= 32;
-                        },
-                        else => pref = @max(pref, 32),
-                    },
-                    .arc => if (size <= 64) {
-                        abi = @min((std.math.divCeil(u24, size, 8) catch unreachable) * 8, 32);
-                        pref = 32;
-                        force_abi = true;
-                        force_pref = size <= 32;
-                    },
-                    .bpfeb,
-                    .bpfel,
-                    .nvptx,
-                    .nvptx64,
-                    .riscv64,
-                    => if (size == 128) {
-                        abi = size;
-                        pref = size;
-                    },
-                    .csky => if (size == 32 or size == 64) {
-                        abi = 32;
-                        pref = 32;
-                        force_abi = true;
-                        force_pref = true;
-                    },
-                    .hexagon => force_abi = true,
-                    .m68k => if (size <= 32) {
-                        abi = @min(size, 16);
-                        pref = size;
-                        force_abi = true;
-                        force_pref = true;
-                    } else if (size == 64) {
-                        abi = 32;
-                        pref = size;
-                    },
-                    .mips,
-                    .mipsel,
-                    .mips64,
-                    .mips64el,
-                    => pref = @max(pref, 32),
-                    .s390x => pref = @max(pref, 16),
-                    .ve => if (size == 64) {
-                        abi = size;
-                        pref = size;
-                    },
-                    .xtensa => if (size <= 64) {
-                        pref = @max(size, 32);
-                        abi = size;
-                        force_abi = size == 64;
-                    },
-                    .x86 => switch (size) {
-                        128 => {
-                            abi = size;
-                            pref = size;
-                        },
-                        else => {},
-                    },
-                    .x86_64 => switch (size) {
-                        64, 128 => {
-                            abi = size;
-                            pref = size;
-                        },
-                        else => {},
-                    },
-                    .loongarch64 => switch (size) {
-                        128 => {
-                            abi = size;
-                            pref = size;
-                            force_abi = true;
-                        },
-                        else => {},
-                    },
-                    else => {},
-                }
-            },
-            .vector => if (self.target.cpu.arch.isArm()) {
-                switch (size) {
-                    128 => abi = 64,
-                    else => {},
-                }
-            } else if ((self.target.cpu.arch.isPowerPC64() and self.target.os.tag == .linux and
-                (size == 256 or size == 512)) or
-                (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
-            {
-                force_abi = true;
-                abi = size;
-                pref = size;
-            } else if (self.target.cpu.arch == .amdgcn and size <= 2048) {
-                force_abi = true;
-            } else if (self.target.cpu.arch == .csky and (size == 64 or size == 128)) {
-                abi = 32;
-                pref = 32;
-                force_pref = true;
-            } else if (self.target.cpu.arch == .hexagon and
-                ((size >= 32 and size <= 64) or (size >= 512 and size <= 2048)))
-            {
-                abi = size;
-                pref = size;
-                force_pref = true;
-            } else if (self.target.cpu.arch == .s390x and size == 128) {
-                abi = 64;
-                pref = 64;
-                force_pref = false;
-            } else if (self.target.cpu.arch == .ve and (size >= 64 and size <= 16384)) {
-                abi = 64;
-                pref = 64;
-                force_abi = true;
-                force_pref = true;
-            },
-            .float => switch (self.target.cpu.arch) {
-                .amdgcn => if (size == 128) {
-                    abi = size;
-                    pref = size;
-                },
-                .arc => if (size == 32 or size == 64) {
-                    abi = 32;
-                    pref = 32;
-                    force_abi = true;
-                    force_pref = size == 32;
-                },
-                .avr, .msp430, .sparc64 => if (size != 32 and size != 64) return,
-                .csky => if (size == 32 or size == 64) {
-                    abi = 32;
-                    pref = 32;
-                    force_abi = true;
-                    force_pref = true;
-                },
-                .hexagon => if (size == 32 or size == 64) {
-                    force_abi = true;
-                },
-                .ve, .xtensa => if (size == 64) {
-                    abi = size;
-                    pref = size;
-                },
-                .wasm32, .wasm64 => if (self.target.os.tag == .emscripten and size == 128) {
-                    abi = 64;
-                    pref = 64;
-                },
-                else => {},
-            },
-            .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isArm())
-            {
-                pref = @min(pref, self.target.ptrBitWidth());
-            } else switch (self.target.cpu.arch) {
-                .arc, .csky => {
-                    abi = 0;
-                    pref = 32;
-                },
-                .hexagon => {
-                    abi = 0;
-                    pref = 0;
-                },
-                .m68k => {
-                    abi = 0;
-                    pref = 16;
-                },
-                .msp430 => {
-                    abi = 8;
-                    pref = 8;
-                },
-                .s390x => {
-                    abi = 8;
-                    pref = 16;
-                },
-                else => {},
-            },
-        }
-        if (kind != .vector and self.target.cpu.arch == .avr) {
-            force_abi = true;
-            abi = 8;
-            pref = 8;
-        }
-        if (!force_abi and abi == default_abi and pref == default_pref) return;
-        try writer.print("-{c}", .{@tagName(kind)[0]});
-        if (size != 0) try writer.print("{d}", .{size});
-        try writer.print(":{d}", .{abi});
-        if (pref != abi or force_pref) try writer.print(":{d}", .{pref});
-    }
-};
+        .kalimba,
+        .propeller,
+        => unreachable, // Gated by hasLlvmSupport().
+    };
+}
 
 pub const Object = struct {
     gpa: Allocator,
@@ -856,7 +542,7 @@ pub const Object = struct {
         });
         errdefer builder.deinit();
 
-        builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
+        builder.data_layout = try builder.string(dataLayout(target));
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
             if (!builder.strip) debug_info: {
