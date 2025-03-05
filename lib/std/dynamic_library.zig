@@ -397,7 +397,7 @@ pub const ElfDynLib = struct {
 
             const bloom_ptr: [*]u32 = @ptrFromInt(bloom_offset);
             const buckets_ptr: [*]u32 = @ptrFromInt(buckets_offset);
-            const chain_ptr: [*]u32 = @ptrFromInt(chain_offset);
+            const chain_ptr: [*]elf.gnu_hash.ChainEntry = @ptrFromInt(chain_offset);
 
             return .{
                 .symoffset = header.symoffset,

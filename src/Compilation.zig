@@ -2405,7 +2405,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
-            const need_writable_dance = w: {
+            const need_writable_dance: enum { no, lf_only, lf_and_debug } = w: {
                 if (builtin.os.tag == .windows) {
                     if (comp.bin_file) |lf| {
                         // We cannot just call `makeExecutable` as it makes a false
@@ -2418,11 +2418,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                         if (lf.file) |f| {
                             f.close();
                             lf.file = null;
-                            break :w true;
+
+                            if (lf.closeDebugInfo()) break :w .lf_and_debug;
+                            break :w .lf_only;
                         }
                     }
                 }
-                break :w false;
+                break :w .no;
             };
 
             renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path) catch |err| {
@@ -2449,8 +2451,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 };
 
                 // Has to be after the `wholeCacheModeSetBinFilePath` above.
-                if (need_writable_dance) {
-                    try lf.makeWritable();
+                switch (need_writable_dance) {
+                    .no => {},
+                    .lf_only => try lf.makeWritable(),
+                    .lf_and_debug => {
+                        try lf.makeWritable();
+                        try lf.reopenDebugInfo();
+                    },
                 }
             }
 
