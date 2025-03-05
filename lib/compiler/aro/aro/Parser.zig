@@ -8259,7 +8259,7 @@ fn charLiteral(p: *Parser) Error!Result {
     const slice = char_kind.contentSlice(p.tokSlice(p.tok_i));
 
     var is_multichar = false;
-    if (slice.len == 1 and std.ascii.isASCII(slice[0])) {
+    if (slice.len == 1 and std.ascii.isAscii(slice[0])) {
         // fast path: single unescaped ASCII char
         val = slice[0];
     } else {
