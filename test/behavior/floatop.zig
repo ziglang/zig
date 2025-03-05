@@ -1802,3 +1802,33 @@ test "optimized float mode" {
     try expect(S.optimized(small) == small);
     try expect(S.strict(small) == tiny);
 }
+
+fn MakeType(comptime x: anytype) type {
+    return struct {
+        fn get() @TypeOf(x) {
+            return x;
+        }
+    };
+}
+
+const nan_a: f32 = @bitCast(@as(u32, 0xffc00000));
+const nan_b: f32 = @bitCast(@as(u32, 0xffe00000));
+
+fn testMemoization() !void {
+    try expect(MakeType(nan_a) == MakeType(nan_a));
+    try expect(MakeType(nan_b) == MakeType(nan_b));
+    try expect(MakeType(nan_a) != MakeType(nan_b));
+}
+
+fn testVectorMemoization(comptime T: type) !void {
+    const nan_a_v: T = @splat(nan_a);
+    const nan_b_v: T = @splat(nan_b);
+    try expect(MakeType(nan_a_v) == MakeType(nan_a_v));
+    try expect(MakeType(nan_b_v) == MakeType(nan_b_v));
+    try expect(MakeType(nan_a_v) != MakeType(nan_b_v));
+}
+
+test "comptime calls are only memoized when float arguments are bit-for-bit equal" {
+    try comptime testMemoization();
+    try comptime testVectorMemoization(@Vector(4, f32));
+}
