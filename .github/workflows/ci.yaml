@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zigtools/zls
-          ref: b9c9b5abe3e175821055e9ae1467c64a48eb3022
+          ref: 81407cd41b82a1a450315862897958e62e50e660
       - uses: actions/download-artifact@v4
       - name: chmod
         run: |
