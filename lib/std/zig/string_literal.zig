@@ -388,5 +388,5 @@ test parseAlloc {
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
     try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
-    try expect(eql(u8, "\u{d800}", try parseAlloc(alloc, "\"\u{d800}\"")));
+    try expect(eql(u8, "\xed\xa0\x80", try parseAlloc(alloc, "\"\\u{d800}\"")));
 }
