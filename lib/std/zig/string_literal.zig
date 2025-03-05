@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const utf8Encode = std.unicode.utf8Encode;
+const utf8Encode = std.unicode.utf8EncodeAllowSurrogates;
 
 pub const ParseError = error{
     OutOfMemory,
@@ -69,7 +69,7 @@ pub const Error = union(enum) {
                 .{self.raw_string[bad_index]},
             ),
             .invalid_unicode_codepoint => try writer.writeAll(
-                "unicode escape does not correspond to a valid unicode scalar value",
+                "unicode escape does not correspond to a Unicode code point",
             ),
             .expected_lbrace => |bad_index| try writer.print(
                 "expected '{{', found '{c}'",
@@ -340,6 +340,7 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
                             const len = utf8Encode(codepoint, &buf) catch {
+			        // Note: never fails as codepoint is in range and surrogates are allowed, so this catch clause cannot be reached.
                                 return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
                             };
                             try writer.writeAll(buf[0..len]);
@@ -388,4 +389,5 @@ test parseAlloc {
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
     try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
+    try expect(eql(u8, "\u{d800}", try parseAlloc(alloc, "\"\u{d800}\"")));
 }
