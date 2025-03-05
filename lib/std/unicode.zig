@@ -43,7 +43,7 @@ pub fn utf8Encode(c: u21, out: []u8) error{ Utf8CannotEncodeSurrogateHalf, Codep
     return utf8EncodeImpl(c, out, .cannot_encode_surrogate_half);
 }
 
-pub fn utf8EncodeAllowSurrogates(c: u21, out: []u8) error{ CodepointTooLarge }!u3 {
+pub fn utf8EncodeAllowSurrogates(c: u21, out: []u8) error{CodepointTooLarge}!u3 {
     return utf8EncodeImpl(c, out, .can_encode_surrogate_half);
 }
 
