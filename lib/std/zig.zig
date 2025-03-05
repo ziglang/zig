@@ -17,7 +17,6 @@ pub const Zir = @import("zig/Zir.zig");
 pub const Zoir = @import("zig/Zoir.zig");
 pub const ZonGen = @import("zig/ZonGen.zig");
 pub const system = @import("zig/system.zig");
-pub const CrossTarget = @compileError("deprecated; use std.Target.Query");
 pub const BuiltinFn = @import("zig/BuiltinFn.zig");
 pub const AstRlAnnotate = @import("zig/AstRlAnnotate.zig");
 pub const LibCInstallation = @import("zig/LibCInstallation.zig");
@@ -604,7 +603,7 @@ pub fn putAstErrorsIntoBundle(
 
 pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
     return std.zig.system.resolveTargetQuery(target_query) catch |err|
-        fatal("unable to resolve target: {s}", .{@errorName(err)});
+        std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
 pub fn parseTargetQueryOrReportFatalError(
@@ -628,7 +627,7 @@ pub fn parseTargetQueryOrReportFatalError(
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
-            fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
+            std.process.fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
         },
         error.UnknownCpuFeature => {
             help: {
@@ -641,7 +640,7 @@ pub fn parseTargetQueryOrReportFatalError(
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
-            fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
+            std.process.fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
         },
         error.UnknownObjectFormat => {
             help: {
@@ -652,7 +651,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
-            fatal("unknown object format: '{s}'", .{opts.object_format.?});
+            std.process.fatal("unknown object format: '{s}'", .{opts.object_format.?});
         },
         error.UnknownArchitecture => {
             help: {
@@ -663,16 +662,13 @@ pub fn parseTargetQueryOrReportFatalError(
                 }
                 std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
-            fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
+            std.process.fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
         },
-        else => |e| fatal("unable to parse target query '{s}': {s}", .{
+        else => |e| std.process.fatal("unable to parse target query '{s}': {s}", .{
             opts.arch_os_abi, @errorName(e),
         }),
     };
 }
-
-/// Deprecated; see `std.process.fatal`.
-pub const fatal = std.process.fatal;
 
 /// Collects all the environment variables that Zig could possibly inspect, so
 /// that we can do reflection on this and print them with `zig env`.

@@ -1820,7 +1820,7 @@ pub fn main() !void {
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
         error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
+        error.StreamTooLong => std.process.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 

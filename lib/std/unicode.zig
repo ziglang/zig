@@ -972,8 +972,6 @@ pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) 
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
 }
 
-pub const utf16leToUtf8Alloc = @compileError("deprecated; renamed to utf16LeToUtf8Alloc");
-
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![]u8 {
     // optimistically guess that it will all be ascii.
@@ -983,8 +981,6 @@ pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16L
     try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
-
-pub const utf16leToUtf8AllocZ = @compileError("deprecated; renamed to utf16LeToUtf8AllocZ");
 
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![:0]u8 {
@@ -1053,8 +1049,6 @@ fn utf16LeToUtf8Impl(utf8: []u8, utf16le: []const u16, comptime surrogates: Surr
     }
     return dest_index;
 }
-
-pub const utf16leToUtf8 = @compileError("deprecated; renamed to utf16LeToUtf8");
 
 pub fn utf16LeToUtf8(utf8: []u8, utf16le: []const u16) Utf16LeToUtf8Error!usize {
     return utf16LeToUtf8Impl(utf8, utf16le, .cannot_encode_surrogate_half);
@@ -1174,8 +1168,6 @@ pub fn utf8ToUtf16LeAlloc(allocator: mem.Allocator, utf8: []const u8) error{ Inv
     try utf8ToUtf16LeArrayListImpl(&result, utf8, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
-
-pub const utf8ToUtf16LeWithNull = @compileError("deprecated; renamed to utf8ToUtf16LeAllocZ");
 
 pub fn utf8ToUtf16LeAllocZ(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![:0]u16 {
     // optimistically guess that it will not require surrogate pairs
@@ -1486,8 +1478,6 @@ fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Err
     }
     try writer.writeAll(buf[0..u8len]);
 }
-
-pub const fmtUtf16le = @compileError("deprecated; renamed to fmtUtf16Le");
 
 /// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
 /// which will be converted to UTF-8 during formatting.
