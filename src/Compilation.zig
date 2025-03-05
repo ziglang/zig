@@ -5631,7 +5631,10 @@ pub fn addCCArgs(
     }
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
-        try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+        // Clang's integrated Arm assembler doesn't support `-mabi` yet...
+        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp))) {
+            try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+        }
     }
 
     // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
