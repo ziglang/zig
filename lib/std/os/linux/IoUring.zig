@@ -1613,7 +1613,7 @@ pub const BufferGroup = struct {
         const heads = try allocator.alloc(u32, buffers_count);
         errdefer allocator.free(heads);
 
-        const br = try setup_buf_ring(ring.fd, buffers_count, group_id, linux.io_uring_buf_reg.FLAG.INC);
+        const br = try setup_buf_ring(ring.fd, buffers_count, group_id, .{ .inc = true });
         buf_ring_init(br);
 
         const mask = buf_ring_mask(buffers_count);
@@ -1698,7 +1698,12 @@ pub const BufferGroup = struct {
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
 /// `entries` is the number of entries requested in the buffer ring, must be power of 2.
 /// `group_id` is the chosen buffer group ID, unique in IO_Uring.
-pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16, flags: u16) !*align(page_size_min) linux.io_uring_buf_ring {
+pub fn setup_buf_ring(
+    fd: posix.fd_t,
+    entries: u16,
+    group_id: u16,
+    flags: linux.io_uring_buf_reg.Flags,
+) !*align(page_size_min) linux.io_uring_buf_ring {
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
@@ -1719,7 +1724,13 @@ pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16, flags: u16) !
     return br;
 }
 
-fn register_buf_ring(fd: posix.fd_t, addr: u64, entries: u32, group_id: u16, flags: u16) !void {
+fn register_buf_ring(
+    fd: posix.fd_t,
+    addr: u64,
+    entries: u32,
+    group_id: u16,
+    flags: linux.io_uring_buf_reg.Flags,
+) !void {
     var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
         .ring_addr = addr,
         .ring_entries = entries,
@@ -1727,10 +1738,10 @@ fn register_buf_ring(fd: posix.fd_t, addr: u64, entries: u32, group_id: u16, fla
         .flags = flags,
     });
     var res = linux.io_uring_register(fd, .REGISTER_PBUF_RING, @as(*const anyopaque, @ptrCast(&reg)), 1);
-    if (linux.E.init(res) == .INVAL and reg.flags & linux.io_uring_buf_reg.FLAG.INC > 0) {
+    if (linux.E.init(res) == .INVAL and reg.flags.inc) {
         // Retry without incremental buffer consumption.
         // It is available since kernel 6.12. returns INVAL on older.
-        reg.flags &= ~linux.io_uring_buf_reg.FLAG.INC;
+        reg.flags.inc = false;
         res = linux.io_uring_register(fd, .REGISTER_PBUF_RING, @as(*const anyopaque, @ptrCast(&reg)), 1);
     }
     try handle_register_buf_ring_result(res);

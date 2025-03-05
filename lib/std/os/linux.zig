@@ -6141,7 +6141,8 @@ pub const IO_URING_OP_SUPPORTED = 1 << 0;
 pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
     resv: u8,
-    flags: u16, // IO_URING_OP_* flags
+    /// IO_URING_OP_* flags
+    flags: u16,
     resv2: u32,
 
     pub fn is_supported(self: @This()) bool {
@@ -6150,8 +6151,10 @@ pub const io_uring_probe_op = extern struct {
 };
 
 pub const io_uring_probe = extern struct {
-    last_op: IORING_OP, // last opcode supported
-    ops_len: u8, // length of ops[] array below
+    /// Last opcode supported
+    last_op: IORING_OP,
+    /// Length of ops[] array below
+    ops_len: u8,
     resv: u16,
     resv2: [3]u32,
     ops: [256]io_uring_probe_op,
@@ -6224,12 +6227,14 @@ pub const io_uring_buf_reg = extern struct {
     ring_addr: u64,
     ring_entries: u32,
     bgid: u16,
-    flags: u16,
+    flags: Flags,
     resv: [3]u64,
 
-    pub const FLAG = struct {
-        // Incremental buffer consummation.
-        pub const INC: u16 = 2;
+    pub const Flags = packed struct {
+        _0: u1 = 0,
+        /// Incremental buffer consumption.
+        inc: bool,
+        _: u14 = 0,
     };
 };
 
