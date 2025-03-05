@@ -146,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
+                std.Thread.sleep(std.time.ns_per_ms);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -2847,9 +2847,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
-/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
-pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;

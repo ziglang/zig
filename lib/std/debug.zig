@@ -227,10 +227,6 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend bw.print(fmt, args) catch return;
 }
 
-pub fn getStderrMutex() *std.Thread.Mutex {
-    @compileError("deprecated. call std.debug.lockStdErr() and std.debug.unlockStdErr() instead which will integrate properly with std.Progress");
-}
-
 /// TODO multithreaded awareness
 var self_debug_info: ?SelfInfo = null;
 

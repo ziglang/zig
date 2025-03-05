@@ -214,8 +214,6 @@ pub const Address = extern union {
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
-        /// Deprecated. Does the same thing as reuse_address.
-        reuse_port: bool = false,
         force_nonblocking: bool = false,
     };
 
@@ -232,7 +230,7 @@ pub const Address = extern union {
         };
         errdefer s.stream.close();
 
-        if (options.reuse_address or options.reuse_port) {
+        if (options.reuse_address) {
             try posix.setsockopt(
                 sockfd,
                 posix.SOL.SOCKET,

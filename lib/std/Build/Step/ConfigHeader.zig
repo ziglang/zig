@@ -8,9 +8,6 @@ pub const Style = union(enum) {
     /// A configure format supported by autotools that uses `#undef foo` to
     /// mark lines that can be substituted with different values.
     autoconf_undef: std.Build.LazyPath,
-    /// Deprecated. Renamed to `autoconf_undef`.
-    /// To be removed after 0.14.0 is tagged.
-    autoconf: std.Build.LazyPath,
     /// A configure format supported by autotools that uses `@FOO@` output variables.
     autoconf_at: std.Build.LazyPath,
     /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
@@ -23,7 +20,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf_undef, .autoconf, .autoconf_at, .cmake => |s| return s,
+            .autoconf_undef, .autoconf_at, .cmake => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -205,7 +202,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const asm_generated_line = "; " ++ header_text ++ "\n";
 
     switch (config_header.style) {
-        .autoconf_undef, .autoconf, .autoconf_at => |file_source| {
+        .autoconf_undef, .autoconf_at => |file_source| {
             try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
@@ -214,7 +211,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 });
             };
             switch (config_header.style) {
-                .autoconf_undef, .autoconf => try render_autoconf_undef(step, contents, bw, config_header.values, src_path),
+                .autoconf_undef => try render_autoconf_undef(step, contents, bw, config_header.values, src_path),
                 .autoconf_at => try render_autoconf_at(step, contents, &aw, config_header.values, src_path),
                 else => unreachable,
             }

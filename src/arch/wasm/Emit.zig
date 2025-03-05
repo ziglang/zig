@@ -263,7 +263,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
                 const sp_global: Wasm.GlobalIndex = .stack_pointer;
-                std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+                std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
             }
 
             inst += 1;

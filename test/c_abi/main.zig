@@ -5763,7 +5763,7 @@ test "f128 f128 struct" {
 }
 
 // The stdcall attribute on C functions is ignored when compiled on non-x86
-const stdcall_callconv: std.builtin.CallingConvention = if (builtin.cpu.arch == .x86) .Stdcall else .C;
+const stdcall_callconv: std.builtin.CallingConvention = if (builtin.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c;
 
 extern fn stdcall_scalars(i8, i16, i32, f32, f64) callconv(stdcall_callconv) void;
 test "Stdcall ABI scalars" {

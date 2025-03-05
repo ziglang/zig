@@ -3974,7 +3974,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         var width_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
         width_bigint.sub(max_bigint, min_bigint);
         width_bigint.addScalar(width_bigint.toConst(), 1);
-        break :width width_bigint.toConst().to(u32) catch null;
+        break :width width_bigint.toConst().toInt(u32) catch null;
     };
 
     try cg.startBlock(.block, .empty); // whole switch block start
@@ -4015,7 +4015,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const val_bigint = val.toBigInt(&val_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(val_bigint, min_bigint);
-                branch_list[index_bigint.toConst().to(u32) catch unreachable] = case.idx;
+                branch_list[index_bigint.toConst().toInt(u32) catch unreachable] = case.idx;
             }
             for (case.ranges) |range| {
                 var low_space: Value.BigIntSpace = undefined;
@@ -4024,9 +4024,9 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const high_bigint = Value.fromInterned(range[1].toInterned().?).toBigInt(&high_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(low_bigint, min_bigint);
-                const start = index_bigint.toConst().to(u32) catch unreachable;
+                const start = index_bigint.toConst().toInt(u32) catch unreachable;
                 index_bigint.sub(high_bigint, min_bigint);
-                const end = (index_bigint.toConst().to(u32) catch unreachable) + 1;
+                const end = (index_bigint.toConst().toInt(u32) catch unreachable) + 1;
                 @memset(branch_list[start..end], case.idx);
             }
         }

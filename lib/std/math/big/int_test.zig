@@ -688,7 +688,7 @@ test "string set base 36" {
     defer a.deinit();
 
     try a.setString(36, "fifvthrv1mzt79ez9");
-    try testing.expectEqual(123456789123456789123456789, try a.to(u128));
+    try testing.expectEqual(123456789123456789123456789, try a.toInt(u128));
 }
 
 test "string set bad char error" {

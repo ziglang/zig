@@ -808,7 +808,7 @@ pub const Namespace = struct {
 
         pub fn hash(ctx: NavNameContext, nav: InternPool.Nav.Index) u32 {
             const name = ctx.zcu.intern_pool.getNav(nav).name;
-            return std.hash.uint32(@intFromEnum(name));
+            return std.hash.int(@intFromEnum(name));
         }
 
         pub fn eql(ctx: NavNameContext, a_nav: InternPool.Nav.Index, b_nav: InternPool.Nav.Index, b_index: usize) bool {
@@ -824,7 +824,7 @@ pub const Namespace = struct {
 
         pub fn hash(ctx: NameAdapter, s: InternPool.NullTerminatedString) u32 {
             _ = ctx;
-            return std.hash.uint32(@intFromEnum(s));
+            return std.hash.int(@intFromEnum(s));
         }
 
         pub fn eql(ctx: NameAdapter, a: InternPool.NullTerminatedString, b_nav: InternPool.Nav.Index, b_index: usize) bool {
