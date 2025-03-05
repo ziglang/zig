@@ -339,9 +339,8 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                     .success => |codepoint| {
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
-                            const len = utf8Encode(codepoint, &buf) catch {
-			        // Note: never fails as codepoint is in range and surrogates are allowed, so this catch clause cannot be reached.
-                                return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
+                            const len = utf8Encode(codepoint, &buf) catch |err| switch (err) {
+                                error.CodepointTooLarge => unreachable, // Checked in `parseEscapeSequence`.
                             };
                             try writer.writeAll(buf[0..len]);
                         } else {
