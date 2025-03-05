@@ -874,7 +874,7 @@ pub const Compiler = struct {
                     if (bitmap_info.getActualPaletteByteLen() > bitmap_info.getExpectedPaletteByteLen()) {
                         const num_ignored_bytes = bitmap_info.getActualPaletteByteLen() - bitmap_info.getExpectedPaletteByteLen();
                         var number_as_bytes: [8]u8 = undefined;
-                        std.mem.writeInt(u64, &number_as_bytes, num_ignored_bytes, native_endian);
+                        std.mem.writeInt(u64, &number_as_bytes, num_ignored_bytes, .native);
                         const value_string_index = try self.diagnostics.putString(&number_as_bytes);
                         try self.addErrorDetails(.{
                             .err = .bmp_ignored_palette_bytes,
@@ -886,7 +886,7 @@ pub const Compiler = struct {
                         const num_padding_bytes = bitmap_info.getExpectedPaletteByteLen() - bitmap_info.getActualPaletteByteLen();
 
                         var number_as_bytes: [8]u8 = undefined;
-                        std.mem.writeInt(u64, &number_as_bytes, num_padding_bytes, native_endian);
+                        std.mem.writeInt(u64, &number_as_bytes, num_padding_bytes, .native);
                         const value_string_index = try self.diagnostics.putString(&number_as_bytes);
                         try self.addErrorDetails(.{
                             .err = .bmp_missing_palette_bytes,
@@ -901,7 +901,7 @@ pub const Compiler = struct {
                         var miscompiled_bytes_string_index: u32 = 0;
                         if (pixel_data_len > 0) {
                             const miscompiled_bytes = @min(pixel_data_len, num_padding_bytes);
-                            std.mem.writeInt(u64, &number_as_bytes, miscompiled_bytes, native_endian);
+                            std.mem.writeInt(u64, &number_as_bytes, miscompiled_bytes, .native);
                             miscompiled_bytes_string_index = try self.diagnostics.putString(&number_as_bytes);
                         }
                         return self.addErrorDetailsAndFail(.{

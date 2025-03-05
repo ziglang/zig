@@ -813,6 +813,9 @@ pub const FloatMode = enum {
 pub const Endian = enum {
     big,
     little,
+
+    pub const native = builtin.target.cpu.arch.endian();
+    pub const foreign: Endian = @enumFromInt(1 - @intFromEnum(native));
 };
 
 /// This data structure is used by the Zig language code generation and

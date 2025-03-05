@@ -21,9 +21,8 @@
 const std = @import("std");
 const BitmapHeader = @import("ico.zig").BitmapHeader;
 const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
-pub const windows_format_id = std.mem.readInt(u16, "BM", native_endian);
+pub const windows_format_id = std.mem.readInt(u16, "BM", .native);
 pub const file_header_len = 14;
 
 pub const ReadError = error{
@@ -98,7 +97,7 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
     var bitmap_info: BitmapInfo = undefined;
     const file_header = reader.readBytesNoEof(file_header_len) catch return error.UnexpectedEOF;
 
-    const id = std.mem.readInt(u16, file_header[0..2], native_endian);
+    const id = std.mem.readInt(u16, file_header[0..2], .native);
     if (id != windows_format_id) return error.InvalidFileHeader;
 
     bitmap_info.pixel_data_offset = std.mem.readInt(u32, file_header[10..14], .little);

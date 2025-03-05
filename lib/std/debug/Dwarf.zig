@@ -381,7 +381,7 @@ pub const ExceptionFrameHeader = struct {
         var left: usize = 0;
         var len: usize = self.fde_count;
 
-        var fbr: FixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = self.entries, .endian = .native };
 
         while (len > 1) {
             const mid = left + len / 2;
@@ -427,7 +427,7 @@ pub const ExceptionFrameHeader = struct {
         var eh_frame_fbr: FixedBufferReader = .{
             .buf = eh_frame,
             .pos = fde_offset,
-            .endian = native_endian,
+            .endian = .native,
         };
 
         const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
@@ -449,7 +449,7 @@ pub const ExceptionFrameHeader = struct {
             .eh_frame,
             cie_entry_header.length_offset,
             @sizeOf(usize),
-            native_endian,
+            .native,
         );
 
         fde.* = try FrameDescriptionEntry.parse(
@@ -458,7 +458,7 @@ pub const ExceptionFrameHeader = struct {
             true,
             cie.*,
             @sizeOf(usize),
-            native_endian,
+            .native,
         );
     }
 };
@@ -1764,7 +1764,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
 /// See also `scanCieFdeInfo`.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
-        var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = .native };
 
         const version = try fbr.readByte();
         if (version != 1) break :blk;
@@ -2219,7 +2219,7 @@ pub const ElfModule = struct {
                 const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
                 const crc_offset = mem.alignForward(usize, debug_filename.len + 1, 4);
                 const crc_bytes = gnu_debuglink[crc_offset..][0..4];
-                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
+                separate_debug_crc = mem.readInt(u32, crc_bytes, .native);
                 separate_debug_filename = debug_filename;
                 continue;
             }

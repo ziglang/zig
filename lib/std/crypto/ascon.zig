@@ -13,7 +13,6 @@ const debug = std.debug;
 const mem = std.mem;
 const testing = std.testing;
 const rotr = std.math.rotr;
-const native_endian = builtin.cpu.arch.endian();
 
 /// An Ascon state.
 ///
@@ -134,14 +133,14 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
             var i: usize = 0;
             while (i + 8 <= in.len) : (i += 8) {
-                const x = mem.readInt(u64, in[i..][0..8], native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
-                mem.writeInt(u64, out[i..][0..8], x, native_endian);
+                const x = mem.readInt(u64, in[i..][0..8], .native) ^ mem.nativeTo(u64, self.st[i / 8], endian);
+                mem.writeInt(u64, out[i..][0..8], x, .native);
             }
             if (i < in.len) {
                 var padded = [_]u8{0} ** 8;
                 @memcpy(padded[0 .. in.len - i], in[i..]);
-                const x = mem.readInt(u64, &padded, native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
-                mem.writeInt(u64, &padded, x, native_endian);
+                const x = mem.readInt(u64, &padded, .native) ^ mem.nativeTo(u64, self.st[i / 8], endian);
+                mem.writeInt(u64, &padded, x, .native);
                 @memcpy(out[i..], padded[0 .. in.len - i]);
             }
         }

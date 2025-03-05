@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
-const endian = builtin.cpu.arch.endian();
 
 const __fixunshfti = @import("fixunshfti.zig").__fixunshfti;
 const __fixunsxfti = @import("fixunsxfti.zig").__fixunsxfti;
@@ -349,7 +348,7 @@ test "fixunssfti" {
 fn test_fixsfei(comptime T: type, expected: T, a: f32) !void {
     const int = @typeInfo(T).int;
     var expected_buf: [@divExact(int.bits, 32)]u32 = undefined;
-    std.mem.writeInt(T, std.mem.asBytes(&expected_buf), expected, endian);
+    std.mem.writeInt(T, std.mem.asBytes(&expected_buf), expected, .native);
     var actual_buf: [@divExact(int.bits, 32)]u32 = undefined;
     _ = switch (int.signedness) {
         .signed => __fixsfei,

@@ -28,7 +28,7 @@ pub fn main() !void {
             rand_seed = true;
             var buf: [8]u8 = undefined;
             try std.posix.getrandom(&buf);
-            break :seed std.mem.readInt(u64, &buf, builtin.cpu.arch.endian());
+            break :seed std.mem.readInt(u64, &buf, .native);
         }
         break :seed try std.fmt.parseUnsigned(u64, args[3], 10);
     };

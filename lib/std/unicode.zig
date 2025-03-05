@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const native_endian = builtin.cpu.arch.endian();
 
 /// Use this to replace an unknown, unrecognized, or unrepresentable character.
 ///
@@ -203,7 +202,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
     while (i < s.len) {
         // Fast path for ASCII sequences
         while (i + N <= s.len) : (i += N) {
-            const v = mem.readInt(usize, s[i..][0..N], native_endian);
+            const v = mem.readInt(usize, s[i..][0..N], .native);
             if (v & MASK != 0) break;
             len += N;
         }
@@ -1516,12 +1515,12 @@ test fmtUtf16Le {
     try expectFmt("foo", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
     try expectFmt("foo", "{}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("foo"))});
     try expectFmt("𐐷", "{}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("𐐷"))});
-    try expectFmt("퟿", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xd7", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xd8", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdb", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xdc", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdf", native_endian)})});
-    try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
+    try expectFmt("퟿", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xd7", .native)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xd8", .native)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdb", .native)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xdc", .native)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdf", .native)})});
+    try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", .native)})});
 }
 
 fn testUtf8ToUtf16LeStringLiteral(utf8ToUtf16LeStringLiteral_: anytype) !void {

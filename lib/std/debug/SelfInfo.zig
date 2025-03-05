@@ -3,7 +3,6 @@
 
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
-const native_endian = native_arch.endian();
 const native_arch = builtin.cpu.arch;
 
 const std = @import("../std.zig");
@@ -434,10 +433,10 @@ fn lookupModuleDl(self: *SelfInfo, address: usize) !*Module {
                     elf.PT_NOTE => {
                         // Look for .note.gnu.build-id
                         const note_bytes = @as([*]const u8, @ptrFromInt(info.addr + phdr.p_vaddr))[0..phdr.p_memsz];
-                        const name_size = mem.readInt(u32, note_bytes[0..4], native_endian);
+                        const name_size = mem.readInt(u32, note_bytes[0..4], .native);
                         if (name_size != 4) continue;
-                        const desc_size = mem.readInt(u32, note_bytes[4..8], native_endian);
-                        const note_type = mem.readInt(u32, note_bytes[8..12], native_endian);
+                        const desc_size = mem.readInt(u32, note_bytes[4..8], .native);
+                        const note_type = mem.readInt(u32, note_bytes[8..12], .native);
                         if (note_type != elf.NT_GNU_BUILD_ID) continue;
                         if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
                         context.build_id = note_bytes[16..][0..desc_size];
@@ -689,15 +688,15 @@ pub const Module = switch (native_os) {
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                        error.FileNotFound,
-                        error.MissingDebugInfo,
-                        error.InvalidDebugInfo,
-                        => return .{
-                            .relocated_address = relocated_address,
-                            .symbol = symbol,
-                        },
-                        else => return err,
-                    });
+                    error.FileNotFound,
+                    error.MissingDebugInfo,
+                    error.InvalidDebugInfo,
+                    => return .{
+                        .relocated_address = relocated_address,
+                        .symbol = symbol,
+                    },
+                    else => return err,
+                });
 
                 return .{
                     .relocated_address = relocated_address,
@@ -994,7 +993,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             }
 
             var dwarf: Dwarf = .{
-                .endian = native_endian,
+                .endian = .native,
                 .sections = sections,
                 .is_macho = false,
             };
@@ -1591,7 +1590,7 @@ pub fn unwindFrameDwarf(
         const cie_offset = fde_entry_header.type.fde;
         try fbr.seekTo(cie_offset);
 
-        fbr.endian = native_endian;
+        fbr.endian = .native;
         const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
         if (cie_entry_header.type != .cie) return Dwarf.bad();
 
@@ -1603,7 +1602,7 @@ pub fn unwindFrameDwarf(
             dwarf_section,
             cie_entry_header.length_offset,
             @sizeOf(usize),
-            native_endian,
+            .native,
         );
         const fde = try Dwarf.FrameDescriptionEntry.parse(
             fde_entry_header.entry_bytes,
@@ -1611,7 +1610,7 @@ pub fn unwindFrameDwarf(
             true,
             cie,
             @sizeOf(usize),
-            native_endian,
+            .native,
         );
 
         break :blk .{ cie, fde };
@@ -1685,7 +1684,7 @@ pub fn unwindFrameDwarf(
     context.cfa = switch (row.cfa.rule) {
         .val_offset => |offset| blk: {
             const register = row.cfa.register orelse return error.InvalidCFARule;
-            const value = mem.readInt(usize, (try regBytes(context.thread_context, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
+            const value = mem.readInt(usize, (try regBytes(context.thread_context, register, context.reg_context))[0..@sizeOf(usize)], .native);
             break :blk try applyOffset(value, offset);
         },
         .expression => |expr| blk: {
@@ -1763,7 +1762,7 @@ pub fn unwindFrameDwarf(
             context.thread_context,
             cie.return_address_register,
             context.reg_context,
-        ))[0..@sizeOf(usize)], native_endian));
+        ))[0..@sizeOf(usize)], .native));
     } else {
         context.pc = 0;
     }
@@ -1839,7 +1838,7 @@ fn unwindFrameMachODwarf(
     fde_offset: usize,
 ) !usize {
     var di: Dwarf = .{
-        .endian = native_endian,
+        .endian = .native,
         .is_macho = true,
     };
     defer di.deinit(context.allocator);
@@ -1922,12 +1921,12 @@ pub const VirtualMachine = struct {
                         const addr = try applyOffset(cfa, offset);
                         if (ma.load(usize, addr) == null) return error.InvalidAddress;
                         const ptr: *const usize = @ptrFromInt(addr);
-                        mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, .native);
                     } else return error.InvalidCFA;
                 },
                 .val_offset => |offset| {
                     if (context.cfa) |cfa| {
-                        mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), .native);
                     } else return error.InvalidCFA;
                 },
                 .register => |register| {
@@ -1945,14 +1944,14 @@ pub const VirtualMachine = struct {
 
                     if (ma.load(usize, addr) == null) return error.InvalidExpressionAddress;
                     const ptr: *usize = @ptrFromInt(addr);
-                    mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                    mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, .native);
                 },
                 .val_expression => |expression| {
                     context.stack_machine.reset();
                     const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
                     if (value) |v| {
                         if (v != .generic) return error.InvalidExpressionValue;
-                        mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, native_endian);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, .native);
                     } else return error.NoExpressionValue;
                 },
                 .architectural => return error.UnimplementedRegisterRule,
@@ -2052,7 +2051,7 @@ pub const VirtualMachine = struct {
         cie: std.debug.Dwarf.CommonInformationEntry,
         fde: std.debug.Dwarf.FrameDescriptionEntry,
     ) !Row {
-        return self.runTo(allocator, pc, cie, fde, @sizeOf(usize), native_endian);
+        return self.runTo(allocator, pc, cie, fde, @sizeOf(usize), .native);
     }
 
     fn resolveCopyOnWrite(self: *VirtualMachine, allocator: std.mem.Allocator) !void {
