@@ -12,5 +12,5 @@ fn foo(set1: Set1) void {
 // backend=stage2
 // target=native
 //
-// :7:21: error: expected type 'error{C,A}', found 'error{A,B}'
+// :7:21: error: expected type 'error{A,C}', found 'error{A,B}'
 // :7:21: note: 'error.B' not a member of destination error set

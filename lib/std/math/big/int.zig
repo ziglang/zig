@@ -2114,9 +2114,6 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Deprecated; use `toInt`.
-    pub const to = toInt;
-
     /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
@@ -2735,9 +2732,6 @@ pub const Managed = struct {
     }
 
     pub const ConvertError = Const.ConvertError;
-
-    /// Deprecated; use `toInt`.
-    pub const to = toInt;
 
     /// Convert self to integer type T.
     ///

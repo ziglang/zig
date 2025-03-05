@@ -1865,7 +1865,7 @@ pub const NullTerminatedString = enum(u32) {
 
         pub fn hash(ctx: @This(), a: NullTerminatedString) u32 {
             _ = ctx;
-            return std.hash.uint32(@intFromEnum(a));
+            return std.hash.int(@intFromEnum(a));
         }
     };
 
@@ -4710,7 +4710,7 @@ pub const Index = enum(u32) {
 
         pub fn hash(ctx: @This(), a: Index) u32 {
             _ = ctx;
-            return std.hash.uint32(@intFromEnum(a));
+            return std.hash.int(@intFromEnum(a));
         }
     };
 
@@ -12629,7 +12629,7 @@ const GlobalErrorSet = struct {
         name: NullTerminatedString,
     ) Allocator.Error!GlobalErrorSet.Index {
         if (name == .empty) return .none;
-        const hash = std.hash.uint32(@intFromEnum(name));
+        const hash = std.hash.int(@intFromEnum(name));
         var map = ges.shared.map.acquire();
         const Map = @TypeOf(map);
         var map_mask = map.header().mask();
@@ -12722,7 +12722,7 @@ const GlobalErrorSet = struct {
         name: NullTerminatedString,
     ) ?GlobalErrorSet.Index {
         if (name == .empty) return .none;
-        const hash = std.hash.uint32(@intFromEnum(name));
+        const hash = std.hash.int(@intFromEnum(name));
         const map = ges.shared.map.acquire();
         const map_mask = map.header().mask();
         const names_items = ges.shared.names.acquire().view().items(.@"0");

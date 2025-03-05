@@ -1332,7 +1332,7 @@ test "cache file and then recall it" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.time.sleep(1);
+        std.Thread.sleep(1);
     }
 
     var digest1: HexDigest = undefined;
@@ -1395,7 +1395,7 @@ test "check that changing a file makes cache fail" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.time.sleep(1);
+        std.Thread.sleep(1);
     }
 
     var digest1: HexDigest = undefined;
@@ -1507,7 +1507,7 @@ test "Manifest with files added after initial hash work" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.time.sleep(1);
+        std.Thread.sleep(1);
     }
 
     var digest1: HexDigest = undefined;
@@ -1557,7 +1557,7 @@ test "Manifest with files added after initial hash work" {
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);
         while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time2) {
-            std.time.sleep(1);
+            std.Thread.sleep(1);
         }
 
         {
