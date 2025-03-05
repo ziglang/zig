@@ -356,12 +356,12 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
         .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
         .mips64 => switch (target.abi) {
-            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
-            else => "E-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            else => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .mips64el => switch (target.abi) {
-            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
-            else => "e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
         .powerpc => if (target.os.tag == .aix)
@@ -370,17 +370,17 @@ pub fn dataLayout(target: std.Target) []const u8 {
             "E-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpc64 => switch (target.os.tag) {
-            .aix => "E-m:a-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .aix => "E-m:a-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
             .linux => if (target.abi.isMusl())
-                "E-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+                "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
             else
-                "E-m:e-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
-            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-n32:64",
+                "E-m:e-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
+            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-i128:128-n32:64",
             else => if (target.os.tag == .openbsd or
                 (target.os.tag == .freebsd and target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false))
-                "E-m:e-Fn32-i64:64-n32:64"
+                "E-m:e-Fn32-i64:64-i128:128-n32:64"
             else
-                "E-m:e-Fi64-i64:64-n32:64",
+                "E-m:e-Fi64-i64:64-i128:128-n32:64",
         },
         .powerpc64le => if (target.os.tag == .linux)
             "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
@@ -397,8 +397,8 @@ pub fn dataLayout(target: std.Target) []const u8 {
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .sparc => "E-m:e-p:32:32-i64:64-f128:64-n32-S64",
-        .sparc64 => "E-m:e-i64:64-n32:64-S128",
+        .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
+        .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
             "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
         else
@@ -446,13 +446,13 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .spirv32 => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
         .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
         .wasm32 => if (target.os.tag == .emscripten)
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
         else
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
         .wasm64 => if (target.os.tag == .emscripten)
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
         else
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
         .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
         .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
         .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
