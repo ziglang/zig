@@ -57,8 +57,11 @@ pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
     return calcMulLimbsBufferLen(limb_count, limb_count, 2);
 }
 
+/// Assumes `string_len` doesn't account for minus signs if the number is negative.
 pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
-    return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
+    const base_f: f32 = @floatFromInt(base);
+    const string_len_f: f32 = @floatFromInt(string_len);
+    return 1 + @as(usize, @intFromFloat(@ceil(string_len_f * std.math.log2(base_f) / limb_bits)));
 }
 
 pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
@@ -280,7 +283,7 @@ pub const Mutable = struct {
     ///
     /// Asserts there is enough memory for the value in `self.limbs`. An upper bound on number of limbs can
     /// be determined with `calcSetStringLimbCount`.
-    /// Asserts the base is in the range [2, 16].
+    /// Asserts the base is in the range [2, 36].
     ///
     /// Returns an error if the value has invalid digits for the requested base.
     ///
@@ -296,7 +299,8 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
         allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
-        assert(base >= 2 and base <= 16);
+        assert(base >= 2);
+        assert(base <= 36);
 
         var i: usize = 0;
         var positive = true;
@@ -2283,11 +2287,11 @@ pub const Const = struct {
 
     /// Converts self to a string in the requested base.
     /// Caller owns returned memory.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// See also `toString`, a lower level function than this.
     pub fn toStringAlloc(self: Const, allocator: Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
@@ -2302,7 +2306,7 @@ pub const Const = struct {
     }
 
     /// Converts self to a string in the requested base.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// `string` is a caller-provided slice of at least `sizeInBaseUpperBound` bytes,
     /// where the result is written to.
     /// Returns the length of the string.
@@ -2312,7 +2316,7 @@ pub const Const = struct {
     /// See also `toStringAlloc`, a higher level function than this.
     pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             string[0] = '0';
@@ -2544,8 +2548,7 @@ pub const Const = struct {
         const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
-            const limb = a.limbs[i];
-            const this_limb_lz = @clz(limb);
+            const this_limb_lz = @clz(a.limbs[i]);
             total_limb_lz += this_limb_lz;
             if (this_limb_lz != bits_per_limb) break;
         }
@@ -2557,6 +2560,7 @@ pub const Const = struct {
     pub fn ctz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order. Converting a negative number to twos-complement
         // flips all bits above the lowest set bit, which does not affect the trailing zero count.
+        if (a.eqlZero()) return bits;
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
@@ -2816,7 +2820,7 @@ pub const Managed = struct {
     ///
     /// self's allocator is used for temporary storage to boost multiplication performance.
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
         const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
         defer self.allocator.free(limbs_buffer);
@@ -2843,7 +2847,7 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         return self.toConst().toStringAlloc(allocator, base, case);
     }
 

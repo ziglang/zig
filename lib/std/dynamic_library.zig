@@ -140,12 +140,17 @@ const ElfDynLibError = error{
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
-    hashtab: [*]posix.Elf_Symndx,
+    hash_table: HashTable,
     versym: ?[*]elf.Versym,
     verdef: ?*elf.Verdef,
     memory: []align(std.heap.page_size_min) u8,
 
     pub const Error = ElfDynLibError;
+
+    const HashTable = union(enum) {
+        dt_hash: [*]posix.Elf_Symndx,
+        dt_gnu_hash: *elf.gnu_hash.Header,
+    };
 
     fn openPath(path: []const u8) !std.fs.Dir {
         if (path.len == 0) return error.NotDir;
@@ -321,6 +326,7 @@ pub const ElfDynLib = struct {
         var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
         var maybe_hashtab: ?[*]posix.Elf_Symndx = null;
+        var maybe_gnu_hash: ?*elf.gnu_hash.Header = null;
         var maybe_versym: ?[*]elf.Versym = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
@@ -332,6 +338,7 @@ pub const ElfDynLib = struct {
                     elf.DT_STRTAB => maybe_strings = @ptrFromInt(p),
                     elf.DT_SYMTAB => maybe_syms = @ptrFromInt(p),
                     elf.DT_HASH => maybe_hashtab = @ptrFromInt(p),
+                    elf.DT_GNU_HASH => maybe_gnu_hash = @ptrFromInt(p),
                     elf.DT_VERSYM => maybe_versym = @ptrFromInt(p),
                     elf.DT_VERDEF => maybe_verdef = @ptrFromInt(p),
                     else => {},
@@ -339,11 +346,18 @@ pub const ElfDynLib = struct {
             }
         }
 
+        const hash_table: HashTable = if (maybe_gnu_hash) |gnu_hash|
+            .{ .dt_gnu_hash = gnu_hash }
+        else if (maybe_hashtab) |hashtab|
+            .{ .dt_hash = hashtab }
+        else
+            return error.ElfHashTableNotFound;
+
         return .{
             .memory = all_loaded_mem,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
-            .hashtab = maybe_hashtab orelse return error.ElfHashTableNotFound,
+            .hash_table = hash_table,
             .versym = maybe_versym,
             .verdef = maybe_verdef,
         };
@@ -368,6 +382,60 @@ pub const ElfDynLib = struct {
         }
     }
 
+    pub const GnuHashSection32 = struct {
+        symoffset: u32,
+        bloom_shift: u32,
+        bloom: []u32,
+        buckets: []u32,
+        chain: [*]elf.gnu_hash.ChainEntry,
+
+        pub fn fromPtr(header: *elf.gnu_hash.Header) @This() {
+            const header_offset = @intFromPtr(header);
+            const bloom_offset = header_offset + @sizeOf(elf.gnu_hash.Header);
+            const buckets_offset = bloom_offset + header.bloom_size * @sizeOf(u32);
+            const chain_offset = buckets_offset + header.nbuckets * @sizeOf(u32);
+
+            const bloom_ptr: [*]u32 = @ptrFromInt(bloom_offset);
+            const buckets_ptr: [*]u32 = @ptrFromInt(buckets_offset);
+            const chain_ptr: [*]elf.gnu_hash.ChainEntry = @ptrFromInt(chain_offset);
+
+            return .{
+                .symoffset = header.symoffset,
+                .bloom_shift = header.bloom_shift,
+                .bloom = bloom_ptr[0..header.bloom_size],
+                .buckets = buckets_ptr[0..header.nbuckets],
+                .chain = chain_ptr,
+            };
+        }
+    };
+
+    pub const GnuHashSection64 = struct {
+        symoffset: u32,
+        bloom_shift: u32,
+        bloom: []u64,
+        buckets: []u32,
+        chain: [*]elf.gnu_hash.ChainEntry,
+
+        pub fn fromPtr(header: *elf.gnu_hash.Header) @This() {
+            const header_offset = @intFromPtr(header);
+            const bloom_offset = header_offset + @sizeOf(elf.gnu_hash.Header);
+            const buckets_offset = bloom_offset + header.bloom_size * @sizeOf(u64);
+            const chain_offset = buckets_offset + header.nbuckets * @sizeOf(u32);
+
+            const bloom_ptr: [*]u64 = @ptrFromInt(bloom_offset);
+            const buckets_ptr: [*]u32 = @ptrFromInt(buckets_offset);
+            const chain_ptr: [*]elf.gnu_hash.ChainEntry = @ptrFromInt(chain_offset);
+
+            return .{
+                .symoffset = header.symoffset,
+                .bloom_shift = header.bloom_shift,
+                .bloom = bloom_ptr[0..header.bloom_size],
+                .buckets = buckets_ptr[0..header.nbuckets],
+                .chain = chain_ptr,
+            };
+        }
+    };
+
     /// ElfDynLib specific
     /// Returns the address of the symbol
     pub fn lookupAddress(self: *const ElfDynLib, vername: []const u8, name: []const u8) ?usize {
@@ -376,17 +444,81 @@ pub const ElfDynLib = struct {
         const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);
         const OK_BINDS = (1 << elf.STB_GLOBAL | 1 << elf.STB_WEAK | 1 << elf.STB_GNU_UNIQUE);
 
-        var i: usize = 0;
-        while (i < self.hashtab[1]) : (i += 1) {
-            if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info & 0xf)) & OK_TYPES)) continue;
-            if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info >> 4)) & OK_BINDS)) continue;
-            if (0 == self.syms[i].st_shndx) continue;
-            if (!mem.eql(u8, name, mem.sliceTo(self.strings + self.syms[i].st_name, 0))) continue;
-            if (maybe_versym) |versym| {
-                if (!checkver(self.verdef.?, versym[i], vername, self.strings))
-                    continue;
-            }
-            return @intFromPtr(self.memory.ptr) + self.syms[i].st_value;
+        switch (self.hash_table) {
+            .dt_hash => |hashtab| {
+                var i: usize = 0;
+                while (i < hashtab[1]) : (i += 1) {
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info & 0xf)) & OK_TYPES)) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info >> 4)) & OK_BINDS)) continue;
+                    if (0 == self.syms[i].st_shndx) continue;
+                    if (!mem.eql(u8, name, mem.sliceTo(self.strings + self.syms[i].st_name, 0))) continue;
+                    if (maybe_versym) |versym| {
+                        if (!checkver(self.verdef.?, versym[i], vername, self.strings))
+                            continue;
+                    }
+                    return @intFromPtr(self.memory.ptr) + self.syms[i].st_value;
+                }
+            },
+            .dt_gnu_hash => |gnu_hash_header| {
+                const GnuHashSection = switch (@bitSizeOf(usize)) {
+                    32 => GnuHashSection32,
+                    64 => GnuHashSection64,
+                    else => |bit_size| @compileError("Unsupported bit size " ++ bit_size),
+                };
+
+                const gnu_hash_section: GnuHashSection = .fromPtr(gnu_hash_header);
+                const hash = elf.gnu_hash.calculate(name);
+
+                const bloom_index = (hash / @bitSizeOf(usize)) % gnu_hash_header.bloom_size;
+                const bloom_val = gnu_hash_section.bloom[bloom_index];
+
+                const bit_index_0 = hash % @bitSizeOf(usize);
+                const bit_index_1 = (hash >> @intCast(gnu_hash_header.bloom_shift)) % @bitSizeOf(usize);
+
+                const one: usize = 1;
+                const bit_mask: usize = (one << @intCast(bit_index_0)) | (one << @intCast(bit_index_1));
+
+                if (bloom_val & bit_mask != bit_mask) {
+                    // Symbol is not in bloom filter, so it definitely isn't here.
+                    return null;
+                }
+
+                const bucket_index = hash % gnu_hash_header.nbuckets;
+                const chain_index = gnu_hash_section.buckets[bucket_index] - gnu_hash_header.symoffset;
+
+                const chains = gnu_hash_section.chain;
+                const hash_as_entry: elf.gnu_hash.ChainEntry = @bitCast(hash);
+
+                var current_index = chain_index;
+                var at_end_of_chain = false;
+                while (!at_end_of_chain) : (current_index += 1) {
+                    const current_entry = chains[current_index];
+                    at_end_of_chain = current_entry.end_of_chain;
+
+                    if (current_entry.hash != hash_as_entry.hash) continue;
+
+                    // check that symbol matches
+                    const symbol_index = current_index + gnu_hash_header.symoffset;
+                    const symbol = self.syms[symbol_index];
+
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(symbol.st_info & 0xf)) & OK_TYPES)) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(symbol.st_info >> 4)) & OK_BINDS)) continue;
+                    if (0 == symbol.st_shndx) continue;
+
+                    const symbol_name = mem.sliceTo(self.strings + symbol.st_name, 0);
+                    if (!mem.eql(u8, name, symbol_name)) {
+                        continue;
+                    }
+
+                    if (maybe_versym) |versym| {
+                        if (!checkver(self.verdef.?, versym[symbol_index], vername, self.strings)) {
+                            continue;
+                        }
+                    }
+
+                    return @intFromPtr(self.memory.ptr) + symbol.st_value;
+                }
+            },
         }
 
         return null;

@@ -275,6 +275,14 @@ test "string set case insensitive number" {
     try testing.expect((try a.toInt(u32)) == 0xabcdef);
 }
 
+test "string set base 36" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(36, "fifvthrv1mzt79ez9");
+    try testing.expect((try a.to(u128)) == 123456789123456789123456789);
+}
+
 test "string set bad char error" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
@@ -349,6 +357,17 @@ test "string to base 16" {
     const as = try a.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(as);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
+
+    try testing.expect(mem.eql(u8, as, es));
+}
+
+test "string to base 36" {
+    var a = try Managed.initSet(testing.allocator, 123456789123456789123456789);
+    defer a.deinit();
+
+    const as = try a.toString(testing.allocator, 36, .lower);
+    defer testing.allocator.free(as);
+    const es = "fifvthrv1mzt79ez9";
 
     try testing.expect(mem.eql(u8, as, es));
 }
@@ -3331,4 +3350,228 @@ test "(BigInt) negative" {
 
     try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
     try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+}
+
+test "clz" {
+    const neg_limb_max_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 1, maxInt(Limb) - 1 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max_squared.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_max_squared_plus_one: std.math.big.int.Const = .{
+        .limbs = &.{ 0, maxInt(Limb) - 1 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max_squared_plus_one.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_msb_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_msb_squared.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_limb_msb_squared.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_max: std.math.big.int.Const = .{
+        .limbs = &.{maxInt(Limb)},
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max.clz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(neg_limb_max.clz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(neg_limb_max.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_limb_max.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_msb: std.math.big.int.Const = .{
+        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .positive = false,
+    };
+    try testing.expect(neg_limb_msb.clz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(neg_limb_msb.clz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(neg_limb_msb.clz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(neg_limb_msb.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_limb_msb.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_one: std.math.big.int.Const = .{
+        .limbs = &.{1},
+        .positive = false,
+    };
+    try testing.expect(neg_one.clz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(neg_one.clz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(neg_one.clz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(neg_one.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_one.clz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const zero: std.math.big.int.Const = .{
+        .limbs = &.{0},
+        .positive = true,
+    };
+    try testing.expect(zero.clz(@bitSizeOf(Limb)) == @bitSizeOf(Limb));
+    try testing.expect(zero.clz(@bitSizeOf(Limb) + 1) == @bitSizeOf(Limb) + 1);
+    try testing.expect(zero.clz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) * 2 - 1);
+    try testing.expect(zero.clz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) * 2);
+    try testing.expect(zero.clz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) * 2 + 1);
+
+    const one: std.math.big.int.Const = .{
+        .limbs = &.{1},
+        .positive = true,
+    };
+    try testing.expect(one.clz(@bitSizeOf(Limb)) == @bitSizeOf(Limb) - 1);
+    try testing.expect(one.clz(@bitSizeOf(Limb) + 1) == @bitSizeOf(Limb));
+    try testing.expect(one.clz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) * 2 - 2);
+    try testing.expect(one.clz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) * 2 - 1);
+    try testing.expect(one.clz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) * 2);
+
+    const limb_msb: std.math.big.int.Const = .{
+        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .positive = true,
+    };
+    try testing.expect(limb_msb.clz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(limb_msb.clz(@bitSizeOf(Limb) + 1) == 1);
+    try testing.expect(limb_msb.clz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_msb.clz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb));
+    try testing.expect(limb_msb.clz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) + 1);
+
+    const limb_max: std.math.big.int.Const = .{
+        .limbs = &.{maxInt(Limb)},
+        .positive = true,
+    };
+    try testing.expect(limb_max.clz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(limb_max.clz(@bitSizeOf(Limb) + 1) == 1);
+    try testing.expect(limb_max.clz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_max.clz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb));
+    try testing.expect(limb_max.clz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) + 1);
+
+    const limb_msb_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .positive = true,
+    };
+    try testing.expect(limb_msb_squared.clz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(limb_msb_squared.clz(@bitSizeOf(Limb) * 2) == 1);
+    try testing.expect(limb_msb_squared.clz(@bitSizeOf(Limb) * 2 + 1) == 2);
+
+    const limb_max_squared_minus_one: std.math.big.int.Const = .{
+        .limbs = &.{ 0, maxInt(Limb) - 1 },
+        .positive = true,
+    };
+    try testing.expect(limb_max_squared_minus_one.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(limb_max_squared_minus_one.clz(@bitSizeOf(Limb) * 2 + 1) == 1);
+
+    const limb_max_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 1, maxInt(Limb) - 1 },
+        .positive = true,
+    };
+    try testing.expect(limb_max_squared.clz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(limb_max_squared.clz(@bitSizeOf(Limb) * 2 + 1) == 1);
+}
+
+test "ctz" {
+    const neg_limb_max_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 1, maxInt(Limb) - 1 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max_squared.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_max_squared_plus_one: std.math.big.int.Const = .{
+        .limbs = &.{ 0, maxInt(Limb) - 1 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max_squared_plus_one.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) + 1);
+
+    const neg_limb_msb_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .positive = false,
+    };
+    try testing.expect(neg_limb_msb_squared.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) * 2 - 2);
+    try testing.expect(neg_limb_msb_squared.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) * 2 - 2);
+
+    const neg_limb_max: std.math.big.int.Const = .{
+        .limbs = &.{maxInt(Limb)},
+        .positive = false,
+    };
+    try testing.expect(neg_limb_max.ctz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(neg_limb_max.ctz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(neg_limb_max.ctz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_limb_max.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const neg_limb_msb: std.math.big.int.Const = .{
+        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .positive = false,
+    };
+    try testing.expect(neg_limb_msb.ctz(@bitSizeOf(Limb)) == @bitSizeOf(Limb) - 1);
+    try testing.expect(neg_limb_msb.ctz(@bitSizeOf(Limb) + 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(neg_limb_msb.ctz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(neg_limb_msb.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) - 1);
+    try testing.expect(neg_limb_msb.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) - 1);
+
+    const neg_one: std.math.big.int.Const = .{
+        .limbs = &.{1},
+        .positive = false,
+    };
+    try testing.expect(neg_one.ctz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(neg_one.ctz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(neg_one.ctz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(neg_one.ctz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(neg_one.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const zero: std.math.big.int.Const = .{
+        .limbs = &.{0},
+        .positive = true,
+    };
+    try testing.expect(zero.ctz(@bitSizeOf(Limb)) == @bitSizeOf(Limb));
+    try testing.expect(zero.ctz(@bitSizeOf(Limb) + 1) == @bitSizeOf(Limb) + 1);
+    try testing.expect(zero.ctz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) * 2 - 1);
+    try testing.expect(zero.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) * 2);
+    try testing.expect(zero.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) * 2 + 1);
+
+    const one: std.math.big.int.Const = .{
+        .limbs = &.{1},
+        .positive = true,
+    };
+    try testing.expect(one.ctz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(one.ctz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(one.ctz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(one.ctz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(one.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const limb_msb: std.math.big.int.Const = .{
+        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .positive = true,
+    };
+    try testing.expect(limb_msb.ctz(@bitSizeOf(Limb)) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_msb.ctz(@bitSizeOf(Limb) + 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_msb.ctz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_msb.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) - 1);
+    try testing.expect(limb_msb.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) - 1);
+
+    const limb_max: std.math.big.int.Const = .{
+        .limbs = &.{maxInt(Limb)},
+        .positive = true,
+    };
+    try testing.expect(limb_max.ctz(@bitSizeOf(Limb)) == 0);
+    try testing.expect(limb_max.ctz(@bitSizeOf(Limb) + 1) == 0);
+    try testing.expect(limb_max.ctz(@bitSizeOf(Limb) * 2 - 1) == 0);
+    try testing.expect(limb_max.ctz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(limb_max.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
+
+    const limb_msb_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .positive = true,
+    };
+    try testing.expect(limb_msb_squared.ctz(@bitSizeOf(Limb) * 2 - 1) == @bitSizeOf(Limb) * 2 - 2);
+    try testing.expect(limb_msb_squared.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) * 2 - 2);
+    try testing.expect(limb_msb_squared.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) * 2 - 2);
+
+    const limb_max_squared_minus_one: std.math.big.int.Const = .{
+        .limbs = &.{ 0, maxInt(Limb) - 1 },
+        .positive = true,
+    };
+    try testing.expect(limb_max_squared_minus_one.ctz(@bitSizeOf(Limb) * 2) == @bitSizeOf(Limb) + 1);
+    try testing.expect(limb_max_squared_minus_one.ctz(@bitSizeOf(Limb) * 2 + 1) == @bitSizeOf(Limb) + 1);
+
+    const limb_max_squared: std.math.big.int.Const = .{
+        .limbs = &.{ 1, maxInt(Limb) - 1 },
+        .positive = true,
+    };
+    try testing.expect(limb_max_squared.ctz(@bitSizeOf(Limb) * 2) == 0);
+    try testing.expect(limb_max_squared.ctz(@bitSizeOf(Limb) * 2 + 1) == 0);
 }

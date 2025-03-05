@@ -1360,6 +1360,20 @@ pub const KERN = switch (native_os) {
 pub const MADV = switch (native_os) {
     .linux => linux.MADV,
     .emscripten => emscripten.MADV,
+    .macos, .ios, .tvos, .watchos, .visionos => struct {
+        pub const NORMAL = 0;
+        pub const RANDOM = 1;
+        pub const SEQUENTIAL = 2;
+        pub const WILLNEED = 3;
+        pub const DONTNEED = 4;
+        pub const FREE = 5;
+        pub const ZERO_WIRED_PAGES = 6;
+        pub const FREE_REUSABLE = 7;
+        pub const FREE_REUSE = 8;
+        pub const CAN_REUSE = 9;
+        pub const PAGEOUT = 10;
+        pub const ZERO = 11;
+    },
     .freebsd => struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
@@ -9865,10 +9879,10 @@ pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8
 
 pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd)
 {} // android bionic and openbsd libc does not implement getcontext
-else if (native_os == .linux and builtin.target.abi.isMusl())
-    linux.getcontext
-else
-    private.getcontext;
+    else if (native_os == .linux and builtin.target.abi.isMusl())
+        linux.getcontext
+    else
+        private.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64

@@ -15,6 +15,7 @@ pub const Tag = enum {
     branch_hint,
     breakpoint,
     disable_instrumentation,
+    disable_intrinsics,
     mul_add,
     byte_swap,
     bit_reverse,
@@ -258,6 +259,14 @@ pub const list = list: {
             "@disableInstrumentation",
             .{
                 .tag = .disable_instrumentation,
+                .param_count = 0,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
+            "@disableIntrinsics",
+            .{
+                .tag = .disable_intrinsics,
                 .param_count = 0,
                 .illegal_outside_function = true,
             },

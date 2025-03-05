@@ -2956,6 +2956,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .extended => switch (gz.astgen.instructions.items(.data)[@intFromEnum(inst)].extended.opcode) {
                 .breakpoint,
                 .disable_instrumentation,
+                .disable_intrinsics,
                 .set_float_mode,
                 .branch_hint,
                 => break :b true,
@@ -5096,18 +5097,16 @@ fn structDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    {
-        const is_tuple = for (container_decl.ast.members) |member_node| {
+    is_tuple: {
+        const tuple_field_node = for (container_decl.ast.members) |member_node| {
             const container_field = tree.fullContainerField(member_node) orelse continue;
-            if (container_field.ast.tuple_like) break true;
-        } else false;
+            if (container_field.ast.tuple_like) break member_node;
+        } else break :is_tuple;
 
-        if (is_tuple) {
-            if (node == 0) {
-                return astgen.failTok(0, "file cannot be a tuple", .{});
-            } else {
-                return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
-            }
+        if (node == 0) {
+            return astgen.failNode(tuple_field_node, "file cannot be a tuple", .{});
+        } else {
+            return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
         }
     }
 
@@ -5912,6 +5911,10 @@ fn containerDecl(
 
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
+
+            if (container_decl.layout_token) |layout_token| {
+                return astgen.failTok(layout_token, "opaque types do not support 'packed' or 'extern'", .{});
+            }
 
             for (container_decl.ast.members) |member_node| {
                 const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);
@@ -9574,6 +9577,7 @@ fn builtinCall(
         .frame_address           => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,           node), node),
         .breakpoint              => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,              node), node),
         .disable_instrumentation => return rvalue(gz, ri, try gz.addNodeExtended(.disable_instrumentation, node), node),
+        .disable_intrinsics      => return rvalue(gz, ri, try gz.addNodeExtended(.disable_intrinsics,      node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),

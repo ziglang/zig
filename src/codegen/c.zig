@@ -1859,8 +1859,17 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).branch_hint == .cold)
-            try w.writeAll("zig_cold ");
+
+        if (fn_val.getFunction(zcu)) |func| {
+            const func_analysis = func.analysisUnordered(ip);
+
+            if (func_analysis.branch_hint == .cold)
+                try w.writeAll("zig_cold ");
+
+            if (kind == .complete and func_analysis.disable_intrinsics or dg.mod.no_builtin)
+                try w.writeAll("zig_no_builtin ");
+        }
+
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         var trailing = try renderTypePrefix(dg.pass, &dg.ctype_pool, zcu, w, fn_ctype, .suffix, .{});
@@ -1990,7 +1999,7 @@ pub const DeclGen = struct {
         if (dest_bits <= 64 and src_bits <= 64) {
             const needs_cast = src_int_info == null or
                 (toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.?.bits) or
-                dest_int_info.signedness != src_int_info.?.signedness);
+                    dest_int_info.signedness != src_int_info.?.signedness);
             return !needs_cast and !src_is_ptr;
         } else return false;
     }
@@ -2031,7 +2040,7 @@ pub const DeclGen = struct {
         if (dest_bits <= 64 and src_bits <= 64) {
             const needs_cast = src_int_info == null or
                 (toCIntBits(dest_int_info.bits) != toCIntBits(src_int_info.?.bits) or
-                dest_int_info.signedness != src_int_info.?.signedness);
+                    dest_int_info.signedness != src_int_info.?.signedness);
 
             if (needs_cast) {
                 try w.writeByte('(');
@@ -4348,7 +4357,7 @@ fn airEquality(
         .aligned, .array, .vector, .fwd_decl, .function => unreachable,
         .aggregate => |aggregate| if (aggregate.fields.len == 2 and
             (aggregate.fields.at(0, ctype_pool).name.index == .is_null or
-            aggregate.fields.at(1, ctype_pool).name.index == .is_null))
+                aggregate.fields.at(1, ctype_pool).name.index == .is_null))
         {
             try f.writeCValueMember(writer, lhs, .{ .identifier = "is_null" });
             try writer.writeAll(" || ");

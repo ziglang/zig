@@ -167,11 +167,20 @@ test "Macro that uses division operator. Issue #13162" {
             true,
         ),
     );
+
     try expectEqual(
         @as(c_int, 21),
         h.DIVIDE_ARGS(
             @as(i8, 42),
             @as(i8, 2),
+        ),
+    );
+
+    try expectEqual(
+        @as(c_uint, 21),
+        h.DIVIDE_ARGS(
+            @as(u32, 42),
+            @as(u32, 2),
         ),
     );
 

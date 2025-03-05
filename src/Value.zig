@@ -3820,7 +3820,7 @@ pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
-    return if (x) Value.true else Value.false;
+    return if (x) .true else .false;
 }
 
 /// `parent_ptr` must be a single-pointer to some optional.

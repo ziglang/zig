@@ -44,6 +44,8 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+allow_missing_fingerprint: bool,
+allow_name_string: bool,
 /// If true and URL points to a Git repository, will use the latest commit.
 use_latest_commit: bool,
 
@@ -56,7 +58,7 @@ package_root: Cache.Path,
 error_bundle: ErrorBundle.Wip,
 manifest: ?Manifest,
 manifest_ast: std.zig.Ast,
-actual_hash: Manifest.Digest,
+computed_hash: ComputedHash,
 /// Fetch logic notices whether a package has a build.zig file and sets this flag.
 has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
@@ -116,8 +118,8 @@ pub const JobQueue = struct {
     /// as lazy.
     unlazy_set: UnlazySet = .{},
 
-    pub const Table = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
-    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, void);
+    pub const Table = std.AutoArrayHashMapUnmanaged(Package.Hash, *Fetch);
+    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Package.Hash, void);
 
     pub fn deinit(jq: *JobQueue) void {
         if (jq.all_fetches.items.len == 0) return;
@@ -160,22 +162,24 @@ pub const JobQueue = struct {
 
         // Ensure the generated .zig file is deterministic.
         jq.table.sortUnstable(@as(struct {
-            keys: []const Manifest.MultiHashHexDigest,
+            keys: []const Package.Hash,
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                return std.mem.lessThan(u8, &ctx.keys[a_index], &ctx.keys[b_index]);
+                return std.mem.lessThan(u8, &ctx.keys[a_index].bytes, &ctx.keys[b_index].bytes);
             }
         }, .{ .keys = keys }));
 
-        for (keys, jq.table.values()) |hash, fetch| {
+        for (keys, jq.table.values()) |*hash, fetch| {
             if (fetch == jq.all_fetches.items[0]) {
                 // The first one is a dummy package for the current project.
                 continue;
             }
 
+            const hash_slice = hash.toSlice();
+
             try buf.writer().print(
                 \\    pub const {} = struct {{
                 \\
-            , .{std.zig.fmtId(&hash)});
+            , .{std.zig.fmtId(hash_slice)});
 
             lazy: {
                 switch (fetch.lazy_status) {
@@ -207,7 +211,7 @@ pub const JobQueue = struct {
                 try buf.writer().print(
                     \\        pub const build_zig = @import("{}");
                     \\
-                , .{std.zig.fmtEscapes(&hash)});
+                , .{std.zig.fmtEscapes(hash_slice)});
             }
 
             if (fetch.manifest) |*manifest| {
@@ -219,7 +223,7 @@ pub const JobQueue = struct {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.writer().print(
                         "            .{{ \"{}\", \"{}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(&h) },
+                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
                     );
                 }
 
@@ -251,7 +255,7 @@ pub const JobQueue = struct {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.writer().print(
                 "    .{{ \"{}\", \"{}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(&h) },
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
             );
         }
         try buf.appendSlice("};\n");
@@ -283,7 +287,7 @@ pub const Location = union(enum) {
         url: []const u8,
         /// If this is null it means the user omitted the hash field from a dependency.
         /// It will be an error but the logic should still fetch and print the discovered hash.
-        hash: ?Manifest.MultiHashHexDigest,
+        hash: ?Package.Hash,
     };
 };
 
@@ -325,9 +329,19 @@ pub fn run(f: *Fetch) RunError!void {
                 // "p/$hash/foo", with possibly more directories after "foo".
                 // We want to fail unless the resolved relative path has a
                 // prefix of "p/$hash/".
-                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                 const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
-                const expected_prefix = f.parent_package_root.sub_path[0 .. prefix_len + digest_len];
+                const parent_sub_path = f.parent_package_root.sub_path;
+                const end = find_end: {
+                    if (parent_sub_path.len > prefix_len) {
+                        // Use `isSep` instead of `indexOfScalarPos` to account for
+                        // Windows accepting both `\` and `/` as path separators.
+                        for (parent_sub_path[prefix_len..], prefix_len..) |c, i| {
+                            if (std.fs.path.isSep(c)) break :find_end i;
+                        }
+                    }
+                    break :find_end parent_sub_path.len;
+                };
+                const expected_prefix = parent_sub_path[0..end];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
@@ -367,9 +381,13 @@ pub fn run(f: *Fetch) RunError!void {
         },
     };
 
-    const s = fs.path.sep_str;
     if (remote.hash) |expected_hash| {
-        const prefixed_pkg_sub_path = "p" ++ s ++ expected_hash;
+        var prefixed_pkg_sub_path_buffer: [Package.Hash.max_len + 2]u8 = undefined;
+        prefixed_pkg_sub_path_buffer[0] = 'p';
+        prefixed_pkg_sub_path_buffer[1] = fs.path.sep;
+        const hash_slice = expected_hash.toSlice();
+        @memcpy(prefixed_pkg_sub_path_buffer[2..][0..hash_slice.len], hash_slice);
+        const prefixed_pkg_sub_path = prefixed_pkg_sub_path_buffer[0 .. 2 + hash_slice.len];
         const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
         const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
@@ -437,7 +455,7 @@ fn runResource(
     f: *Fetch,
     uri_path: []const u8,
     resource: *Resource,
-    remote_hash: ?Manifest.MultiHashHexDigest,
+    remote_hash: ?Package.Hash,
 ) RunError!void {
     defer resource.deinit();
     const arena = f.arena.allocator();
@@ -499,13 +517,15 @@ fn runResource(
         // Empty directories have already been omitted by `unpackResource`.
         // Compute the package hash based on the remaining files in the temporary
         // directory.
-        f.actual_hash = try computeHash(f, pkg_path, filter);
+        f.computed_hash = try computeHash(f, pkg_path, filter);
 
         break :blk if (unpack_result.root_dir.len > 0)
             try fs.path.join(arena, &.{ tmp_dir_sub_path, unpack_result.root_dir })
         else
             tmp_dir_sub_path;
     };
+
+    const computed_package_hash = computedPackageHash(f);
 
     // Rename the temporary directory into the global zig package cache
     // directory. If the hash already exists, delete the temporary directory
@@ -515,7 +535,7 @@ fn runResource(
 
     f.package_root = .{
         .root_dir = cache_root,
-        .sub_path = try arena.dupe(u8, "p" ++ s ++ Manifest.hexDigest(f.actual_hash)),
+        .sub_path = try std.fmt.allocPrint(arena, "p" ++ s ++ "{s}", .{computed_package_hash.toSlice()}),
     };
     renameTmpIntoCache(cache_root.handle, package_sub_path, f.package_root.sub_path) catch |err| {
         const src = try cache_root.join(arena, &.{tmp_dir_sub_path});
@@ -534,13 +554,22 @@ fn runResource(
     // Validate the computed hash against the expected hash. If invalid, this
     // job is done.
 
-    const actual_hex = Manifest.hexDigest(f.actual_hash);
     if (remote_hash) |declared_hash| {
-        if (!std.mem.eql(u8, &declared_hash, &actual_hex)) {
-            return f.fail(f.hash_tok, try eb.printString(
-                "hash mismatch: manifest declares {s} but the fetched package has {s}",
-                .{ declared_hash, actual_hex },
-            ));
+        if (declared_hash.isOld()) {
+            const actual_hex = Package.multiHashHexDigest(f.computed_hash.digest);
+            if (!std.mem.eql(u8, declared_hash.toSlice(), &actual_hex)) {
+                return f.fail(f.hash_tok, try eb.printString(
+                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    .{ declared_hash.toSlice(), actual_hex },
+                ));
+            }
+        } else {
+            if (!computed_package_hash.eql(&declared_hash)) {
+                return f.fail(f.hash_tok, try eb.printString(
+                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
+                ));
+            }
         }
     } else if (!f.omit_missing_hash_error) {
         const notes_len = 1;
@@ -551,7 +580,7 @@ fn runResource(
         });
         const notes_start = try eb.reserveNotes(notes_len);
         eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-            .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
+            .msg = try eb.printString("expected .hash = \"{s}\",", .{computed_package_hash.toSlice()}),
         }));
         return error.FetchFailed;
     }
@@ -560,6 +589,18 @@ fn runResource(
     // a mutex and a hash map so that redundant jobs do not get queued up.
     if (!f.job_queue.recursive) return;
     return queueJobsForDeps(f);
+}
+
+pub fn computedPackageHash(f: *const Fetch) Package.Hash {
+    const saturated_size = std.math.cast(u32, f.computed_hash.total_size) orelse std.math.maxInt(u32);
+    if (f.manifest) |man| {
+        var version_buffer: [32]u8 = undefined;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        return .init(f.computed_hash.digest, man.name, version, man.id, saturated_size);
+    }
+    // In the future build.zig.zon fields will be added to allow overriding these values
+    // for naked tarballs.
+    return .init(f.computed_hash.digest, "N", "V", 0xffff, saturated_size);
 }
 
 /// `computeHash` gets a free check for the existence of `build.zig`, but when
@@ -616,11 +657,13 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 
     f.manifest = try Manifest.parse(arena, ast.*, .{
         .allow_missing_paths_field = f.allow_missing_paths_field,
+        .allow_missing_fingerprint = f.allow_missing_fingerprint,
+        .allow_name_string = f.allow_name_string,
     });
     const manifest = &f.manifest.?;
 
     if (manifest.errors.len > 0) {
-        const src_path = try eb.printString("{}{s}", .{ pkg_root, Manifest.basename });
+        const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
         try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }
@@ -673,9 +716,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .url = url,
                     .hash = h: {
                         const h = dep.hash orelse break :h null;
-                        const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
-                        const multihash_digest = h[0..digest_len].*;
-                        const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
+                        const pkg_hash: Package.Hash = .fromSlice(h);
+                        const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                         if (gop.found_existing) {
                             if (!dep.lazy) {
                                 gop.value_ptr.*.lazy_status = .eager;
@@ -683,15 +725,15 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                             continue;
                         }
                         gop.value_ptr.* = new_fetch;
-                        break :h multihash_digest;
+                        break :h pkg_hash;
                     },
                 } },
                 .path => |rel_path| l: {
                     // This might produce an invalid path, which is checked for
                     // at the beginning of run().
                     const new_root = try f.package_root.resolvePosix(parent_arena, rel_path);
-                    const multihash_digest = relativePathDigest(new_root, cache_root);
-                    const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
+                    const pkg_hash = relativePathDigest(new_root, cache_root);
+                    const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                     if (gop.found_existing) {
                         if (!dep.lazy) {
                             gop.value_ptr.*.lazy_status = .eager;
@@ -718,13 +760,15 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .allow_missing_fingerprint = true,
+                .allow_name_string = true,
                 .use_latest_commit = false,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
                 .manifest = null,
                 .manifest_ast = undefined,
-                .actual_hash = undefined,
+                .computed_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
                 .latest_commit = null,
@@ -746,20 +790,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     }
 }
 
-pub fn relativePathDigest(
-    pkg_root: Cache.Path,
-    cache_root: Cache.Directory,
-) Manifest.MultiHashHexDigest {
-    var hasher = Manifest.Hash.init(.{});
-    // This hash is a tuple of:
-    // * whether it relative to the global cache directory or to the root package
-    // * the relative file path from there to the build root of the package
-    hasher.update(if (pkg_root.root_dir.eql(cache_root))
-        &package_hash_prefix_cached
-    else
-        &package_hash_prefix_project);
-    hasher.update(pkg_root.sub_path);
-    return Manifest.hexDigest(hasher.finalResult());
+pub fn relativePathDigest(pkg_root: Cache.Path, cache_root: Cache.Directory) Package.Hash {
+    return .initPath(pkg_root.sub_path, pkg_root.root_dir.eql(cache_root));
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
@@ -1387,11 +1419,7 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
     }
 }
 
-pub fn renameTmpIntoCache(
-    cache_dir: fs.Dir,
-    tmp_dir_sub_path: []const u8,
-    dest_dir_sub_path: []const u8,
-) !void {
+pub fn renameTmpIntoCache(cache_dir: fs.Dir, tmp_dir_sub_path: []const u8, dest_dir_sub_path: []const u8) !void {
     assert(dest_dir_sub_path[1] == fs.path.sep);
     var handled_missing_dir = false;
     while (true) {
@@ -1417,16 +1445,17 @@ pub fn renameTmpIntoCache(
     }
 }
 
+const ComputedHash = struct {
+    digest: Package.Hash.Digest,
+    total_size: u64,
+};
+
 /// Assumes that files not included in the package have already been filtered
 /// prior to calling this function. This ensures that files not protected by
 /// the hash are not present on the file system. Empty directories are *not
 /// hashed* and must not be present on the file system when calling this
 /// function.
-fn computeHash(
-    f: *Fetch,
-    pkg_path: Cache.Path,
-    filter: Filter,
-) RunError!Manifest.Digest {
+fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!ComputedHash {
     // All the path name strings need to be in memory for sorting.
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -1448,6 +1477,9 @@ fn computeHash(
 
     var walker = try root_dir.walk(gpa);
     defer walker.deinit();
+
+    // Total number of bytes of file contents included in the package.
+    var total_size: u64 = 0;
 
     {
         // The final hash will be a hash of each file hashed independently. This
@@ -1506,6 +1538,7 @@ fn computeHash(
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
+                .size = undefined, // to be populated by the worker
             };
             thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
@@ -1544,7 +1577,7 @@ fn computeHash(
 
     std.mem.sortUnstable(*HashedFile, all_files.items, {}, HashedFile.lessThan);
 
-    var hasher = Manifest.Hash.init(.{});
+    var hasher = Package.Hash.Algo.init(.{});
     var any_failures = false;
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
@@ -1556,6 +1589,7 @@ fn computeHash(
             });
         };
         hasher.update(&hashed_file.hash);
+        total_size += hashed_file.size;
     }
     for (deleted_files.items) |deleted_file| {
         deleted_file.failure catch |err| {
@@ -1580,7 +1614,10 @@ fn computeHash(
         };
     }
 
-    return hasher.finalResult();
+    return .{
+        .digest = hasher.finalResult(),
+        .total_size = total_size,
+    };
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
@@ -1609,8 +1646,9 @@ fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
-    var hasher = Manifest.Hash.init(.{});
+    var hasher = Package.Hash.Algo.init(.{});
     hasher.update(hashed_file.normalized_path);
+    var file_size: u64 = 0;
 
     switch (hashed_file.kind) {
         .file => {
@@ -1622,6 +1660,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
             while (true) {
                 const bytes_read = try file.read(&buf);
                 if (bytes_read == 0) break;
+                file_size += bytes_read;
                 hasher.update(buf[0..bytes_read]);
                 file_header.update(buf[0..bytes_read]);
             }
@@ -1641,6 +1680,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         },
     }
     hasher.final(&hashed_file.hash);
+    hashed_file.size = file_size;
 }
 
 fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
@@ -1667,9 +1707,10 @@ const DeletedFile = struct {
 const HashedFile = struct {
     fs_path: []const u8,
     normalized_path: []const u8,
-    hash: Manifest.Digest,
+    hash: Package.Hash.Digest,
     failure: Error!void,
     kind: Kind,
+    size: u64,
 
     const Error =
         fs.File.OpenError ||
@@ -1744,12 +1785,8 @@ const Filter = struct {
     }
 };
 
-pub fn depDigest(
-    pkg_root: Cache.Path,
-    cache_root: Cache.Directory,
-    dep: Manifest.Dependency,
-) ?Manifest.MultiHashHexDigest {
-    if (dep.hash) |h| return h[0..Manifest.multihash_hex_digest_len].*;
+pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifest.Dependency) ?Package.Hash {
+    if (dep.hash) |h| return .fromSlice(h);
 
     switch (dep.location) {
         .url => return null,
@@ -1762,10 +1799,6 @@ pub fn depDigest(
         },
     }
 }
-
-// These are random bytes.
-const package_hash_prefix_cached = [8]u8{ 0x53, 0x7e, 0xfa, 0x94, 0x65, 0xe9, 0xf8, 0x73 };
-const package_hash_prefix_project = [8]u8{ 0xe1, 0x25, 0xee, 0xfa, 0xa6, 0x17, 0x38, 0xcc };
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -2137,7 +2170,7 @@ test "tarball with excluded duplicate paths" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = Package.multiHashHexDigest(fetch.computed_hash.digest);
     try std.testing.expectEqualStrings(
         "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
         &hex_digest,
@@ -2181,7 +2214,7 @@ test "tarball without root folder" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = Package.multiHashHexDigest(fetch.computed_hash.digest);
     try std.testing.expectEqualStrings(
         "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
         &hex_digest,
@@ -2222,7 +2255,7 @@ test "set executable bit based on file content" {
     try fetch.run();
     try std.testing.expectEqualStrings(
         "1220fecb4c06a9da8673c87fe8810e15785f1699212f01728eadce094d21effeeef3",
-        &Manifest.hexDigest(fetch.actual_hash),
+        &Package.multiHashHexDigest(fetch.computed_hash.digest),
     );
 
     var out = try fb.packageDir();
@@ -2298,13 +2331,15 @@ const TestFetchBuilder = struct {
             .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
+            .allow_missing_fingerprint = true, // so we can keep using the old testdata .tar.gz
+            .allow_name_string = true, // so we can keep using the old testdata .tar.gz
             .use_latest_commit = true,
 
             .package_root = undefined,
             .error_bundle = undefined,
             .manifest = null,
             .manifest_ast = undefined,
-            .actual_hash = undefined,
+            .computed_hash = undefined,
             .has_build_zig = false,
             .oom_flag = false,
             .latest_commit = null,

@@ -28,6 +28,7 @@ test "slices pointing at the same address as global array." {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const a = [_]u8{ 1, 2, 3 };
@@ -83,6 +84,8 @@ test "global const can be self-referential" {
 }
 
 test "global var can be self-referential" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         self: *@This(),
         x: u32,
@@ -134,6 +137,8 @@ test "global const can be indirectly self-referential" {
 }
 
 test "global var can be indirectly self-referential" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         other: *@This(),
         x: u32,

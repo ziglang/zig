@@ -500,6 +500,7 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         const name = sym.getName(macho_file);
         assert(name.len > 0);
         sym.flags.output_symtab = true;
@@ -1103,8 +1104,8 @@ fn createTlvDescriptor(
 
     const sect_index = macho_file.getSectionByName("__DATA", "__thread_vars") orelse
         try macho_file.addSection("__DATA", "__thread_vars", .{
-        .flags = macho.S_THREAD_LOCAL_VARIABLES,
-    });
+            .flags = macho.S_THREAD_LOCAL_VARIABLES,
+        });
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 

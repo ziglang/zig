@@ -6,7 +6,7 @@ const log = std.log.scoped(.codegen);
 const math = std.math;
 const DW = std.dwarf;
 
-const Builder = @import("llvm/Builder.zig");
+const Builder = std.zig.llvm.Builder;
 const llvm = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
@@ -388,7 +388,7 @@ const DataLayoutBuilder = struct {
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
                 !(self.target.cpu.arch == .aarch64 and
-                (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
+                    (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
                 self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
             try writer.writeAll("-p");
             if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
@@ -859,55 +859,54 @@ pub const Object = struct {
         builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
-            if (!builder.strip)
-        debug_info: {
-            // We fully resolve all paths at this point to avoid lack of
-            // source line info in stack traces or lack of debugging
-            // information which, if relative paths were used, would be
-            // very location dependent.
-            // TODO: the only concern I have with this is WASI as either host or target, should
-            // we leave the paths as relative then?
-            // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
-            // a particular directory, and then the directory path is specified elsewhere.
-            // In the compiler frontend we have it stored correctly in this
-            // way already, but here we throw all that sweet information
-            // into the garbage can by converting into absolute paths. What
-            // a terrible tragedy.
-            const compile_unit_dir = blk: {
-                if (comp.zcu) |zcu| m: {
-                    const d = try zcu.main_mod.root.joinString(arena, "");
-                    if (d.len == 0) break :m;
-                    if (std.fs.path.isAbsolute(d)) break :blk d;
-                    break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-                }
-                break :blk try std.process.getCwdAlloc(arena);
-            };
+            if (!builder.strip) debug_info: {
+                // We fully resolve all paths at this point to avoid lack of
+                // source line info in stack traces or lack of debugging
+                // information which, if relative paths were used, would be
+                // very location dependent.
+                // TODO: the only concern I have with this is WASI as either host or target, should
+                // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
+                const compile_unit_dir = blk: {
+                    if (comp.zcu) |zcu| m: {
+                        const d = try zcu.main_mod.root.joinString(arena, "");
+                        if (d.len == 0) break :m;
+                        if (std.fs.path.isAbsolute(d)) break :blk d;
+                        break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
+                    }
+                    break :blk try std.process.getCwdAlloc(arena);
+                };
 
-            const debug_file = try builder.debugFile(
-                try builder.metadataString(comp.root_name),
-                try builder.metadataString(compile_unit_dir),
-            );
+                const debug_file = try builder.debugFile(
+                    try builder.metadataString(comp.root_name),
+                    try builder.metadataString(compile_unit_dir),
+                );
 
-            const debug_enums_fwd_ref = try builder.debugForwardReference();
-            const debug_globals_fwd_ref = try builder.debugForwardReference();
+                const debug_enums_fwd_ref = try builder.debugForwardReference();
+                const debug_globals_fwd_ref = try builder.debugForwardReference();
 
-            const debug_compile_unit = try builder.debugCompileUnit(
-                debug_file,
-                // Don't use the version string here; LLVM misparses it when it
-                // includes the git revision.
-                try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
-                    build_options.semver.major,
-                    build_options.semver.minor,
-                    build_options.semver.patch,
-                }),
-                debug_enums_fwd_ref,
-                debug_globals_fwd_ref,
-                .{ .optimized = comp.root_mod.optimize_mode != .Debug },
-            );
+                const debug_compile_unit = try builder.debugCompileUnit(
+                    debug_file,
+                    // Don't use the version string here; LLVM misparses it when it
+                    // includes the git revision.
+                    try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
+                        build_options.semver.major,
+                        build_options.semver.minor,
+                        build_options.semver.patch,
+                    }),
+                    debug_enums_fwd_ref,
+                    debug_globals_fwd_ref,
+                    .{ .optimized = comp.root_mod.optimize_mode != .Debug },
+                );
 
-            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-            break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-        } else .{.none} ** 3;
+                try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+                break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
+            } else .{.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -1217,7 +1216,10 @@ pub const Object = struct {
                 }
             }
 
-            const bitcode = try o.builder.toBitcode(o.gpa);
+            const bitcode = try o.builder.toBitcode(o.gpa, .{
+                .name = "zig",
+                .version = build_options.semver,
+            });
             defer o.gpa.free(bitcode);
             o.builder.clearAndFree();
 
@@ -1333,7 +1335,6 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
@@ -1341,6 +1342,9 @@ pub const Object = struct {
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
             .bitcode_filename = null,
+
+            // `.coverage` value is only used when `.sancov` is enabled.
+            .sancov = options.fuzz or comp.config.san_cov_trace_pc_guard,
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
@@ -1348,7 +1352,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = options.fuzz,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
@@ -1444,6 +1448,19 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.optforfuzzing);
             try attributes.addFnAttr(.skipprofile, &o.builder);
             try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
+        }
+
+        const disable_intrinsics = func_analysis.disable_intrinsics or owner_mod.no_builtin;
+        if (disable_intrinsics) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -1749,6 +1766,7 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+            .disable_intrinsics = disable_intrinsics,
         };
         defer fg.deinit();
         deinit_wip = false;
@@ -2757,9 +2775,9 @@ pub const Object = struct {
 
                 const full_fields: [2]Builder.Metadata =
                     if (layout.tag_align.compare(.gte, layout.payload_align))
-                    .{ debug_tag_type, debug_payload_type }
-                else
-                    .{ debug_payload_type, debug_tag_type };
+                        .{ debug_tag_type, debug_payload_type }
+                    else
+                        .{ debug_payload_type, debug_tag_type };
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
@@ -3127,17 +3145,6 @@ pub const Object = struct {
                 .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
                 &o.builder,
             );
-        }
-        if (owner_mod.no_builtin) {
-            // The intent here is for compiler-rt and libc functions to not generate
-            // infinite recursion. For example, if we are compiling the memcpy function,
-            // and llvm detects that the body is equivalent to memcpy, it may replace the
-            // body of memcpy with a call to memcpy, which would then cause a stack
-            // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
-            } }, &o.builder);
         }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
@@ -4549,11 +4556,11 @@ pub const Object = struct {
             // instruction is followed by a `wrap_optional`, it will return this value
             // verbatim, and the result should test as non-null.
             switch (zcu.getTarget().ptrBitWidth()) {
-            16 => 0xaaaa,
-            32 => 0xaaaaaaaa,
-            64 => 0xaaaaaaaa_aaaaaaaa,
-            else => unreachable,
-        };
+                16 => 0xaaaa,
+                32 => 0xaaaaaaaa,
+                64 => 0xaaaaaaaa_aaaaaaaa,
+                else => unreachable,
+            };
         const llvm_usize = try o.lowerType(Type.usize);
         const llvm_ptr_ty = try o.lowerType(ptr_ty);
         return o.builder.castConst(.inttoptr, try o.builder.intConst(llvm_usize, int), llvm_ptr_ty);
@@ -4916,6 +4923,8 @@ pub const FuncGen = struct {
     switch_dispatch_info: std.AutoHashMapUnmanaged(Air.Inst.Index, SwitchDispatchInfo),
 
     sync_scope: Builder.SyncScope,
+
+    disable_intrinsics: bool,
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
@@ -5442,7 +5451,7 @@ pub const FuncGen = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        if (self.ng.ownerModule().no_builtin) {
+        if (self.disable_intrinsics) {
             try attributes.addFnAttr(.nobuiltin, &o.builder);
         }
 
@@ -5769,6 +5778,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    self.disable_intrinsics,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5819,6 +5829,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
+                self.disable_intrinsics,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -5900,7 +5911,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -5911,7 +5922,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{src_list.typeOfWip(&self.wip)}, &.{src_list}, "");
         return .none;
     }
 
@@ -5925,7 +5936,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -9540,7 +9551,7 @@ pub const FuncGen = struct {
 
         if (llvm_dest_ty.isStruct(&o.builder) or
             ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
-            operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
+                operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
         {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values or vectors with padding bits.
@@ -9732,6 +9743,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                self.disable_intrinsics,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -10039,9 +10051,22 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
@@ -10058,9 +10083,22 @@ pub const FuncGen = struct {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 return .none;
             }
@@ -10075,9 +10113,22 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                try self.safeWasmMemset(
+                    dest_ptr,
+                    fill_byte,
+                    len,
+                    dest_ptr_align,
+                    access_kind,
+                );
             } else {
-                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
             }
             return .none;
         }
@@ -10129,6 +10180,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
+                self.disable_intrinsics,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10156,7 +10208,14 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+        _ = try self.wip.callMemSet(
+            dest_ptr,
+            dest_ptr_align,
+            fill_byte,
+            len,
+            access_kind,
+            self.disable_intrinsics,
+        );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -10198,6 +10257,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
+                self.disable_intrinsics,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10211,6 +10271,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
+            self.disable_intrinsics,
         );
         return .none;
     }
@@ -11344,6 +11405,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
+            fg.disable_intrinsics,
         );
         return result_ptr;
     }
@@ -11511,6 +11573,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
+            self.disable_intrinsics,
         );
     }
 
@@ -12523,7 +12586,7 @@ fn ccAbiPromoteInt(
             else => null,
         },
         else => switch (target.cpu.arch) {
-            .riscv64 => switch (int_info.bits) {
+            .loongarch64, .riscv64 => switch (int_info.bits) {
                 0...16 => int_info.signedness,
                 32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
                 17...31, 33...63 => int_info.signedness,

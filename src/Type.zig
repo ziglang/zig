@@ -604,12 +604,20 @@ pub fn hasRuntimeBitsInner(
                         // and then later if our guess was incorrect, we emit a compile error.
                         if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
                     },
+                    .safety, .tagged => {},
+                }
+                switch (strat) {
+                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
+                    .eager => assert(union_flags.status.haveFieldTypes()),
+                    .lazy => if (!union_flags.status.haveFieldTypes())
+                        return error.NeedLazy,
+                }
+                switch (union_flags.runtime_tag) {
+                    .none => {},
                     .safety, .tagged => {
                         const tag_ty = union_type.tagTypeUnordered(ip);
-                        // tag_ty will be `none` if this union's tag type is not resolved yet,
-                        // in which case we want control flow to continue down below.
-                        if (tag_ty != .none and
-                            try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
+                        assert(tag_ty != .none); // tag_ty should have been resolved above
+                        if (try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
                             ignore_comptime_only,
                             strat,
                             zcu,
@@ -618,12 +626,6 @@ pub fn hasRuntimeBitsInner(
                             return true;
                         }
                     },
-                }
-                switch (strat) {
-                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
-                    .eager => assert(union_flags.status.haveFieldTypes()),
-                    .lazy => if (!union_flags.status.haveFieldTypes())
-                        return error.NeedLazy,
                 }
                 for (0..union_type.field_types.len) |field_index| {
                     const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
@@ -806,7 +808,7 @@ pub fn isNoReturn(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.isNoReturn(ty.toIntern());
 }
 
-/// Returns `none` if the pointer is naturally aligned and the element type is 0-bit.
+/// Never returns `none`. Asserts that all necessary type resolution is already done.
 pub fn ptrAlignment(ty: Type, zcu: *Zcu) Alignment {
     return ptrAlignmentInner(ty, .normal, zcu, {}) catch unreachable;
 }
@@ -823,15 +825,9 @@ pub fn ptrAlignmentInner(
 ) !Alignment {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
-            if (ptr_type.flags.alignment != .none)
-                return ptr_type.flags.alignment;
-
-            if (strat == .sema) {
-                const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(.sema, zcu, tid);
-                return res.scalar;
-            }
-
-            return Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            if (ptr_type.flags.alignment != .none) return ptr_type.flags.alignment;
+            const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(strat.toLazy(), zcu, tid);
+            return res.scalar;
         },
         .opt_type => |child| Type.fromInterned(child).ptrAlignmentInner(strat, zcu, tid),
         else => unreachable,
@@ -2539,6 +2535,13 @@ pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
 /// Asserts the type is a function.
 pub fn fnIsVarArgs(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.is_var_args;
+}
+
+pub fn fnPtrMaskOrNull(ty: Type, zcu: *const Zcu) ?u64 {
+    return switch (ty.zigTypeTag(zcu)) {
+        .@"fn" => target_util.functionPointerMask(zcu.getTarget()),
+        else => null,
+    };
 }
 
 pub fn isNumeric(ty: Type, zcu: *const Zcu) bool {

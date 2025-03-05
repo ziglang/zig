@@ -71,11 +71,9 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
                 if (cert_header.cert_size == 0) continue;
 
-                try cb.bytes.ensureUnusedCapacity(gpa, cert_header.cert_size);
-
                 const cert_start = @as(u32, @intCast(cb.bytes.items.len));
-                const dest_buf = cb.bytes.allocatedSlice()[cert_start..];
-                cb.bytes.items.len += try reader.readAtLeast(dest_buf, cert_header.cert_size);
+                const dest_buf = try cb.bytes.addManyAsSlice(gpa, cert_header.cert_size);
+                try reader.readNoEof(dest_buf);
 
                 try cb.parseCert(gpa, cert_start, now_sec);
             }

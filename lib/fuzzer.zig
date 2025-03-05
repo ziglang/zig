@@ -83,6 +83,18 @@ export fn __sanitizer_cov_trace_pc_indir(callee: usize) void {
     //fuzzer.traceValue(pc ^ callee);
     //std.log.debug("0x{x}: indirect call to 0x{x}", .{ pc, callee });
 }
+export fn __sanitizer_cov_8bit_counters_init(start: usize, end: usize) void {
+    // clang will emit a call to this function when compiling with code coverage instrumentation.
+    // however fuzzer_init() does not need this information, since it directly reads from the symbol table.
+    _ = start;
+    _ = end;
+}
+export fn __sanitizer_cov_pcs_init(start: usize, end: usize) void {
+    // clang will emit a call to this function when compiling with code coverage instrumentation.
+    // however fuzzer_init() does not need this information, since it directly reads from the symbol table.
+    _ = start;
+    _ = end;
+}
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
     fuzzer.traceValue(pc ^ arg1 ^ arg2);
@@ -441,7 +453,7 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
+var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.c) void = undefined;
 
 export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
     fuzzer_one = testOne;

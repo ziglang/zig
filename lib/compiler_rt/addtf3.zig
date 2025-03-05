@@ -12,10 +12,10 @@ comptime {
     @export(&__addtf3, .{ .name = "__addtf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __addtf3(a: f128, b: f128) callconv(.C) f128 {
+pub fn __addtf3(a: f128, b: f128) callconv(.c) f128 {
     return addf3(f128, a, b);
 }
 
-fn _Qp_add(c: *f128, a: *f128, b: *f128) callconv(.C) void {
+fn _Qp_add(c: *f128, a: *f128, b: *f128) callconv(.c) void {
     c.* = addf3(f128, a.*, b.*);
 }

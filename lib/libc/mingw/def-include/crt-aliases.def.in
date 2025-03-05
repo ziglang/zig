@@ -231,6 +231,12 @@ ADD_UNDERSCORE(y1)
 ADD_UNDERSCORE(yn)
 
 ; This is list of symbol aliases for C95 functions
+#ifdef WITH_GET_PUT_WCHAR_ALIASES
+getwc == fgetwc
+getwchar == _fgetwchar
+putwc == fputwc
+putwchar == _fputwchar
+#endif
 #ifdef USE_WCSTOK_S_FOR_WCSTOK
 wcstok == wcstok_s
 #endif
@@ -531,24 +537,22 @@ __ms_printf == printf
 __ms_scanf == scanf
 __ms_sprintf == sprintf
 __ms_sscanf == sscanf
-#ifdef PRE_C95_SWPRINTF
-__ms_swprintf == swprintf
-#else
-__ms_swprintf == _swprintf
-#endif
 __ms_swscanf == swscanf
 __ms_vfprintf == vfprintf
 __ms_vfwprintf == vfwprintf
 __ms_vprintf == vprintf
 __ms_vsprintf == vsprintf
-#ifdef PRE_C95_SWPRINTF
-__ms_vswprintf == vswprintf
-#else
-__ms_vswprintf == _vswprintf
-#endif
 __ms_vwprintf == vwprintf
 __ms_wprintf == wprintf
 __ms_wscanf == wscanf
+#ifdef WITH_MS_VSCANF_ALIASES
+__ms_vfscanf == vfscanf
+__ms_vfwscanf == vfwscanf
+__ms_vscanf == vscanf
+__ms_vsscanf == vsscanf
+__ms_vswscanf == vswscanf
+__ms_vwscanf == vwscanf
+#endif
 #endif
 
 ; This is list of additional symbol aliases not available in any library as neither native symbols nor aliases
