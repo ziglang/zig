@@ -72,3 +72,14 @@ pub fn format(
 pub fn eql(self: Directory, other: Directory) bool {
     return self.handle.fd == other.handle.fd;
 }
+
+pub fn absolutePath(self: Directory, allocator: Allocator) ![]u8 {
+    if (self.path) |p| {
+        if (fs.path.isAbsolute(p)) {
+            return @constCast(p);
+        }
+        return fs.path.join(allocator, &.{ try std.process.getCwdAlloc(allocator), p });
+    } else {
+        return std.process.getCwdAlloc(allocator);
+    }
+}

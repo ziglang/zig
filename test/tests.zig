@@ -1771,7 +1771,7 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
 
         run.addArg(b.graph.zig_exe);
         run.addFileArg(b.path("test/incremental/").path(b, entry.path));
-        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+        run.addArgs(&.{ "--zig-lib-dir", try b.graph.zig_lib_directory.absolutePath(b.allocator) });
 
         run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
 
