@@ -26641,13 +26641,12 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :cc .auto;
     };
 
-    const ret_ty: Type = if (extra.data.bits.ret_ty_is_generic)
-        .generic_poison
-    else if (extra.data.bits.has_ret_ty_body) blk: {
+    const ret_ty: Type = if (extra.data.bits.has_ret_ty_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
+        if (extra.data.bits.ret_ty_is_generic) break :blk .generic_poison;
 
         const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, .{ .simple = .function_ret_ty });
         const ty = val.toType();
@@ -26655,6 +26654,8 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_ret_ty_ref) blk: {
         const ret_ty_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
+        if (extra.data.bits.ret_ty_is_generic) break :blk .generic_poison;
+
         const ret_ty_air_ref = try sema.resolveInst(ret_ty_ref);
         const ret_ty_val = try sema.resolveConstDefinedValue(block, ret_src, ret_ty_air_ref, .{ .simple = .function_ret_ty });
         break :blk ret_ty_val.toType();
