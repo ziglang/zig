@@ -7886,7 +7886,7 @@ Statement
      / KEYWORD_errdefer Payload? BlockExprStatement
      / IfStatement
      / LabeledStatement
-     / SwitchExpr
+     / BlockLabel? SwitchExpr
      / VarDeclExprStatement
 
 ComptimeStatement
