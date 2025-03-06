@@ -129,9 +129,9 @@ pub fn MultiArrayList(comptime T: type) type {
                 };
             }
 
-            pub fn deinit(self: *Slice, gpa: Allocator) void {
+            pub fn deinit(self: *Slice, allocator: Allocator) void {
                 var other = self.toMultiArrayList();
-                other.deinit(gpa);
+                other.deinit(allocator);
                 self.* = undefined;
             }
 
@@ -184,8 +184,8 @@ pub fn MultiArrayList(comptime T: type) type {
         };
 
         /// Release all allocated memory.
-        pub fn deinit(self: *Self, gpa: Allocator) void {
-            gpa.free(self.allocatedBytes());
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            allocator.free(self.allocatedBytes());
             self.* = undefined;
         }
 
@@ -232,8 +232,8 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
-        pub fn append(self: *Self, gpa: Allocator, elem: T) !void {
-            try self.ensureUnusedCapacity(gpa, 1);
+        pub fn append(self: *Self, allocator: Allocator, elem: T) !void {
+            try self.ensureUnusedCapacity(allocator, 1);
             self.appendAssumeCapacity(elem);
         }
 
@@ -276,8 +276,8 @@ pub fn MultiArrayList(comptime T: type) type {
         /// after and including the specified index back by one and
         /// sets the given index to the specified element.  May reallocate
         /// and invalidate iterators.
-        pub fn insert(self: *Self, gpa: Allocator, index: usize, elem: T) !void {
-            try self.ensureUnusedCapacity(gpa, 1);
+        pub fn insert(self: *Self, allocator: Allocator, index: usize, elem: T) !void {
+            try self.ensureUnusedCapacity(allocator, 1);
             self.insertAssumeCapacity(index, elem);
         }
 
@@ -335,21 +335,21 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items, if any.
-        pub fn resize(self: *Self, gpa: Allocator, new_len: usize) !void {
-            try self.ensureTotalCapacity(gpa, new_len);
+        pub fn resize(self: *Self, allocator: Allocator, new_len: usize) !void {
+            try self.ensureTotalCapacity(allocator, new_len);
             self.len = new_len;
         }
 
         /// Attempt to reduce allocated capacity to `new_len`.
         /// If `new_len` is greater than zero, this may fail to reduce the capacity,
         /// but the data remains intact and the length is updated to new_len.
-        pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
-            if (new_len == 0) return clearAndFree(self, gpa);
+        pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_len: usize) void {
+            if (new_len == 0) return clearAndFree(self, allocator);
 
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
-            const other_bytes = gpa.alignedAlloc(
+            const other_bytes = allocator.alignedAlloc(
                 u8,
                 @alignOf(Elem),
                 capacityInBytes(new_len),
@@ -382,12 +382,12 @@ pub fn MultiArrayList(comptime T: type) type {
                     @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
-            gpa.free(self.allocatedBytes());
+            allocator.free(self.allocatedBytes());
             self.* = other;
         }
 
-        pub fn clearAndFree(self: *Self, gpa: Allocator) void {
-            gpa.free(self.allocatedBytes());
+        pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            allocator.free(self.allocatedBytes());
             self.* = .{};
         }
 
@@ -406,9 +406,9 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.setCapacity(gpa, growCapacity(self.capacity, new_capacity));
+            return self.setCapacity(allocator, growCapacity(self.capacity, new_capacity));
         }
 
         const init_capacity = init: {
@@ -430,22 +430,22 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Modify the array so that it can hold at least `additional_count` **more** items.
         /// Invalidates pointers if additional memory is needed.
-        pub fn ensureUnusedCapacity(self: *Self, gpa: Allocator, additional_count: usize) !void {
-            return self.ensureTotalCapacity(gpa, self.len + additional_count);
+        pub fn ensureUnusedCapacity(self: *Self, allocator: Allocator, additional_count: usize) !void {
+            return self.ensureTotalCapacity(allocator, self.len + additional_count);
         }
 
         /// Modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         /// `new_capacity` must be greater or equal to `len`.
-        pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
+        pub fn setCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
             assert(new_capacity >= self.len);
-            const new_bytes = try gpa.alignedAlloc(
+            const new_bytes = try allocator.alignedAlloc(
                 u8,
                 @alignOf(Elem),
                 capacityInBytes(new_capacity),
             );
             if (self.len == 0) {
-                gpa.free(self.allocatedBytes());
+                allocator.free(self.allocatedBytes());
                 self.bytes = new_bytes.ptr;
                 self.capacity = new_capacity;
                 return;
@@ -463,16 +463,16 @@ pub fn MultiArrayList(comptime T: type) type {
                     @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
-            gpa.free(self.allocatedBytes());
+            allocator.free(self.allocatedBytes());
             self.* = other;
         }
 
         /// Create a copy of this list with a new backing store,
         /// using the specified allocator.
-        pub fn clone(self: Self, gpa: Allocator) !Self {
+        pub fn clone(self: Self, allocator: Allocator) !Self {
             var result = Self{};
-            errdefer result.deinit(gpa);
-            try result.ensureTotalCapacity(gpa, self.len);
+            errdefer result.deinit(allocator);
+            try result.ensureTotalCapacity(allocator, self.len);
             result.len = self.len;
             const self_slice = self.slice();
             const result_slice = result.slice();

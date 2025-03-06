@@ -1065,9 +1065,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.ensureTotalCapacityPrecise(gpa, growCapacity(self.capacity, new_capacity));
+            return self.ensureTotalCapacityPrecise(allocator, growCapacity(self.capacity, new_capacity));
         }
 
         /// If the current capacity is less than `new_capacity`, this function will
