@@ -25,11 +25,14 @@ jobs:
           - x86_64-windows-gnu
           - aarch64-macos-none
           - aarch64-linux-musl
-        release_mode:
-          - ReleaseFast
+        release_flag: ["Doptimize=ReleaseFast"]
+        strip_flag: ["Dstrip"]
+        name_append: [""]
         include:
           - target: aarch64-macos-none
-            release_mode: ReleaseSafe
+            release_flag: "Doptimize=ReleaseSafe"
+            strip_flag: "Ddebug-extensions"
+            name_append: "-ReleaseSafe"
     steps:
       - run: sudo apt-get install -y ninja-build
       - uses: actions/checkout@v4
@@ -41,12 +44,13 @@ jobs:
         with:
           path: zig
       - run: sed -i 's/ZIG_VERSION="0.14.0-dev.2257+e6d2e1641"/ZIG_VERSION="0.14.0"/' build
-      - run: sed -i 's/Doptimize=ReleaseFast/Doptimize=${{ matrix.release_mode }}/' build
+      - run: sed -i 's/Doptimize=ReleaseFast/${{ matrix.release_flag }}/' build
+      - run: sed -i 's/Dstrip/${{ matrix.strip_flag }}/' build
       - run: cat build
       - run: CMAKE_GENERATOR=Ninja ./build ${{ matrix.target }} baseline
       - uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-${{ matrix.target }}${{ matrix.release_mode == 'ReleaseSafe' && '-ReleaseSafe' || '' }}
+          name: bootstrap-${{ matrix.target }}${{ matrix.name_append }}
           path: out/zig-${{ matrix.target }}-baseline
   release:
     needs: build
