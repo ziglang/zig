@@ -7954,7 +7954,8 @@ PrimaryExpr
      / KEYWORD_continue BreakLabel?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
-     / BlockLabel? (LoopExpr / SwitchExpr)
+     / BlockLabel? LoopExpr
+     / BlockLabel SwitchExpr
      / Block
      / CurlySuffixExpr
 
