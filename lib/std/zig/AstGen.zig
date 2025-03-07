@@ -10331,7 +10331,7 @@ fn callExpr(
                 .callee = callee_obj,
                 .flags = .{
                     .pop_error_return_trace = !propagate_error_trace,
-                    .packed_modifier = @intCast(@intFromEnum(modifier)),
+                    .packed_modifier = modifier,
                     .args_len = @intCast(call.ast.params.len),
                 },
             });
@@ -10352,7 +10352,7 @@ fn callExpr(
                 .field_name_start = callee_field.field_name_start,
                 .flags = .{
                     .pop_error_return_trace = !propagate_error_trace,
-                    .packed_modifier = @intCast(@intFromEnum(modifier)),
+                    .packed_modifier = modifier,
                     .args_len = @intCast(call.ast.params.len),
                 },
             });
