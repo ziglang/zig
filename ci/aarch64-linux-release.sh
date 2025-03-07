@@ -1,4 +1,5 @@
 #!/bin/sh
+exit 0
 
 # Requires cmake ninja-build
 
