@@ -3470,11 +3470,7 @@ fn buildOutputType(
         // incremental cache mode is used for LLVM backend too.
         if (create_module.resolved_options.use_llvm) break :b .whole;
 
-        // Eventually, this default should be `.incremental`. However, since incremental
-        // compilation is currently an opt-in feature, it makes a strictly worse default cache mode
-        // than `.whole`.
-        // https://github.com/ziglang/zig/issues/21165
-        break :b .whole;
+        break :b .incremental;
     };
 
     process.raiseFileDescriptorLimit();

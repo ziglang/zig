@@ -600,20 +600,6 @@ pub const File = struct {
         }
     }
 
-    /// Some linkers create a separate file for debug info, which we might need to temporarily close
-    /// when moving the compilation result directory due to the host OS not allowing moving a
-    /// file/directory while a handle remains open.
-    /// Returns `true` if a debug info file was closed. In that case, `reopenDebugInfo` may be called.
-    pub fn closeDebugInfo(base: *File) bool {
-        const macho = base.cast(.macho) orelse return false;
-        return macho.closeDebugInfo();
-    }
-
-    pub fn reopenDebugInfo(base: *File) !void {
-        const macho = base.cast(.macho).?;
-        return macho.reopenDebugInfo();
-    }
-
     pub fn makeExecutable(base: *File) !void {
         dev.check(.make_executable);
         const comp = base.comp;

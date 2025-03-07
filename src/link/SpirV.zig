@@ -61,18 +61,6 @@ pub fn createEmpty(
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
 
-    assert(!comp.config.use_lld); // Caught by Compilation.Config.resolve
-    assert(!comp.config.use_llvm); // Caught by Compilation.Config.resolve
-    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => {},
-        else => unreachable, // Caught by Compilation.Config.resolve.
-    }
-    switch (target.os.tag) {
-        .opencl, .opengl, .vulkan => {},
-        else => unreachable, // Caught by Compilation.Config.resolve.
-    }
-
     const self = try arena.create(SpirV);
     self.* = .{
         .base = .{
@@ -91,11 +79,15 @@ pub fn createEmpty(
     };
     errdefer self.deinit();
 
-    // TODO: read the file and keep valid parts instead of truncating
-    self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
-        .truncate = true,
-        .read = true,
-    });
+    switch (target.cpu.arch) {
+        .spirv, .spirv32, .spirv64 => {},
+        else => unreachable, // Caught by Compilation.Config.resolve.
+    }
+
+    switch (target.os.tag) {
+        .opencl, .opengl, .vulkan => {},
+        else => unreachable, // Caught by Compilation.Config.resolve.
+    }
 
     return self;
 }
@@ -106,7 +98,24 @@ pub fn open(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*SpirV {
-    return createEmpty(arena, comp, emit, options);
+    const target = comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+
+    assert(!use_llvm); // Caught by Compilation.Config.resolve.
+    assert(!use_lld); // Caught by Compilation.Config.resolve.
+    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve.
+
+    const spirv = try createEmpty(arena, comp, emit, options);
+    errdefer spirv.base.destroy();
+
+    // TODO: read the file and keep valid parts instead of truncating
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
+        .truncate = true,
+        .read = true,
+    });
+    spirv.base.file = file;
+    return spirv;
 }
 
 pub fn deinit(self: *SpirV) void {
