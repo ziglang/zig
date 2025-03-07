@@ -357,6 +357,15 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             // and so some consideration must be taken when entering this in the type system.
             return self.todo("process OpTypeArray", .{});
         },
+        .OpTypeRuntimeArray => blk: {
+            const element_type = try self.resolveRefId(operands[1].ref_id);
+            const result_id = self.spv.allocId();
+            try section.emit(self.spv.gpa, .OpTypeRuntimeArray, .{
+                .id_result = result_id,
+                .element_type = element_type,
+            });
+            break :blk result_id;
+        },
         .OpTypePointer => blk: {
             const storage_class: StorageClass = @enumFromInt(operands[1].value);
             const child_type = try self.resolveRefId(operands[2].ref_id);
