@@ -9,11 +9,24 @@ else if (ofmt_c)
     .strong
 else
     .weak;
+
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
 pub const visibility: std.builtin.SymbolVisibility =
-    if (builtin.target.isWasm() and linkage != .internal) .hidden else .default;
+    if (builtin.target.cpu.arch.isWasm() and linkage != .internal) .hidden else .default;
+
+pub const PreferredLoadStoreElement = element: {
+    if (std.simd.suggestVectorLength(u8)) |vec_size| {
+        const Vec = @Vector(vec_size, u8);
+
+        if (@sizeOf(Vec) == vec_size and std.math.isPowerOfTwo(vec_size)) {
+            break :element Vec;
+        }
+    }
+    break :element usize;
+};
+
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -29,7 +42,10 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_mingw_arm_abi = builtin.cpu.arch.isArm() and builtin.target.isMinGW();
+
+/// These functions are provided by libc when targeting MSVC, but not MinGW.
+// Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi.isGnu() or !builtin.link_libc);
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
@@ -78,16 +94,7 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file, unless
 // we're trying to test compiler-rt.
-pub const Panic = if (builtin.is_test) std.debug.FormattedPanic else struct {};
-
-/// To be deleted after zig1.wasm is updated.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (builtin.is_test) {
-        std.debug.defaultPanic(msg, error_return_trace, ret_addr orelse @returnAddress());
-    } else {
-        unreachable;
-    }
-}
+pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
 /// AArch64 is the only ABI (at the moment) to support f16 arguments without the
 /// need for extending them to wider fp types.
@@ -96,7 +103,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 pub fn F16T(comptime OtherType: type) type {
     return switch (builtin.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
-            switch (builtin.abi.floatAbi()) {
+            switch (builtin.abi.float()) {
                 .soft => u16,
                 .hard => f16,
             }
@@ -104,7 +111,7 @@ pub fn F16T(comptime OtherType: type) type {
             u16,
         .aarch64, .aarch64_be => f16,
         .riscv32, .riscv64 => f16,
-        .x86, .x86_64 => if (builtin.target.isDarwin()) switch (OtherType) {
+        .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???
             f32, f64 => u16,

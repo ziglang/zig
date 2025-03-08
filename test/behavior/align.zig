@@ -52,6 +52,8 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -144,31 +146,17 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
-        .x86_64 => switch (builtin.zig_backend) {
-            .stage2_x86_64 => .{
-                .a_align = 8,
-                .a_size = 16,
+        .x86_64 => .{
+            .a_align = 16,
+            .a_size = 16,
 
-                .b_align = 16,
-                .b_size = 32,
+            .b_align = 16,
+            .b_size = 32,
 
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-            else => .{
-                .a_align = 16,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 16,
-                .u128_size = 16,
-                .u129_align = 16,
-                .u129_size = 32,
-            },
+            .u128_align = 16,
+            .u128_size = 16,
+            .u129_align = 16,
+            .u129_size = 32,
         },
 
         .x86,
@@ -213,6 +201,7 @@ test "alignment and size of structs with 128-bit fields" {
 test "implicitly decreasing slice alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
@@ -225,6 +214,7 @@ fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
 test "specifying alignment allows pointer cast" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testBytesAlign(0x33);
 }
@@ -290,9 +280,10 @@ test "function alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+    // function alignment is a compile error on wasm
+    if (native_arch.isWasm()) return error.SkipZigTest;
 
     const S = struct {
         fn alignExpr() align(@sizeOf(usize) * 2) i32 {
@@ -321,8 +312,8 @@ test "implicitly decreasing fn alignment" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+    // function alignment is a compile error on wasm
+    if (native_arch.isWasm()) return error.SkipZigTest;
 
     try testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
     try testImplicitlyDecreaseFnAlign(alignedBig, 5678);
@@ -345,9 +336,9 @@ test "@alignCast functions" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
+    // function alignment is a compile error on wasm
+    if (native_arch.isWasm()) return error.SkipZigTest;
+    if (native_arch.isThumb()) return error.SkipZigTest;
 
     try expect(fnExpectsOnly1(simple4) == 0x19);
 }
@@ -361,49 +352,9 @@ fn simple4() align(4) i32 {
     return 0x19;
 }
 
-test "function align expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
-
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(foobar(1) == 2);
-            try expect(foobar(4) == 5);
-            try expect(foobar(8) == 9);
-        }
-
-        fn foobar(comptime align_bytes: u8) align(align_bytes) u8 {
-            return align_bytes + 1;
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "function callconv expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(foobar(.C, 1) == 2);
-            try expect(foobar(.Unspecified, 2) == 3);
-        }
-
-        fn foobar(comptime cc: std.builtin.CallingConvention, arg: u8) callconv(cc) u8 {
-            return arg + 1;
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
 test "runtime-known array index has best alignment possible" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
@@ -451,11 +402,11 @@ test "alignment of function with c calling convention" {
     var runtime_nothing = &nothing;
     _ = &runtime_nothing;
     const casted1: *align(a) const u8 = @ptrCast(runtime_nothing);
-    const casted2: *const fn () callconv(.C) void = @ptrCast(casted1);
+    const casted2: *const fn () callconv(.c) void = @ptrCast(casted1);
     casted2();
 }
 
-fn nothing() callconv(.C) void {}
+fn nothing() callconv(.c) void {}
 
 const DefaultAligned = struct {
     nevermind: u32,
@@ -540,6 +491,7 @@ test "align(N) on functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_c) {
         // https://github.com/ziglang/zig/issues/16845
@@ -551,9 +503,9 @@ test "align(N) on functions" {
         return error.SkipZigTest;
     }
 
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
+    // function alignment is a compile error on wasm
+    if (native_arch.isWasm()) return error.SkipZigTest;
+    if (native_arch.isThumb()) return error.SkipZigTest;
 
     try expect((@intFromPtr(&overaligned_fn) & (0x1000 - 1)) == 0);
 }
@@ -580,6 +532,7 @@ test "comptime alloc alignment" {
 test "@alignCast null" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var ptr: ?*anyopaque = null;
     _ = &ptr;
@@ -596,6 +549,7 @@ test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/14904
 
@@ -667,4 +621,17 @@ test "zero-bit fields in extern struct pad fields appropriately" {
     try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
     try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
     try expect(@as(*S, @fieldParentPtr("a", &s.a)) == &s);
+}
+
+test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    // This only succeeds on Thumb if we handle the Thumb bit correctly; if not, the `@ptrFromInt`
+    // will incorrectly trip an alignment safety check.
+
+    const nothing_ptr: *const fn () callconv(.c) void = &nothing;
+    const nothing_int: usize = @intFromPtr(nothing_ptr);
+    const nothing_ptr2: *const fn () callconv(.c) void = @ptrFromInt(nothing_int);
+
+    try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
 }

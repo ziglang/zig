@@ -59,6 +59,7 @@ pub const EXC = enum(exception_type_t) {
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {
+        _0: u1 = 0,
         BAD_ACCESS: bool = false,
         BAD_INSTRUCTION: bool = false,
         ARITHMETIC: bool = false,
@@ -72,6 +73,7 @@ pub const EXC = enum(exception_type_t) {
         RESOURCE: bool = false,
         GUARD: bool = false,
         CORPSE_NOTIFY: bool = false,
+        _14: u18 = 0,
 
         pub const MACHINE: MASK = @bitCast(@as(u32, 0));
 
@@ -377,7 +379,7 @@ pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
 };
 
 extern "c" var mach_task_self_: mach_port_t;
-pub fn mach_task_self() callconv(.C) mach_port_t {
+pub fn mach_task_self() callconv(.c) mach_port_t {
     return mach_task_self_;
 }
 
@@ -871,7 +873,7 @@ pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*anyopaque) callconv(.C) void;
+const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
     context: ?*anyopaque,
@@ -926,7 +928,7 @@ pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
 pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
 pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
 
-pub const os_log_t = opaque {};
+pub const os_log_t = *opaque {};
 pub const os_log_type_t = enum(u8) {
     /// default messages always captures
     OS_LOG_TYPE_DEFAULT = 0x00,
@@ -977,7 +979,7 @@ pub const kevent64_s = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         assert(@offsetOf(kevent64_s, "ident") == 0);
         assert(@offsetOf(kevent64_s, "filter") == 8);
         assert(@offsetOf(kevent64_s, "flags") == 10);
@@ -1162,6 +1164,7 @@ pub const CPUFAMILY = enum(u32) {
     ARM_LOBOS = 0x5f4dea93,
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
+    ARM_BRAVA = 0x17d5b93a,
     _,
 };
 
@@ -1230,16 +1233,16 @@ pub extern "c" fn posix_spawn(
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 pub extern "c" fn posix_spawnp(
     pid: *pid_t,
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 
 pub const E = enum(u16) {
@@ -1513,4 +1516,37 @@ pub const DB_RECORDTYPE = enum(u32) {
     // Industry At Large Application Name Space Range Definition
     pub const APP_DEFINED_START = 0x80000000;
     pub const APP_DEFINED_END = 0xffffffff;
+};
+
+pub const TCP = struct {
+    /// Turn off Nagle's algorithm
+    pub const NODELAY = 0x01;
+    /// Limit MSS
+    pub const MAXSEG = 0x02;
+    /// Don't push last block of write
+    pub const NOPUSH = 0x04;
+    /// Don't use TCP options
+    pub const NOOPT = 0x08;
+    /// Idle time used when SO_KEEPALIVE is enabled
+    pub const KEEPALIVE = 0x10;
+    /// Connection timeout
+    pub const CONNECTIONTIMEOUT = 0x20;
+    /// Time after which a conection in persist timeout will terminate.
+    pub const PERSIST_TIMEOUT = 0x40;
+    /// Time after which TCP retransmissions will be stopped and the connection will be dropped.
+    pub const RXT_CONNDROPTIME = 0x80;
+    /// Drop a connection after retransmitting the FIN 3 times.
+    pub const RXT_FINDROP = 0x100;
+    /// Interval between keepalives
+    pub const KEEPINTVL = 0x101;
+    /// Number of keepalives before clsoe
+    pub const KEEPCNT = 0x102;
+    /// Always ack every other packet
+    pub const SENDMOREACKS = 0x103;
+    /// Enable ECN on a connection
+    pub const ENABLE_ECN = 0x104;
+    /// Enable/Disable TCP Fastopen on this socket
+    pub const FASTOPEN = 0x105;
+    /// State of the TCP connection
+    pub const CONNECTION_INFO = 0x106;
 };

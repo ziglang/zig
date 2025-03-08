@@ -117,8 +117,8 @@ pub fn int64Type(target: std.Target) Type {
 
         .sparc64 => return intMaxType(target),
 
-        .x86, .x86_64 => if (!target.isDarwin()) return intMaxType(target),
-        .aarch64, .aarch64_be => if (!target.isDarwin() and target.os.tag != .openbsd and target.os.tag != .windows) return .{ .specifier = .long },
+        .x86, .x86_64 => if (!target.os.tag.isDarwin()) return intMaxType(target),
+        .aarch64, .aarch64_be => if (!target.os.tag.isDarwin() and target.os.tag != .openbsd and target.os.tag != .windows) return .{ .specifier = .long },
         else => {},
     }
     return .{ .specifier = .long_long };
@@ -144,7 +144,7 @@ pub fn defaultFunctionAlignment(target: std.Target) u8 {
 }
 
 pub fn isTlsSupported(target: std.Target) bool {
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         var supported = false;
         switch (target.os.tag) {
             .macos => supported = !(target.os.isAtLeast(.macos, .{ .major = 10, .minor = 7, .patch = 0 }) orelse false),
@@ -199,7 +199,7 @@ pub fn minZeroWidthBitfieldAlignment(target: std.Target) ?u29 {
 pub fn unnamedFieldAffectsAlignment(target: std.Target) bool {
     switch (target.cpu.arch) {
         .aarch64 => {
-            if (target.isDarwin() or target.os.tag == .windows) return false;
+            if (target.os.tag.isDarwin() or target.os.tag == .windows) return false;
             return true;
         },
         .armeb => {
@@ -229,7 +229,7 @@ pub fn packAllEnums(target: std.Target) bool {
 pub fn defaultAlignment(target: std.Target) u29 {
     switch (target.cpu.arch) {
         .avr => return 1,
-        .arm => if (target.isAndroid() or target.os.tag == .ios) return 16 else return 8,
+        .arm => if (target.abi.isAndroid() or target.os.tag == .ios) return 16 else return 8,
         .sparc => if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) return 16 else return 8,
         .mips, .mipsel => switch (target.abi) {
             .none, .gnuabi64 => return 16,
@@ -242,9 +242,8 @@ pub fn defaultAlignment(target: std.Target) u29 {
 pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
     // Android is linux but not gcc, so these checks go first
     // the rest for documentation as fn returns .clang
-    if (target.isDarwin() or
-        target.isAndroid() or
-        target.isBSD() or
+    if (target.abi.isAndroid() or
+        target.os.tag.isBSD() or
         target.os.tag == .fuchsia or
         target.os.tag == .solaris or
         target.os.tag == .haiku or
@@ -268,7 +267,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
-    if (target.isDarwin()) return false;
+    if (target.os.tag.isDarwin()) return false;
     if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
@@ -461,7 +460,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .amdgcn,
         .avr,
         .msp430,
-        .spu_2,
         .ve,
         .bpfel,
         .bpfeb,
@@ -522,7 +520,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .lanai,
         .m68k,
         .msp430,
-        .spu_2,
         .xcore,
         .xtensa,
         => return null,
@@ -620,8 +617,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        // Note: spu_2 is not supported in LLVM; this is the Zig arch name
-        .spu_2 => "spu_2",
     };
     writer.writeAll(llvm_arch) catch unreachable;
     writer.writeByte('-') catch unreachable;
@@ -663,7 +658,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .driverkit => "driverkit",
         .visionos => "xros",
         .serenity => "serenity",
-        .bridgeos => "bridgeos",
         .opencl,
         .opengl,
         .vulkan,
@@ -720,7 +714,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 test "alignment functions - smoke test" {
     var target: std.Target = undefined;
     const x86 = std.Target.Cpu.Arch.x86_64;
-    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     target.cpu = std.Target.Cpu.baseline(x86, target.os);
     target.abi = std.Target.Abi.default(x86, target.os);
 
@@ -733,7 +727,7 @@ test "alignment functions - smoke test" {
     try std.testing.expect(systemCompiler(target) == .gcc);
 
     const arm = std.Target.Cpu.Arch.arm;
-    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     target.cpu = std.Target.Cpu.baseline(arm, target.os);
     target.abi = std.Target.Abi.default(arm, target.os);
 
@@ -752,7 +746,7 @@ test "target size/align tests" {
     const x86 = std.Target.Cpu.Arch.x86;
     comp.target.cpu.arch = x86;
     comp.target.cpu.model = &std.Target.x86.cpu.i586;
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     comp.target.abi = std.Target.Abi.gnu;
 
     const tt: Type = .{
@@ -764,7 +758,7 @@ test "target size/align tests" {
 
     const arm = std.Target.Cpu.Arch.arm;
     comp.target.cpu = std.Target.Cpu.Model.toCpu(&std.Target.arm.cpu.cortex_r4, arm);
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     comp.target.abi = std.Target.Abi.none;
 
     const ct: Type = .{

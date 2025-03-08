@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -100,7 +101,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     asm volatile (
         \\      movl $56,%%eax // SYS_clone
         \\      movq %%rdi,%%r11
@@ -116,8 +117,15 @@ pub fn clone() callconv(.Naked) usize {
         \\      testq %%rax,%%rax
         \\      jz 1f
         \\      retq
-        \\1:    .cfi_undefined %%rip
+        \\
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\      .cfi_undefined %%rip
+    );
+    asm volatile (
         \\      xorl %%ebp,%%ebp
+        \\
         \\      popq %%rdi
         \\      callq *%%r9
         \\      movl %%eax,%%edi
@@ -129,7 +137,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -374,7 +382,7 @@ fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
     return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
 }
 
-fn getContextInternal() callconv(.Naked) usize {
+fn getContextInternal() callconv(.naked) usize {
     // TODO: Read GS/FS registers?
     asm volatile (
         \\ movq $0, %[flags_offset:c](%%rdi)

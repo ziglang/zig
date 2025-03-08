@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -121,7 +122,7 @@ pub fn socketcall(call: usize, args: [*]const usize) usize {
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         +8,   +12,   +16,   +20, +24,  +28, +32
     //
@@ -148,23 +149,30 @@ pub fn clone() callconv(.Naked) usize {
         \\  movl $120,%%eax // SYS_clone
         \\  int $128
         \\  testl %%eax,%%eax
-        \\  jnz 1f
-        \\  popl %%eax
-        \\  xorl %%ebp,%%ebp
-        \\  calll *%%eax
-        \\  movl %%eax,%%ebx
-        \\  movl $1,%%eax // SYS_exit
-        \\  int $128
-        \\1:
+        \\  jz 1f
         \\  popl %%edi
         \\  popl %%esi
         \\  popl %%ebx
         \\  popl %%ebp
         \\  retl
+        \\
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\  .cfi_undefined %%eip
+    );
+    asm volatile (
+        \\  xorl %%ebp,%%ebp
+        \\
+        \\  popl %%eax
+        \\  calll *%%eax
+        \\  movl %%eax,%%ebx
+        \\  movl $1,%%eax // SYS_exit
+        \\  int $128
     );
 }
 
-pub fn restore() callconv(.Naked) noreturn {
+pub fn restore() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -182,7 +190,7 @@ pub fn restore() callconv(.Naked) noreturn {
     }
 }
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -397,7 +405,7 @@ noinline fn getContextReturnAddress() usize {
     return @returnAddress();
 }
 
-pub fn getContextInternal() callconv(.Naked) usize {
+pub fn getContextInternal() callconv(.naked) usize {
     asm volatile (
         \\ movl $0, %[flags_offset:c](%%edx)
         \\ movl $0, %[link_offset:c](%%edx)

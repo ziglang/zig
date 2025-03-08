@@ -31,5 +31,5 @@ pub fn main() !void {}
 // :20:5: error: found compile log statement
 //
 // Compile Log Output:
-// @as([]i32, @as([*]i32, @ptrCast(@as(tmp.UnionContainer, .{ .buf = .{ 1, 2 } }).buf[0]))[0..2])
-// @as([]i32, @as([*]i32, @ptrCast(@as(tmp.StructContainer, .{ .buf = .{ 3, 4 } }).buf[0]))[0..2])
+// @as([]i32, @as([*]i32, @ptrCast(&@as(tmp.UnionContainer, .{ .buf = .{ 1, 2 } }).buf))[0..2])
+// @as([]i32, @as([*]i32, @ptrCast(&@as(tmp.StructContainer, .{ .buf = .{ 3, 4 } }).buf))[0..2])

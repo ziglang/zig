@@ -2,48 +2,9 @@ gpa: Allocator,
 arena: Allocator,
 cases: std.ArrayList(Case),
 translate: std.ArrayList(Translate),
-incremental_cases: std.ArrayList(IncrementalCase),
 
 pub const IncrementalCase = struct {
     base_path: []const u8,
-};
-
-pub const Update = struct {
-    /// The input to the current update. We simulate an incremental update
-    /// with the file's contents changed to this value each update.
-    ///
-    /// This value can change entirely between updates, which would be akin
-    /// to deleting the source file and creating a new one from scratch; or
-    /// you can keep it mostly consistent, with small changes, testing the
-    /// effects of the incremental compilation.
-    files: std.ArrayList(File),
-    /// This is a description of what happens with the update, for debugging
-    /// purposes.
-    name: []const u8,
-    case: union(enum) {
-        /// Check that it compiles with no errors.
-        Compile: void,
-        /// Check the main binary output file against an expected set of bytes.
-        /// This is most useful with, for example, `-ofmt=c`.
-        CompareObjectFile: []const u8,
-        /// An error update attempts to compile bad code, and ensures that it
-        /// fails to compile, and for the expected reasons.
-        /// A slice containing the expected stderr template, which
-        /// gets some values substituted.
-        Error: []const []const u8,
-        /// An execution update compiles and runs the input, testing the
-        /// stdout against the expected results
-        /// This is a slice containing the expected message.
-        Execution: []const u8,
-        /// A header update compiles the input with the equivalent of
-        /// `-femit-h` and tests the produced header against the
-        /// expected result.
-        Header: []const u8,
-    },
-
-    pub fn addSourceFile(update: *Update, name: []const u8, src: [:0]const u8) void {
-        update.files.append(.{ .path = name, .src = src }) catch @panic("out of memory");
-    }
 };
 
 pub const File = struct {
@@ -67,9 +28,6 @@ pub const CFrontend = enum {
     aro,
 };
 
-/// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
-/// update, so each update's source is treated as a single file being
-/// updated by the test harness and incrementally compiled.
 pub const Case = struct {
     /// The name of the test case. This is shown if a test fails, and
     /// otherwise ignored.
@@ -81,19 +39,47 @@ pub const Case = struct {
     /// to Executable.
     output_mode: std.builtin.OutputMode,
     optimize_mode: std.builtin.OptimizeMode = .Debug,
-    updates: std.ArrayList(Update),
+
+    files: std.ArrayList(File),
+    case: ?union(enum) {
+        /// Check that it compiles with no errors.
+        Compile: void,
+        /// Check the main binary output file against an expected set of bytes.
+        /// This is most useful with, for example, `-ofmt=c`.
+        CompareObjectFile: []const u8,
+        /// An error update attempts to compile bad code, and ensures that it
+        /// fails to compile, and for the expected reasons.
+        /// A slice containing the expected stderr template, which
+        /// gets some values substituted.
+        Error: []const []const u8,
+        /// An execution update compiles and runs the input, testing the
+        /// stdout against the expected results
+        /// This is a slice containing the expected message.
+        Execution: []const u8,
+        /// A header update compiles the input with the equivalent of
+        /// `-femit-h` and tests the produced header against the
+        /// expected result.
+        Header: []const u8,
+    },
+
     emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
     expect_exact: bool = false,
     backend: Backend = .stage2,
     link_libc: bool = false,
+    pic: ?bool = null,
+    pie: ?bool = null,
+    /// A list of imports to cache alongside the source file.
+    imports: []const []const u8 = &.{},
+    /// Where to look for imports relative to the `cases_dir_path` given to
+    /// `lower_to_build_steps`. If null, file imports will assert.
+    import_path: ?[]const u8 = null,
 
     deps: std.ArrayList(DepModule),
 
     pub fn addSourceFile(case: *Case, name: []const u8, src: [:0]const u8) void {
-        const update = &case.updates.items[case.updates.items.len - 1];
-        update.files.append(.{ .path = name, .src = src }) catch @panic("OOM");
+        case.files.append(.{ .path = name, .src = src }) catch @panic("OOM");
     }
 
     pub fn addDepModule(case: *Case, name: []const u8, path: []const u8) void {
@@ -106,46 +92,28 @@ pub const Case = struct {
     /// Adds a subcase in which the module is updated with `src`, compiled,
     /// run, and the output is tested against `result`.
     pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) void {
-        self.updates.append(.{
-            .files = std.ArrayList(File).init(self.updates.allocator),
-            .name = "update",
-            .case = .{ .Execution = result },
-        }) catch @panic("out of memory");
-        addSourceFile(self, "tmp.zig", src);
-    }
-
-    pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
-        return self.addErrorNamed("update", src, errors);
+        assert(self.case == null);
+        self.case = .{ .Execution = result };
+        self.addSourceFile("tmp.zig", src);
     }
 
     /// Adds a subcase in which the module is updated with `src`, which
     /// should contain invalid input, and ensures that compilation fails
     /// for the expected reasons, given in sequential order in `errors` in
     /// the form `:line:column: error: message`.
-    pub fn addErrorNamed(
-        self: *Case,
-        name: []const u8,
-        src: [:0]const u8,
-        errors: []const []const u8,
-    ) void {
+    pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
         assert(errors.len != 0);
-        self.updates.append(.{
-            .files = std.ArrayList(File).init(self.updates.allocator),
-            .name = name,
-            .case = .{ .Error = errors },
-        }) catch @panic("out of memory");
-        addSourceFile(self, "tmp.zig", src);
+        assert(self.case == null);
+        self.case = .{ .Error = errors };
+        self.addSourceFile("tmp.zig", src);
     }
 
     /// Adds a subcase in which the module is updated with `src`, and
     /// asserts that it compiles without issue
     pub fn addCompile(self: *Case, src: [:0]const u8) void {
-        self.updates.append(.{
-            .files = std.ArrayList(File).init(self.updates.allocator),
-            .name = "compile",
-            .case = .{ .Compile = {} },
-        }) catch @panic("out of memory");
-        addSourceFile(self, "tmp.zig", src);
+        assert(self.case == null);
+        self.case = .Compile;
+        self.addSourceFile("tmp.zig", src);
     }
 };
 
@@ -173,10 +141,11 @@ pub fn addExe(
     name: []const u8,
     target: std.Build.ResolvedTarget,
 ) *Case {
-    ctx.cases.append(Case{
+    ctx.cases.append(.{
         .name = name,
         .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Exe,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
@@ -191,10 +160,11 @@ pub fn exe(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Cas
 pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.Query, b: *std.Build) *Case {
     var adjusted_query = target_query;
     adjusted_query.ofmt = .c;
-    ctx.cases.append(Case{
+    ctx.cases.append(.{
         .name = name,
         .target = b.resolveTargetQuery(adjusted_query),
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Exe,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .link_libc = true,
@@ -202,30 +172,15 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
-    ctx.cases.append(Case{
+pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
+    ctx.cases.append(.{
         .name = name,
         .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Obj,
-        .emit_bin = false,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .backend = .llvm,
-    }) catch @panic("out of memory");
-    return &ctx.cases.items[ctx.cases.items.len - 1];
-}
-
-/// Adds a test case that uses the LLVM backend to emit an executable.
-/// Currently this implies linking libc, because only then we can generate a testable executable.
-pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
-    ctx.cases.append(Case{
-        .name = name,
-        .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
-        .output_mode = .Exe,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
-        .backend = .llvm,
-        .link_libc = true,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -235,10 +190,11 @@ pub fn addObj(
     name: []const u8,
     target: std.Build.ResolvedTarget,
 ) *Case {
-    ctx.cases.append(Case{
+    ctx.cases.append(.{
         .name = name,
         .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Obj,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
@@ -250,10 +206,11 @@ pub fn addTest(
     name: []const u8,
     target: std.Build.ResolvedTarget,
 ) *Case {
-    ctx.cases.append(Case{
+    ctx.cases.append(.{
         .name = name,
         .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Exe,
         .is_test = true,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
@@ -275,10 +232,11 @@ pub fn objZIR(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *
 pub fn addC(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     var target_adjusted = target;
     target_adjusted.ofmt = std.Target.ObjectFormat.c;
-    ctx.cases.append(Case{
+    ctx.cases.append(.{
         .name = name,
         .target = target_adjusted,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Obj,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
@@ -361,9 +319,7 @@ pub fn addCompile(
     ctx.addObj(name, target).addCompile(src);
 }
 
-/// Adds a test for each file in the provided directory.
-/// Testing strategy (TestStrategy) is inferred automatically from filenames.
-/// Recurses nested directories.
+/// Adds a test for each file in the provided directory. Recurses nested directories.
 ///
 /// Each file should include a test manifest as a contiguous block of comments at
 /// the end of the file. The first line should be the test type, followed by a set of
@@ -372,7 +328,6 @@ pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir, b: *std.Build) void {
     var current_file: []const u8 = "none";
     ctx.addFromDirInner(dir, &current_file, b) catch |err| {
         std.debug.panicExtra(
-            @errorReturnTrace(),
             @returnAddress(),
             "test harness failed to process file '{s}': {s}\n",
             .{ current_file, @errorName(err) },
@@ -389,29 +344,18 @@ fn addFromDirInner(
     b: *std.Build,
 ) !void {
     var it = try iterable_dir.walk(ctx.arena);
-    var filenames = std.ArrayList([]const u8).init(ctx.arena);
+    var filenames: std.ArrayListUnmanaged([]const u8) = .empty;
 
     while (try it.next()) |entry| {
         if (entry.kind != .file) continue;
 
         // Ignore stuff such as .swp files
         if (!knownFileExtension(entry.basename)) continue;
-        try filenames.append(try ctx.arena.dupe(u8, entry.path));
+        try filenames.append(ctx.arena, try ctx.arena.dupe(u8, entry.path));
     }
 
-    // Sort filenames, so that incremental tests are contiguous and in-order
-    sortTestFilenames(filenames.items);
-
-    var test_it = TestIterator{ .filenames = filenames.items };
-    while (test_it.next()) |maybe_batch| {
-        const batch = maybe_batch orelse break;
-        const strategy: TestStrategy = if (batch.len > 1) .incremental else .independent;
-        const filename = batch[0];
+    for (filenames.items) |filename| {
         current_file.* = filename;
-        if (strategy == .incremental) {
-            try ctx.incremental_cases.append(.{ .base_path = filename });
-            continue;
-        }
 
         const max_file_size = 10 * 1024 * 1024;
         const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
@@ -425,6 +369,10 @@ fn addFromDirInner(
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+        const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
+        const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
+        const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -478,17 +426,27 @@ fn addFromDirInner(
                     // Rosetta has issues with ZLD
                     continue;
                 }
+                if (backend == .stage2 and target.ofmt == .coff) {
+                    // COFF linker has bitrotted
+                    continue;
+                }
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
-                    .target = resolved_target,
+                    .import_path = std.fs.path.dirname(filename),
                     .backend = backend,
-                    .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
+                    .files = .init(ctx.arena),
+                    .case = null,
+                    .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
                     .link_libc = link_libc,
+                    .pic = pic,
+                    .pie = pie,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
+                    .imports = imports,
+                    .target = resolved_target,
                 });
                 try cases.append(next);
             }
@@ -513,10 +471,6 @@ fn addFromDirInner(
                 .cli => @panic("TODO cli tests"),
             }
         }
-    } else |err| {
-        // make sure the current file is set to the file that produced an error
-        current_file.* = test_it.currentFilename();
-        return err;
     }
 }
 
@@ -525,7 +479,6 @@ pub fn init(gpa: Allocator, arena: Allocator) Cases {
         .gpa = gpa,
         .cases = std.ArrayList(Case).init(gpa),
         .translate = std.ArrayList(Translate).init(gpa),
-        .incremental_cases = std.ArrayList(IncrementalCase).init(gpa),
         .arena = arena,
     };
 }
@@ -539,13 +492,14 @@ pub fn lowerToTranslateCSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
-        tests.addTranslateCTests(b, test_translate_c_step, test_filters);
+        tests.addTranslateCTests(b, test_translate_c_step, test_filters, test_target_filters);
         parent_step.dependOn(test_translate_c_step);
     }
 
@@ -579,7 +533,10 @@ pub fn lowerToTranslateCSteps(
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
+            const run_exe = b.addExecutable(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
             run_exe.linkLibC();
             const run = b.addRunArtifact(run_exe);
@@ -620,71 +577,78 @@ pub fn lowerToBuildSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
-
-    for (self.incremental_cases.items) |incr_case| {
-        if (true) {
-            // TODO: incremental tests are disabled for now, as incremental compilation bugs were
-            // getting in the way of practical improvements to the compiler, and incremental
-            // compilation is not currently used. They should be re-enabled once incremental
-            // compilation is in a happier state.
-            continue;
-        }
-        // TODO: the logic for running these was bad, so I've ripped it out. Rewrite this
-        // in a way that actually spawns the compiler, communicating with it over the
-        // compiler server protocol.
-        _ = incr_case;
-        @panic("TODO implement incremental test case executor");
-    }
+    const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
-        if (case.updates.items.len != 1) continue; // handled with incremental_cases above
-        assert(case.updates.items.len == 1);
-        const update = case.updates.items[0];
-
         for (test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
 
+        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (test_target_filters.len > 0) {
+            for (test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
+
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
-        const first_file = update.files.items[0];
+        const first_file = case.files.items[0];
         const root_source_file = writefiles.add(first_file.path, first_file.src);
         file_sources.put(first_file.path, root_source_file) catch @panic("OOM");
-        for (update.files.items[1..]) |file| {
+        for (case.files.items[1..]) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        for (case.imports) |import_rel| {
+            const import_abs = std.fs.path.join(b.allocator, &.{
+                cases_dir_path,
+                case.import_path orelse @panic("import_path not set"),
+                import_rel,
+            }) catch @panic("OOM");
+            _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
+        }
+
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+        });
+
+        if (case.link_libc) mod.link_libc = true;
+        if (case.pic) |pic| mod.pic = pic;
+        for (case.deps.items) |dep| {
+            mod.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
+            });
+        }
+
+        const artifact = if (case.is_test) b.addTest(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+            .Lib => b.addLibrary(.{
+                .linkage = .static,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
 
-        if (case.link_libc) artifact.linkLibC();
+        if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
             .stage1 => continue,
@@ -697,14 +661,12 @@ pub fn lowerToBuildSteps(
             },
         }
 
-        for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
-                .root_source_file = file_sources.get(dep.path).?,
-            });
-        }
-
-        switch (update.case) {
+        switch (case.case.?) {
             .Compile => {
+                // Force the binary to be emitted if requested.
+                if (case.emit_bin) {
+                    _ = artifact.getEmittedBin();
+                }
                 parent_step.dependOn(&artifact.step);
             },
             .CompareObjectFile => |expected_output| {
@@ -740,7 +702,7 @@ pub fn lowerToBuildSteps(
                         "--",
                         "-lc",
                         "-target",
-                        case.target.result.zigTriple(b.allocator) catch @panic("OOM"),
+                        triple_txt,
                     });
                     run_c.addArtifactArg(artifact);
                     break :run_step run_c;
@@ -755,149 +717,6 @@ pub fn lowerToBuildSteps(
         }
     }
 }
-
-/// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
-/// "foo.1.zig", etc.) are contiguous and appear in numerical order.
-fn sortTestFilenames(filenames: [][]const u8) void {
-    const Context = struct {
-        pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
-            const a_parts = getTestFileNameParts(a);
-            const b_parts = getTestFileNameParts(b);
-
-            // Sort "<base_name>.X.<file_ext>" based on "<base_name>" and "<file_ext>" first
-            return switch (std.mem.order(u8, a_parts.base_name, b_parts.base_name)) {
-                .lt => true,
-                .gt => false,
-                .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
-                    .lt => true,
-                    .gt => false,
-                    .eq => {
-                        // a and b differ only in their ".X" part
-
-                        // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
-                        if (a_parts.test_index) |a_index| {
-                            if (b_parts.test_index) |b_index| {
-                                // Make sure that incremental tests appear in linear order
-                                return a_index < b_index;
-                            } else {
-                                return false;
-                            }
-                        } else {
-                            return b_parts.test_index != null;
-                        }
-                    },
-                },
-            };
-        }
-    };
-    std.mem.sort([]const u8, filenames, Context{}, Context.lessThan);
-}
-
-/// Iterates a set of filenames extracting batches that are either incremental
-/// ("foo.0.zig", "foo.1.zig", etc.) or independent ("foo.zig", "bar.zig", etc.).
-/// Assumes filenames are sorted.
-const TestIterator = struct {
-    start: usize = 0,
-    end: usize = 0,
-    filenames: []const []const u8,
-    /// reset on each call to `next`
-    index: usize = 0,
-
-    const Error = error{InvalidIncrementalTestIndex};
-
-    fn next(it: *TestIterator) Error!?[]const []const u8 {
-        try it.nextInner();
-        if (it.start == it.end) return null;
-        return it.filenames[it.start..it.end];
-    }
-
-    fn nextInner(it: *TestIterator) Error!void {
-        it.start = it.end;
-        if (it.end == it.filenames.len) return;
-        if (it.end + 1 == it.filenames.len) {
-            it.end += 1;
-            return;
-        }
-
-        const remaining = it.filenames[it.end..];
-        it.index = 0;
-        while (it.index < remaining.len - 1) : (it.index += 1) {
-            // First, check if this file is part of an incremental update sequence
-            // Split filename into "<base_name>.<index>.<file_ext>"
-            const prev_parts = getTestFileNameParts(remaining[it.index]);
-            const new_parts = getTestFileNameParts(remaining[it.index + 1]);
-
-            // If base_name and file_ext match, these files are in the same test sequence
-            // and the new one should be the incremented version of the previous test
-            if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
-                std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
-            {
-                // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
-                if (prev_parts.test_index == null)
-                    return error.InvalidIncrementalTestIndex;
-                if (new_parts.test_index == null)
-                    return error.InvalidIncrementalTestIndex;
-                if (new_parts.test_index.? != prev_parts.test_index.? + 1)
-                    return error.InvalidIncrementalTestIndex;
-            } else {
-                // This is not the same test sequence, so the new file must be the first file
-                // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
-                if (new_parts.test_index != null and new_parts.test_index.? != 0)
-                    return error.InvalidIncrementalTestIndex;
-
-                it.end += it.index + 1;
-                break;
-            }
-        } else {
-            it.end += remaining.len;
-        }
-    }
-
-    /// In the event of an `error.InvalidIncrementalTestIndex`, this function can
-    /// be used to find the current filename that was being processed.
-    /// Asserts the iterator hasn't reached the end.
-    fn currentFilename(it: TestIterator) []const u8 {
-        assert(it.end != it.filenames.len);
-        const remaining = it.filenames[it.end..];
-        return remaining[it.index + 1];
-    }
-};
-
-/// For a filename in the format "<filename>.X.<ext>" or "<filename>.<ext>", returns
-/// "<filename>", "<ext>" and X parsed as a decimal number. If X is not present, or
-/// cannot be parsed as a decimal number, it is treated as part of <filename>
-fn getTestFileNameParts(name: []const u8) struct {
-    base_name: []const u8,
-    file_ext: []const u8,
-    test_index: ?usize,
-} {
-    const file_ext = std.fs.path.extension(name);
-    const trimmed = name[0 .. name.len - file_ext.len]; // Trim off ".<ext>"
-    const maybe_index = std.fs.path.extension(trimmed); // Extract ".X"
-
-    // Attempt to parse index
-    const index: ?usize = if (maybe_index.len > 0)
-        std.fmt.parseInt(usize, maybe_index[1..], 10) catch null
-    else
-        null;
-
-    // Adjust "<filename>" extent based on parsing success
-    const base_name_end = trimmed.len - if (index != null) maybe_index.len else 0;
-    return .{
-        .base_name = name[0..base_name_end],
-        .file_ext = if (file_ext.len > 0) file_ext[1..] else file_ext,
-        .test_index = index,
-    };
-}
-
-const TestStrategy = enum {
-    /// Execute tests as independent compilations, unless they are explicitly
-    /// incremental ("foo.0.zig", "foo.1.zig", etc.)
-    independent,
-    /// Execute all tests as incremental updates to a single compilation. Explicitly
-    /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
-    incremental,
-};
 
 /// Default config values for known test manifest key-value pairings.
 /// Currently handled defaults are:
@@ -942,12 +761,20 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_bin")) {
+            return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
             return "false";
         } else if (std.mem.eql(u8, key, "link_libc")) {
             return "false";
         } else if (std.mem.eql(u8, key, "c_frontend")) {
             return "clang";
+        } else if (std.mem.eql(u8, key, "pic")) {
+            return "null";
+        } else if (std.mem.eql(u8, key, "pie")) {
+            return "null";
+        } else if (std.mem.eql(u8, key, "imports")) {
+            return "";
         } else unreachable;
     }
 };
@@ -975,12 +802,16 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
         .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
+        .{ "pic", {} },
+        .{ "pie", {} },
+        .{ "imports", {} },
     });
 
     const Type = enum {
@@ -1003,7 +834,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8, .scalar),
+            inner: std.mem.TokenIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -1081,7 +912,9 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
-            if (!valid_keys.has(key)) return error.InvalidKey;
+            if (!valid_keys.has(key)) {
+                return error.InvalidKey;
+            }
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 
@@ -1098,7 +931,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.splitScalar(u8, bytes, ','),
+            .inner = std.mem.tokenizeScalar(u8, bytes, ','),
         };
     }
 
@@ -1209,7 +1042,24 @@ const TestManifest = struct {
                     };
                 }
             }.parse,
+            .optional => |o| return struct {
+                fn parse(str: []const u8) anyerror!T {
+                    if (std.mem.eql(u8, str, "null")) return null;
+                    return try getDefaultParser(o.child)(str);
+                }
+            }.parse,
             .@"struct" => @compileError("no default parser for " ++ @typeName(T)),
+            .pointer => {
+                if (T == []const u8) {
+                    return struct {
+                        fn parse(str: []const u8) anyerror!T {
+                            return str;
+                        }
+                    }.parse;
+                } else {
+                    @compileError("no default parser for " ++ @typeName(T));
+                }
+            },
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }

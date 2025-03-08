@@ -132,6 +132,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .SHARING_VIOLATION => return error.AccessDenied,
             .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
+            .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             .FILE_IS_A_DIRECTORY => return error.IsDir,
@@ -801,6 +802,7 @@ pub fn CreateSymbolicLink(
         error.NotDir => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
@@ -1110,7 +1112,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
-pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
+pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
     const old_path_w = try sliceToPrefixedFileW(null, old_path);
     const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
@@ -1466,6 +1468,7 @@ fn mountmgrIsVolumeName(name: []const u16) bool {
 }
 
 test mountmgrIsVolumeName {
+    @setEvalBranchQuota(2000);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
     try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
@@ -1518,7 +1521,7 @@ pub const GetFileAttributesError = error{
     Unexpected,
 };
 
-pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
+pub fn GetFileAttributes(filename: []const u8) (GetFileAttributesError || Wtf8ToPrefixedFileWError)!DWORD {
     const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
@@ -1667,7 +1670,7 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
 
 pub fn sendmsg(
     s: ws2_32.SOCKET,
-    msg: *const ws2_32.WSAMSG,
+    msg: *ws2_32.WSAMSG_const,
     flags: u32,
 ) i32 {
     var bytes_send: DWORD = undefined;
@@ -1753,6 +1756,38 @@ pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub const NtAllocateVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    NoMemory,
+    Unexpected,
+};
+
+pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
+    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
+        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
+        else => |st| unexpectedStatus(st),
+    };
+}
+
+pub const NtFreeVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    Unexpected,
+};
+
+pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
+    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
+        else => NtFreeVirtualMemoryError.Unexpected,
+    };
 }
 
 pub const VirtualAllocError = error{Unexpected};
@@ -2011,18 +2046,6 @@ pub fn QueryPerformanceCounter() u64 {
 
 pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
-}
-
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
-    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
-}
-
-pub fn HeapDestroy(hHeap: HANDLE) void {
-    assert(kernel32.HeapDestroy(hHeap) != 0);
-}
-
-pub fn LocalFree(hMem: HLOCAL) void {
-    assert(kernel32.LocalFree(hMem) == null);
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -3548,6 +3571,8 @@ pub const MEM_LARGE_PAGES = 0x20000000;
 pub const MEM_PHYSICAL = 0x400000;
 pub const MEM_TOP_DOWN = 0x100000;
 pub const MEM_WRITE_WATCH = 0x200000;
+pub const MEM_RESERVE_PLACEHOLDER = 0x00040000;
+pub const MEM_PRESERVE_PLACEHOLDER = 0x00000400;
 
 // Protect values
 pub const PAGE_EXECUTE = 0x10;
@@ -4800,14 +4825,14 @@ pub const PEB_LDR_DATA = extern struct {
 ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
 ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
 pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    Reserved1: [2]PVOID,
+    InLoadOrderLinks: LIST_ENTRY,
     InMemoryOrderLinks: LIST_ENTRY,
-    Reserved2: [2]PVOID,
+    InInitializationOrderLinks: LIST_ENTRY,
     DllBase: PVOID,
     EntryPoint: PVOID,
     SizeOfImage: ULONG,
     FullDllName: UNICODE_STRING,
-    Reserved4: [8]BYTE,
+    BaseDllName: UNICODE_STRING,
     Reserved5: [3]PVOID,
     DUMMYUNIONNAME: extern union {
         CheckSum: ULONG,

@@ -25,12 +25,12 @@ comptime {
     @export(&logl, .{ .name = "logl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __logh(a: f16) callconv(.C) f16 {
+pub fn __logh(a: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(logf(a));
 }
 
-pub fn logf(x_: f32) callconv(.C) f32 {
+pub fn logf(x_: f32) callconv(.c) f32 {
     const ln2_hi: f32 = 6.9313812256e-01;
     const ln2_lo: f32 = 9.0580006145e-06;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -82,7 +82,7 @@ pub fn logf(x_: f32) callconv(.C) f32 {
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
-pub fn log(x_: f64) callconv(.C) f64 {
+pub fn log(x_: f64) callconv(.c) f64 {
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -138,17 +138,17 @@ pub fn log(x_: f64) callconv(.C) f64 {
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
-pub fn __logx(a: f80) callconv(.C) f80 {
+pub fn __logx(a: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(logq(a));
 }
 
-pub fn logq(a: f128) callconv(.C) f128 {
+pub fn logq(a: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return log(@floatCast(a));
 }
 
-pub fn logl(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn logl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __logh(x),
         32 => return logf(x),

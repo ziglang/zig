@@ -133,7 +133,7 @@ extern "C" {
 #define _tenviron _wenviron
 #define __targv __wargv
 
-#define _tprintf wprintf
+#define _tprintf __ms_wprintf
 #define _tprintf_l _wprintf_l
 #define _tprintf_p _wprintf_p
 #define _tprintf_p_l _wprintf_p_l
@@ -145,11 +145,11 @@ extern "C" {
 #define _vtcprintf_l _vcwprintf_l
 #define _vtcprintf_p _vcwprintf_p
 #define _vtcprintf_p_l _vcwprintf_p_l
-#define _ftprintf fwprintf
+#define _ftprintf __ms_fwprintf
 #define _ftprintf_l _fwprintf_l
 #define _ftprintf_p _fwprintf_p
 #define _ftprintf_p_l _fwprintf_p_l
-#define _stprintf swprintf
+#define _stprintf _swprintf
 #define _stprintf_l __swprintf_l
 #define _stprintf_p _swprintf_p
 #define _stprintf_p_l _swprintf_p_l
@@ -159,15 +159,15 @@ extern "C" {
 #define _sctprintf_p_l _scwprintf_p_l
 #define _sntprintf _snwprintf
 #define _sntprintf_l _snwprintf_l
-#define _vtprintf vwprintf
+#define _vtprintf __ms_vwprintf
 #define _vtprintf_l _vwprintf_l
 #define _vtprintf_p _vwprintf_p
 #define _vtprintf_p_l _vwprintf_p_l
-#define _vftprintf vfwprintf
+#define _vftprintf __ms_vfwprintf
 #define _vftprintf_l _vfwprintf_l
 #define _vftprintf_p _vfwprintf_p
 #define _vftprintf_p_l _vfwprintf_p_l
-#define _vstprintf vswprintf
+#define _vstprintf _vswprintf
 #define _vstprintf_l _vswprintf_l
 #define _vstprintf_p _vswprintf_p
 #define _vstprintf_p_l _vswprintf_p_l
@@ -178,13 +178,13 @@ extern "C" {
 #define _vsntprintf _vsnwprintf
 #define _vsntprintf_l _vsnwprintf_l
 
-#define _tscanf wscanf
+#define _tscanf __ms_wscanf
 #define _tscanf_l _wscanf_l
 #define _tcscanf _cwscanf
 #define _tcscanf_l _cwscanf_l
-#define _ftscanf fwscanf
+#define _ftscanf __ms_fwscanf
 #define _ftscanf_l _fwscanf_l
-#define _stscanf swscanf
+#define _stscanf __ms_swscanf
 #define _stscanf_l _swscanf_l
 #define _sntscanf _snwscanf
 #define _sntscanf_l _snwscanf_l
@@ -211,30 +211,44 @@ extern "C" {
 
 #define _tcstof wcstof
 #define _tcstod wcstod
+#define _tcstold wcstold
 #define _tcstol wcstol
 #define _tcstoul wcstoul
+#define _tcstoll wcstoll
+#define _tcstoull wcstoull
 #define _tcstoi64 _wcstoi64
 #define _tcstoui64 _wcstoui64
+#define _tcstoimax wcstoimax
+#define _tcstoumax wcstoumax
 #define _tstof _wtof
 #define _tstol _wtol
 #define _tstoi _wtoi
+#define _tstoll _wtoll
 #define _tstoi64 _wtoi64
 #define _tcstof_l _wcstof_l
 #define _tcstod_l _wcstod_l
+/* TODO: #define _tcstold_l _wcstold_l  */
 #define _tcstol_l _wcstol_l
 #define _tcstoul_l _wcstoul_l
+#define _tcstoll_l _wcstoll_l
+#define _tcstoull_l _wcstoull_l
 #define _tcstoi64_l _wcstoi64_l
 #define _tcstoui64_l _wcstoui64_l
+#define _tcstoimax_l _wcstoimax_l
+#define _tcstoumax_l _wcstoumax_l
 #define _tstof_l _wtof_l
 #define _tstol_l _wtol_l
+#define _tstoll_l _wtoll_l
 #define _tstoi_l _wtoi_l
 #define _tstoi64_l _wtoi64_l
 
 #define _itot _itow
 #define _ltot _ltow
 #define _ultot _ultow
+#define _ttof _wtof
 #define _ttoi _wtoi
 #define _ttol _wtol
+#define _ttoll _wtoll
 
 #define _ttoi64 _wtoi64
 #define _i64tot _i64tow
@@ -254,12 +268,13 @@ extern "C" {
 #define _tcsrchr wcsrchr
 #define _tcsspn wcsspn
 #define _tcsstr wcsstr
-#define _tcstok wcstok
+#define _tcstok _wcstok
 #define _tcstok_l _wcstok_l
 #define _tcserror _wcserror
 #define __tcserror __wcserror
 
 #define _tcsdup _wcsdup
+#define _tcsdup_dbg _wcsdup_dbg
 #define _tcsnset _wcsnset
 #define _tcsnset_l _wcsnset_l
 #define _tcsrev _wcsrev
@@ -317,18 +332,22 @@ extern "C" {
 #define _tstrdate _wstrdate
 #define _tstrtime _wstrtime
 #define _tutime _wutime
-#define _tutime32 _wutime
+#define _tutime32 _wutime32
 #define _tutime64 _wutime64
 #define _tcsftime wcsftime
 #define _tcsftime_l _wcsftime_l
 
 #define _tchdir _wchdir
 #define _tgetcwd _wgetcwd
+#define _tgetcwd_dbg _wgetcwd_dbg
 #define _tgetdcwd _wgetdcwd
+#define _tgetdcwd_dbg _wgetdcwd_dbg
+#define _tgetdcwd_lk_dbg _wgetdcwd_lk_dbg
 #define _tmkdir _wmkdir
 #define _trmdir _wrmdir
 
 #define _tfullpath _wfullpath
+#define _tfullpath_dbg _wfullpath_dbg
 #define _tgetenv _wgetenv
 #define _tmakepath _wmakepath
 #define _tpgmptr _wpgmptr
@@ -344,6 +363,7 @@ extern "C" {
 #define _tperror _wperror
 #define _tpopen _wpopen
 #define _ttempnam _wtempnam
+#define _ttempnam_dbg _wtempnam_dbg
 #define _ttmpnam _wtmpnam
 
 #define _taccess _waccess
@@ -384,6 +404,21 @@ extern "C" {
 
 #define _tsetlocale _wsetlocale
 
+#if __MSVCRT_VERSION__ >= 0x800
+#define _fgettc_nolock _fgetwc_nolock
+#define _fputtc_nolock _fputwc_nolock
+#define _gettc_nolock _getwc_nolock
+#define _gettch_nolock _getwch_nolock
+#define _gettche_nolock _getwche_nolock
+#define _gettchar_nolock _getwchar_nolock
+#define _puttc_nolock _putwc_nolock
+#define _puttchar_nolock _putwchar_nolock
+#define _puttch_nolock _putwch_nolock
+#define _ungettc_nolock _ungetwc_nolock
+#define _ungettch_nolock _ungetwch_nolock
+#define _tgetdcwd_nolock _wgetdcwd_nolock
+#endif
+
 #define _tcsclen wcslen
 #define _tcscnlen wcsnlen
 #define _tcsclen_l(_String,_Locale) wcslen(_String)
@@ -393,6 +428,7 @@ extern "C" {
 #define _tcsnccpy wcsncpy
 #define _tcsnccpy_l _wcsncpy_l
 #define _tcsncset _wcsnset
+#define _tcsncset_l _wcsnset_l
 
 #define _tcsdec _wcsdec
 #define _tcsinc _wcsinc
@@ -436,6 +472,10 @@ extern "C" {
 #define _istupper_l _iswupper_l
 #define _istxdigit iswxdigit
 #define _istxdigit_l _iswxdigit_l
+#define _istblank iswblank
+#if __MSVCRT_VERSION__ >= 0xC00
+#define _istblank_l _iswblank_l
+#endif  /* msvcr120 */
 
 #define _totupper towupper
 #define _totupper_l _towupper_l
@@ -456,7 +496,7 @@ extern "C" {
 #define _wcsspnp(_cpc1,_cpc2) (!_cpc1 ? NULL : ((*((_cpc1)+wcsspn(_cpc1,_cpc2))) ? ((_cpc1)+wcsspn(_cpc1,_cpc2)) : NULL))
 #define _wcsncpy_l(_Destination,_Source,_Count,_Locale) (wcsncpy(_Destination,_Source,_Count))
 #define _wcsncat_l(_Destination,_Source,_Count,_Locale) (wcsncat(_Destination,_Source,_Count))
-#define _wcstok_l(_String,_Delimiters,_Locale) (wcstok(_String,_Delimiters))
+#define _wcstok_l(_String,_Delimiters,_Locale) (_wcstok(_String,_Delimiters))
 #define _wcsnset_l(_Destination,_Value,_Count,_Locale) (_wcsnset(_Destination,_Value,_Count))
 #define _wcsset_l(_Destination,_Value,_Locale) (_wcsset(_Destination,_Value))
 
@@ -472,7 +512,7 @@ extern "C" {
 
 #endif /* __CYGWIN__ */
 
-#else
+#else /* _UNICODE */
 
 #ifdef __cplusplus
 }
@@ -499,7 +539,7 @@ extern "C" {
 #endif
 #define __targv __argv
 
-#define _tprintf printf
+#define _tprintf __ms_printf
 #define _tprintf_l _printf_l
 #define _tprintf_p _printf_p
 #define _tprintf_p_l _printf_p_l
@@ -511,11 +551,11 @@ extern "C" {
 #define _vtcprintf_l _vcprintf_l
 #define _vtcprintf_p _vcprintf_p
 #define _vtcprintf_p_l _vcprintf_p_l
-#define _ftprintf fprintf
+#define _ftprintf __ms_fprintf
 #define _ftprintf_l _fprintf_l
 #define _ftprintf_p _fprintf_p
 #define _ftprintf_p_l _fprintf_p_l
-#define _stprintf sprintf
+#define _stprintf __ms_sprintf
 #define _stprintf_l _sprintf_l
 #define _stprintf_p _sprintf_p
 #define _stprintf_p_l _sprintf_p_l
@@ -525,15 +565,15 @@ extern "C" {
 #define _sctprintf_p_l _scprintf_p_l
 #define _sntprintf _snprintf
 #define _sntprintf_l _snprintf_l
-#define _vtprintf vprintf
+#define _vtprintf __ms_vprintf
 #define _vtprintf_l _vprintf_l
 #define _vtprintf_p _vprintf_p
 #define _vtprintf_p_l _vprintf_p_l
-#define _vftprintf vfprintf
+#define _vftprintf __ms_vfprintf
 #define _vftprintf_l _vfprintf_l
 #define _vftprintf_p _vfprintf_p
 #define _vftprintf_p_l _vfprintf_p_l
-#define _vstprintf vsprintf
+#define _vstprintf __ms_vsprintf
 #define _vstprintf_l _vsprintf_l
 #define _vstprintf_p _vsprintf_p
 #define _vstprintf_p_l _vsprintf_p_l
@@ -544,13 +584,13 @@ extern "C" {
 #define _vsntprintf _vsnprintf
 #define _vsntprintf_l _vsnprintf_l
 
-#define _tscanf scanf
+#define _tscanf __ms_scanf
 #define _tscanf_l _scanf_l
 #define _tcscanf _cscanf
 #define _tcscanf_l _cscanf_l
-#define _ftscanf fscanf
+#define _ftscanf __ms_fscanf
 #define _ftscanf_l _fscanf_l
-#define _stscanf sscanf
+#define _stscanf __ms_sscanf
 #define _stscanf_l _sscanf_l
 #define _sntscanf _snscanf
 #define _sntscanf_l _snscanf_l
@@ -577,38 +617,53 @@ extern "C" {
 
 #define _tcstof strtof
 #define _tcstod strtod
+#define _tcstold strtold
 #define _tcstol strtol
 #define _tcstoul strtoul
+#define _tcstoll strtoll
+#define _tcstoull strtoull
 #define _tstof atof
 #define _tstol atol
+#define _tstoll atoll
 #define _tstoi atoi
 #define _tstoi64 _atoi64
 #define _tcstof_l _strtof_l
 #define _tcstod_l _strtod_l
+/* TODO: #define _tcstold_l _strtold_l  */
 #define _tcstol_l _strtol_l
 #define _tcstoul_l _strtoul_l
+#define _tcstoll_l _strtoll_l
+#define _tcstoull_l _strtoull_l
 #define _tstof_l _atof_l
 #define _tstol_l _atol_l
 #define _tstoi_l _atoi_l
+#define _tstoll_l _atoll_l
 #define _tstoi64_l _atoi64_l
 
 #define _itot _itoa
 #define _ltot _ltoa
 #define _ultot _ultoa
+#define _ttof atof
 #define _ttoi atoi
 #define _ttol atol
+#define _ttoll atoll
 
 #define _ttoi64 _atoi64
 #define _tcstoi64 _strtoi64
 #define _tcstoi64_l _strtoi64_l
 #define _tcstoui64 _strtoui64
 #define _tcstoui64_l _strtoui64_l
+#define _tcstoimax strtoimax
+#define _tcstoumax strtoumax
+#define _tcstoimax_l _strtoimax_l
+#define _tcstoumax_l _strtoumax_l
 #define _i64tot _i64toa
 #define _ui64tot _ui64toa
 
 #define _tcscat strcat
 #define _tcscpy strcpy
 #define _tcsdup _strdup
+#define _tcsdup_dbg _strdup_dbg
 #define _tcslen strlen
 #define _tcsnlen strnlen
 #define _tcsxfrm strxfrm
@@ -650,11 +705,15 @@ extern "C" {
 
 #define _tchdir _chdir
 #define _tgetcwd _getcwd
+#define _tgetcwd_dbg _getcwd_dbg
 #define _tgetdcwd _getdcwd
+#define _tgetdcwd_dbg _getdcwd_dbg
+#define _tgetdcwd_lk_dbg _getdcwd_lk_dbg
 #define _tmkdir _mkdir
 #define _trmdir _rmdir
 
 #define _tfullpath _fullpath
+#define _tfullpath_dbg _fullpath_dbg
 #define _tgetenv getenv
 #define _tmakepath _makepath
 #define _tpgmptr _pgmptr
@@ -674,6 +733,7 @@ extern "C" {
 #define _tperror perror
 #define _tpopen _popen
 #define _ttempnam _tempnam
+#define _ttempnam_dbg _tempnam_dbg
 #define _ttmpnam tmpnam
 
 #define _tchmod _chmod
@@ -728,18 +788,6 @@ extern "C" {
 #define _tsetlocale setlocale
 
 #if __MSVCRT_VERSION__ >= 0x800
-#define _fgettc_nolock _fgetwc_nolock
-#define _fputtc_nolock _fputwc_nolock
-#define _gettc_nolock _getwc_nolock
-#define _gettch_nolock _getwch_nolock
-#define _gettche_nolock _getwche_nolock
-#define _gettchar_nolock _getwchar_nolock
-#define _puttc_nolock _putwc_nolock
-#define _puttchar_nolock _putwchar_nolock
-#define _puttch_nolock _putwch_nolock
-#define _ungettc_nolock _ungetwc_nolock
-#define _ungettch_nolock _ungetwch_nolock
-#define _tgetdcwd_nolock _wgetdcwd_nolock
 #define _fgettc_nolock _fgetc_nolock
 #define _fputtc_nolock _fputc_nolock
 #define _gettc_nolock _getc_nolock
@@ -906,6 +954,7 @@ extern "C" {
   _CRTIMP char *__cdecl _tcsnccpy(char *_Dst,const char *_Src,size_t _MaxCount);
   _CRTIMP char *__cdecl _tcsnccpy_l(char *_Dst,const char *_Src,size_t _MaxCount,_locale_t _Locale);
   _CRTIMP char *__cdecl _tcsncset(char *_Str,unsigned int _Val,size_t _MaxCount);
+  _CRTIMP char *__cdecl _tcsncset_l(char *_Str,unsigned int _Val,size_t _MaxCount,_locale_t _Locale);
   _CRTIMP char *__cdecl _tcsdec(const char *_Start,const char *_Pos);
   _CRTIMP char *__cdecl _tcsinc(const char *_Ptr);
   _CRTIMP size_t __cdecl _tcsnbcnt(const char *_Str,size_t _MaxCount);
@@ -955,6 +1004,10 @@ extern "C" {
 #define _istspace_l _ismbcspace_l
 #define _istupper _ismbcupper
 #define _istupper_l _ismbcupper_l
+#define _istblank _ismbcblank
+#if __MSVCRT_VERSION__ >= 0xC00
+#define _istblank_l _ismbcblank_l
+#endif  /* msvcr120 */
 
 #define _totupper _mbctoupper
 #define _totupper_l _mbctoupper_l
@@ -967,7 +1020,7 @@ extern "C" {
 
 #endif /* __CYGWIN__ */
 
-#else
+#else /* _MBCS */
 
 #ifndef __TCHAR_DEFINED
 #define __TCHAR_DEFINED
@@ -1005,6 +1058,7 @@ extern "C" {
 #define _tcsnset_l _strnset_l
 #define _tcsrev _strrev
 #define _tcsset _strset
+#define _tcsset_l _strset_l
 
 #define _tcscmp strcmp
 #define _tcsicmp _stricmp
@@ -1038,6 +1092,7 @@ extern "C" {
 #define _tcsnccpy strncpy
 #define _tcsnccpy_l _strncpy_l
 #define _tcsncset _strnset
+#define _tcsncset_l _strnset_l
 
 #define _tcsdec _strdec
 #define _tcsinc _strinc
@@ -1090,6 +1145,10 @@ extern "C" {
 #define _istspace_l _isspace_l
 #define _istupper isupper
 #define _istupper_l _isupper_l
+#define _istblank isblank
+#if __MSVCRT_VERSION__ >= 0xC00
+#define _istblank_l _isblank_l
+#endif  /* msvcr120 */
 
 #define _totupper toupper
 #define _totupper_l _toupper_l
@@ -1124,9 +1183,9 @@ extern "C" {
 #define _strnset_l(_Destination,_Value,_Count,_Locale) (_strnset(_Destination,_Value,_Count))
 #define _strset_l(_Destination,_Value,_Locale) (_strset(_Destination,_Value))
 #endif
-#endif
+#endif /* _MBCS */
 
-#endif /* __CYGWIN__ */
+#endif /* _UNICODE */
 
 #define _T(x) __T(x)
 #define _TEXT(x) __T(x)

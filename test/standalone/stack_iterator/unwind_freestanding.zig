@@ -36,8 +36,8 @@ noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
     frame1(expected, unwound);
 }
 
-// Freestanding entrypoint
-export fn _start() callconv(.C) noreturn {
+// No-OS entrypoint
+export fn _start() callconv(.c) noreturn {
     var expected: [4]usize = undefined;
     var unwound: [4]usize = undefined;
     frame0(&expected, &unwound);
@@ -50,8 +50,9 @@ export fn _start() callconv(.C) noreturn {
         }
     }
 
-    // Need to compile as "freestanding" to exercise the StackIterator code, but when run as a
-    // regression test need to actually exit.  So assume we're running on x86_64-linux ...
+    // Need to compile with the target OS as "freestanding" or "other" to
+    // exercise the StackIterator code, but when run as a regression test
+    // need to actually exit.  So assume we're running on x86_64-linux ...
     asm volatile (
         \\movl $60, %%eax
         \\syscall

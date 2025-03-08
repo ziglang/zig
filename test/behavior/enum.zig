@@ -945,6 +945,7 @@ test "constant enum initialization with differing sizes" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try test3_1(test3_foo);
     try test3_2(test3_bar);
@@ -1047,6 +1048,7 @@ test "tag name with assigned enum values" {
 test "@tagName on enum literals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
     comptime assert(mem.eql(u8, @tagName(.FooBar), "FooBar"));
@@ -1068,6 +1070,23 @@ test "tag name with signed enum values" {
     var b = LocalFoo.bravo;
     _ = &b;
     try expect(mem.eql(u8, @tagName(b), "bravo"));
+}
+
+test "@tagName in callconv(.c) function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try expect(mem.orderZ(u8, testEnumTagNameCallconvC(), "Two") == .eq);
+    comptime assert(mem.orderZ(u8, testEnumTagNameCallconvC(), "Two") == .eq);
+}
+
+fn testEnumTagNameCallconvC() callconv(.c) [*:0]const u8 {
+    var e: BareNumber = .Two;
+    _ = &e;
+    return @tagName(e);
 }
 
 test "enum literal casting to optional" {
@@ -1219,6 +1238,8 @@ test "enum tag from a local variable" {
 }
 
 test "auto-numbered enum with signed tag type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const E = enum(i32) { a, b };
 
     try std.testing.expectEqual(@as(i32, 0), @intFromEnum(E.a));

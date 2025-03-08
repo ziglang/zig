@@ -27,8 +27,8 @@ inline fn limb_set(x: []u32, i: usize, v: u32) void {
     }
 }
 
-// Uses Knuth's Algorithm D, 4.3.1, p. 272.
-fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
+/// Uses Knuth's Algorithm D, 4.3.1, p. 272.
+pub fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
     if (q) |q_| @memset(q_[0..], 0);
     if (r) |r_| @memset(r_[0..], 0);
 
@@ -112,7 +112,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
     }
 }
 
-pub fn __udivei4(r_q: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.C) void {
+pub fn __udivei4(r_q: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.c) void {
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
@@ -120,7 +120,7 @@ pub fn __udivei4(r_q: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize)
     @call(.always_inline, divmod, .{ q, null, u, v }) catch unreachable;
 }
 
-pub fn __umodei4(r_p: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.C) void {
+pub fn __umodei4(r_p: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.c) void {
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];

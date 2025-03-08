@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -107,6 +107,7 @@ ENTRY(name);					\
 #else  /* __ASSEMBLER__ */
 
 #define __SYSCALL_STRING						\
+	"mov	%[scn], %%g1;"						\
 	"ta	0x10;"							\
 	"bcc	1f;"							\
 	" nop;"								\
@@ -114,7 +115,7 @@ ENTRY(name);					\
 	"1:"
 
 #define __SYSCALL_CLOBBERS						\
-	"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7",			\
+	"g1", "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7",		\
 	"f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15",		\
 	"f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23",		\
 	"f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31",		\

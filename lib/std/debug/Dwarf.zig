@@ -48,6 +48,8 @@ compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
 /// Filled later by the initializer
 func_list: std.ArrayListUnmanaged(Func) = .empty,
 
+/// Starts out non-`null` if the `.eh_frame_hdr` section is present. May become `null` later if we
+/// find that `.eh_frame_hdr` is incomplete.
 eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
 cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
@@ -1754,10 +1756,12 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     };
 }
 
-/// If .eh_frame_hdr is present, then only the header needs to be parsed.
+/// If `.eh_frame_hdr` is present, then only the header needs to be parsed. Otherwise, `.eh_frame`
+/// and `.debug_frame` are scanned and a sorted list of FDEs is built for binary searching during
+/// unwinding. Even if `.eh_frame_hdr` is used, we may find during unwinding that it's incomplete,
+/// in which case we build the sorted list of FDEs at that point.
 ///
-/// Otherwise, .eh_frame and .debug_frame are scanned and a sorted list
-/// of FDEs is built for binary searching during unwinding.
+/// See also `scanCieFdeInfo`.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
         var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
@@ -1797,6 +1801,12 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
         return;
     }
 
+    try di.scanCieFdeInfo(allocator, base_address);
+}
+
+/// Scan `.eh_frame` and `.debug_frame` and build a sorted list of FDEs for binary searching during
+/// unwinding.
+pub fn scanCieFdeInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
@@ -2110,8 +2120,8 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
 pub const ElfModule = struct {
     base_address: usize,
     dwarf: Dwarf,
-    mapped_memory: []align(std.mem.page_size) const u8,
-    external_mapped_memory: ?[]align(std.mem.page_size) const u8,
+    mapped_memory: []align(std.heap.page_size_min) const u8,
+    external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.dwarf.deinit(allocator);
@@ -2125,7 +2135,7 @@ pub const ElfModule = struct {
         return self.dwarf.getSymbol(allocator, relocated_address);
     }
 
-    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
         _ = allocator;
         _ = address;
         return &self.dwarf;
@@ -2157,11 +2167,11 @@ pub const ElfModule = struct {
     /// sections from an external file.
     pub fn load(
         gpa: Allocator,
-        mapped_mem: []align(std.mem.page_size) const u8,
+        mapped_mem: []align(std.heap.page_size_min) const u8,
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!Dwarf.ElfModule {
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
@@ -2413,7 +2423,7 @@ pub const ElfModule = struct {
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
     ) LoadError!Dwarf.ElfModule {
         const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return missing(),
@@ -2424,14 +2434,17 @@ pub const ElfModule = struct {
         const end_pos = elf_file.getEndPos() catch return bad();
         const file_len = cast(usize, end_pos) orelse return error.Overflow;
 
-        const mapped_mem = try std.posix.mmap(
+        const mapped_mem = std.posix.mmap(
             null,
             file_len,
             std.posix.PROT.READ,
             .{ .TYPE = .SHARED },
             elf_file.handle,
             0,
-        );
+        ) catch |err| switch (err) {
+            error.MappingAlreadyExists => unreachable,
+            else => |e| return e,
+        };
         errdefer std.posix.munmap(mapped_mem);
 
         return load(

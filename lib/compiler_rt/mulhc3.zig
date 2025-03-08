@@ -9,6 +9,6 @@ comptime {
     }
 }
 
-pub fn __mulhc3(a: f16, b: f16, c: f16, d: f16) callconv(.C) mulc3.Complex(f16) {
+pub fn __mulhc3(a: f16, b: f16, c: f16, d: f16) callconv(.c) mulc3.Complex(f16) {
     return mulc3.mulc3(f16, a, b, c, d);
 }

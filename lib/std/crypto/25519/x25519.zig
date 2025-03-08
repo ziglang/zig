@@ -29,17 +29,27 @@ pub const X25519 = struct {
         /// Secret part.
         secret_key: [secret_length]u8,
 
-        /// Create a new key pair using an optional seed.
-        pub fn create(seed: ?[seed_length]u8) IdentityElementError!KeyPair {
-            const sk = seed orelse sk: {
-                var random_seed: [seed_length]u8 = undefined;
-                crypto.random.bytes(&random_seed);
-                break :sk random_seed;
+        /// Deterministically derive a key pair from a cryptograpically secure secret seed.
+        ///
+        /// Except in tests, applications should generally call `generate()` instead of this function.
+        pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
+            const kp = KeyPair{
+                .public_key = try X25519.recoverPublicKey(seed),
+                .secret_key = seed,
             };
-            var kp: KeyPair = undefined;
-            kp.secret_key = sk;
-            kp.public_key = try X25519.recoverPublicKey(sk);
             return kp;
+        }
+
+        /// Generate a new, random key pair.
+        pub fn generate() KeyPair {
+            var random_seed: [seed_length]u8 = undefined;
+            while (true) {
+                crypto.random.bytes(&random_seed);
+                return generateDeterministic(random_seed) catch {
+                    @branchHint(.unlikely);
+                    continue;
+                };
+            }
         }
 
         /// Create a key pair from an Ed25519 key pair
@@ -171,7 +181,7 @@ test "rfc7748 1,000,000 iterations" {
 }
 
 test "edwards25519 -> curve25519 map" {
-    const ed_kp = try crypto.sign.Ed25519.KeyPair.create([_]u8{0x42} ** 32);
+    const ed_kp = try crypto.sign.Ed25519.KeyPair.generateDeterministic([_]u8{0x42} ** 32);
     const mont_kp = try X25519.KeyPair.fromEd25519(ed_kp);
     try htest.assertEqual("90e7595fc89e52fdfddce9c6a43d74dbf6047025ee0462d2d172e8b6a2841d6e", &mont_kp.secret_key);
     try htest.assertEqual("cc4f2cdb695dd766f34118eb67b98652fed1d8bc49c330b119bbfa8a64989378", &mont_kp.public_key);

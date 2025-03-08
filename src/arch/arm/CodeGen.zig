@@ -23,7 +23,6 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const Alignment = InternPool.Alignment;
 
-const Result = codegen.Result;
 const CodeGenError = codegen.CodeGenError;
 
 const bits = @import("bits.zig");
@@ -72,6 +71,8 @@ end_di_column: u32,
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+
+reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
 
 /// We postpone the creation of debug info for function args and locals
 /// until after all Mir instructions have been generated. Only then we
@@ -333,9 +334,9 @@ pub fn generate(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -377,10 +378,7 @@ pub fn generate(
     defer function.dbg_info_relocs.deinit(gpa);
 
     var call_info = function.resolveCallingConventionValues(func_ty) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
     };
     defer call_info.deinit(&function);
@@ -391,15 +389,14 @@ pub fn generate(
     function.max_end_stack = call_info.stack_byte_count;
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
     for (function.dbg_info_relocs.items) |reloc| {
-        try reloc.genDbgInfo(function);
+        reloc.genDbgInfo(function) catch |err|
+            return function.fail("failed to generate debug info: {s}", .{@errorName(err)});
     }
 
     var mir = Mir{
@@ -424,15 +421,9 @@ pub fn generate(
     defer emit.deinit();
 
     emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return Result{ .fail = emit.err_msg.? },
+        error.EmitFail => return function.failMsg(emit.err_msg.?),
         else => |e| return e,
     };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
 }
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
@@ -577,7 +568,7 @@ fn gen(self: *Self) !void {
             // dbg_epilogue_begin) is the last exitlude jump
             // relocation (which would just jump one instruction
             // further), it can be safely removed
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop().?);
         }
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
@@ -646,6 +637,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
+        self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .add,            => try self.airBinOp(inst, .add),
@@ -731,7 +723,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .int_from_bool     => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => try self.airIsNonNullPtr(inst),
             .is_null         => try self.airIsNull(inst),
@@ -743,7 +734,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
             .not             => try self.airNot(inst),
-            .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
             .ret_safe        => try self.airRet(inst), // TODO
             .ret_load        => try self.airRetLoad(inst),
@@ -787,6 +777,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .try_ptr_cold    => try self.airTryPtr(inst),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_empty_stmt   => self.finishAirBookkeeping(),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
@@ -867,6 +858,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return self.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
@@ -928,16 +920,13 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
-    var tomb_bits = self.liveness.getTombBits(inst);
-    for (operands) |op| {
-        const dies = @as(u1, @truncate(tomb_bits)) != 0;
-        tomb_bits >>= 1;
-        if (!dies) continue;
-        const op_index = op.toIndex() orelse continue;
-        self.processDeath(op_index);
+    const tomb_bits = self.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (self.reused_operands.isSet(op_index)) continue;
+        self.processDeath(op.toIndexAllowNone() orelse continue);
     }
-    const is_used = @as(u1, @truncate(tomb_bits)) == 0;
-    if (is_used) {
+    if (tomb_bits & 1 << (Liveness.bpi - 1) == 0) {
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
@@ -1265,13 +1254,6 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     };
 
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try self.resolveInst(un_op);
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else operand;
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
@@ -2660,7 +2642,7 @@ fn reuseOperand(
     }
 
     // Prevent the operand deaths processing code from deallocating it.
-    self.liveness.clearOperandDeath(inst, op_index);
+    self.reused_operands.set(op_index);
 
     // That makes us responsible for doing the rest of the stuff that processDeath would have done.
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -3929,7 +3911,7 @@ fn ptrArithmetic(
 
             const ptr_ty = lhs_ty;
             const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
-                .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
+                .one => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
                 else => ptr_ty.childType(zcu),
             };
             const elem_size: u32 = @intCast(elem_ty.abiSize(zcu));
@@ -4687,7 +4669,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.branch_stack.append(.{});
     errdefer {
-        _ = self.branch_stack.pop();
+        _ = self.branch_stack.pop().?;
     }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
@@ -4698,7 +4680,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Revert to the previous register and stack allocation state.
 
-    var saved_then_branch = self.branch_stack.pop();
+    var saved_then_branch = self.branch_stack.pop().?;
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
@@ -4793,7 +4775,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     {
-        var item = self.branch_stack.pop();
+        var item = self.branch_stack.pop().?;
         item.deinit(self.gpa);
     }
 
@@ -5027,7 +5009,7 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
         // If the last Mir instruction is the last relocation (which
         // would just jump one instruction further), it can be safely
         // removed
-        self.mir_instructions.orderedRemove(relocs.pop());
+        self.mir_instructions.orderedRemove(relocs.pop().?);
     }
     for (relocs.items) |reloc| {
         try self.performReloc(reloc);
@@ -5092,7 +5074,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.branch_stack.append(.{});
         errdefer {
-            _ = self.branch_stack.pop();
+            _ = self.branch_stack.pop().?;
         }
 
         try self.ensureProcessDeathCapacity(liveness.deaths[case.idx].len);
@@ -5102,7 +5084,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.genBody(case.body);
 
         // Revert to the previous register and stack allocation state.
-        var saved_case_branch = self.branch_stack.pop();
+        var saved_case_branch = self.branch_stack.pop().?;
         defer saved_case_branch.deinit(self.gpa);
 
         self.register_manager.registers = parent_registers;
@@ -5130,7 +5112,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.branch_stack.append(.{});
         errdefer {
-            _ = self.branch_stack.pop();
+            _ = self.branch_stack.pop().?;
         }
 
         const else_deaths = liveness.deaths.len - 1;
@@ -5141,7 +5123,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.genBody(else_body);
 
         // Revert to the previous register and stack allocation state.
-        var saved_case_branch = self.branch_stack.pop();
+        var saved_case_branch = self.branch_stack.pop().?;
         defer saved_case_branch.deinit(self.gpa);
 
         self.register_manager.registers = parent_registers;
@@ -5883,12 +5865,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
     }
 }
 
-fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = try self.resolveInst(un_op);
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -6309,20 +6285,19 @@ fn wantSafety(self: *Self) bool {
     };
 }
 
-fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    const zcu = self.pt.zcu;
+    const func = zcu.funcInfo(self.func_index);
+    const msg = try ErrorMsg.create(zcu.gpa, self.src_loc, format, args);
+    return zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
-fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    const zcu = self.pt.zcu;
+    const func = zcu.funcInfo(self.func_index);
+    return zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
 fn parseRegName(name: []const u8) ?Register {

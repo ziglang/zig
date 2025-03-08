@@ -372,9 +372,11 @@ pub const SpawnConfig = struct {
     // https://github.com/ziglang/zig/issues/157
 
     /// Size in bytes of the Thread's stack
-    stack_size: usize = 16 * 1024 * 1024,
+    stack_size: usize = default_stack_size,
     /// The allocator to be used to allocate memory for the to-be-spawned thread
     allocator: ?std.mem.Allocator = null,
+
+    pub const default_stack_size = 16 * 1024 * 1024;
 };
 
 pub const SpawnError = error{
@@ -732,7 +734,7 @@ const PosixThreadImpl = struct {
             else => {
                 var count: c_int = undefined;
                 var count_len: usize = @sizeOf(c_int);
-                const name = if (comptime target.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
+                const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -767,7 +769,7 @@ const PosixThreadImpl = struct {
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = @max(config.stack_size, 16 * 1024);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
+        assert(c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(
@@ -1018,12 +1020,15 @@ const WasiThreadImpl = struct {
         return .{ .thread = &instance.thread };
     }
 
-    /// Bootstrap procedure, called by the host environment after thread creation.
-    export fn wasi_thread_start(tid: i32, arg: *Instance) void {
-        if (builtin.single_threaded) {
-            // ensure function is not analyzed in single-threaded mode
-            return;
+    comptime {
+        if (!builtin.single_threaded) {
+            @export(&wasi_thread_start, .{ .name = "wasi_thread_start" });
         }
+    }
+
+    /// Called by the host environment after thread creation.
+    fn wasi_thread_start(tid: i32, arg: *Instance) callconv(.c) void {
+        comptime assert(!builtin.single_threaded);
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
         @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
@@ -1150,7 +1155,7 @@ const LinuxThreadImpl = struct {
         completion: Completion = Completion.init(.running),
         child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
         parent_tid: i32 = undefined,
-        mapped: []align(std.mem.page_size) u8,
+        mapped: []align(std.heap.page_size_min) u8,
 
         /// Calls `munmap(mapped.ptr, mapped.len)` then `exit(1)` without touching the stack (which lives in `mapped.ptr`).
         /// Ported over from musl libc's pthread detached implementation:
@@ -1357,7 +1362,7 @@ const LinuxThreadImpl = struct {
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
-        const page_size = std.mem.page_size;
+        const page_size = std.heap.pageSize();
         const Args = @TypeOf(args);
         const Instance = struct {
             fn_args: Args,
@@ -1415,6 +1420,7 @@ const LinuxThreadImpl = struct {
             error.PermissionDenied => unreachable,
             error.ProcessFdQuotaExceeded => unreachable,
             error.SystemFdQuotaExceeded => unreachable,
+            error.MappingAlreadyExists => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);

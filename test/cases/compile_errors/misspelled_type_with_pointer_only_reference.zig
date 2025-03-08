@@ -28,10 +28,6 @@ fn foo() void {
     _ = jd;
 }
 
-export fn entry() usize {
-    return @sizeOf(@TypeOf(foo));
-}
-
 // error
 // backend=stage2
 // target=native

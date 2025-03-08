@@ -19,11 +19,11 @@ comptime {
     }
 }
 
-pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
+pub fn __divsf3(a: f32, b: f32) callconv(.c) f32 {
     return div(a, b);
 }
 
-fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
+fn __aeabi_fdiv(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) f32 {
     return div(a, b);
 }
 

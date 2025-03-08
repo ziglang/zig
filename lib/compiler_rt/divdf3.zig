@@ -21,11 +21,11 @@ comptime {
     }
 }
 
-pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
+pub fn __divdf3(a: f64, b: f64) callconv(.c) f64 {
     return div(a, b);
 }
 
-fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
+fn __aeabi_ddiv(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) f64 {
     return div(a, b);
 }
 

@@ -51,49 +51,56 @@
  *      TARGET_CPU_MIPS         - Compiler is generating MIPS instructions
  *      TARGET_CPU_SPARC        - Compiler is generating Sparc instructions
  *      TARGET_CPU_ALPHA        - Compiler is generating Dec Alpha instructions
- *
- *
+ */
+
+
+
+/*
  *  TARGET_OS_*
+ *
  *  These conditionals specify in which Operating System the generated code will
  *  run.  Indention is used to show which conditionals are evolutionary subclasses.
  *
  *  The MAC/WIN32/UNIX conditionals are mutually exclusive.
- *  The IOS/TV/WATCH conditionals are mutually exclusive.
+ *  The IOS/TV/WATCH/VISION conditionals are mutually exclusive.
  *
+ *    TARGET_OS_WIN32              - Generated code will run on WIN32 API
+ *    TARGET_OS_WINDOWS            - Generated code will run on Windows
+ *    TARGET_OS_UNIX               - Generated code will run on some Unix (not macOS)
+ *    TARGET_OS_LINUX              - Generated code will run on Linux
+ *    TARGET_OS_MAC                - Generated code will run on a variant of macOS
+ *      TARGET_OS_OSX                - Generated code will run on macOS
+ *      TARGET_OS_IPHONE             - Generated code will run on a variant of iOS (firmware, devices, simulator)
+ *        TARGET_OS_IOS                - Generated code will run on iOS
+ *          TARGET_OS_MACCATALYST        - Generated code will run on macOS
+ *        TARGET_OS_TV                 - Generated code will run on tvOS
+ *        TARGET_OS_WATCH              - Generated code will run on watchOS
+ *        TARGET_OS_VISION             - Generated code will run on visionOS
+ *        TARGET_OS_BRIDGE             - Generated code will run on bridge devices
+ *      TARGET_OS_SIMULATOR          - Generated code will run on an iOS, tvOS, watchOS, or visionOS simulator
+ *      TARGET_OS_DRIVERKIT          - Generated code will run on macOS, iOS, tvOS, watchOS, or visionOS
  *
- *      TARGET_OS_WIN32           - Generated code will run under WIN32 API
- *      TARGET_OS_WINDOWS         - Generated code will run under Windows
- *      TARGET_OS_UNIX            - Generated code will run under some Unix (not OSX)
- *      TARGET_OS_LINUX           - Generated code will run under Linux
- *      TARGET_OS_MAC             - Generated code will run under Mac OS X variant
- *         TARGET_OS_OSX          - Generated code will run under OS X devices
- *         TARGET_OS_IPHONE          - Generated code for firmware, devices, or simulator
- *            TARGET_OS_IOS             - Generated code will run under iOS
- *            TARGET_OS_TV              - Generated code will run under Apple TV OS
- *            TARGET_OS_WATCH           - Generated code will run under Apple Watch OS
- *            TARGET_OS_BRIDGE          - Generated code will run under Bridge devices
- *            TARGET_OS_MACCATALYST     - Generated code will run under macOS
- *         TARGET_OS_DRIVERKIT          - Generated code will run under macOS, iOS, Apple TV OS, or Apple Watch OS
- *         TARGET_OS_SIMULATOR      - Generated code will run under a simulator
+ *    TARGET_OS_EMBEDDED           - DEPRECATED: Use TARGET_OS_IPHONE and/or TARGET_OS_SIMULATOR instead
+ *    TARGET_IPHONE_SIMULATOR      - DEPRECATED: Same as TARGET_OS_SIMULATOR
+ *    TARGET_OS_NANO               - DEPRECATED: Same as TARGET_OS_WATCH
  *
- *      TARGET_OS_EMBEDDED        - DEPRECATED: Use TARGET_OS_IPHONE and/or TARGET_OS_SIMULATOR instead
- *      TARGET_IPHONE_SIMULATOR   - DEPRECATED: Same as TARGET_OS_SIMULATOR
- *      TARGET_OS_NANO            - DEPRECATED: Same as TARGET_OS_WATCH
- *
- *    +---------------------------------------------------------------------------+
- *    |                             TARGET_OS_MAC                                 |
- *    | +-----+ +-------------------------------------------------+ +-----------+ |
- *    | |     | |                  TARGET_OS_IPHONE               | |           | |
- *    | |     | | +-----------------+ +----+ +-------+ +--------+ | |           | |
- *    | |     | | |       IOS       | |    | |       | |        | | |           | |
- *    | | OSX | | | +-------------+ | | TV | | WATCH | | BRIDGE | | | DRIVERKIT | |
- *    | |     | | | | MACCATALYST | | |    | |       | |        | | |           | |
- *    | |     | | | +-------------+ | |    | |       | |        | | |           | |
- *    | |     | | +-----------------+ +----+ +-------+ +--------+ | |           | |
- *    | +-----+ +-------------------------------------------------+ +-----------+ |
- *    +---------------------------------------------------------------------------+
+ *    +--------------------------------------------------------------------------------------+
+ *    |                                    TARGET_OS_MAC                                     |
+ *    | +-----+ +------------------------------------------------------------+ +-----------+ |
+ *    | |     | |                  TARGET_OS_IPHONE                          | |           | |
+ *    | |     | | +-----------------+ +----+ +-------+ +--------+ +--------+ | |           | |
+ *    | |     | | |       IOS       | |    | |       | |        | |        | | |           | |
+ *    | | OSX | | | +-------------+ | | TV | | WATCH | | BRIDGE | | VISION | | | DRIVERKIT | |
+ *    | |     | | | | MACCATALYST | | |    | |       | |        | |        | | |           | |
+ *    | |     | | | +-------------+ | |    | |       | |        | |        | | |           | |
+ *    | |     | | +-----------------+ +----+ +-------+ +--------+ +--------+ | |           | |
+ *    | +-----+ +------------------------------------------------------------+ +-----------+ |
+ *    +--------------------------------------------------------------------------------------+
+ */
 
+/*
  *  TARGET_RT_*
+ *
  *  These conditionals specify in which runtime the generated code will
  *  run. This is needed when the OS and CPU support more than one runtime
  *  (e.g. Mac OS X supports CFM and mach-o).
@@ -105,7 +112,7 @@
  *      TARGET_RT_MAC_MACHO     - TARGET_OS_MAC is true and Mach-O/dlyd runtime is used
  */
  
- /*
+/*
  * TARGET_OS conditionals can be enabled via clang preprocessor extensions:
  *
  *      __is_target_arch
@@ -130,6 +137,7 @@
  * It is disabled by default.
  */
 
+#if !defined(__has_extension) || !__has_extension(define_target_os_macros)
 #if defined(__has_builtin)
  #if __has_builtin(__is_target_arch)
   #if __has_builtin(__is_target_vendor)
@@ -141,26 +149,15 @@
     /* "-target=arm64e-apple-ios12-macabi" */
     #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(macabi)
         #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            1
         #define TARGET_OS_IOS               1
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         0
-        #define TARGET_OS_EMBEDDED          0    
-        #define TARGET_OS_RTKIT             0
         #define TARGET_OS_MACCATALYST       1
         #define TARGET_OS_MACCATALYST            1
-
-        #define TARGET_OS_VISION            0
-        
-        
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      1
         #endif
-        #define TARGET_OS_DRIVERKIT         0
-        #define DYNAMIC_TARGETS_ENABLED     1
+    #define TARGET_OS_UNIX                  0
+    #define DYNAMIC_TARGETS_ENABLED         1
     #endif 
 
     /* "-target=x86_64-apple-ios12-simulator" */
@@ -168,131 +165,42 @@
     /* "-target=arm64e-apple-ios12-simulator" */
     #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(simulator)
         #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            1
         #define TARGET_OS_IOS               1
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
         #define TARGET_OS_SIMULATOR         1
-        #define TARGET_OS_EMBEDDED          0    
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
-
-        #define TARGET_OS_VISION            0
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
-        #define TARGET_OS_DRIVERKIT         0
+        #define TARGET_OS_UNIX              0
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif 
 
 
 
-    /* "-target=arm64e-apple-xros1.0" */
-    #if (__is_target_arch(arm64e) || __is_target_arch(arm64)) && __is_target_vendor(apple) && __is_target_os(xros)
+    /* "-target=arm64e-apple-xros1.0[-simulator]" */
+    #if __is_target_vendor(apple) && __is_target_os(xros)
         #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            1
-        #define TARGET_OS_IOS               1
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         0
-        #define TARGET_OS_EMBEDDED          1
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
 
+        #if __is_target_environment(simulator)
+          #define TARGET_OS_SIMULATOR        1
+        #else
+          #define TARGET_OS_EMBEDDED        1
+        #endif
         #define TARGET_OS_VISION            1
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
-        #define TARGET_OS_DRIVERKIT         0
+        #define TARGET_OS_UNIX              0
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif
 
-    /* "-target=arm64e-apple-xros1.0-simulator" */
-    #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(xros) && __is_target_environment(simulator)
+    
+    #if (__is_target_vendor(apple) && __is_target_environment(exclavecore))
+        
+        #define TARGET_OS_UNIX              0
+        #define DYNAMIC_TARGETS_ENABLED     1
+    #endif
+
+    
+    #if (__is_target_vendor(apple) && __is_target_environment(exclavekit))
         #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
-        #define TARGET_OS_IPHONE            1
-        #define TARGET_OS_IOS               1
-        #define TARGET_OS_WATCH             0
         
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         1
-        #define TARGET_OS_EMBEDDED          0
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
-
-        #define TARGET_OS_VISION            1
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
-        #define TARGET_OS_DRIVERKIT         0
-        #define DYNAMIC_TARGETS_ENABLED     1
-    #endif
-
-    
-    
-    //FIXME: Workaround for rdar://100536146
-    #if (__is_target_vendor(apple) && defined(__APPLE_EXCLAVECORE__) && __APPLE_EXCLAVECORE__)
-        #define TARGET_OS_MAC               0
-        #define TARGET_OS_OSX               0
-        #define TARGET_OS_IPHONE            0
-        #define TARGET_OS_IOS               0
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         0
-        #define TARGET_OS_EMBEDDED          0
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
-
-        #define TARGET_OS_VISION            0
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
-        #define TARGET_OS_DRIVERKIT         0
-        #define DYNAMIC_TARGETS_ENABLED     1
-    #endif
-
-    
-    
-    //FIXME: Workaround for rdar://100536146
-    #if (__is_target_vendor(apple) && defined(__APPLE_EXCLAVEKIT__) && __APPLE_EXCLAVEKIT__)
-        #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
-        #define TARGET_OS_IPHONE            0
-        #define TARGET_OS_IOS               0
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         0
-        #define TARGET_OS_EMBEDDED          0
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
-
-        #define TARGET_OS_VISION            0
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
-        #define TARGET_OS_DRIVERKIT         0
+        #define TARGET_OS_UNIX              0
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif
 
@@ -301,25 +209,8 @@
     /* "-target=arm64e-apple-driverkit19.0" */
     #if __is_target_vendor(apple) && __is_target_os(driverkit)
         #define TARGET_OS_MAC               1
-        #define TARGET_OS_OSX               0
-        #define TARGET_OS_IPHONE            0
-        #define TARGET_OS_IOS               0
-        #define TARGET_OS_WATCH             0
-        
-        #define TARGET_OS_TV                0
-        #define TARGET_OS_SIMULATOR         0
-        #define TARGET_OS_EMBEDDED          0
-        #define TARGET_OS_RTKIT             0
-        #define TARGET_OS_MACCATALYST       0
-        #define TARGET_OS_MACCATALYST            0
-
-        #define TARGET_OS_VISION            0
-        
-        
-        #ifndef TARGET_OS_UIKITFORMAC
-         #define TARGET_OS_UIKITFORMAC      0
-        #endif
         #define TARGET_OS_DRIVERKIT         1
+        #define TARGET_OS_UNIX              0
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif
 
@@ -329,186 +220,83 @@
  #endif /* #if __has_builtin(__is_target_arch) */
 #endif /* #if defined(__has_builtin) */
 
-
 #ifndef DYNAMIC_TARGETS_ENABLED
- #define DYNAMIC_TARGETS_ENABLED   0
+     #define DYNAMIC_TARGETS_ENABLED   0
 #endif /* DYNAMIC_TARGETS_ENABLED */
 
 /*
  *    gcc based compiler used on Mac OS X
  */
 #if defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
-    #define TARGET_OS_WIN32             0
-    #define TARGET_OS_WINDOWS           0
-    #define TARGET_OS_UNIX              0
-    #define TARGET_OS_LINUX             0
-
     #if !DYNAMIC_TARGETS_ENABLED
         #define TARGET_OS_MAC               1
         #define TARGET_OS_OSX               1
         #define TARGET_OS_IPHONE            0
+
         #define TARGET_OS_IOS               0
+
         #define TARGET_OS_WATCH             0
         
         #define TARGET_OS_TV                0
         #define TARGET_OS_MACCATALYST       0
         #define TARGET_OS_MACCATALYST            0
-        
-        
-
-        #define TARGET_OS_VISION            0
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      0
         #endif
         #define TARGET_OS_SIMULATOR         0
         #define TARGET_OS_EMBEDDED          0 
-        #define TARGET_OS_RTKIT             0 
-        #define TARGET_OS_DRIVERKIT         0
+        #define TARGET_OS_UNIX              0
     #endif
-    
-    #define TARGET_IPHONE_SIMULATOR     TARGET_OS_SIMULATOR /* deprecated */
-    #define TARGET_OS_NANO              TARGET_OS_WATCH /* deprecated */ 
-
-    #define TARGET_ABI_USES_IOS_VALUES  (!TARGET_CPU_X86_64 || (TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST))
-    #if defined(__ppc__)
-        #define TARGET_CPU_PPC          1
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_X86_64       0
-        #define TARGET_CPU_ARM          0
-        #define TARGET_CPU_ARM64        0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0   
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_LITTLE_ENDIAN 0
-        #define TARGET_RT_BIG_ENDIAN    1
-        #define TARGET_RT_64_BIT        0
-        #ifdef __MACOS_CLASSIC__
-           #define TARGET_RT_MAC_CFM    1
-           #define TARGET_RT_MAC_MACHO  0
-        #else
-           #define TARGET_RT_MAC_CFM    0
-           #define TARGET_RT_MAC_MACHO  1
-       #endif
-    #elif defined(__ppc64__) 
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        1
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_X86_64       0
-        #define TARGET_CPU_ARM          0
-        #define TARGET_CPU_ARM64        0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0   
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_LITTLE_ENDIAN 0
-        #define TARGET_RT_BIG_ENDIAN    1
-        #define TARGET_RT_64_BIT        1
-        #define TARGET_RT_MAC_CFM       0
-        #define TARGET_RT_MAC_MACHO     1
-    #elif defined(__i386__) 
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          1
-        #define TARGET_CPU_X86_64       0
-        #define TARGET_CPU_ARM          0
-        #define TARGET_CPU_ARM64        0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_MAC_CFM       0
-        #define TARGET_RT_MAC_MACHO     1
-        #define TARGET_RT_LITTLE_ENDIAN 1
-        #define TARGET_RT_BIG_ENDIAN    0
-        #define TARGET_RT_64_BIT        0
-    #elif defined(__x86_64__) 
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_X86_64       1
-        #define TARGET_CPU_ARM          0
-        #define TARGET_CPU_ARM64        0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_MAC_CFM       0
-        #define TARGET_RT_MAC_MACHO     1
-        #define TARGET_RT_LITTLE_ENDIAN 1
-        #define TARGET_RT_BIG_ENDIAN    0
-        #define TARGET_RT_64_BIT        1
-    #elif defined(__arm__) 
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_X86_64       0
-        #define TARGET_CPU_ARM          1
-        #define TARGET_CPU_ARM64        0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_MAC_CFM       0
-        #define TARGET_RT_MAC_MACHO     1
-        #define TARGET_RT_LITTLE_ENDIAN 1
-        #define TARGET_RT_BIG_ENDIAN    0
-        #define TARGET_RT_64_BIT        0
-    #elif defined(__arm64__)
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_X86_64       0
-        #define TARGET_CPU_ARM          0
-        #define TARGET_CPU_ARM64        1
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
-        #define TARGET_RT_MAC_CFM       0
-        #define TARGET_RT_MAC_MACHO     1
-        #define TARGET_RT_LITTLE_ENDIAN 1
-        #define TARGET_RT_BIG_ENDIAN    0
-        #if __LP64__
-          #define TARGET_RT_64_BIT      1
-        #else
-          #define TARGET_RT_64_BIT      0
-        #endif
-    #else
-        #error unrecognized GNU C compiler
-    #endif
-
-
 
 /*
  *   CodeWarrior compiler from Metrowerks/Motorola
  */
 #elif defined(__MWERKS__)
     #define TARGET_OS_MAC               1
-    #define TARGET_OS_WIN32             0
-    #define TARGET_OS_WINDOWS           0
-    #define TARGET_OS_UNIX              0
-    #define TARGET_OS_LINUX             0
-    #define TARGET_OS_EMBEDDED          0
+
+/*
+ *   unknown compiler
+ */
+#else
+    #define TARGET_OS_MAC                1
+#endif
+#endif /* !defined(__has_extension) || !__has_extension(define_target_os_macros) */
+
+// This has to always be defined in the header due to limitations in define_target_os_macros
+#define TARGET_OS_RTKIT             0
+
+/*
+ *    gcc based compiler used on Mac OS X
+ */
+#if defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
+    #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        #define TARGET_RT_LITTLE_ENDIAN 1
+        #define TARGET_RT_BIG_ENDIAN    0
+    #else
+        #define TARGET_RT_LITTLE_ENDIAN 0
+        #define TARGET_RT_BIG_ENDIAN    1
+    #endif
+    #if __LP64__
+        #define TARGET_RT_64_BIT        1
+    #else
+        #define TARGET_RT_64_BIT        0
+    #endif
+    #if defined(__ppc__) && __MACOS_CLASSIC__
+        #define TARGET_RT_MAC_CFM       1
+        #define TARGET_RT_MAC_MACHO     0
+    #else
+        #define TARGET_RT_MAC_CFM       0
+        #define TARGET_RT_MAC_MACHO     1
+    #endif
+
+/*
+ *   CodeWarrior compiler from Metrowerks/Motorola
+ */
+#elif defined(__MWERKS__)
     #if defined(__POWERPC__)
-        #define TARGET_CPU_PPC          1
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          0
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
         #define TARGET_RT_LITTLE_ENDIAN 0
         #define TARGET_RT_BIG_ENDIAN    1
     #elif defined(__INTEL__)
-        #define TARGET_CPU_PPC          0
-        #define TARGET_CPU_PPC64        0
-        #define TARGET_CPU_68K          0
-        #define TARGET_CPU_X86          1
-        #define TARGET_CPU_MIPS         0
-        #define TARGET_CPU_SPARC        0
-        #define TARGET_CPU_ALPHA        0
         #define TARGET_RT_LITTLE_ENDIAN 1
         #define TARGET_RT_BIG_ENDIAN    0
     #else
@@ -527,98 +315,6 @@
  *   unknown compiler
  */
 #else
-    #if defined(TARGET_CPU_PPC) && TARGET_CPU_PPC
-        #define TARGET_CPU_PPC64    0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_X86      0
-        #define TARGET_CPU_X86_64   0
-        #define TARGET_CPU_ARM      0
-        #define TARGET_CPU_ARM64    0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #elif defined(TARGET_CPU_PPC64) && TARGET_CPU_PPC64
-        #define TARGET_CPU_PPC      0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_X86      0
-        #define TARGET_CPU_X86_64   0
-        #define TARGET_CPU_ARM      0
-        #define TARGET_CPU_ARM64    0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #elif defined(TARGET_CPU_X86) && TARGET_CPU_X86
-        #define TARGET_CPU_PPC      0
-        #define TARGET_CPU_PPC64    0
-        #define TARGET_CPU_X86_64   0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_ARM      0
-        #define TARGET_CPU_ARM64    0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #elif defined(TARGET_CPU_X86_64) && TARGET_CPU_X86_64
-        #define TARGET_CPU_PPC      0
-        #define TARGET_CPU_PPC64    0
-        #define TARGET_CPU_X86      0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_ARM      0
-        #define TARGET_CPU_ARM64    0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #elif defined(TARGET_CPU_ARM) && TARGET_CPU_ARM
-        #define TARGET_CPU_PPC      0
-        #define TARGET_CPU_PPC64    0
-        #define TARGET_CPU_X86      0
-        #define TARGET_CPU_X86_64   0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_ARM64    0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #elif defined(TARGET_CPU_ARM64) && TARGET_CPU_ARM64
-        #define TARGET_CPU_PPC      0
-        #define TARGET_CPU_PPC64    0
-        #define TARGET_CPU_X86      0
-        #define TARGET_CPU_X86_64   0
-        #define TARGET_CPU_68K      0
-        #define TARGET_CPU_ARM      0
-        #define TARGET_CPU_MIPS     0
-        #define TARGET_CPU_SPARC    0
-        #define TARGET_CPU_ALPHA    0
-    #else
-        /*
-            NOTE:   If your compiler errors out here then support for your compiler 
-            has not yet been added to TargetConditionals.h.  
-            
-            TargetConditionals.h is designed to be plug-and-play.  It auto detects
-            which compiler is being run and configures the TARGET_ conditionals
-            appropriately.  
-            
-            The short term work around is to set the TARGET_CPU_ and TARGET_OS_
-            on the command line to the compiler (e.g. -DTARGET_CPU_MIPS=1 -DTARGET_OS_UNIX=1)
-            
-            The long term solution is to add a new case to this file which
-            auto detects your compiler and sets up the TARGET_ conditionals.
-            Then submit the changes to Apple Computer.
-        */
-        #error TargetConditionals.h: unknown compiler (see comment above)
-        #define TARGET_CPU_PPC    0
-        #define TARGET_CPU_68K    0
-        #define TARGET_CPU_X86    0
-        #define TARGET_CPU_ARM    0
-        #define TARGET_CPU_ARM64  0
-        #define TARGET_CPU_MIPS   0
-        #define TARGET_CPU_SPARC  0
-        #define TARGET_CPU_ALPHA  0
-    #endif
-    #define TARGET_OS_MAC                1
-    #define TARGET_OS_WIN32              0
-    #define TARGET_OS_WINDOWS            0
-    #define TARGET_OS_UNIX               0
-    #define TARGET_OS_LINUX              0
-    #define TARGET_OS_EMBEDDED           0
     #if TARGET_CPU_PPC || TARGET_CPU_PPC64
         #define TARGET_RT_BIG_ENDIAN     1
         #define TARGET_RT_LITTLE_ENDIAN  0
@@ -638,7 +334,201 @@
         #define TARGET_RT_MAC_MACHO      0
         #define TARGET_RT_MAC_CFM        1
     #endif
-    
 #endif
+
+/*
+ *   __is_target_arch based defines
+ */
+#if defined(__has_builtin) && __has_builtin(__is_target_arch)
+    #if __is_target_arch(arm64)  || __is_target_arch(arm64e) || __is_target_arch(arm64_32)
+        #define TARGET_CPU_ARM64        1
+    #elif __is_target_arch(arm)
+        #define TARGET_CPU_ARM          1
+    #elif __is_target_arch(x86_64)
+        #define TARGET_CPU_X86_64       1
+    #elif __is_target_arch(i386)
+        #define TARGET_CPU_X86          1
+    #else
+
+            #error unrecognized arch using compiler with __is_target_arch support
+
+    #endif
+
+/*
+ *   GCC and older clang fallback
+ */
+#elif defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
+    #if defined(__ppc__)
+        #define TARGET_CPU_PPC          1
+    #elif defined(__ppc64__)
+        #define TARGET_CPU_PPC64        1
+    #elif defined(__i386__)
+        #define TARGET_CPU_X86          1
+    #elif defined(__x86_64__)
+        #define TARGET_CPU_X86_64       1
+    #elif defined(__arm__)
+        #define TARGET_CPU_ARM          1
+    #elif defined(__arm64__)
+        #define TARGET_CPU_ARM64        1
+    #else
+        #error unrecognized GNU C compiler
+    #endif
+
+/*
+ *   CodeWarrior compiler from Metrowerks/Motorola
+ */
+#elif defined(__MWERKS__)
+    #if defined(__POWERPC__)
+        #define TARGET_CPU_PPC          1
+    #elif defined(__INTEL__)
+        #define TARGET_CPU_X86          1
+    #else
+        #error unknown Metrowerks CPU type
+    #endif
+
+/*
+ *   unknown compiler
+ */
+#else
+    #if !defined(TARGET_CPU_PPC) && !defined(TARGET_CPU_PPC64)      \
+        && !defined(TARGET_CPU_X86) && !defined(TARGET_CPU_X86_64)  \
+        && !defined(TARGET_CPU_ARM) && !defined(TARGET_CPU_ARM64)
+        /*
+            TargetConditionals.h is designed to be plug-and-play.  It auto detects
+            which compiler is being run and configures the TARGET_ conditionals
+            appropriately.
+
+            The short term work around is to set the TARGET_CPU_ and TARGET_OS_
+            on the command line to the compiler (e.g. -DTARGET_CPU_MIPS=1 -DTARGET_OS_UNIX=1)
+
+            The long term solution is to add suppport for __is_target_arch and __is_target_os
+            to your compiler.
+        */
+        #error TargetConditionals.h: unknown compiler (see comment above)
+    #endif
+#endif
+
+
+
+// Make sure all TARGET_OS_* and TARGET_CPU_* values are defined
+#ifndef TARGET_OS_MAC
+    #define TARGET_OS_MAC        0
+#endif
+
+#ifndef TARGET_OS_OSX
+    #define TARGET_OS_OSX        0
+#endif
+
+#ifndef TARGET_OS_IPHONE
+    #define TARGET_OS_IPHONE     0
+#endif
+
+#ifndef TARGET_OS_IOS
+    #define TARGET_OS_IOS        0
+#endif
+
+#ifndef TARGET_OS_WATCH
+    #define TARGET_OS_WATCH      0
+#endif
+
+#ifndef TARGET_OS_TV
+    #define TARGET_OS_TV         0
+#endif
+
+#ifndef TARGET_OS_SIMULATOR
+    #define TARGET_OS_SIMULATOR  0
+#endif
+
+#ifndef TARGET_OS_EMBEDDED
+    #define TARGET_OS_EMBEDDED   0
+#endif
+
+#ifndef TARGET_OS_RTKIT
+    #define TARGET_OS_RTKIT      0
+#endif
+
+#ifndef TARGET_OS_MACCATALYST
+    #define TARGET_OS_MACCATALYST 0
+#endif
+
+#ifndef TARGET_OS_VISION
+    #define TARGET_OS_VISION     0
+#endif
+
+#ifndef TARGET_OS_UIKITFORMAC
+    #define TARGET_OS_UIKITFORMAC 0
+#endif
+
+#ifndef TARGET_OS_DRIVERKIT
+    #define TARGET_OS_DRIVERKIT 0
+#endif 
+
+#ifndef TARGET_OS_WIN32
+    #define TARGET_OS_WIN32     0
+#endif
+
+#ifndef TARGET_OS_WINDOWS
+    #define TARGET_OS_WINDOWS   0
+#endif
+
+
+
+#ifndef TARGET_OS_LINUX
+    #define TARGET_OS_LINUX     0
+#endif
+
+#ifndef TARGET_CPU_PPC
+    #define TARGET_CPU_PPC      0
+#endif
+
+#ifndef TARGET_CPU_PPC64
+    #define TARGET_CPU_PPC64    0
+#endif
+
+#ifndef TARGET_CPU_68K
+    #define TARGET_CPU_68K      0
+#endif
+
+#ifndef TARGET_CPU_X86
+    #define TARGET_CPU_X86      0
+#endif
+
+#ifndef TARGET_CPU_X86_64
+    #define TARGET_CPU_X86_64   0
+#endif
+
+#ifndef TARGET_CPU_ARM
+    #define TARGET_CPU_ARM      0
+#endif
+
+#ifndef TARGET_CPU_ARM64
+    #define TARGET_CPU_ARM64    0
+#endif
+
+#ifndef TARGET_CPU_MIPS
+    #define TARGET_CPU_MIPS     0
+#endif
+
+#ifndef TARGET_CPU_SPARC
+    #define TARGET_CPU_SPARC    0
+#endif
+
+#ifndef TARGET_CPU_ALPHA
+    #define TARGET_CPU_ALPHA    0
+#endif
+
+#ifndef TARGET_ABI_USES_IOS_VALUES
+    #define TARGET_ABI_USES_IOS_VALUES  (!TARGET_CPU_X86_64 || (TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST))
+#endif
+
+#ifndef TARGET_IPHONE_SIMULATOR
+    #define TARGET_IPHONE_SIMULATOR     TARGET_OS_SIMULATOR /* deprecated */
+#endif
+
+#ifndef TARGET_OS_NANO
+    #define TARGET_OS_NANO              TARGET_OS_WATCH /* deprecated */
+#endif
+
+
 
 #endif  /* __TARGETCONDITIONALS__ */

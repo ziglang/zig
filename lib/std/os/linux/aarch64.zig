@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -98,7 +99,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         x0,   x1,    w2,    x3,  x4,   x5,  x6
     //
@@ -120,8 +121,18 @@ pub fn clone() callconv(.Naked) usize {
         \\      cbz x0,1f
         \\      // parent
         \\      ret
+        \\
         \\      // child
-        \\1:    ldp x1,x0,[sp],#16
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\     .cfi_undefined lr
+    );
+    asm volatile (
+        \\      mov fp, 0
+        \\      mov lr, 0
+        \\
+        \\      ldp x1,x0,[sp],#16
         \\      blr x1
         \\      mov x8,#93 // SYS_exit
         \\      svc #0
@@ -130,7 +141,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov x8, %[number]

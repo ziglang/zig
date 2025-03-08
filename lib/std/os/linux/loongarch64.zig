@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const linux = std.os.linux;
 const SYS = linux.SYS;
@@ -99,7 +100,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //           a0,    a1,    a2,  a3,   a4,  a5,   a6
     // sys_clone(flags, stack, ptid, ctid, tls)
@@ -121,6 +122,14 @@ pub fn clone() callconv(.Naked) usize {
         \\ beqz    $a0, 1f         # whether child process
         \\ jirl    $zero, $ra, 0   # parent process return
         \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined 1
+    );
+    asm volatile (
+        \\ move    $fp, $zero
+        \\ move    $ra, $zero
+        \\
         \\ ld.d    $t8, $sp, 0     # function pointer
         \\ ld.d    $a0, $sp, 8     # argument pointer
         \\ jirl    $ra, $t8, 0     # call the user's function
@@ -131,7 +140,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ or $a7, $zero, %[number]
         \\ syscall 0

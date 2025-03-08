@@ -79,8 +79,8 @@ pub const Context = struct {
 
 pub fn translate(
     gpa: mem.Allocator,
-    args_begin: [*]?[*]const u8,
-    args_end: [*]?[*]const u8,
+    args_begin: [*]?[*:0]const u8,
+    args_end: [*]?[*:0]const u8,
     errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
@@ -160,6 +160,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
+    @setEvalBranchQuota(2000);
     inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,
@@ -230,13 +231,13 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     }
 }
 
-fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.c) bool {
     const c: *Context = @ptrCast(@alignCast(context));
     declVisitorNamesOnly(c, decl) catch return false;
     return true;
 }
 
-fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.c) bool {
     const c: *Context = @ptrCast(@alignCast(context));
     declVisitor(c, decl) catch return false;
     return true;
@@ -2569,9 +2570,9 @@ fn transInitListExprRecord(
     // Unions and Structs are both represented as RecordDecl
     const record_ty = ty.getAsRecordType() orelse
         blk: {
-        is_union_type = true;
-        break :blk ty.getAsUnionType();
-    } orelse unreachable;
+            is_union_type = true;
+            break :blk ty.getAsUnionType();
+        } orelse unreachable;
     const record_decl = record_ty.getDecl();
     const record_def = record_decl.getDefinition() orelse
         unreachable;
@@ -4005,7 +4006,7 @@ fn transCPtrCast(
     if (!src_ty.isArrayType() and ((src_child_type.isConstQualified() and
         !child_type.isConstQualified()) or
         (src_child_type.isVolatileQualified() and
-        !child_type.isVolatileQualified())))
+            !child_type.isVolatileQualified())))
     {
         return removeCVQualifiers(c, dst_type_node, expr);
     } else {
@@ -4091,8 +4092,8 @@ fn transFloatingLiteralQuad(c: *Context, expr: *const clang.FloatingLiteral, use
             false;
         break :fmt_decimal if (could_roundtrip) try c.arena.dupe(u8, temp_str) else null;
     }
-    // otherwise, fall back to the hexadecimal format
-    orelse try std.fmt.allocPrint(c.arena, "{x}", .{quad});
+        // otherwise, fall back to the hexadecimal format
+        orelse try std.fmt.allocPrint(c.arena, "{x}", .{quad});
 
     var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
@@ -5079,15 +5080,14 @@ fn finishTransFnProto(
         const is_noalias = param_qt.isRestrictQualified();
 
         const param_name: ?[]const u8 =
-            if (fn_decl) |decl|
-        blk: {
-            const param = decl.getParamDecl(@as(c_uint, @intCast(i)));
-            const param_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(param)).getName_bytes_begin());
-            if (param_name.len < 1)
-                break :blk null;
+            if (fn_decl) |decl| blk: {
+                const param = decl.getParamDecl(@as(c_uint, @intCast(i)));
+                const param_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(param)).getName_bytes_begin());
+                if (param_name.len < 1)
+                    break :blk null;
 
-            break :blk param_name;
-        } else null;
+                break :blk param_name;
+            } else null;
         const type_node = try transQualType(c, scope, param_qt, source_loc);
 
         fn_params.addOneAssumeCapacity().* = .{

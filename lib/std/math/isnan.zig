@@ -34,6 +34,7 @@ test isSignalNan {
         //       See https://github.com/ziglang/zig/issues/14366
         if (!builtin.cpu.arch.isArm() and
             !builtin.cpu.arch.isAARCH64() and
+            !builtin.cpu.arch.isMIPS32() and
             !builtin.cpu.arch.isPowerPC() and
             builtin.zig_backend != .stage2_c)
         {

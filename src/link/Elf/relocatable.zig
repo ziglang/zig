@@ -1,8 +1,8 @@
-pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
+pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -127,13 +127,13 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!v
     try elf_file.base.file.?.setEndPos(total_size);
     try elf_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
-pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
+pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -179,7 +179,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
@@ -217,20 +217,20 @@ fn initSections(elf_file: *Elf) !void {
         if (elf_file.section_indexes.eh_frame == null) {
             elf_file.section_indexes.eh_frame = elf_file.sectionByName(".eh_frame") orelse
                 try elf_file.addSection(.{
-                .name = try elf_file.insertShString(".eh_frame"),
-                .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                    elf.SHT_X86_64_UNWIND
-                else
-                    elf.SHT_PROGBITS,
-                .flags = elf.SHF_ALLOC,
-                .addralign = elf_file.ptrWidthBytes(),
-            });
+                    .name = try elf_file.insertShString(".eh_frame"),
+                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT_X86_64_UNWIND
+                    else
+                        elf.SHT_PROGBITS,
+                    .flags = elf.SHF_ALLOC,
+                    .addralign = elf_file.ptrWidthBytes(),
+                });
         }
         elf_file.section_indexes.eh_frame_rela = elf_file.sectionByName(".rela.eh_frame") orelse
             try elf_file.addRelaShdr(
-            try elf_file.insertShString(".rela.eh_frame"),
-            elf_file.section_indexes.eh_frame.?,
-        );
+                try elf_file.insertShString(".rela.eh_frame"),
+                elf_file.section_indexes.eh_frame.?,
+            );
     }
 
     try initComdatGroups(elf_file);

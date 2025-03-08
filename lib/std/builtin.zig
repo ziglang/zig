@@ -220,8 +220,6 @@ pub const CallingConvention = union(enum(u8)) {
     };
     /// Deprecated; use `.x86_thiscall`.
     pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; use `.arm_apcs`.
-    pub const APCS: CallingConvention = .{ .arm_apcs = .{} };
     /// Deprecated; use `.arm_aapcs`.
     pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
     /// Deprecated; use `.arm_aapcs_vfp`.
@@ -284,13 +282,10 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_vfabi_sve: CommonOptions,
 
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
-    /// ARM Procedure Call Standard (obsolete)
-    arm_apcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard
     arm_aapcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard Vector Floating-Point
     arm_aapcs_vfp: CommonOptions,
-    arm_aapcs16_vfp: CommonOptions,
     arm_interrupt: ArmInterruptOptions,
 
     // Calling conventions for the `mips64` and `mips64el` architectures.
@@ -330,7 +325,7 @@ pub const CallingConvention = union(enum(u8)) {
     powerpc_aix_altivec: CommonOptions,
 
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
-    wasm_watc: CommonOptions,
+    wasm_mvp: CommonOptions,
 
     /// The standard `arc` calling convention.
     arc_sysv: CommonOptions,
@@ -370,11 +365,8 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
-    /// The standard `propeller1` calling convention.
-    propeller1_sysv: CommonOptions,
-
-    /// The standard `propeller2` calling convention.
-    propeller2_sysv: CommonOptions,
+    /// The standard `propeller` calling convention.
+    propeller_sysv: CommonOptions,
 
     // Calling conventions for the `s390x` architecture.
     s390x_sysv: CommonOptions,
@@ -499,6 +491,21 @@ pub const CallingConvention = union(enum(u8)) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
+    /// The places where a user can specify an address space attribute
+    pub const Context = enum {
+        /// A function is specified to be placed in a certain address space.
+        function,
+        /// A (global) variable is specified to be placed in a certain address space.
+        /// In contrast to .constant, these values (and thus the address space they will be
+        /// placed in) are required to be mutable.
+        variable,
+        /// A (global) constant value is specified to be placed in a certain address space.
+        /// In contrast to .variable, values placed in this address space are not required to be mutable.
+        constant,
+        /// A pointer is ascripted to point into a certain address space.
+        pointer,
+    };
+
     // CPU address spaces.
     generic,
     gs,
@@ -515,6 +522,7 @@ pub const AddressSpace = enum(u5) {
     output,
     uniform,
     push_constant,
+    storage_buffer,
 
     // AVR address spaces.
     flash,
@@ -605,16 +613,24 @@ pub const Type = union(enum) {
 
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use pointer to `anyopaque`.
-        sentinel: ?*const anyopaque,
+        /// to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `sentinel`
+        sentinel_ptr: ?*const anyopaque,
+
+        /// Loads the pointer type's sentinel value from `sentinel_ptr`.
+        /// Returns `null` if the pointer type has no sentinel.
+        pub inline fn sentinel(comptime ptr: Pointer) ?ptr.child {
+            const sp: *const ptr.child = @ptrCast(@alignCast(ptr.sentinel_ptr orelse return null));
+            return sp.*;
+        }
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
         pub const Size = enum(u2) {
-            One,
-            Many,
-            Slice,
-            C,
+            one,
+            many,
+            slice,
+            c,
         };
     };
 
@@ -626,8 +642,16 @@ pub const Type = union(enum) {
 
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use pointer to `anyopaque`.
-        sentinel: ?*const anyopaque,
+        /// to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `sentinel`.
+        sentinel_ptr: ?*const anyopaque,
+
+        /// Loads the array type's sentinel value from `sentinel_ptr`.
+        /// Returns `null` if the array type has no sentinel.
+        pub inline fn sentinel(comptime arr: Array) ?arr.child {
+            const sp: *const arr.child = @ptrCast(@alignCast(arr.sentinel_ptr orelse return null));
+            return sp.*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -643,9 +667,20 @@ pub const Type = union(enum) {
     pub const StructField = struct {
         name: [:0]const u8,
         type: type,
-        default_value: ?*const anyopaque,
+        /// The type of the default value is the type of this struct field, which
+        /// is the value of the `type` field in this struct. However there is no
+        /// way to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `defaultValue`.
+        default_value_ptr: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
+
+        /// Loads the field's default value from `default_value_ptr`.
+        /// Returns `null` if the field has no default value.
+        pub inline fn defaultValue(comptime sf: StructField) ?sf.type {
+            const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
+            return dp.*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -804,6 +839,14 @@ pub const LinkMode = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const UnwindTables = enum {
+    none,
+    sync,
+    @"async",
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const WasiExecModel = enum {
     command,
     reactor,
@@ -893,6 +936,14 @@ pub const VaListX86_64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListXtensa = extern struct {
+    __va_stk: *c_int,
+    __va_reg: *c_int,
+    __va_ndx: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
@@ -906,7 +957,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .amdgcn => *u8,
     .avr => *anyopaque,
     .bpfel, .bpfeb => *anyopaque,
-    .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
     .loongarch32, .loongarch64 => *anyopaque,
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
@@ -924,6 +975,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .windows => @compileError("disabled due to miscompilations"), // *u8,
         else => VaListX86_64,
     },
+    .xtensa => VaListXtensa,
     else => @compileError("VaList not supported for this target yet"),
 };
 
@@ -1064,49 +1116,35 @@ pub const TestFn = struct {
 /// Deprecated, use the `Panic` namespace instead.
 /// To be deleted after 0.14.0 is released.
 pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const panic: PanicFn = Panic.call;
 
 /// This namespace is used by the Zig compiler to emit various kinds of safety
-/// panics. These can be overridden by making a public `Panic` namespace in the
+/// panics. These can be overridden by making a public `panic` namespace in the
 /// root source file.
-pub const Panic: type = if (@hasDecl(root, "Panic"))
-    root.Panic
-else if (@hasDecl(root, "panic")) // Deprecated, use `Panic` instead.
-    DeprecatedPanic
-else if (builtin.zig_backend == .stage2_riscv64)
-    std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
-else
-    std.debug.FormattedPanic;
-
-/// To be deleted after 0.14.0 is released.
-const DeprecatedPanic = struct {
-    pub const call = root.panic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
+pub const panic: type = p: {
+    if (@hasDecl(root, "panic")) {
+        if (@TypeOf(root.panic) != type) {
+            // Deprecated; make `panic` a namespace instead.
+            break :p std.debug.FullPanic(struct {
+                fn panic(msg: []const u8, ra: ?usize) noreturn {
+                    root.panic(msg, @errorReturnTrace(), ra);
+                }
+            }.panic);
+        }
+        break :p root.panic;
+    }
+    if (@hasDecl(root, "Panic")) {
+        break :p root.Panic; // Deprecated; use `panic` instead.
+    }
+    if (builtin.zig_backend == .stage2_riscv64) {
+        break :p std.debug.simple_panic;
+    }
+    break :p std.debug.FullPanic(std.debug.defaultPanic);
 };
 
-/// To be deleted after zig1.wasm is updated.
-pub const panicSentinelMismatch = Panic.sentinelMismatch;
-/// To be deleted after zig1.wasm is updated.
-pub const panicUnwrapError = Panic.unwrapError;
-/// To be deleted after zig1.wasm is updated.
-pub const panicOutOfBounds = Panic.outOfBounds;
-/// To be deleted after zig1.wasm is updated.
-pub const panicStartGreaterThanEnd = Panic.startGreaterThanEnd;
-/// To be deleted after zig1.wasm is updated.
-pub const panicInactiveUnionField = Panic.inactiveUnionField;
-/// To be deleted after zig1.wasm is updated.
-pub const panic_messages = Panic.messages;
-
-pub noinline fn returnError(st: *StackTrace) void {
+pub noinline fn returnError() void {
     @branchHint(.unlikely);
     @setRuntimeSafety(false);
+    const st = @errorReturnTrace().?;
     if (st.index < st.instruction_addresses.len)
         st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;

@@ -156,29 +156,14 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
     return abi;
 }
 
-fn useElfInitFini(target: std.Target) bool {
-    // Legacy architectures use _init/_fini.
-    return switch (target.cpu.arch) {
-        .arm, .armeb => true,
-        .aarch64, .aarch64_be => true,
-        .m68k => true,
-        .mips, .mipsel, .mips64, .mips64el => true,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
-        .s390x => true,
-        .sparc, .sparc64 => true,
-        .x86, .x86_64 => true,
-        else => false,
-    };
-}
-
 pub const CrtFile = enum {
-    crti_o,
-    crtn_o,
     scrt1_o,
     libc_nonshared_a,
 };
 
-pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -188,7 +173,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const arena = arena_allocator.allocator();
 
     const target = comp.root_mod.resolved_target.result;
-    const target_ver = target.os.version_range.linux.glibc;
+    const target_ver = target.os.versionRange().gnuLibCVersion().?;
     const nonshared_stat = target_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) != .gt;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
@@ -199,51 +184,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     // waste computation and create false negatives.
 
     switch (crt_file) {
-        .crti_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
-                "-DMODULE_NAME=libc",
-                "-Wno-nonportable-include-path",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-Wa,--noexecstack",
-            });
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crti.S"),
-                    .cache_exempt_flags = args.items,
-                    .owner = comp.root_mod,
-                },
-            };
-            return comp.build_crt_file("crti", .Obj, null, .@"glibc crti.o", prog_node, &files);
-        },
-        .crtn_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-DMODULE_NAME=libc",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-Wa,--noexecstack",
-            });
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crtn.S"),
-                    .cache_exempt_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crtn", .Obj, null, .@"glibc crtn.o", prog_node, &files);
-        },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
                 var args = std.ArrayList([]const u8).init(arena);
@@ -295,7 +235,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
             const basename = if (comp.config.output_mode == .Exe and !comp.config.pie) "crt1" else "Scrt1";
-            return comp.build_crt_file(basename, .Obj, null, .@"glibc Scrt1.o", prog_node, &files);
+            return comp.build_crt_file(basename, .Obj, .@"glibc Scrt1.o", prog_node, &files, .{});
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -373,7 +313,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     "-fmerge-all-constants",
                     "-frounding-math",
                     "-Wno-unsupported-floating-point-opt", // For targets that don't support -frounding-math.
-                    "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
@@ -382,9 +321,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 });
                 try add_include_dirs(comp, arena, &args);
 
-                if (!useElfInitFini(target)) {
-                    try args.append("-DNO_INITFINI");
-                }
+                try args.append("-DNO_INITFINI");
 
                 if (target.cpu.arch == .x86) {
                     // This prevents i386/sysdep.h from trying to do some
@@ -413,7 +350,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, null, .@"glibc libc_nonshared.a", prog_node, files);
+            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", prog_node, files, .{});
         },
     }
 }
@@ -431,32 +368,15 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     try result.appendSlice(comp.zig_lib_directory.path.?);
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
-        if (mem.eql(u8, basename, "crti.S") or mem.eql(u8, basename, "crtn.S")) {
-            try result.appendSlice("sparc");
+        if (is_64) {
+            try result.appendSlice("sparc" ++ s ++ "sparc64");
         } else {
-            if (is_64) {
-                try result.appendSlice("sparc" ++ s ++ "sparc64");
-            } else {
-                try result.appendSlice("sparc" ++ s ++ "sparc32");
-            }
+            try result.appendSlice("sparc" ++ s ++ "sparc32");
         }
     } else if (arch.isArm()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
-        if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
-            try result.appendSlice("mips");
-        } else {
-            if (is_64) {
-                const abi_dir = if (comp.getTarget().abi == .gnuabin32)
-                    "n32"
-                else
-                    "n64";
-                try result.appendSlice("mips" ++ s ++ "mips64" ++ s);
-                try result.appendSlice(abi_dir);
-            } else {
-                try result.appendSlice("mips" ++ s ++ "mips32");
-            }
-        }
+        try result.appendSlice("mips");
     } else if (arch == .x86_64) {
         try result.appendSlice("x86_64");
     } else if (arch == .x86) {
@@ -549,7 +469,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
-    const arch_name = target.osArchName();
+    const arch_name = std.zig.target.osArchName(target);
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
         comp.zig_lib_directory.path.?, arch_name,
@@ -736,7 +656,9 @@ fn wordDirective(target: std.Target) []const u8 {
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
 }
 
-pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -751,7 +673,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     const arena = arena_allocator.allocator();
 
     const target = comp.getTarget();
-    const target_version = target.os.version_range.linux.glibc;
+    const target_version = target.os.versionRange().gnuLibCVersion().?;
 
     // Use the global cache directory.
     var cache: Cache = .{
@@ -1218,8 +1140,20 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     });
 }
 
+pub fn sharedObjectsCount(target: *const std.Target) u8 {
+    const target_version = target.os.versionRange().gnuLibCVersion() orelse return 0;
+    var count: u8 = 0;
+    for (libs) |lib| {
+        if (lib.removed_in) |rem_in| {
+            if (target_version.order(rem_in) != .lt) continue;
+        }
+        count += 1;
+    }
+    return count;
+}
+
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
-    const target_version = comp.getTarget().os.version_range.linux.glibc;
+    const target_version = comp.getTarget().os.versionRange().gnuLibCVersion().?;
 
     assert(comp.glibc_so_files == null);
     comp.glibc_so_files = so_files;
@@ -1349,15 +1283,6 @@ fn buildSharedLib(
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
-}
-
-// Return true if glibc has crti/crtn sources for that architecture.
-pub fn needsCrtiCrtn(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .riscv32, .riscv64 => false,
-        .loongarch64 => false,
-        else => true,
-    };
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {

@@ -5,10 +5,7 @@ const builtin = @import("builtin");
 // run-time glibc version needs to be new enough.  Check the host's glibc
 // version.  Note that this does not allow for translation/vm/emulation
 // services to run these tests.
-const running_glibc_ver: ?std.SemanticVersion = switch (builtin.os.tag) {
-    .linux => builtin.os.version_range.linux.glibc,
-    else => null,
-};
+const running_glibc_ver = builtin.os.versionRange().gnuLibCVersion();
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
@@ -17,12 +14,19 @@ pub fn build(b: *std.Build) void {
     for ([_][]const u8{ "aarch64-linux-gnu.2.27", "aarch64-linux-gnu.2.34" }) |t| {
         const exe = b.addExecutable(.{
             .name = t,
-            .target = b.resolveTargetQuery(std.Target.Query.parse(
-                .{ .arch_os_abi = t },
-            ) catch unreachable),
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = b.resolveTargetQuery(std.Target.Query.parse(
+                    .{ .arch_os_abi = t },
+                ) catch unreachable),
+                .link_libc = true,
+            }),
         });
-        exe.addCSourceFile(.{ .file = b.path("main.c") });
-        exe.linkLibC();
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
+        exe.root_module.addCSourceFile(.{ .file = b.path("main.c") });
         // TODO: actually test the output
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
@@ -56,10 +60,17 @@ pub fn build(b: *std.Build) void {
 
         const exe = b.addExecutable(.{
             .name = t,
-            .target = target,
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = target,
+                .link_libc = true,
+            }),
         });
-        exe.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
-        exe.linkLibC();
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
+        exe.root_module.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453
@@ -152,10 +163,16 @@ pub fn build(b: *std.Build) void {
 
         const exe = b.addExecutable(.{
             .name = t,
-            .root_source_file = b.path("glibc_runtime_check.zig"),
-            .target = target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("glibc_runtime_check.zig"),
+                .target = target,
+                .link_libc = true,
+            }),
         });
-        exe.linkLibC();
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453

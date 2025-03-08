@@ -1102,7 +1102,7 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
         .double => comp.target.cTypeAlignment(.double),
         .long_double => comp.target.cTypeAlignment(.longdouble),
 
-        .int128, .uint128 => if (comp.target.cpu.arch == .s390x and comp.target.os.tag == .linux and comp.target.isGnu()) 8 else 16,
+        .int128, .uint128 => if (comp.target.cpu.arch == .s390x and comp.target.os.tag == .linux and comp.target.abi.isGnu()) 8 else 16,
         .fp16, .float16 => 2,
 
         .float128 => 16,

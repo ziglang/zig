@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
+const Compilation = @import("Compilation.zig");
 const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
@@ -11,7 +12,7 @@ pub const default_stack_protector_buffer_size = 4;
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
         .freestanding => true,
-        else => target.isSpirV(),
+        else => target.cpu.arch.isSpirV(),
     };
 }
 
@@ -39,12 +40,12 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
 }
 
 pub fn requiresPIE(target: std.Target) bool {
-    return target.isAndroid() or target.isDarwin() or target.os.tag == .openbsd;
+    return target.abi.isAndroid() or target.os.tag.isDarwin() or target.os.tag == .openbsd;
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
-    return target.isAndroid() or
+    return target.abi.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
         (linking_libc and target.isGnuLibC());
@@ -194,9 +195,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
 
         // No LLVM backend exists.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => false,
     };
 }
@@ -246,7 +245,7 @@ pub fn clangSupportsStackProtector(target: std.Target) bool {
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
-    return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
+    return !target.isMinGW() and target.os.tag != .wasi and !target.cpu.arch.isSpirV();
 }
 
 pub fn supportsReturnAddress(target: std.Target) bool {
@@ -260,17 +259,23 @@ pub fn supportsReturnAddress(target: std.Target) bool {
 
 pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwind, both };
 
-pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerRtClassification {
-    if (target.abi.isGnu() and std.mem.eql(u8, name, "gcc_s")) {
+pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
+    if (std.mem.eql(u8, name, "gcc_s")) {
         // libgcc_s includes exception handling functions, so if linking this library
         // is requested, zig needs to instead link libunwind. Otherwise we end up with
         // the linker unable to find `_Unwind_RaiseException` and other related symbols.
         return .both;
     }
-    if (std.mem.eql(u8, name, "compiler_rt")) {
+    if (std.mem.eql(u8, name, "compiler_rt") or
+        std.mem.eql(u8, name, "gcc") or
+        std.mem.eql(u8, name, "atomic") or
+        std.mem.eql(u8, name, "ssp"))
+    {
         return .only_compiler_rt;
     }
-    if (std.mem.eql(u8, name, "unwind")) {
+    if (std.mem.eql(u8, name, "unwind") or
+        std.mem.eql(u8, name, "gcc_eh"))
+    {
         return .only_libunwind;
     }
     return .none;
@@ -299,10 +304,10 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMod
 
 pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64,
-        .x86,
         .aarch64,
         .aarch64_be,
+        .x86,
+        .x86_64,
         => true,
 
         else => false,
@@ -313,7 +318,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
     // The linking order of these is significant and should match the order other
     // c compilers such as gcc or clang use.
     const result: []const []const u8 = switch (target.os.tag) {
-        .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
+        .dragonfly, .freebsd, .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
         // Solaris releases after 10 merged the threading libraries into libc.
         .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
         .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },
@@ -327,9 +332,8 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
 }
 
 pub fn clangMightShellOutForAssembly(target: std.Target) bool {
-    // Clang defaults to using the system assembler over the internal one
-    // when targeting a non-BSD OS.
-    return target.cpu.arch.isSPARC();
+    // Clang defaults to using the system assembler in some cases.
+    return target.cpu.arch.isNvptx() or target.cpu.arch == .xcore;
 }
 
 /// Each backend architecture in Clang has a different codepath which may or may not
@@ -397,8 +401,16 @@ pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
     };
 }
 
-pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
+pub fn defaultUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
+    if (target.os.tag == .windows) {
+        // The old 32-bit x86 variant of SEH doesn't use tables.
+        return if (target.cpu.arch != .x86) .@"async" else .none;
+    }
+    if (target.os.tag.isDarwin()) return .@"async";
+    if (libunwind) return .@"async";
+    if (libtsan) return .@"async";
+    if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .@"async";
+    return .none;
 }
 
 pub fn defaultAddressSpace(
@@ -426,12 +438,11 @@ pub fn addrSpaceCastIsValid(
     from: AddressSpace,
     to: AddressSpace,
 ) bool {
-    const arch = target.cpu.arch;
-    switch (arch) {
-        .x86_64, .x86 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
+    switch (target.cpu.arch) {
+        .x86_64, .x86 => return target.cpu.supportsAddressSpace(from, null) and target.cpu.supportsAddressSpace(to, null),
         .nvptx64, .nvptx, .amdgcn => {
-            const to_generic = arch.supportsAddressSpace(from) and to == .generic;
-            const from_generic = arch.supportsAddressSpace(to) and from == .generic;
+            const to_generic = target.cpu.supportsAddressSpace(from, null) and to == .generic;
+            const from_generic = target.cpu.supportsAddressSpace(to, null) and from == .generic;
             return to_generic or from_generic;
         },
         else => return from == .generic and to == .generic,
@@ -458,22 +469,12 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
         .global => false,
         // TODO: Allowed with VK_KHR_variable_pointers.
         .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant => true,
+        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
         else => unreachable,
     };
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
-    // This special-casing should be removed with LLVM 20.
-    switch (target.cpu.arch) {
-        .mips, .mipsel => return "o32",
-        .mips64, .mips64el => return switch (target.abi) {
-            .gnuabin32, .muslabin32 => "n32",
-            else => "n64",
-        },
-        else => {},
-    }
-
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
@@ -482,33 +483,57 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // Once our self-hosted linker can handle both ABIs, this hack should go away.
     if (target.cpu.arch == .powerpc64) return "elfv2";
 
-    switch (target.cpu.arch) {
-        .riscv64 => {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .e)) {
-                return "lp64e";
-            } else if (featureSetHas(target.cpu.features, .d)) {
-                return "lp64d";
-            } else if (featureSetHas(target.cpu.features, .f)) {
-                return "lp64f";
-            } else {
-                return "lp64";
-            }
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => "aapcs",
+        // TODO: `muslsf` and `muslf32` in LLVM 20.
+        .loongarch64 => switch (target.abi) {
+            .gnusf => "lp64s",
+            .gnuf32 => "lp64f",
+            else => "lp64d",
         },
-        .riscv32 => {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .e)) {
-                return "ilp32e";
-            } else if (featureSetHas(target.cpu.features, .d)) {
-                return "ilp32d";
-            } else if (featureSetHas(target.cpu.features, .f)) {
-                return "ilp32f";
-            } else {
-                return "ilp32";
-            }
+        .loongarch32 => switch (target.abi) {
+            .gnusf => "ilp32s",
+            .gnuf32 => "ilp32f",
+            else => "ilp32d",
         },
-        else => return null,
-    }
+        .mips, .mipsel => "o32",
+        .mips64, .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        .powerpc64 => switch (target.os.tag) {
+            .freebsd => if (target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false)
+                "elfv2"
+            else
+                "elfv1",
+            .openbsd => "elfv2",
+            else => if (target.abi.isMusl()) "elfv2" else "elfv1",
+        },
+        .powerpc64le => "elfv2",
+        .riscv64 => b: {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            break :b if (featureSetHas(target.cpu.features, .e))
+                "lp64e"
+            else if (featureSetHas(target.cpu.features, .d))
+                "lp64d"
+            else if (featureSetHas(target.cpu.features, .f))
+                "lp64f"
+            else
+                "lp64";
+        },
+        .riscv32 => b: {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            break :b if (featureSetHas(target.cpu.features, .e))
+                "ilp32e"
+            else if (featureSetHas(target.cpu.features, .d))
+                "ilp32d"
+            else if (featureSetHas(target.cpu.features, .f))
+                "ilp32f"
+            else
+                "ilp32";
+        },
+        else => null,
+    };
 }
 
 /// This function returns 1 if function alignment is not observable or settable. Note that this
@@ -595,6 +620,17 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
         => false,
         else => true,
     };
+}
+
+pub fn functionPointerMask(target: std.Target) ?u64 {
+    // 32-bit Arm uses the LSB to mean that the target function contains Thumb code.
+    // MIPS uses the LSB to mean that the target function contains MIPS16/microMIPS code.
+    return if (target.cpu.arch.isArm() or target.cpu.arch.isMIPS32())
+        ~@as(u32, 1)
+    else if (target.cpu.arch.isMIPS64())
+        ~@as(u64, 1)
+    else
+        null;
 }
 
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
@@ -690,19 +726,19 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .error_return_trace => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .is_named_enum_value => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .error_set_has_value => switch (backend) {
-            .stage2_llvm, .stage2_wasm => true,
+            .stage2_llvm, .stage2_wasm, .stage2_x86_64 => true,
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
+            .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .safety_checked_instructions => switch (backend) {
@@ -712,6 +748,10 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
             else => true,
+        },
+        .all_vector_instructions => switch (backend) {
+            .stage2_x86_64 => true,
+            else => false,
         },
     };
 }

@@ -67,24 +67,24 @@ pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
 pub fn clone(
-    func: *const fn (arg: usize) callconv(.C) u8,
+    func: *const fn (arg: usize) callconv(.c) u8,
     stack: usize,
     flags: u32,
     arg: usize,
-    ptid: *i32,
+    ptid: ?*i32,
     tp: usize, // aka tls
-    ctid: *i32,
+    ctid: ?*i32,
 ) usize {
     // Can't directly call a naked function; cast to C calling convention first.
     return @as(*const fn (
-        *const fn (arg: usize) callconv(.C) u8,
+        *const fn (arg: usize) callconv(.c) u8,
         usize,
         u32,
         usize,
-        *i32,
+        ?*i32,
         usize,
-        *i32,
-    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+        ?*i32,
+    ) callconv(.c) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
 }
 
 pub const ARCH = arch_bits.ARCH;
@@ -305,6 +305,13 @@ pub const MAP = switch (native_arch) {
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
+pub const MREMAP = packed struct(u32) {
+    MAYMOVE: bool = false,
+    FIXED: bool = false,
+    DONTUNMAP: bool = false,
+    _: u29 = 0,
+};
+
 pub const O = switch (native_arch) {
     .x86_64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -494,7 +501,7 @@ pub const getauxval = if (extern_getauxval) struct {
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
-fn getauxvalImpl(index: usize) callconv(.C) usize {
+fn getauxvalImpl(index: usize) callconv(.c) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -608,11 +615,11 @@ pub inline fn vfork() usize {
     return @call(.always_inline, syscall0, .{.vfork});
 }
 
-pub fn futimens(fd: i32, times: *const [2]timespec) usize {
+pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
     return utimensat(fd, null, times, 0);
 }
 
-pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, flags: u32) usize {
+pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
 }
 
@@ -854,7 +861,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -862,7 +869,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
@@ -892,10 +899,6 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
-        // Make sure the offset is also specified in multiples of page size
-        if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @bitCast(-@as(isize, @intFromEnum(E.INVAL)));
-
         return syscall6(
             .mmap2,
             @intFromPtr(address),
@@ -932,6 +935,17 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
 
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(.mprotect, @intFromPtr(address), length, protection);
+}
+
+pub fn mremap(old_addr: ?[*]const u8, old_len: usize, new_len: usize, flags: MREMAP, new_addr: ?[*]const u8) usize {
+    return syscall5(
+        .mremap,
+        @intFromPtr(old_addr),
+        old_len,
+        new_len,
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_addr),
+    );
 }
 
 pub const MSF = struct {
@@ -1485,7 +1499,7 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 }
 
 // We must follow the C calling convention when we call into the VDSO
-const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
@@ -1502,7 +1516,7 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
     return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.C) usize {
+fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
     const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -1674,7 +1688,7 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
     return syscall2(.setpgid, @intCast(pid), @intCast(pgid));
 }
 
-pub fn getgroups(size: usize, list: *gid_t) usize {
+pub fn getgroups(size: usize, list: ?*gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @intFromPtr(list));
     } else {
@@ -1757,6 +1771,14 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const shift = @as(u5, @intCast(s & (usize_bits - 1)));
     const val = @as(u32, @intCast(1)) << shift;
     (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
+}
+
+pub fn sigdelset(set: *sigset_t, sig: u6) void {
+    const s = sig - 1;
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
+    const val = @as(u32, @intCast(1)) << shift;
+    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
@@ -1868,6 +1890,17 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     } else {
         return syscall3(.recvmsg, fd_usize, msg_usize, flags);
     }
+}
+
+pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
+    return syscall5(
+        .recvmmsg,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(msgvec),
+        vlen,
+        flags,
+        @intFromPtr(timeout),
+    );
 }
 
 pub fn recvfrom(
@@ -2065,6 +2098,84 @@ pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
     return syscall2(.fremovexattr, fd, @intFromPtr(name));
 }
 
+pub const sched_param = extern struct {
+    priority: i32,
+};
+
+pub const SCHED = packed struct(i32) {
+    pub const Mode = enum(u3) {
+        /// normal multi-user scheduling
+        NORMAL = 0,
+        /// FIFO realtime scheduling
+        FIFO = 1,
+        /// Round-robin realtime scheduling
+        RR = 2,
+        /// For "batch" style execution of processes
+        BATCH = 3,
+        /// Low latency scheduling
+        IDLE = 5,
+        /// Sporadic task model deadline scheduling
+        DEADLINE = 6,
+    };
+    mode: Mode, //bits [0, 2]
+    _3: u27 = 0, //bits [3, 29]
+    /// set to true to stop children from inheriting policies
+    RESET_ON_FORK: bool = false, //bit 30
+    _31: u1 = 0, //bit 31
+};
+
+pub fn sched_setparam(pid: pid_t, param: *const sched_param) usize {
+    return syscall2(.sched_setparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_getparam(pid: pid_t, param: *sched_param) usize {
+    return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_setscheduler(pid: pid_t, policy: SCHED, param: *const sched_param) usize {
+    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), @intCast(@as(u32, @bitCast(policy))), @intFromPtr(param));
+}
+
+pub fn sched_getscheduler(pid: pid_t) usize {
+    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+pub fn sched_get_priority_max(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_max, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn sched_get_priority_min(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
+    return syscall2(.getcpu, @intFromPtr(cpu), @intFromPtr(node));
+}
+
+pub const sched_attr = extern struct {
+    size: u32 = 48, // Size of this structure
+    policy: u32 = 0, // Policy (SCHED_*)
+    flags: u64 = 0, // Flags
+    nice: u32 = 0, // Nice value (SCHED_OTHER, SCHED_BATCH)
+    priority: u32 = 0, // Static priority (SCHED_FIFO, SCHED_RR)
+    // Remaining fields are for SCHED_DEADLINE
+    runtime: u64 = 0,
+    deadline: u64 = 0,
+    period: u64 = 0,
+};
+
+pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
+    return syscall3(.sched_setattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), flags);
+}
+
+pub fn sched_getattr(pid: pid_t, attr: *sched_attr, size: usize, flags: usize) usize {
+    return syscall4(.sched_getattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), size, flags);
+}
+
+pub fn sched_rr_get_interval(pid: pid_t, tp: *timespec) usize {
+    return syscall2(.sched_rr_get_interval, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(tp));
+}
+
 pub fn sched_yield() usize {
     return syscall0(.sched_yield);
 }
@@ -2118,7 +2229,7 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+pub fn timerfd_create(clockid: timerfd_clockid_t, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
         @intFromEnum(clockid),
@@ -2373,7 +2484,10 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
         const length_halves = splitValue64(len);
 
         return syscall6(
-            .fadvise64_64,
+            switch (builtin.abi) {
+                .gnuabin32, .gnux32, .muslabin32, .muslx32 => .fadvise64,
+                else => .fadvise64_64,
+            },
             @as(usize, @bitCast(@as(isize, fd))),
             offset_halves[0],
             offset_halves[1],
@@ -3508,6 +3622,30 @@ pub const TCP = struct {
     pub const REPAIR_OFF_NO_WP = -1;
 };
 
+pub const UDP = struct {
+    /// Never send partially complete segments
+    pub const CORK = 1;
+    /// Set the socket to accept encapsulated packets
+    pub const ENCAP = 100;
+    /// Disable sending checksum for UDP6X
+    pub const NO_CHECK6_TX = 101;
+    /// Disable accepting checksum for UDP6
+    pub const NO_CHECK6_RX = 102;
+    /// Set GSO segmentation size
+    pub const SEGMENT = 103;
+    /// This socket can receive UDP GRO packets
+    pub const GRO = 104;
+};
+
+pub const UDP_ENCAP = struct {
+    pub const ESPINUDP_NON_IKE = 1;
+    pub const ESPINUDP = 2;
+    pub const L2TPINUDP = 3;
+    pub const GTP0 = 4;
+    pub const GTP1U = 5;
+    pub const RXRPC = 6;
+};
+
 pub const PF = struct {
     pub const UNSPEC = 0;
     pub const LOCAL = 1;
@@ -4596,8 +4734,35 @@ pub const clockid_t = enum(u32) {
     BOOTTIME = 7,
     REALTIME_ALARM = 8,
     BOOTTIME_ALARM = 9,
-    SGI_CYCLE = 10,
-    TAI = 11,
+    // In the linux kernel header file (time.h) is the following note:
+    // * The driver implementing this got removed. The clock ID is kept as a
+    // * place holder. Do not reuse!
+    // Therefore, calling clock_gettime() with these IDs will result in an error.
+    //
+    // Some backgrond:
+    // - SGI_CYCLE was for Silicon Graphics (SGI) workstations,
+    // which are probably no longer in use, so it makes sense to disable
+    // - TAI_CLOCK was designed as CLOCK_REALTIME(UTC) + tai_offset,
+    // but tai_offset was always 0 in the kernel.
+    // So there is no point in using this clock.
+    // SGI_CYCLE = 10,
+    // TAI = 11,
+    _,
+};
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
     _,
 };
 
@@ -4989,8 +5154,8 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*align(1) const fn (i32) callconv(.C) void;
-    const restorer = *const fn () callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.c) void;
+    const restorer = *const fn () callconv(.c) void;
 };
 
 pub const k_sigaction = switch (native_arch) {
@@ -5016,8 +5181,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -5025,7 +5190,7 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?*const fn () callconv(.C) void = null,
+    restorer: ?*const fn () callconv(.c) void = null,
 };
 
 const sigset_len = @typeInfo(sigset_t).array.len;
@@ -5698,6 +5863,11 @@ pub const IORING_RECV_MULTISHOT = 1 << 1;
 pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
 /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
 pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
+/// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
+/// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
+/// The buffers be contigious from the starting buffer ID.
+/// Used with IOSQE_BUFFER_SELECT.
+pub const IORING_RECVSEND_BUNDLE = 1 << 4;
 /// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
 pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
 
@@ -7121,6 +7291,19 @@ pub const SIOCPROTOPRIVATE = 0x89E0;
 
 pub const IFNAMESIZE = 16;
 
+pub const IFF = packed struct(u16) {
+    UP: bool = false,
+    BROADCAST: bool = false,
+    DEBUG: bool = false,
+    LOOPBACK: bool = false,
+    POINTOPOINT: bool = false,
+    NOTRAILERS: bool = false,
+    RUNNING: bool = false,
+    NOARP: bool = false,
+    PROMISC: bool = false,
+    _9: u7 = 0,
+};
+
 pub const ifmap = extern struct {
     mem_start: usize,
     mem_end: usize,
@@ -7140,7 +7323,7 @@ pub const ifreq = extern struct {
         broadaddr: sockaddr,
         netmask: sockaddr,
         hwaddr: sockaddr,
-        flags: i16,
+        flags: IFF,
         ivalue: i32,
         mtu: i32,
         map: ifmap,

@@ -119,7 +119,7 @@ test tagToId {
 }
 
 test "exhaustive tagToId" {
-    inline for (@typeInfo(LanguageId).Enum.fields) |field| {
+    inline for (@typeInfo(LanguageId).@"enum".fields) |field| {
         const id = tagToId(field.name) catch |err| {
             std.debug.print("tag: {s}\n", .{field.name});
             return err;
@@ -255,7 +255,7 @@ pub fn parse(lang_tag: []const u8) error{InvalidLanguageTag}!Parsed {
         // Special case for qps-ploca and qps-plocm
         else if (std.ascii.eqlIgnoreCase(lang_code, "qps") and
             (std.ascii.eqlIgnoreCase(part_str, "ploca") or
-            std.ascii.eqlIgnoreCase(part_str, "plocm")))
+                std.ascii.eqlIgnoreCase(part_str, "plocm")))
         {
             parsed.suffix = part_str;
         } else {

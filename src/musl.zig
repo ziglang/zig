@@ -9,8 +9,6 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
 pub const CrtFile = enum {
-    crti_o,
-    crtn_o,
     crt1_o,
     rcrt1_o,
     scrt1_o,
@@ -18,7 +16,9 @@ pub const CrtFile = enum {
     libc_so,
 };
 
-pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -28,37 +28,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     const arena = arena_allocator.allocator();
 
     switch (in_crt_file) {
-        .crti_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCcArgs(comp, arena, &args, false);
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crti.s"),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crti", .Obj, null, .@"musl crti.o", prog_node, &files);
-        },
-        .crtn_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCcArgs(comp, arena, &args, false);
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crtn.s"),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crtn", .Obj, null, .@"musl crtn.o", prog_node, &files);
-        },
         .crt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -68,15 +41,17 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt1", .Obj, null, .@"musl crt1.o", prog_node, &files);
+            return comp.build_crt_file("crt1", .Obj, .@"musl crt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .rcrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -86,15 +61,18 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("rcrt1", .Obj, true, .@"musl rcrt1.o", prog_node, &files);
+            return comp.build_crt_file("rcrt1", .Obj, .@"musl rcrt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .pic = true,
+                .no_builtin = true,
+            });
         },
         .scrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -104,7 +82,13 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("Scrt1", .Obj, true, .@"musl Scrt1.o", prog_node, &files);
+            return comp.build_crt_file("Scrt1", .Obj, .@"musl Scrt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .pic = true,
+                .no_builtin = true,
+            });
         },
         .libc_a => {
             // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
@@ -120,17 +104,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 try addSrcFile(arena, &source_table, src_file);
             }
 
-            const time32_compat_arch_list = [_][]const u8{
-                "arm",
-                "i386",
-                "m68k",
-                "microblaze",
-                "mips",
-                "mipsn32",
-                "or1k",
-                "powerpc",
-                "sh",
-            };
             for (time32_compat_arch_list) |time32_compat_arch| {
                 if (mem.eql(u8, arch_name, time32_compat_arch)) {
                     for (compat_time32_files) |compat_time32_file| {
@@ -197,7 +170,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 };
             }
-            return comp.build_crt_file("c", .Lib, null, .@"musl libc.a", prog_node, c_source_files.items);
+            return comp.build_crt_file("c", .Lib, .@"musl libc.a", prog_node, c_source_files.items, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .libc_so => {
             const optimize_mode = comp.compilerRtOptMode();
@@ -216,13 +194,29 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             });
 
             const target = comp.root_mod.resolved_target.result;
-            const arch_define = try std.fmt.allocPrint(arena, "-DARCH_{s}", .{
-                @tagName(target.cpu.arch),
-            });
+            const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
+            const time32 = for (time32_compat_arch_list) |time32_compat_arch| {
+                if (mem.eql(u8, arch_name, time32_compat_arch)) break true;
+            } else false;
+            const arch_define = try std.fmt.allocPrint(arena, "-DARCH_{s}", .{arch_name});
+            const family_define = switch (target.cpu.arch) {
+                .arm, .armeb, .thumb, .thumbeb => "-DFAMILY_arm",
+                .aarch64, .aarch64_be => "-DFAMILY_aarch64",
+                .loongarch64 => "-DFAMILY_loongarch",
+                .m68k => "-DFAMILY_m68k",
+                .mips, .mipsel, .mips64, .mips64el => "-DFAMILY_mips",
+                .powerpc, .powerpc64, .powerpc64le => "-DFAMILY_powerpc",
+                .riscv32, .riscv64 => "-DFAMILY_riscv",
+                .s390x => "-DFAMILY_s390x",
+                .x86, .x86_64 => "-DFAMILY_x86",
+                else => unreachable,
+            };
             const cc_argv: []const []const u8 = if (target.ptrBitWidth() == 64)
-                &.{ "-DPTR64", arch_define }
+                &.{ "-DPTR64", arch_define, family_define }
+            else if (time32)
+                &.{ "-DTIME32", arch_define, family_define }
             else
-                &.{arch_define};
+                &.{ arch_define, family_define };
 
             const root_mod = try Module.create(arena, .{
                 .global_cache_directory = comp.global_cache_directory,
@@ -299,21 +293,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     }
 }
 
-/// Return true if musl has arch-specific crti/crtn sources.
-/// See lib/libc/musl/crt/ARCH/crt?.s .
-pub fn needsCrtiCrtn(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .loongarch64,
-        .m68k,
-        .riscv32,
-        .riscv64,
-        .wasm32,
-        .wasm64,
-        => false,
-        else => true,
-    };
-}
-
 pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.LinkMode, pie: bool) ?CrtFile {
     return switch (output_mode) {
         .Obj, .Lib => null,
@@ -323,6 +302,18 @@ pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.Lin
         },
     };
 }
+
+const time32_compat_arch_list = [_][]const u8{
+    "arm",
+    "i386",
+    "m68k",
+    "microblaze",
+    "mips",
+    "mipsn32",
+    "or1k",
+    "powerpc",
+    "sh",
+};
 
 fn isArchName(name: []const u8) bool {
     const musl_arch_names = [_][]const u8{
@@ -410,7 +401,6 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
-        "-fno-builtin",
         "-fexcess-precision=standard",
         "-frounding-math",
         "-ffp-contract=off",
@@ -440,12 +430,6 @@ fn addCcArgs(
         try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
 
         o_arg,
-
-        "-fomit-frame-pointer",
-        "-fno-unwind-tables",
-        "-fno-asynchronous-unwind-tables",
-        "-ffunction-sections",
-        "-fdata-sections",
 
         "-Qunused-arguments",
         "-w", // disable all warnings
@@ -652,8 +636,6 @@ const src_files = [_][]const u8{
     "musl/src/fenv/riscv64/fenv.S",
     "musl/src/fenv/riscv64/fenv-sf.c",
     "musl/src/fenv/s390x/fenv.c",
-    "musl/src/fenv/sh/fenv-nofpu.c",
-    "musl/src/fenv/sh/fenv.S",
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",
     "musl/src/internal/defsysinfo.c",
@@ -664,7 +646,6 @@ const src_files = [_][]const u8{
     "musl/src/internal/libc.c",
     "musl/src/internal/procfdname.c",
     "musl/src/internal/shgetc.c",
-    "musl/src/internal/sh/__shcall.c",
     "musl/src/internal/syscall_ret.c",
     "musl/src/internal/vdso.c",
     "musl/src/internal/version.c",
@@ -701,15 +682,11 @@ const src_files = [_][]const u8{
     "musl/src/ldso/loongarch64/dlsym.s",
     "musl/src/ldso/m68k/dlsym.s",
     "musl/src/ldso/m68k/dlsym_time64.S",
-    "musl/src/ldso/microblaze/dlsym.s",
-    "musl/src/ldso/microblaze/dlsym_time64.S",
     "musl/src/ldso/mips64/dlsym.s",
     "musl/src/ldso/mips/dlsym.s",
     "musl/src/ldso/mips/dlsym_time64.S",
     "musl/src/ldso/mipsn32/dlsym.s",
     "musl/src/ldso/mipsn32/dlsym_time64.S",
-    "musl/src/ldso/or1k/dlsym.s",
-    "musl/src/ldso/or1k/dlsym_time64.S",
     "musl/src/ldso/powerpc64/dlsym.s",
     "musl/src/ldso/powerpc/dlsym.s",
     "musl/src/ldso/powerpc/dlsym_time64.S",
@@ -717,8 +694,6 @@ const src_files = [_][]const u8{
     "musl/src/ldso/riscv64/dlsym.s",
     "musl/src/ldso/riscv64/tlsdesc.s",
     "musl/src/ldso/s390x/dlsym.s",
-    "musl/src/ldso/sh/dlsym.s",
-    "musl/src/ldso/sh/dlsym_time64.S",
     "musl/src/ldso/tlsdesc.c",
     "musl/src/ldso/x32/dlsym.s",
     "musl/src/ldso/x86_64/dlsym.s",
@@ -1563,7 +1538,6 @@ const src_files = [_][]const u8{
     "musl/src/process/posix_spawnp.c",
     "musl/src/process/riscv64/vfork.s",
     "musl/src/process/s390x/vfork.s",
-    "musl/src/process/sh/vfork.s",
     "musl/src/process/system.c",
     "musl/src/process/vfork.c",
     "musl/src/process/wait.c",
@@ -1610,16 +1584,12 @@ const src_files = [_][]const u8{
     "musl/src/setjmp/loongarch64/setjmp.S",
     "musl/src/setjmp/m68k/longjmp.s",
     "musl/src/setjmp/m68k/setjmp.s",
-    "musl/src/setjmp/microblaze/longjmp.s",
-    "musl/src/setjmp/microblaze/setjmp.s",
     "musl/src/setjmp/mips64/longjmp.S",
     "musl/src/setjmp/mips64/setjmp.S",
     "musl/src/setjmp/mips/longjmp.S",
     "musl/src/setjmp/mipsn32/longjmp.S",
     "musl/src/setjmp/mipsn32/setjmp.S",
     "musl/src/setjmp/mips/setjmp.S",
-    "musl/src/setjmp/or1k/longjmp.s",
-    "musl/src/setjmp/or1k/setjmp.s",
     "musl/src/setjmp/powerpc64/longjmp.s",
     "musl/src/setjmp/powerpc64/setjmp.s",
     "musl/src/setjmp/powerpc/longjmp.S",
@@ -1631,8 +1601,6 @@ const src_files = [_][]const u8{
     "musl/src/setjmp/s390x/longjmp.s",
     "musl/src/setjmp/s390x/setjmp.s",
     "musl/src/setjmp/setjmp.c",
-    "musl/src/setjmp/sh/longjmp.S",
-    "musl/src/setjmp/sh/setjmp.S",
     "musl/src/setjmp/x32/longjmp.s",
     "musl/src/setjmp/x32/setjmp.s",
     "musl/src/setjmp/x86_64/longjmp.s",
@@ -1650,12 +1618,9 @@ const src_files = [_][]const u8{
     "musl/src/signal/loongarch64/restore.s",
     "musl/src/signal/loongarch64/sigsetjmp.s",
     "musl/src/signal/m68k/sigsetjmp.s",
-    "musl/src/signal/microblaze/restore.s",
-    "musl/src/signal/microblaze/sigsetjmp.s",
     "musl/src/signal/mips64/sigsetjmp.s",
     "musl/src/signal/mipsn32/sigsetjmp.s",
     "musl/src/signal/mips/sigsetjmp.s",
-    "musl/src/signal/or1k/sigsetjmp.s",
     "musl/src/signal/powerpc64/restore.s",
     "musl/src/signal/powerpc64/sigsetjmp.s",
     "musl/src/signal/powerpc/restore.s",
@@ -1671,8 +1636,6 @@ const src_files = [_][]const u8{
     "musl/src/signal/s390x/restore.s",
     "musl/src/signal/s390x/sigsetjmp.s",
     "musl/src/signal/setitimer.c",
-    "musl/src/signal/sh/restore.s",
-    "musl/src/signal/sh/sigsetjmp.s",
     "musl/src/signal/sigaction.c",
     "musl/src/signal/sigaddset.c",
     "musl/src/signal/sigaltstack.c",
@@ -1866,25 +1829,18 @@ const src_files = [_][]const u8{
     "musl/src/stdlib/strtol.c",
     "musl/src/stdlib/wcstod.c",
     "musl/src/stdlib/wcstol.c",
-    "musl/src/string/aarch64/memcpy.S",
     "musl/src/string/aarch64/memset.S",
-    "musl/src/string/arm/__aeabi_memcpy.s",
     "musl/src/string/arm/__aeabi_memset.s",
-    "musl/src/string/arm/memcpy.S",
     "musl/src/string/bcmp.c",
     "musl/src/string/bcopy.c",
     "musl/src/string/bzero.c",
     "musl/src/string/explicit_bzero.c",
-    "musl/src/string/i386/memcpy.s",
-    "musl/src/string/i386/memmove.s",
     "musl/src/string/i386/memset.s",
     "musl/src/string/index.c",
     "musl/src/string/memccpy.c",
     "musl/src/string/memchr.c",
     "musl/src/string/memcmp.c",
-    "musl/src/string/memcpy.c",
     "musl/src/string/memmem.c",
-    "musl/src/string/memmove.c",
     "musl/src/string/mempcpy.c",
     "musl/src/string/memrchr.c",
     "musl/src/string/memset.c",
@@ -1948,8 +1904,6 @@ const src_files = [_][]const u8{
     "musl/src/string/wmemcpy.c",
     "musl/src/string/wmemmove.c",
     "musl/src/string/wmemset.c",
-    "musl/src/string/x86_64/memcpy.s",
-    "musl/src/string/x86_64/memmove.s",
     "musl/src/string/x86_64/memset.s",
     "musl/src/temp/mkdtemp.c",
     "musl/src/temp/mkostemp.c",
@@ -2003,10 +1957,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/m68k/clone.s",
     "musl/src/thread/m68k/__m68k_read_tp.s",
     "musl/src/thread/m68k/syscall_cp.s",
-    "musl/src/thread/microblaze/clone.s",
-    "musl/src/thread/microblaze/__set_thread_area.s",
-    "musl/src/thread/microblaze/syscall_cp.s",
-    "musl/src/thread/microblaze/__unmapself.s",
     "musl/src/thread/mips64/clone.s",
     "musl/src/thread/mips64/syscall_cp.s",
     "musl/src/thread/mips64/__unmapself.s",
@@ -2022,10 +1972,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/mtx_timedlock.c",
     "musl/src/thread/mtx_trylock.c",
     "musl/src/thread/mtx_unlock.c",
-    "musl/src/thread/or1k/clone.s",
-    "musl/src/thread/or1k/__set_thread_area.s",
-    "musl/src/thread/or1k/syscall_cp.s",
-    "musl/src/thread/or1k/__unmapself.s",
     "musl/src/thread/powerpc64/clone.s",
     "musl/src/thread/powerpc64/__set_thread_area.s",
     "musl/src/thread/powerpc64/syscall_cp.s",
@@ -2143,12 +2089,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/sem_unlink.c",
     "musl/src/thread/sem_wait.c",
     "musl/src/thread/__set_thread_area.c",
-    "musl/src/thread/sh/atomics.s",
-    "musl/src/thread/sh/clone.s",
-    "musl/src/thread/sh/__set_thread_area.c",
-    "musl/src/thread/sh/syscall_cp.s",
-    "musl/src/thread/sh/__unmapself.c",
-    "musl/src/thread/sh/__unmapself_mmu.s",
     "musl/src/thread/synccall.c",
     "musl/src/thread/__syscall_cp.c",
     "musl/src/thread/syscall_cp.c",
@@ -2281,7 +2221,6 @@ const src_files = [_][]const u8{
     "musl/src/unistd/setsid.c",
     "musl/src/unistd/setuid.c",
     "musl/src/unistd/setxid.c",
-    "musl/src/unistd/sh/pipe.s",
     "musl/src/unistd/sleep.c",
     "musl/src/unistd/symlinkat.c",
     "musl/src/unistd/symlink.c",

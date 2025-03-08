@@ -81,16 +81,21 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         return self;
     }
 
-    // TODO: consider also adding homebrew paths
     // TODO: consider also adding macports paths
-    if (comptime builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         if (std.zig.system.darwin.isSdkInstalled(arena)) sdk: {
             const sdk = std.zig.system.darwin.getSdk(arena, native_target) orelse break :sdk;
             try self.addLibDir(try std.fs.path.join(arena, &.{ sdk, "usr/lib" }));
             try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/Frameworks" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk, "usr/include" }));
-            return self;
         }
+
+        // Check for homebrew paths
+        if (std.posix.getenv("HOMEBREW_PREFIX")) |prefix| {
+            try self.addLibDir(try std.fs.path.join(arena, &.{ prefix, "/lib" }));
+            try self.addIncludeDir(try std.fs.path.join(arena, &.{ prefix, "/include" }));
+        }
+
         return self;
     }
 

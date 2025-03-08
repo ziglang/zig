@@ -682,7 +682,7 @@ pub const Walker = struct {
                 // walking if they want, which means that we need to pop the directory
                 // that errored from the stack. Otherwise, all future `next` calls would
                 // likely just fail with the same error.
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -718,7 +718,7 @@ pub const Walker = struct {
                     .kind = base.kind,
                 };
             } else {
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -1295,17 +1295,10 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
-    const flags: posix.O = switch (native_os) {
-        .linux => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-            .PATH = true,
-        },
-        else => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-        },
-    };
+    var flags: posix.O = .{};
+    if (@hasField(posix.O, "NONBLOCK")) flags.NONBLOCK = true;
+    if (@hasField(posix.O, "CLOEXEC")) flags.CLOEXEC = true;
+    if (@hasField(posix.O, "PATH")) flags.PATH = true;
 
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
         error.FileLocksNotSupported => return error.Unexpected,
@@ -2029,7 +2022,7 @@ pub const DeleteTreeError = error{
     NetworkNotFound,
 } || posix.UnexpectedError;
 
-/// Whether `full_path` describes a symlink, file, or directory, this function
+/// Whether `sub_path` describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.
@@ -2594,7 +2587,7 @@ const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || p
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
 fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
         switch (posix.errno(rc)) {
             .SUCCESS => return,

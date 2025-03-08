@@ -172,7 +172,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             return;
         },
         .pointer => |p| {
-            if (p.size != .Slice) {
+            if (p.size != .slice) {
                 @compileError("Non-slice pointers are not yet supported in build options");
             }
 
@@ -318,9 +318,7 @@ fn printStruct(options: *Options, out: anytype, comptime T: type, comptime val: 
             try out.print("    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
         }
 
-        if (field.default_value != null) {
-            const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
-
+        if (field.defaultValue()) |default_value| {
             try out.writeAll(" = ");
             switch (@typeInfo(@TypeOf(default_value))) {
                 .@"enum" => try out.print(".{s},\n", .{@tagName(default_value)}),
@@ -390,19 +388,11 @@ pub fn addOptionPath(
     path.addStepDependencies(&options.step);
 }
 
-/// Deprecated: use `addOptionPath(options, name, artifact.getEmittedBin())` instead.
-pub fn addOptionArtifact(options: *Options, name: []const u8, artifact: *Step.Compile) void {
-    return addOptionPath(options, name, artifact.getEmittedBin());
-}
-
 pub fn createModule(options: *Options) *std.Build.Module {
     return options.step.owner.createModule(.{
         .root_source_file = options.getOutput(),
     });
 }
-
-/// deprecated: use `getOutput`
-pub const getSource = getOutput;
 
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.

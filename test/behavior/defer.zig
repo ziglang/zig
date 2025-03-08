@@ -160,6 +160,7 @@ test "reference to errdefer payload" {
 test "simple else prong doesn't emit an error for unreachable else prong" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() error{Foo}!void {
@@ -233,4 +234,13 @@ test "errdefer capture" {
     if (s.fail) return error.TestExpectedError;
     s.bar2() catch {};
     if (s.fail) return error.TestExpectedError;
+}
+
+test "errdefer in test block" {
+    errdefer |err| {
+        _ = &err;
+    }
+    var x: bool = false;
+    _ = &x;
+    if (x) return error.Something;
 }
