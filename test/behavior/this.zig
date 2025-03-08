@@ -55,3 +55,43 @@ test "this used as optional function parameter" {
     global.enter = prev;
     global.enter(null);
 }
+
+test "this with struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const A = struct {
+        const B = @This();
+    };
+    _ = A.B;
+}
+
+test "this with enum" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const A = enum {
+        const B = @This();
+    };
+    _ = A.B;
+}
+
+test "this with union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const A = union {
+        const B = @This();
+    };
+    _ = A.B;
+}
+
+test "this with opaque" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const A = opaque {
+        const B = @This();
+    };
+    _ = A.B;
+}

@@ -3712,7 +3712,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     }
 
     const ty_key = switch (ip.indexToKey(ty)) {
-        .struct_type, .union_type, .enum_type => |key| key,
+        .struct_type, .union_type, .enum_type, .opaque_type => |key| key,
         else => unreachable,
     };
     const declared_ty_key = switch (ty_key) {

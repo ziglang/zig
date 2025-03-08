@@ -4108,7 +4108,7 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .struct_type, .union_type, .enum_type, .opaque_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
         },
