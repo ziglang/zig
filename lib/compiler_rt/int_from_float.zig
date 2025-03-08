@@ -72,10 +72,12 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
     } });
 
     const parts = math.frexp(a);
-    const exponent = @max(parts.exponent - significand_bits, 0);
+    const significand_bits_adjusted_to_handle_smin = @as(i32, significand_bits) +
+        @intFromBool(signedness == .signed and parts.exponent == 32 * result.len);
+    const exponent = @max(parts.exponent - significand_bits_adjusted_to_handle_smin, 0);
     const int: I = @intFromFloat(switch (exponent) {
         0 => a,
-        else => math.ldexp(parts.significand, significand_bits),
+        else => math.ldexp(parts.significand, significand_bits_adjusted_to_handle_smin),
     });
     switch (signedness) {
         .signed => {
