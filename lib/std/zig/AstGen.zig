@@ -9683,7 +9683,7 @@ fn builtinCall(
 
             const result = try gz.addExtendedPayload(.error_cast, Zir.Inst.BinNode{
                 .lhs = try ri.rl.resultTypeForCast(gz, node, builtin_name),
-                .rhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .none, .ctx = .error_handling_expr }, params[0]),
                 .node = gz.nodeIndexToRelative(node),
             });
             return rvalue(gz, ri, result, node);
