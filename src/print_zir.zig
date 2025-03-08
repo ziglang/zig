@@ -1311,6 +1311,9 @@ const Writer = struct {
         if (extra.data.flags.ensure_result_used) {
             try stream.writeAll("nodiscard ");
         }
+        if (extra.data.flags.pop_error_return_trace) {
+            try stream.writeAll("poperrtrace ");
+        }
         try stream.print(".{s}, ", .{@tagName(extra.data.flags.packed_modifier)});
         switch (kind) {
             .direct => try self.writeInstRef(stream, extra.data.callee),
