@@ -6026,17 +6026,19 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
 
-                        // It's recommended to use the minimal runtime in production environments
-                        // due to the security implications of the full runtime. The minimal runtime
-                        // doesn't provide much benefit over simply trapping.
                         if (mod.optimize_mode == .ReleaseSafe) {
+                            // It's recommended to use the minimal runtime in production
+                            // environments due to the security implications of the full runtime.
+                            // The minimal runtime doesn't provide much benefit over simply
+                            // trapping, however, so we do that instead.
                             try argv.append("-fsanitize-trap=undefined");
-                        }
-
-                        // This is necessary because, by default, Clang instructs LLVM to embed a COFF link
-                        // dependency on `libclang_rt.ubsan_standalone.a` when the UBSan runtime is used.
-                        if (target.os.tag == .windows) {
-                            try argv.append("-fno-rtlib-defaultlib");
+                        } else {
+                            // This is necessary because, by default, Clang instructs LLVM to embed
+                            // a COFF link dependency on `libclang_rt.ubsan_standalone.a` when the
+                            // UBSan runtime is used.
+                            if (target.os.tag == .windows) {
+                                try argv.append("-fno-rtlib-defaultlib");
+                            }
                         }
                     }
                 }
