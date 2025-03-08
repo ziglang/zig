@@ -1412,8 +1412,8 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
 
         /// After `init`, `next` will return the first component after the root
         /// (there is no need to call `first` after `init`).
-        /// To iterate backwards (from the end of the path to the beginning), call `last`
-        /// after `init` and then iterate via `previous` calls.
+        /// To iterate backwards (from the end of the path to the beginning), call either `last`
+        /// or `moveToEnd` after `init` and then iterate via `previous` calls.
         /// For Windows paths, `error.BadPathName` is returned if the `path` has an explicit
         /// namespace prefix (`\\.\`, `\\?\`, or `\??\`) or if it is a UNC path with more
         /// than two path separators at the beginning.
@@ -1516,6 +1516,12 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
                 .name = self.path[self.start_index..self.end_index],
                 .path = self.path[0..self.end_index],
             };
+        }
+
+        /// Moves to the end of the path. Used to iterate backwards.
+        pub fn moveToEnd(self: *Self) void {
+            self.start_index = self.path.len;
+            self.end_index = self.path.len;
         }
 
         /// Returns the last component (from the end of the path).
@@ -1983,3 +1989,97 @@ pub const fmtAsUtf8Lossy = std.unicode.fmtUtf8;
 /// a lossy conversion if the path contains any unpaired surrogates.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
 pub const fmtWtf16LeAsUtf8Lossy = std.unicode.fmtUtf16Le;
+
+test "filesystem case sensitivity" {
+    // disabled on wasi because realpath is not implemented
+    if (builtin.os.tag == .wasi) return;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const fs_case_sensitive = try testIsFilesystemCaseSensitive(tmp.dir);
+    switch (builtin.os.tag) {
+        .windows, .macos => try std.testing.expectEqual(false, fs_case_sensitive),
+        else => {},
+    }
+
+    {
+        {
+            const f = try tmp.dir.createFile("foo.zig", .{});
+            f.close();
+        }
+        try std.testing.expect(try realpathMatches(tmp.dir, "foo.zig"));
+        if (fs_case_sensitive) {
+            try std.testing.expectError(error.FileNotFound, realpathMatches(tmp.dir, "Foo.zig"));
+        } else {
+            try std.testing.expect(!try realpathMatches(tmp.dir, "Foo.zig"));
+        }
+    }
+
+    try tmp.dir.makeDir("subdir");
+    {
+        {
+            const f = try tmp.dir.createFile("subdir/bar.zig", .{});
+            f.close();
+        }
+        try std.testing.expect(try realpathMatches(tmp.dir, "subdir/bar.zig"));
+        inline for (&.{
+            "Subdir/bar.zig",
+            "subdir/Bar.zig",
+        }) |sub_path| {
+            if (fs_case_sensitive) {
+                try std.testing.expectError(error.FileNotFound, realpathMatches(tmp.dir, sub_path));
+            } else {
+                try std.testing.expect(!try realpathMatches(tmp.dir, sub_path));
+            }
+        }
+    }
+}
+
+fn realpathMatches(dir: std.fs.Dir, sub_path: []const u8) !bool {
+    var real_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const real_path = try dir.realpath(sub_path, &real_path_buf);
+    var sub_path_it = try std.fs.path.NativeComponentIterator.init(sub_path);
+    var real_path_it = std.fs.path.NativeComponentIterator.init(real_path) catch unreachable;
+    sub_path_it.moveToEnd();
+    real_path_it.moveToEnd();
+    var match = true;
+    while (true) {
+        const sub_path_component = sub_path_it.previous() orelse break;
+        const real_path_component = real_path_it.previous() orelse unreachable;
+        std.debug.assert(std.ascii.eqlIgnoreCase(sub_path_component.name, real_path_component.name));
+        match = match and std.mem.eql(u8, sub_path_component.name, real_path_component.name);
+    }
+    return match;
+}
+
+fn testIsFilesystemCaseSensitive(test_dir: std.fs.Dir) !bool {
+    const name_lower = "case-sensitivity-test-file";
+    const name_upper = "CASE-SENSITIVITY-TEST-FILE";
+
+    test_dir.deleteFile(name_lower) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
+    test_dir.deleteFile(name_upper) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
+
+    {
+        const file = try test_dir.createFile(name_lower, .{});
+        file.close();
+    }
+    defer test_dir.deleteFile(name_lower) catch |err| std.debug.panic(
+        "failed to delete test file '{s}' with {s}\n",
+        .{ name_lower, @errorName(err) },
+    );
+    {
+        const file = test_dir.openFile(name_upper, .{}) catch |err| switch (err) {
+            error.FileNotFound => return true,
+            else => |e| return e,
+        };
+        file.close();
+    }
+    return false;
+}
