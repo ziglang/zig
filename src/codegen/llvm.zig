@@ -11757,7 +11757,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
 }
 
 fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: std.Target) bool {
-    const class = x86_64_abi.classifySystemV(ty, zcu, target, .ret);
+    const class = x86_64_abi.classifySystemV(ty, zcu, &target, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
     return false;
@@ -11867,7 +11867,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
         return o.lowerType(return_type);
     }
     const target = zcu.getTarget();
-    const classes = x86_64_abi.classifySystemV(return_type, zcu, target, .ret);
+    const classes = x86_64_abi.classifySystemV(return_type, zcu, &target, .ret);
     if (classes[0] == .memory) return .void;
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
@@ -12145,7 +12145,7 @@ const ParamTypeIterator = struct {
         const zcu = it.object.pt.zcu;
         const ip = &zcu.intern_pool;
         const target = zcu.getTarget();
-        const classes = x86_64_abi.classifySystemV(ty, zcu, target, .arg);
+        const classes = x86_64_abi.classifySystemV(ty, zcu, &target, .arg);
         if (classes[0] == .memory) {
             it.zig_index += 1;
             it.llvm_index += 1;
