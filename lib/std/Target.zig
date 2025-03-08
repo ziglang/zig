@@ -803,8 +803,8 @@ pub const Abi = enum {
     // - raygeneration
     // - vertex
 
-    pub fn default(arch: Cpu.Arch, os: Os) Abi {
-        return switch (os.tag) {
+    pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
+        return switch (os_tag) {
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
