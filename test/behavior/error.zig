@@ -1082,6 +1082,22 @@ test "@errorCast from error union to error union" {
     try expectError(error.A, comptime S.doTheTest(error.A));
 }
 
+fn foo4() error{OutOfMemory}!void {
+    return @errorCast(bar4());
+}
+
+fn bar4() anyerror!void {
+    return error.OutOfMemory;
+}
+
+test "@errorCast error return trace" {
+    if (!builtin.have_error_return_tracing) return;
+    const err = foo4();
+    const index = @errorReturnTrace().?.index;
+    _ = err catch {};
+    try expectEqual(2, index);
+}
+
 test "result location initialization of error union with OPV payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
