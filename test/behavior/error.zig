@@ -1082,11 +1082,11 @@ test "@errorCast from error union to error union" {
     try expectError(error.A, comptime S.doTheTest(error.A));
 }
 
-fn foo4() error{OutOfMemory}!void {
+noinline fn foo4() error{OutOfMemory}!void {
     return @errorCast(bar4());
 }
 
-fn bar4() anyerror!void {
+noinline fn bar4() anyerror!void {
     return error.OutOfMemory;
 }
 
