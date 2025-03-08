@@ -14047,6 +14047,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand = sema.code.nullTerminatedString(extra.path);
 
     const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
+        error.ImportCaseMismatch => {
+            return sema.fail(block, operand_src, "import string '{s}' case does not match the filename", .{operand});
+        },
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
@@ -14109,6 +14112,9 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     const ef_idx = pt.embedFile(block.getFileScope(zcu), name) catch |err| switch (err) {
+        error.ImportCaseMismatch => {
+            return sema.fail(block, operand_src, "embed string '{s}' case does not match the filename", .{name});
+        },
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
