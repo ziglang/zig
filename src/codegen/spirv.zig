@@ -2821,6 +2821,7 @@ const NavGen = struct {
     /// TODO is to also write out the error as a function call parameter, and to somehow fetch
     /// the name of an error in the text executor.
     fn generateTestEntryPoint(self: *NavGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
+        const zcu = self.pt.zcu;
         const target = self.spv.target;
 
         const anyerror_ty_id = try self.resolveType(Type.anyerror, .direct);
@@ -2950,7 +2951,7 @@ const NavGen = struct {
             .pointer = p_error_id,
             .object = error_id,
             .memory_access = .{
-                .Aligned = .{ .literal_integer = @sizeOf(u16) },
+                .Aligned = .{ .literal_integer = @intCast(Type.abiAlignment(.anyerror, zcu).toByteUnits().?) },
             },
         });
         try section.emit(self.spv.gpa, .OpReturn, {});
