@@ -1200,7 +1200,7 @@ pub const Function = extern struct {
             const sp_global: Wasm.GlobalIndex = .stack_pointer;
             // load stack pointer
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+            std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
             // store stack pointer so we can restore it when we return from the function
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
             leb.writeUleb128(code.fixedWriter(), f.prologue.sp_local) catch unreachable;
@@ -1223,7 +1223,7 @@ pub const Function = extern struct {
             // Store the current stack pointer value into the global stack pointer so other function calls will
             // start from this value instead and not overwrite the current stack.
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+            std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
         }
 
         var emit: Emit = .{
@@ -4004,7 +4004,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         var width_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
         width_bigint.sub(max_bigint, min_bigint);
         width_bigint.addScalar(width_bigint.toConst(), 1);
-        break :width width_bigint.toConst().to(u32) catch null;
+        break :width width_bigint.toConst().toInt(u32) catch null;
     };
 
     try cg.startBlock(.block, .empty); // whole switch block start
@@ -4045,7 +4045,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const val_bigint = val.toBigInt(&val_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(val_bigint, min_bigint);
-                branch_list[index_bigint.toConst().to(u32) catch unreachable] = case.idx;
+                branch_list[index_bigint.toConst().toInt(u32) catch unreachable] = case.idx;
             }
             for (case.ranges) |range| {
                 var low_space: Value.BigIntSpace = undefined;
@@ -4054,9 +4054,9 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const high_bigint = Value.fromInterned(range[1].toInterned().?).toBigInt(&high_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(low_bigint, min_bigint);
-                const start = index_bigint.toConst().to(u32) catch unreachable;
+                const start = index_bigint.toConst().toInt(u32) catch unreachable;
                 index_bigint.sub(high_bigint, min_bigint);
-                const end = (index_bigint.toConst().to(u32) catch unreachable) + 1;
+                const end = (index_bigint.toConst().toInt(u32) catch unreachable) + 1;
                 @memset(branch_list[start..end], case.idx);
             }
         }

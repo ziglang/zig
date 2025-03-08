@@ -13524,7 +13524,7 @@ fn validateErrSetSwitch(
     seen_errors: *SwitchErrorSet,
     case_vals: *std.ArrayListUnmanaged(Air.Inst.Ref),
     operand_ty: Type,
-    inst_data: std.meta.FieldType(Zir.Inst.Data, .pl_node),
+    inst_data: @FieldType(Zir.Inst.Data, "pl_node"),
     scalar_cases_len: u32,
     multi_cases_len: u32,
     else_case: struct { body: []const Zir.Inst.Index, end: usize, src: LazySrcLoc },

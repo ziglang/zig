@@ -280,7 +280,7 @@ test "string set base 36" {
     defer a.deinit();
 
     try a.setString(36, "fifvthrv1mzt79ez9");
-    try testing.expect((try a.to(u128)) == 123456789123456789123456789);
+    try testing.expect((try a.toInt(u128)) == 123456789123456789123456789);
 }
 
 test "string set bad char error" {
