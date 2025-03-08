@@ -257,13 +257,10 @@ pub fn build(b: *std.Build) !void {
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git",
-            "-C",
-            b.build_root.path orelse ".",
-            "describe",
-            "--match",
-            "*.*.*",
-            "--tags",
-            "--abbrev=9",
+            "-C", b.build_root.path orelse ".", // affects the --git-dir argument
+            "--git-dir", ".git", // affected by the -C argument
+            "describe", "--match",    "*.*.*", //
+            "--tags",   "--abbrev=9",
         }, &code, .Ignore) catch {
             break :v version_string;
         };
