@@ -259,8 +259,6 @@ pub fn build(b: *std.Build) !void {
             "git",
             "-C",
             b.build_root.path orelse ".",
-            "--git-dir",
-            ".git",
             "describe",
             "--match",
             "*.*.*",
