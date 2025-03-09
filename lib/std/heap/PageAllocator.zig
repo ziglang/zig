@@ -27,27 +27,29 @@ pub fn map(n: usize, alignment: mem.Alignment) ?[*]u8 {
     const alignment_bytes = alignment.toByteUnits();
 
     if (native_os == .windows) {
-        var base_addr: ?*anyopaque = null;
-        var size: windows.SIZE_T = n;
+        if (alignment_bytes < page_size_min) {
+            var base_addr: ?*anyopaque = null;
+            var size: windows.SIZE_T = n;
 
-        var status = ntdll.NtAllocateVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), 0, &size, windows.MEM_COMMIT | windows.MEM_RESERVE, windows.PAGE_READWRITE);
+            const status = ntdll.NtAllocateVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), 0, &size, windows.MEM_COMMIT | windows.MEM_RESERVE, windows.PAGE_READWRITE);
 
-        if (status == SUCCESS and mem.isAligned(@intFromPtr(base_addr), alignment_bytes)) {
-            return @ptrCast(base_addr);
-        }
+            if (status == SUCCESS and mem.isAligned(@intFromPtr(base_addr), alignment_bytes)) {
+                return @ptrCast(base_addr);
+            }
 
-        if (status == SUCCESS) {
-            var region_size: windows.SIZE_T = 0;
-            _ = ntdll.NtFreeVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), &region_size, windows.MEM_RELEASE);
+            if (status == SUCCESS) {
+                var region_size: windows.SIZE_T = 0;
+                _ = ntdll.NtFreeVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), &region_size, windows.MEM_RELEASE);
+            }
         }
 
         const overalloc_len = n + alignment_bytes - page_size;
         const aligned_len = mem.alignForward(usize, n, page_size);
 
-        base_addr = null;
-        size = overalloc_len;
+        var base_addr: ?*anyopaque = null;
+        var size = overalloc_len;
 
-        status = ntdll.NtAllocateVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), 0, &size, windows.MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, windows.PAGE_NOACCESS);
+        var status = ntdll.NtAllocateVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), 0, &size, windows.MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, windows.PAGE_NOACCESS);
 
         if (status != SUCCESS) return null;
 

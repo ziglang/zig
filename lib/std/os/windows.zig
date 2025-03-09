@@ -1790,20 +1790,6 @@ pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_
     };
 }
 
-pub const VirtualAllocError = error{Unexpected};
-
-pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DWORD) VirtualAllocError!LPVOID {
-    return kernel32.VirtualAlloc(addr, size, alloc_type, flProtect) orelse {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    };
-}
-
-pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
-    assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
-}
-
 pub const VirtualProtectError = error{
     InvalidAddress,
     Unexpected,

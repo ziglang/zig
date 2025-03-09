@@ -557,22 +557,6 @@ pub extern "kernel32" fn HeapValidate(
     lpMem: ?*const anyopaque,
 ) callconv(.winapi) BOOL;
 
-// TODO: Wrapper around NtAllocateVirtualMemory.
-pub extern "kernel32" fn VirtualAlloc(
-    lpAddress: ?LPVOID,
-    dwSize: SIZE_T,
-    flAllocationType: DWORD,
-    flProtect: DWORD,
-) callconv(.winapi) ?LPVOID;
-
-// TODO: Wrapper around NtFreeVirtualMemory.
-// If the return value is .INVALID_PAGE_PROTECTION, calls RtlFlushSecureMemoryCache and try again.
-pub extern "kernel32" fn VirtualFree(
-    lpAddress: ?LPVOID,
-    dwSize: SIZE_T,
-    dwFreeType: DWORD,
-) callconv(.winapi) BOOL;
-
 // TODO: Wrapper around NtQueryVirtualMemory.
 pub extern "kernel32" fn VirtualQuery(
     lpAddress: ?LPVOID,

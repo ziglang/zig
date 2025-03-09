@@ -35,7 +35,7 @@ pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
 
 /// comptime-known minimum page size of the target.
 ///
-/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least
+/// All pointers from `mmap` or `NtAllocateVirtualMemory` are aligned to at least
 /// `page_size_min`, but their actual alignment may be bigger.
 ///
 /// This value can be overridden via `std.options.page_size_min`.
