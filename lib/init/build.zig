@@ -113,4 +113,16 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // This creates a `docs` step. It will be visible in the `zig build --help`
+    // menu, and can be selected like this: `zig build docs`
+    // This will generate the package documentation from the doc comments.
+    const docs_step = b.step("docs", "Build the package documentation");
+    const docs_obj = b.addObject(.{ .name = ".NAME", .root_module = lib_mod });
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    docs_step.dependOn(&install_docs.step);
 }
