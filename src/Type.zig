@@ -3505,7 +3505,7 @@ pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Zcu.LazySrcLoc {
             },
             else => return null,
         },
-        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
+        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(.zero),
     };
 }
 
