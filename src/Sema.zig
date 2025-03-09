@@ -19875,7 +19875,7 @@ fn retWithErrTracing(
     const return_err_fn = Air.internedToRef(try sema.getBuiltin(src, .returnError));
 
     if (!need_check) {
-        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &.{}, .@"error return");
+        try sema.callBuiltin(block, src, return_err_fn, .never_tail, &.{}, .@"error return");
         _ = try block.addUnOp(ret_tag, operand);
         return;
     }
@@ -19886,7 +19886,7 @@ fn retWithErrTracing(
 
     var else_block = block.makeSubBlock();
     defer else_block.instructions.deinit(gpa);
-    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &.{}, .@"error return");
+    try sema.callBuiltin(&else_block, src, return_err_fn, .never_tail, &.{}, .@"error return");
     _ = try else_block.addUnOp(ret_tag, operand);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +

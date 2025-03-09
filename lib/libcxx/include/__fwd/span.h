@@ -11,7 +11,7 @@
 #define _LIBCPP___FWD_SPAN_H
 
 #include <__config>
-#include <cstddef>
+#include <__cstddef/size_t.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

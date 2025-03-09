@@ -143,7 +143,7 @@ template <__fmt_char_type _CharT, formattable<_CharT>... _Args>
 struct _LIBCPP_TEMPLATE_VIS formatter<tuple<_Args...>, _CharT>
     : public __formatter_tuple<_CharT, tuple<_Args...>, _Args...> {};
 
-#endif //_LIBCPP_STD_VER >= 23
+#endif // _LIBCPP_STD_VER >= 23
 
 _LIBCPP_END_NAMESPACE_STD
 

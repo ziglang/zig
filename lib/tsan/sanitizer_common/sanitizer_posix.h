@@ -28,6 +28,9 @@ namespace __sanitizer {
 // Don't use directly, use __sanitizer::OpenFile() instead.
 uptr internal_open(const char *filename, int flags);
 uptr internal_open(const char *filename, int flags, u32 mode);
+#  if SANITIZER_FREEBSD
+uptr internal_close_range(fd_t lowfd, fd_t highfd, int flags);
+#  endif
 uptr internal_close(fd_t fd);
 
 uptr internal_read(fd_t fd, void *buf, uptr count);
@@ -86,7 +89,7 @@ int internal_pthread_join(void *th, void **ret);
       return REAL(pthread_create)(th, attr, callback, param);             \
     }                                                                     \
     int internal_pthread_join(void *th, void **ret) {                     \
-      return REAL(pthread_join(th, ret));                                 \
+      return REAL(pthread_join)(th, ret);                                 \
     }                                                                     \
     }  // namespace __sanitizer
 
@@ -108,6 +111,7 @@ bool IsStateDetached(int state);
 fd_t ReserveStandardFds(fd_t fd);
 
 bool ShouldMockFailureToOpen(const char *path);
+bool OpenReadsVaArgs(int oflag);
 
 // Create a non-file mapping with a given /proc/self/maps name.
 uptr MmapNamed(void *addr, uptr length, int prot, int flags, const char *name);

@@ -19,8 +19,10 @@
 #include <__functional/invoke.h>
 #include <__ranges/concepts.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_class.h>
 #include <__type_traits/is_nothrow_constructible.h>
+#include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
@@ -45,15 +47,15 @@ namespace ranges {
 // - `f1 | f2` is an adaptor closure `g` such that `g(x)` is equivalent to `f2(f1(x))`
 template <class _Tp>
   requires is_class_v<_Tp> && same_as<_Tp, remove_cv_t<_Tp>>
-struct __range_adaptor_closure;
+struct __range_adaptor_closure {};
 
 // Type that wraps an arbitrary function object and makes it into a range adaptor closure,
 // i.e. something that can be called via the `x | f` notation.
 template <class _Fn>
-struct __range_adaptor_closure_t : _Fn, __range_adaptor_closure<__range_adaptor_closure_t<_Fn>> {
-  _LIBCPP_HIDE_FROM_ABI constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) {}
+struct __pipeable : _Fn, __range_adaptor_closure<__pipeable<_Fn>> {
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __pipeable(_Fn&& __f) : _Fn(std::move(__f)) {}
 };
-_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(__range_adaptor_closure_t);
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(__pipeable);
 
 template <class _Tp>
 _Tp __derived_from_range_adaptor_closure(__range_adaptor_closure<_Tp>*);
@@ -77,17 +79,13 @@ template <_RangeAdaptorClosure _Closure, _RangeAdaptorClosure _OtherClosure>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator|(_Closure&& __c1, _OtherClosure&& __c2) noexcept(
     is_nothrow_constructible_v<decay_t<_Closure>, _Closure> &&
     is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>) {
-  return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1)));
+  return __pipeable(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1)));
 }
-
-template <class _Tp>
-  requires is_class_v<_Tp> && same_as<_Tp, remove_cv_t<_Tp>>
-struct __range_adaptor_closure {};
 
 #  if _LIBCPP_STD_VER >= 23
 template <class _Tp>
   requires is_class_v<_Tp> && same_as<_Tp, remove_cv_t<_Tp>>
-class range_adaptor_closure : public __range_adaptor_closure<_Tp> {};
+class _LIBCPP_NO_SPECIALIZATIONS range_adaptor_closure : public __range_adaptor_closure<_Tp> {};
 #  endif // _LIBCPP_STD_VER >= 23
 
 } // namespace ranges

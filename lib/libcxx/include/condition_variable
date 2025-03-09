@@ -118,29 +118,32 @@ public:
 
 */
 
-#include <__chrono/duration.h>
-#include <__chrono/steady_clock.h>
-#include <__chrono/time_point.h>
-#include <__condition_variable/condition_variable.h>
-#include <__config>
-#include <__memory/shared_ptr.h>
-#include <__mutex/lock_guard.h>
-#include <__mutex/mutex.h>
-#include <__mutex/tag_types.h>
-#include <__mutex/unique_lock.h>
-#include <__stop_token/stop_callback.h>
-#include <__stop_token/stop_token.h>
-#include <__utility/move.h>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/condition_variable>
+#else
+#  include <__chrono/duration.h>
+#  include <__chrono/steady_clock.h>
+#  include <__chrono/time_point.h>
+#  include <__condition_variable/condition_variable.h>
+#  include <__config>
+#  include <__memory/shared_ptr.h>
+#  include <__mutex/lock_guard.h>
+#  include <__mutex/mutex.h>
+#  include <__mutex/tag_types.h>
+#  include <__mutex/unique_lock.h>
+#  include <__stop_token/stop_callback.h>
+#  include <__stop_token/stop_token.h>
+#  include <__utility/move.h>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
-#ifndef _LIBCPP_HAS_NO_THREADS
+#  if _LIBCPP_HAS_THREADS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -173,7 +176,7 @@ public:
   template <class _Lock, class _Rep, class _Period, class _Predicate>
   bool _LIBCPP_HIDE_FROM_ABI wait_for(_Lock& __lock, const chrono::duration<_Rep, _Period>& __d, _Predicate __pred);
 
-#  if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#    if _LIBCPP_STD_VER >= 20
 
   template <class _Lock, class _Predicate>
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI bool wait(_Lock& __lock, stop_token __stoken, _Predicate __pred);
@@ -186,7 +189,7 @@ public:
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI bool
   wait_for(_Lock& __lock, stop_token __stoken, const chrono::duration<_Rep, _Period>& __rel_time, _Predicate __pred);
 
-#  endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#    endif // _LIBCPP_STD_VER >= 20
 };
 
 inline condition_variable_any::condition_variable_any() : __mut_(make_shared<mutex>()) {}
@@ -260,7 +263,7 @@ condition_variable_any::wait_for(_Lock& __lock, const chrono::duration<_Rep, _Pe
   return wait_until(__lock, chrono::steady_clock::now() + __d, std::move(__pred));
 }
 
-#  if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#    if _LIBCPP_STD_VER >= 20
 
 template <class _Lock, class _Predicate>
 bool condition_variable_any::wait(_Lock& __user_lock, stop_token __stoken, _Predicate __pred) {
@@ -341,29 +344,30 @@ bool condition_variable_any::wait_for(
   return wait_until(__lock, std::move(__stoken), chrono::steady_clock::now() + __rel_time, std::move(__pred));
 }
 
-#  endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#    endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_EXPORTED_FROM_ABI void notify_all_at_thread_exit(condition_variable&, unique_lock<mutex>);
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !_LIBCPP_HAS_NO_THREADS
+#  endif // _LIBCPP_HAS_THREADS
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <concepts>
-#  include <cstdint>
-#  include <cstdlib>
-#  include <cstring>
-#  include <initializer_list>
-#  include <iosfwd>
-#  include <new>
-#  include <stdexcept>
-#  include <system_error>
-#  include <type_traits>
-#  include <typeinfo>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <concepts>
+#    include <cstdint>
+#    include <cstdlib>
+#    include <cstring>
+#    include <initializer_list>
+#    include <iosfwd>
+#    include <new>
+#    include <stdexcept>
+#    include <system_error>
+#    include <type_traits>
+#    include <typeinfo>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CONDITION_VARIABLE
