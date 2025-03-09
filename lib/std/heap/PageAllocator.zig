@@ -47,7 +47,7 @@ pub fn map(n: usize, alignment: mem.Alignment) ?[*]u8 {
         const aligned_len = mem.alignForward(usize, n, page_size);
 
         var base_addr: ?*anyopaque = null;
-        var size = overalloc_len;
+        var size: windows.SIZE_T = overalloc_len;
 
         var status = ntdll.NtAllocateVirtualMemory(windows.GetCurrentProcess(), @ptrCast(&base_addr), 0, &size, windows.MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, windows.PAGE_NOACCESS);
 
