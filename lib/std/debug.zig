@@ -11,7 +11,6 @@ const File = std.fs.File;
 const windows = std.os.windows;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
-const native_endian = native_arch.endian();
 
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");

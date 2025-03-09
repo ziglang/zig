@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const WebSocket = @This();
 const assert = std.debug.assert;
-const native_endian = builtin.cpu.arch.endian();
 
 key: []const u8,
 request: *std.http.Server.Request,
@@ -182,10 +181,7 @@ fn recv(ws: *WebSocket, len: usize) RecvError![]u8 {
 
 fn recvReadInt(ws: *WebSocket, comptime I: type) !I {
     const unswapped: I = @bitCast((try recv(ws, @sizeOf(I)))[0..@sizeOf(I)].*);
-    return switch (native_endian) {
-        .little => @byteSwap(unswapped),
-        .big => unswapped,
-    };
+    return std.mem.nativeToBig(I, unswapped);
 }
 
 pub const WriteError = std.http.Server.Response.WriteError;
