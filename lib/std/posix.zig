@@ -4805,7 +4805,7 @@ pub fn mmap(
 /// Note that while POSIX allows unmapping a region in the middle of an existing mapping,
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
-/// * The Windows function, VirtualFree, has this restriction.
+/// * The Windows function, NtFreeVirtualMemory, has this restriction.
 pub fn munmap(memory: []align(page_size_min) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,
