@@ -202,6 +202,15 @@ pub fn main() !void {
                         next_arg, @errorName(err),
                     });
                 };
+            } else if (mem.eql(u8, arg, "--build-id")) {
+                builder.build_id = .fast;
+            } else if (mem.startsWith(u8, arg, "--build-id=")) {
+                const style = arg["--build-id=".len..];
+                builder.build_id = std.zig.BuildId.parse(style) catch |err| {
+                    fatal("unable to parse --build-id style '{s}': {s}", .{
+                        style, @errorName(err),
+                    });
+                };
             } else if (mem.eql(u8, arg, "--debounce")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u16 after '{s}'", .{arg});
@@ -1364,6 +1373,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
+        \\  --build-id[=style]           At a minor link-time expense, coordinates stripped binaries
+        \\      fast, uuid, sha1, md5    with debug symbols via a '.note.gnu.build-id' section
+        \\      0x[hexstring]            Maximum 32 bytes
+        \\      none                     (default) Disable build-id
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --debug-rt                   Debug compiler runtime libraries
