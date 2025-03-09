@@ -18,6 +18,7 @@ frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
 strip: ?bool,
+soname: ?bool,
 unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
@@ -247,6 +248,7 @@ pub const CreateOptions = struct {
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
+    soname: ?bool = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
@@ -296,6 +298,7 @@ pub fn init(
                 .frameworks = .{},
                 .link_objects = .{},
                 .strip = options.strip,
+                .soname = options.soname,
                 .unwind_tables = options.unwind_tables,
                 .single_threaded = options.single_threaded,
                 .stack_protector = options.stack_protector,
@@ -545,6 +548,7 @@ pub fn appendZigProcessFlags(
     const b = m.owner;
 
     try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
+    try addFlag(zig_args, m.soname, "-fsoname", "-fno-soname");
     try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
     try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
