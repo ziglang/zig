@@ -80,7 +80,8 @@ pub fn fragmentDepth(comptime ptr: *addrspace(.output) f32) void {
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
 pub fn location(comptime ptr: anytype, comptime loc: u32) void {
-    asm volatile ("OpDecorate %ptr Location $loc"
+    asm volatile (
+        \\OpDecorate %ptr Location $loc
         :
         : [ptr] "" (ptr),
           [loc] "c" (loc),
@@ -110,7 +111,8 @@ pub const Origin = enum(u32) {
 /// The coordinates appear to originate in the specified `origin`.
 /// Only valid with the `Fragment` calling convention.
 pub fn fragmentOrigin(comptime entry_point: anytype, comptime origin: Origin) void {
-    asm volatile ("OpExecutionMode %entry_point $origin"
+    asm volatile (
+        \\OpExecutionMode %entry_point $origin
         :
         : [entry_point] "" (entry_point),
           [origin] "c" (@intFromEnum(origin)),
@@ -137,7 +139,8 @@ pub const DepthMode = enum(u32) {
 
 /// Only valid with the `Fragment` calling convention.
 pub fn depthMode(comptime entry_point: anytype, comptime mode: DepthMode) void {
-    asm volatile ("OpExecutionMode %entry_point $mode"
+    asm volatile (
+        \\OpExecutionMode %entry_point $mode
         :
         : [entry_point] "" (entry_point),
           [mode] "c" (mode),
@@ -147,7 +150,8 @@ pub fn depthMode(comptime entry_point: anytype, comptime mode: DepthMode) void {
 /// Indicates the workgroup size in the `x`, `y`, and `z` dimensions.
 /// Only valid with the `GLCompute` or `Kernel` calling conventions.
 pub fn workgroupSize(comptime entry_point: anytype, comptime size: @Vector(3, u32)) void {
-    asm volatile ("OpExecutionMode %entry_point LocalSize %x %y %z"
+    asm volatile (
+        \\OpExecutionMode %entry_point LocalSize %x %y %z
         :
         : [entry_point] "" (entry_point),
           [x] "c" (size[0]),
@@ -159,7 +163,8 @@ pub fn workgroupSize(comptime entry_point: anytype, comptime size: @Vector(3, u3
 /// A hint to the client, which indicates the workgroup size in the `x`, `y`, and `z` dimensions.
 /// Only valid with the `GLCompute` or `Kernel` calling conventions.
 pub fn workgroupSizeHint(comptime entry_point: anytype, comptime size: @Vector(3, u32)) void {
-    asm volatile ("OpExecutionMode %entry_point LocalSizeHint %x %y %z"
+    asm volatile (
+        \\OpExecutionMode %entry_point LocalSizeHint %x %y %z
         :
         : [entry_point] "" (entry_point),
           [x] "c" (size[0]),
