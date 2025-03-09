@@ -3779,6 +3779,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                 .auto => break :field .{ field_ty, try aggregate_ty.fieldAlignmentSema(field_idx, pt) },
                 .@"extern" => {
                     // Well-defined layout, so just offset the pointer appropriately.
+                    try aggregate_ty.resolveLayout(pt);
                     const byte_off = aggregate_ty.structFieldOffset(field_idx, zcu);
                     const field_align = a: {
                         const parent_align = if (parent_ptr_info.flags.alignment == .none) pa: {
