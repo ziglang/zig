@@ -38029,6 +38029,11 @@ fn compareScalar(
     const pt = sema.pt;
     const coerced_lhs = try pt.getCoerced(lhs, ty);
     const coerced_rhs = try pt.getCoerced(rhs, ty);
+
+    // Equality comparisons of signed zero and NaN need to use floating point semantics
+    if (coerced_lhs.isFloat(pt.zcu) or coerced_rhs.isFloat(pt.zcu))
+        return Value.compareHeteroSema(coerced_lhs, op, coerced_rhs, pt);
+
     switch (op) {
         .eq => return sema.valuesEqual(coerced_lhs, coerced_rhs, ty),
         .neq => return !(try sema.valuesEqual(coerced_lhs, coerced_rhs, ty)),
