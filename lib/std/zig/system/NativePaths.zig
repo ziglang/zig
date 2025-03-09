@@ -86,6 +86,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         if (std.zig.system.darwin.isSdkInstalled(arena)) sdk: {
             const sdk = std.zig.system.darwin.getSdk(arena, native_target) orelse break :sdk;
             try self.addLibDir(try std.fs.path.join(arena, &.{ sdk, "usr/lib" }));
+            try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/PrivateFrameworks" }));
             try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/Frameworks" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk, "usr/include" }));
         }
