@@ -88,6 +88,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .atomic_store_monotonic,
             .atomic_store_release,
             .atomic_store_seq_cst,
+            .deposit_bits,
+            .extract_bits,
             => {
                 if (!checkRef(data.bin_op.lhs, zcu)) return false;
                 if (!checkRef(data.bin_op.rhs, zcu)) return false;
