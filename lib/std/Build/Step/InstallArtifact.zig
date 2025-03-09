@@ -189,9 +189,9 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 const src_dir_path = dir.source.getPath3(b, step);
                 const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
-                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.sub_path, .{ .iterate = true }) catch |err| {
-                    return step.fail("unable to open source directory '{s}': {s}", .{
-                        src_dir_path.sub_path, @errorName(err),
+                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+                    return step.fail("unable to open source directory '{}': {s}", .{
+                        src_dir_path, @errorName(err),
                     });
                 };
                 defer src_dir.close();

@@ -114,7 +114,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLargeBss(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLinkOrder(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLdScript(b, .{ .target = gnu_target }));
-        elf_step.dependOn(testLdScriptPathError(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/23125
+        // elf_step.dependOn(testLdScriptPathError(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
         elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
         // https://github.com/ziglang/zig/issues/17451

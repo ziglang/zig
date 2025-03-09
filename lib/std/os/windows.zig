@@ -1758,6 +1758,38 @@ pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError
     }
 }
 
+pub const NtAllocateVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    NoMemory,
+    Unexpected,
+};
+
+pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
+    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
+        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
+        else => |st| unexpectedStatus(st),
+    };
+}
+
+pub const NtFreeVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    Unexpected,
+};
+
+pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
+    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
+        else => NtFreeVirtualMemoryError.Unexpected,
+    };
+}
+
 pub const VirtualAllocError = error{Unexpected};
 
 pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DWORD) VirtualAllocError!LPVOID {
@@ -3539,6 +3571,8 @@ pub const MEM_LARGE_PAGES = 0x20000000;
 pub const MEM_PHYSICAL = 0x400000;
 pub const MEM_TOP_DOWN = 0x100000;
 pub const MEM_WRITE_WATCH = 0x200000;
+pub const MEM_RESERVE_PLACEHOLDER = 0x00040000;
+pub const MEM_PRESERVE_PLACEHOLDER = 0x00000400;
 
 // Protect values
 pub const PAGE_EXECUTE = 0x10;

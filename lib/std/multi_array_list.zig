@@ -248,8 +248,8 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Extend the list by 1 element, returning the newly reserved
         /// index with uninitialized data.
         /// Allocates more memory as necesasry.
-        pub fn addOne(self: *Self, allocator: Allocator) Allocator.Error!usize {
-            try self.ensureUnusedCapacity(allocator, 1);
+        pub fn addOne(self: *Self, gpa: Allocator) Allocator.Error!usize {
+            try self.ensureUnusedCapacity(gpa, 1);
             return self.addOneAssumeCapacity();
         }
 

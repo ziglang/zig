@@ -39,7 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = 32 << 20;
+const thread_stack_size = 50 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,

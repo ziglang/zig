@@ -36756,7 +36756,7 @@ fn unionFields(
             if (enum_index != field_i) {
                 const msg = msg: {
                     const enum_field_src: LazySrcLoc = .{
-                        .base_node_inst = tag_info.zir_index.unwrap().?,
+                        .base_node_inst = Type.fromInterned(tag_ty).typeDeclInstAllowGeneratedTag(zcu).?,
                         .offset = .{ .container_field_name = enum_index },
                     };
                     const msg = try sema.errMsg(name_src, "union field '{}' ordered differently than corresponding enum field", .{
@@ -38066,6 +38066,11 @@ fn compareScalar(
     const pt = sema.pt;
     const coerced_lhs = try pt.getCoerced(lhs, ty);
     const coerced_rhs = try pt.getCoerced(rhs, ty);
+
+    // Equality comparisons of signed zero and NaN need to use floating point semantics
+    if (coerced_lhs.isFloat(pt.zcu) or coerced_rhs.isFloat(pt.zcu))
+        return Value.compareHeteroSema(coerced_lhs, op, coerced_rhs, pt);
+
     switch (op) {
         .eq => return sema.valuesEqual(coerced_lhs, coerced_rhs, ty),
         .neq => return !(try sema.valuesEqual(coerced_lhs, coerced_rhs, ty)),

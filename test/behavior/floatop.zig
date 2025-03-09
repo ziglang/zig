@@ -132,13 +132,20 @@ test "cmp f16" {
     try comptime testCmp(f16);
 }
 
-test "cmp f32/f64" {
+test "cmp f32" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    try testCmp(f32);
+    try comptime testCmp(f32);
+}
+
+test "cmp f64" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
-    try testCmp(f32);
-    try comptime testCmp(f32);
     try testCmp(f64);
     try comptime testCmp(f64);
 }
@@ -220,6 +227,98 @@ fn testCmp(comptime T: type) !void {
             try expect((lhs > rhs) == (no_nan and lhs_order > rhs_order));
             try expect((lhs <= rhs) == (no_nan and lhs_order <= rhs_order));
             try expect((lhs >= rhs) == (no_nan and lhs_order >= rhs_order));
+        }
+    }
+}
+
+test "vector cmp f16" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
+
+    try testCmpVector(f16);
+    try comptime testCmpVector(f16);
+}
+
+test "vector cmp f32" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
+
+    try testCmpVector(f32);
+    try comptime testCmpVector(f32);
+}
+
+test "vector cmp f64" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
+
+    try testCmpVector(f64);
+    try comptime testCmpVector(f64);
+}
+
+test "vector cmp f128" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
+
+    try testCmpVector(f128);
+    try comptime testCmpVector(f128);
+}
+
+test "vector cmp f80/c_longdouble" {
+    if (true) return error.SkipZigTest;
+
+    try testCmpVector(f80);
+    try comptime testCmpVector(f80);
+    try testCmpVector(c_longdouble);
+    try comptime testCmpVector(c_longdouble);
+}
+fn testCmpVector(comptime T: type) !void {
+    var edges = [_]T{
+        -math.inf(T),
+        -math.floatMax(T),
+        -math.floatMin(T),
+        -math.floatTrueMin(T),
+        -0.0,
+        math.nan(T),
+        0.0,
+        math.floatTrueMin(T),
+        math.floatMin(T),
+        math.floatMax(T),
+        math.inf(T),
+    };
+    _ = &edges;
+    for (edges, 0..) |rhs, rhs_i| {
+        const rhs_v: @Vector(4, T) = .{ rhs, rhs, rhs, rhs };
+        for (edges, 0..) |lhs, lhs_i| {
+            const no_nan = lhs_i != 5 and rhs_i != 5;
+            const lhs_order = if (lhs_i < 5) lhs_i else lhs_i - 2;
+            const rhs_order = if (rhs_i < 5) rhs_i else rhs_i - 2;
+            const lhs_v: @Vector(4, T) = .{ lhs, lhs, lhs, lhs };
+            try expect(@reduce(.And, (lhs_v == rhs_v)) == (no_nan and lhs_order == rhs_order));
+            try expect(@reduce(.And, (lhs_v != rhs_v)) == !(no_nan and lhs_order == rhs_order));
+            try expect(@reduce(.And, (lhs_v < rhs_v)) == (no_nan and lhs_order < rhs_order));
+            try expect(@reduce(.And, (lhs_v > rhs_v)) == (no_nan and lhs_order > rhs_order));
+            try expect(@reduce(.And, (lhs_v <= rhs_v)) == (no_nan and lhs_order <= rhs_order));
+            try expect(@reduce(.And, (lhs_v >= rhs_v)) == (no_nan and lhs_order >= rhs_order));
         }
     }
 }
@@ -1702,4 +1801,34 @@ test "optimized float mode" {
     };
     try expect(S.optimized(small) == small);
     try expect(S.strict(small) == tiny);
+}
+
+fn MakeType(comptime x: anytype) type {
+    return struct {
+        fn get() @TypeOf(x) {
+            return x;
+        }
+    };
+}
+
+const nan_a: f32 = @bitCast(@as(u32, 0xffc00000));
+const nan_b: f32 = @bitCast(@as(u32, 0xffe00000));
+
+fn testMemoization() !void {
+    try expect(MakeType(nan_a) == MakeType(nan_a));
+    try expect(MakeType(nan_b) == MakeType(nan_b));
+    try expect(MakeType(nan_a) != MakeType(nan_b));
+}
+
+fn testVectorMemoization(comptime T: type) !void {
+    const nan_a_v: T = @splat(nan_a);
+    const nan_b_v: T = @splat(nan_b);
+    try expect(MakeType(nan_a_v) == MakeType(nan_a_v));
+    try expect(MakeType(nan_b_v) == MakeType(nan_b_v));
+    try expect(MakeType(nan_a_v) != MakeType(nan_b_v));
+}
+
+test "comptime calls are only memoized when float arguments are bit-for-bit equal" {
+    try comptime testMemoization();
+    try comptime testVectorMemoization(@Vector(4, f32));
 }
