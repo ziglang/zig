@@ -1950,6 +1950,31 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) Allocator.Error!Zcu.ImportFile
     };
 }
 
+fn checkImportCase(path: Cache.Path, sub_path: []const u8, import_string: []const u8) enum { ok, mismatch } {
+    var import_it = std.fs.path.NativeComponentIterator.init(import_string) catch return .ok;
+    import_it.moveToEnd();
+
+    var real_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const real_path = path.realpath(sub_path, &real_path_buf) catch |err| switch (err) {
+        error.FileNotFound => return .ok,
+        else => |e| std.debug.panic("realpath '{}{s}' failed with {s}", .{ path, sub_path, @errorName(e) }),
+    };
+    var real_path_it = std.fs.path.NativeComponentIterator.init(real_path) catch unreachable;
+    real_path_it.moveToEnd();
+
+    var match = true;
+    while (true) {
+        const import_component = import_it.previousResolveDots() orelse break;
+        const real_path_component = real_path_it.previousResolveDots() orelse unreachable;
+        if (!std.ascii.eqlIgnoreCase(import_component.name, real_path_component.name)) {
+            std.debug.panic("real path '{s}' does not end with import path '{s}'", .{ real_path, import_string });
+        }
+        match = match and std.mem.eql(u8, import_component.name, real_path_component.name);
+    }
+
+    return if (match) .ok else .mismatch;
+}
+
 /// Called from a worker thread during AstGen (with the Compilation mutex held).
 /// Also called from Sema during semantic analysis.
 /// Does not attempt to load the file from disk; just returns a corresponding `*Zcu.File`.
@@ -1960,6 +1985,7 @@ pub fn importFile(
 ) error{
     OutOfMemory,
     ModuleNotFound,
+    ImportCaseMismatch,
     ImportOutsideModulePath,
     CurrentWorkingDirectoryUnlinked,
 }!Zcu.ImportFileResult {
@@ -1992,6 +2018,15 @@ pub fn importFile(
         "..",
         import_string,
     });
+
+    {
+        const relative_path = try std.fs.path.resolve(gpa, &.{ cur_file.sub_file_path, "..", import_string });
+        defer gpa.free(relative_path);
+        switch (checkImportCase(mod.root, relative_path, import_string)) {
+            .ok => {},
+            .mismatch => return error.ImportCaseMismatch,
+        }
+    }
 
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
@@ -2077,6 +2112,7 @@ pub fn embedFile(
     import_string: []const u8,
 ) error{
     OutOfMemory,
+    ImportCaseMismatch,
     ImportOutsideModulePath,
     CurrentWorkingDirectoryUnlinked,
 }!Zcu.EmbedFile.Index {
@@ -2113,6 +2149,15 @@ pub fn embedFile(
         import_string,
     });
     errdefer gpa.free(resolved_path);
+
+    {
+        const relative_path = try std.fs.path.resolve(gpa, &.{ cur_file.sub_file_path, "..", import_string });
+        defer gpa.free(relative_path);
+        switch (checkImportCase(cur_file.mod.root, relative_path, import_string)) {
+            .ok => {},
+            .mismatch => return error.ImportCaseMismatch,
+        }
+    }
 
     const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
     errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().?.key, resolved_path));
