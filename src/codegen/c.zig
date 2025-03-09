@@ -3496,6 +3496,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
 
+            .deposit_bits => return f.fail("TODO: C backend: implement deposit_bits", .{}),
+            .extract_bits => return f.fail("TODO: C backend: implement extract_bits", .{}),
             // zig fmt: on
         };
         if (result_value == .new_local) {
