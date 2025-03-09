@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("main.zig"),
         .target = b.graph.host,
     }) });
-    test_artifact.addIncludePath(b.path("a_directory"));
+    test_artifact.root_module.addIncludePath(b.path("a_directory"));
 
     // TODO: actually check the output
     _ = test_artifact.getEmittedBin();
