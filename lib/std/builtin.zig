@@ -854,7 +854,7 @@ pub const WasiExecModel = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallModifier = enum {
+pub const CallModifier = enum(u3) {
     /// Equivalent to function call syntax.
     auto,
 
