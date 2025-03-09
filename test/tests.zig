@@ -32,8 +32,8 @@ const TestTarget = struct {
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
     // run in CI, but should not be run on developer machines by default. As an example, at the time
-    // of writing, this includes LLVM's MIPS backend which takes upwards of 20 minutes longer to
-    // compile tests than other backends.
+    // of writing, this included LLVM's MIPS backend which takes upwards of 20 minutes longer to
+    // compile tests than other backends. (No longer the case.)
     slow_backend: bool = false,
 };
 
@@ -505,7 +505,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabi,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -513,7 +512,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabihf,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -522,7 +520,6 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -531,7 +528,6 @@ const test_targets = blk: {
                 .abi = .musleabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -540,7 +536,6 @@ const test_targets = blk: {
                 .abi = .gnueabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -549,7 +544,6 @@ const test_targets = blk: {
                 .abi = .gnueabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
 
         .{
@@ -558,7 +552,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabi,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -566,7 +559,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabihf,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -575,7 +567,6 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -584,7 +575,6 @@ const test_targets = blk: {
                 .abi = .musleabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -593,7 +583,6 @@ const test_targets = blk: {
                 .abi = .gnueabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -602,7 +591,6 @@ const test_targets = blk: {
                 .abi = .gnueabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
 
         .{
