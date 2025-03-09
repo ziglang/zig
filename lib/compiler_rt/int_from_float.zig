@@ -77,7 +77,7 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
     const exponent = @max(parts.exponent - significand_bits_adjusted_to_handle_smin, 0);
     const int: I = @intFromFloat(switch (exponent) {
         0 => a,
-        else => math.ldexp(parts.significand, significand_bits_adjusted_to_handle_smin),
+        else => @call(.never_inline, math.ldexp, .{ parts.significand, significand_bits_adjusted_to_handle_smin }), // https://github.com/llvm/llvm-project/issues/130408
     });
     switch (signedness) {
         .signed => {
