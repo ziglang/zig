@@ -17841,11 +17841,18 @@ fn zirThis(
     const zcu = pt.zcu;
     const namespace = pt.zcu.namespacePtr(block.namespace);
 
-    const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
-
-    switch (pt.zcu.intern_pool.indexToKey(new_ty)) {
-        .struct_type, .union_type => try sema.declareDependency(.{ .interned = new_ty }),
+    switch (pt.zcu.intern_pool.indexToKey(namespace.owner_type)) {
+        .opaque_type => {
+            // Opaque types are never outdated since they don't undergo type resolution, so nothing to do!
+            return Air.internedToRef(namespace.owner_type);
+        },
+        .struct_type, .union_type => {
+            const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
+            try sema.declareDependency(.{ .interned = new_ty });
+            return Air.internedToRef(new_ty);
+        },
         .enum_type => {
+            const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
             try sema.declareDependency(.{ .interned = new_ty });
             // Since this is an enum, it has to be resolved immediately.
             // `ensureTypeUpToDate` has resolved the new type if necessary.
@@ -17854,11 +17861,10 @@ fn zirThis(
             if (zcu.failed_analysis.contains(ty_unit) or zcu.transitive_failed_analysis.contains(ty_unit)) {
                 return error.AnalysisFail;
             }
+            return Air.internedToRef(new_ty);
         },
-        .opaque_type => {},
         else => unreachable,
     }
-    return Air.internedToRef(new_ty);
 }
 
 fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
