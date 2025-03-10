@@ -52,7 +52,7 @@ pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes"
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .serenity => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
@@ -73,7 +73,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const max_name_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos, .serenity => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
     // Each WTF-16LE character may be expanded to 3 WTF-8 bytes.
@@ -466,7 +466,7 @@ pub fn symLinkAbsoluteZ(
 pub const OpenSelfExeError = posix.OpenError || SelfExePathError || posix.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
-    if (native_os == .linux) {
+    if (native_os == .linux or native_os == .serenity) {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (native_os == .windows) {
@@ -572,7 +572,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         return result;
     }
     switch (native_os) {
-        .linux => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
+        .linux, .serenity => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
             error.InvalidUtf8 => unreachable, // WASI-only
             error.InvalidWtf8 => unreachable, // Windows-only
             error.UnsupportedReparsePointType => unreachable, // Windows-only

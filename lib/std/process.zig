@@ -1539,6 +1539,7 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
         .haiku,
         .solaris,
         .illumos,
+        .serenity,
         => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
