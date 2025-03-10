@@ -98,29 +98,26 @@ const ScanDeclsAction = enum { add, remove };
 fn scanDecls(w: *Walk, members: []const Ast.Node.Index, action: ScanDeclsAction) Error!void {
     const ast = w.ast;
     const gpa = w.gpa;
-    const node_tags = ast.nodes.items(.tag);
-    const main_tokens = ast.nodes.items(.main_token);
-    const token_tags = ast.tokens.items(.tag);
 
     for (members) |member_node| {
-        const name_token = switch (node_tags[member_node]) {
+        const name_token = switch (ast.nodeTag(member_node)) {
             .global_var_decl,
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
-            => main_tokens[member_node] + 1,
+            => ast.nodeMainToken(member_node) + 1,
 
             .fn_proto_simple,
             .fn_proto_multi,
             .fn_proto_one,
             .fn_proto,
             .fn_decl,
-            => main_tokens[member_node] + 1,
+            => ast.nodeMainToken(member_node) + 1,
 
             else => continue,
         };
 
-        assert(token_tags[name_token] == .identifier);
+        assert(ast.tokenTag(name_token) == .identifier);
         const name_bytes = ast.tokenSlice(name_token);
 
         switch (action) {
@@ -145,12 +142,10 @@ fn scanDecls(w: *Walk, members: []const Ast.Node.Index, action: ScanDeclsAction)
 
 fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
     const ast = w.ast;
-    const datas = ast.nodes.items(.data);
-    switch (ast.nodes.items(.tag)[decl]) {
+    switch (ast.nodeTag(decl)) {
         .fn_decl => {
-            const fn_proto = datas[decl].lhs;
+            const fn_proto, const body_node = ast.nodeData(decl).node_and_node;
             try walkExpression(w, fn_proto);
-            const body_node = datas[decl].rhs;
             if (!isFnBodyGutted(ast, body_node)) {
                 w.replace_names.clearRetainingCapacity();
                 try w.transformations.append(.{ .gut_function = decl });
@@ -167,7 +162,7 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
 
         .@"usingnamespace" => {
             try w.transformations.append(.{ .delete_node = decl });
-            const expr = datas[decl].lhs;
+            const expr = ast.nodeData(decl).node;
             try walkExpression(w, expr);
         },
 
@@ -179,7 +174,7 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
 
         .test_decl => {
             try w.transformations.append(.{ .delete_node = decl });
-            try walkExpression(w, datas[decl].rhs);
+            try walkExpression(w, ast.nodeData(decl).opt_token_and_node[1]);
         },
 
         .container_field_init,
@@ -202,14 +197,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
 
 fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
     const ast = w.ast;
-    const token_tags = ast.tokens.items(.tag);
-    const main_tokens = ast.nodes.items(.main_token);
-    const node_tags = ast.nodes.items(.tag);
-    const datas = ast.nodes.items(.data);
-    switch (node_tags[node]) {
+    switch (ast.nodeTag(node)) {
         .identifier => {
-            const name_ident = main_tokens[node];
-            assert(token_tags[name_ident] == .identifier);
+            const name_ident = ast.nodeMainToken(node);
+            assert(ast.tokenTag(name_ident) == .identifier);
             const name_bytes = ast.tokenSlice(name_ident);
             _ = w.unreferenced_globals.swapRemove(name_bytes);
             if (w.replace_names.get(name_bytes)) |index| {
@@ -230,64 +221,36 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .block_two,
         .block_two_semicolon,
-        => {
-            const statements = [2]Ast.Node.Index{ datas[node].lhs, datas[node].rhs };
-            if (datas[node].lhs == 0) {
-                return walkBlock(w, node, statements[0..0]);
-            } else if (datas[node].rhs == 0) {
-                return walkBlock(w, node, statements[0..1]);
-            } else {
-                return walkBlock(w, node, statements[0..2]);
-            }
-        },
         .block,
         .block_semicolon,
         => {
-            const statements = ast.extra_data[datas[node].lhs..datas[node].rhs];
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = ast.blockStatements(&buf, node).?;
             return walkBlock(w, node, statements);
         },
 
         .@"errdefer" => {
-            const expr = datas[node].rhs;
+            const expr = ast.nodeData(node).opt_token_and_node[1];
             return walkExpression(w, expr);
         },
 
-        .@"defer" => {
-            const expr = datas[node].rhs;
-            return walkExpression(w, expr);
-        },
-        .@"comptime", .@"nosuspend" => {
-            const block = datas[node].lhs;
-            return walkExpression(w, block);
-        },
-
-        .@"suspend" => {
-            const body = datas[node].lhs;
-            return walkExpression(w, body);
-        },
-
-        .@"catch" => {
-            try walkExpression(w, datas[node].lhs); // target
-            try walkExpression(w, datas[node].rhs); // fallback
+        .@"defer",
+        .@"comptime",
+        .@"nosuspend",
+        .@"suspend",
+        => {
+            return walkExpression(w, ast.nodeData(node).node);
         },
 
         .field_access => {
-            const field_access = datas[node];
-            try walkExpression(w, field_access.lhs);
+            try walkExpression(w, ast.nodeData(node).node_and_token[0]);
         },
 
-        .error_union,
-        .switch_range,
-        => {
-            const infix = datas[node];
-            try walkExpression(w, infix.lhs);
-            return walkExpression(w, infix.rhs);
-        },
         .for_range => {
-            const infix = datas[node];
-            try walkExpression(w, infix.lhs);
-            if (infix.rhs != 0) {
-                return walkExpression(w, infix.rhs);
+            const start, const opt_end = ast.nodeData(node).node_and_opt_node;
+            try walkExpression(w, start);
+            if (opt_end.unwrap()) |end| {
+                return walkExpression(w, end);
             }
         },
 
@@ -337,17 +300,21 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .sub,
         .sub_wrap,
         .sub_sat,
+        .@"catch",
+        .error_union,
+        .switch_range,
         .@"orelse",
+        .array_access,
         => {
-            const infix = datas[node];
-            try walkExpression(w, infix.lhs);
-            try walkExpression(w, infix.rhs);
+            const lhs, const rhs = ast.nodeData(node).node_and_node;
+            try walkExpression(w, lhs);
+            try walkExpression(w, rhs);
         },
 
         .assign_destructure => {
             const full = ast.assignDestructure(node);
             for (full.ast.variables) |variable_node| {
-                switch (node_tags[variable_node]) {
+                switch (ast.nodeTag(variable_node)) {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
@@ -366,15 +333,12 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .negation_wrap,
         .optional_type,
         .address_of,
-        => {
-            return walkExpression(w, datas[node].lhs);
-        },
-
         .@"try",
         .@"resume",
         .@"await",
+        .deref,
         => {
-            return walkExpression(w, datas[node].lhs);
+            return walkExpression(w, ast.nodeData(node).node);
         },
 
         .array_type,
@@ -426,51 +390,40 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
             return walkCall(w, ast.fullCall(&buf, node).?);
         },
 
-        .array_access => {
-            const suffix = datas[node];
-            try walkExpression(w, suffix.lhs);
-            try walkExpression(w, suffix.rhs);
-        },
-
         .slice_open, .slice, .slice_sentinel => return walkSlice(w, node, ast.fullSlice(node).?),
 
-        .deref => {
-            try walkExpression(w, datas[node].lhs);
-        },
-
         .unwrap_optional => {
-            try walkExpression(w, datas[node].lhs);
+            try walkExpression(w, ast.nodeData(node).node_and_token[0]);
         },
 
         .@"break" => {
-            const label_token = datas[node].lhs;
-            const target = datas[node].rhs;
-            if (label_token == 0 and target == 0) {
+            const label_token, const target = ast.nodeData(node).opt_token_and_opt_node;
+            if (label_token == .none and target == .none) {
                 // no expressions
-            } else if (label_token == 0 and target != 0) {
-                try walkExpression(w, target);
-            } else if (label_token != 0 and target == 0) {
-                try walkIdentifier(w, label_token);
-            } else if (label_token != 0 and target != 0) {
-                try walkExpression(w, target);
+            } else if (label_token == .none and target != .none) {
+                try walkExpression(w, target.unwrap().?);
+            } else if (label_token != .none and target == .none) {
+                try walkIdentifier(w, label_token.unwrap().?);
+            } else if (label_token != .none and target != .none) {
+                try walkExpression(w, target.unwrap().?);
             }
         },
 
         .@"continue" => {
-            const label = datas[node].lhs;
-            if (label != 0) {
-                return walkIdentifier(w, label); // label
+            const opt_label = ast.nodeData(node).opt_token_and_opt_node[0];
+            if (opt_label.unwrap()) |label| {
+                return walkIdentifier(w, label);
             }
         },
 
         .@"return" => {
-            if (datas[node].lhs != 0) {
-                try walkExpression(w, datas[node].lhs);
+            if (ast.nodeData(node).opt_node.unwrap()) |lhs| {
+                try walkExpression(w, lhs);
             }
         },
 
         .grouped_expression => {
-            try walkExpression(w, datas[node].lhs);
+            try walkExpression(w, ast.nodeData(node).node_and_token[0]);
         },
 
         .container_decl,
@@ -491,13 +444,11 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         },
 
         .error_set_decl => {
-            const error_token = main_tokens[node];
-            const lbrace = error_token + 1;
-            const rbrace = datas[node].rhs;
+            const lbrace, const rbrace = ast.nodeData(node).token_and_token;
 
             var i = lbrace + 1;
             while (i < rbrace) : (i += 1) {
-                switch (token_tags[i]) {
+                switch (ast.tokenTag(i)) {
                     .doc_comment => unreachable, // TODO
                     .identifier => try walkIdentifier(w, i),
                     .comma => {},
@@ -506,17 +457,13 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
             }
         },
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (datas[node].lhs == 0) {
-                return walkBuiltinCall(w, node, &.{});
-            } else if (datas[node].rhs == 0) {
-                return walkBuiltinCall(w, node, &.{datas[node].lhs});
-            } else {
-                return walkBuiltinCall(w, node, &.{ datas[node].lhs, datas[node].rhs });
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = ast.extra_data[datas[node].lhs..datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = ast.builtinCallParams(&buf, node).?;
             return walkBuiltinCall(w, node, params);
         },
 
@@ -530,20 +477,16 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         },
 
         .anyframe_type => {
-            if (datas[node].rhs != 0) {
-                return walkExpression(w, datas[node].rhs);
-            }
+            _, const child_type = ast.nodeData(node).token_and_node;
+            return walkExpression(w, child_type);
         },
 
         .@"switch",
         .switch_comma,
         => {
-            const condition = datas[node].lhs;
-            const extra = ast.extraData(datas[node].rhs, Ast.Node.SubRange);
-            const cases = ast.extra_data[extra.start..extra.end];
-
-            try walkExpression(w, condition); // condition expression
-            try walkExpressions(w, cases);
+            const full = ast.fullSwitch(node).?;
+            try walkExpression(w, full.ast.condition); // condition expression
+            try walkExpressions(w, full.ast.cases);
         },
 
         .switch_case_one,
@@ -570,7 +513,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         => return walkAsm(w, ast.fullAsm(node).?),
 
         .enum_literal => {
-            return walkIdentifier(w, main_tokens[node]); // name
+            return walkIdentifier(w, ast.nodeMainToken(node)); // name
         },
 
         .fn_decl => unreachable,
@@ -592,66 +535,66 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 fn walkGlobalVarDecl(w: *Walk, decl_node: Ast.Node.Index, var_decl: Ast.full.VarDecl) Error!void {
     _ = decl_node;
 
-    if (var_decl.ast.type_node != 0) {
-        try walkExpression(w, var_decl.ast.type_node);
+    if (var_decl.ast.type_node.unwrap()) |type_node| {
+        try walkExpression(w, type_node);
     }
 
-    if (var_decl.ast.align_node != 0) {
-        try walkExpression(w, var_decl.ast.align_node);
+    if (var_decl.ast.align_node.unwrap()) |align_node| {
+        try walkExpression(w, align_node);
     }
 
-    if (var_decl.ast.addrspace_node != 0) {
-        try walkExpression(w, var_decl.ast.addrspace_node);
+    if (var_decl.ast.addrspace_node.unwrap()) |addrspace_node| {
+        try walkExpression(w, addrspace_node);
     }
 
-    if (var_decl.ast.section_node != 0) {
-        try walkExpression(w, var_decl.ast.section_node);
+    if (var_decl.ast.section_node.unwrap()) |section_node| {
+        try walkExpression(w, section_node);
     }
 
-    if (var_decl.ast.init_node != 0) {
-        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
-            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+    if (var_decl.ast.init_node.unwrap()) |init_node| {
+        if (!isUndefinedIdent(w.ast, init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = init_node });
         }
-        try walkExpression(w, var_decl.ast.init_node);
+        try walkExpression(w, init_node);
     }
 }
 
 fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
     try walkIdentifierNew(w, var_decl.ast.mut_token + 1); // name
 
-    if (var_decl.ast.type_node != 0) {
-        try walkExpression(w, var_decl.ast.type_node);
+    if (var_decl.ast.type_node.unwrap()) |type_node| {
+        try walkExpression(w, type_node);
     }
 
-    if (var_decl.ast.align_node != 0) {
-        try walkExpression(w, var_decl.ast.align_node);
+    if (var_decl.ast.align_node.unwrap()) |align_node| {
+        try walkExpression(w, align_node);
     }
 
-    if (var_decl.ast.addrspace_node != 0) {
-        try walkExpression(w, var_decl.ast.addrspace_node);
+    if (var_decl.ast.addrspace_node.unwrap()) |addrspace_node| {
+        try walkExpression(w, addrspace_node);
     }
 
-    if (var_decl.ast.section_node != 0) {
-        try walkExpression(w, var_decl.ast.section_node);
+    if (var_decl.ast.section_node.unwrap()) |section_node| {
+        try walkExpression(w, section_node);
     }
 
-    if (var_decl.ast.init_node != 0) {
-        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
-            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+    if (var_decl.ast.init_node.unwrap()) |init_node| {
+        if (!isUndefinedIdent(w.ast, init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = init_node });
         }
-        try walkExpression(w, var_decl.ast.init_node);
+        try walkExpression(w, init_node);
     }
 }
 
 fn walkContainerField(w: *Walk, field: Ast.full.ContainerField) Error!void {
-    if (field.ast.type_expr != 0) {
-        try walkExpression(w, field.ast.type_expr); // type
+    if (field.ast.type_expr.unwrap()) |type_expr| {
+        try walkExpression(w, type_expr); // type
     }
-    if (field.ast.align_expr != 0) {
-        try walkExpression(w, field.ast.align_expr); // alignment
+    if (field.ast.align_expr.unwrap()) |align_expr| {
+        try walkExpression(w, align_expr); // alignment
     }
-    if (field.ast.value_expr != 0) {
-        try walkExpression(w, field.ast.value_expr); // value
+    if (field.ast.value_expr.unwrap()) |value_expr| {
+        try walkExpression(w, value_expr); // value
     }
 }
 
@@ -662,18 +605,17 @@ fn walkBlock(
 ) Error!void {
     _ = block_node;
     const ast = w.ast;
-    const node_tags = ast.nodes.items(.tag);
 
     for (statements) |stmt| {
-        switch (node_tags[stmt]) {
+        switch (ast.nodeTag(stmt)) {
             .global_var_decl,
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
             => {
                 const var_decl = ast.fullVarDecl(stmt).?;
-                if (var_decl.ast.init_node != 0 and
-                    isUndefinedIdent(w.ast, var_decl.ast.init_node))
+                if (var_decl.ast.init_node != .none and
+                    isUndefinedIdent(w.ast, var_decl.ast.init_node.unwrap().?))
                 {
                     try w.transformations.append(.{ .delete_var_decl = .{
                         .var_decl_node = stmt,
@@ -704,15 +646,15 @@ fn walkBlock(
 
 fn walkArrayType(w: *Walk, array_type: Ast.full.ArrayType) Error!void {
     try walkExpression(w, array_type.ast.elem_count);
-    if (array_type.ast.sentinel != 0) {
-        try walkExpression(w, array_type.ast.sentinel);
+    if (array_type.ast.sentinel.unwrap()) |sentinel| {
+        try walkExpression(w, sentinel);
     }
     return walkExpression(w, array_type.ast.elem_type);
 }
 
 fn walkArrayInit(w: *Walk, array_init: Ast.full.ArrayInit) Error!void {
-    if (array_init.ast.type_expr != 0) {
-        try walkExpression(w, array_init.ast.type_expr); // T
+    if (array_init.ast.type_expr.unwrap()) |type_expr| {
+        try walkExpression(w, type_expr); // T
     }
     for (array_init.ast.elements) |elem_init| {
         try walkExpression(w, elem_init);
@@ -725,8 +667,8 @@ fn walkStructInit(
     struct_init: Ast.full.StructInit,
 ) Error!void {
     _ = struct_node;
-    if (struct_init.ast.type_expr != 0) {
-        try walkExpression(w, struct_init.ast.type_expr); // T
+    if (struct_init.ast.type_expr.unwrap()) |type_expr| {
+        try walkExpression(w, type_expr); // T
     }
     for (struct_init.ast.fields) |field_init| {
         try walkExpression(w, field_init);
@@ -746,18 +688,17 @@ fn walkSlice(
     _ = slice_node;
     try walkExpression(w, slice.ast.sliced);
     try walkExpression(w, slice.ast.start);
-    if (slice.ast.end != 0) {
-        try walkExpression(w, slice.ast.end);
+    if (slice.ast.end.unwrap()) |end| {
+        try walkExpression(w, end);
     }
-    if (slice.ast.sentinel != 0) {
-        try walkExpression(w, slice.ast.sentinel);
+    if (slice.ast.sentinel.unwrap()) |sentinel| {
+        try walkExpression(w, sentinel);
     }
 }
 
 fn walkIdentifier(w: *Walk, name_ident: Ast.TokenIndex) Error!void {
     const ast = w.ast;
-    const token_tags = ast.tokens.items(.tag);
-    assert(token_tags[name_ident] == .identifier);
+    assert(ast.tokenTag(name_ident) == .identifier);
     const name_bytes = ast.tokenSlice(name_ident);
     _ = w.unreferenced_globals.swapRemove(name_bytes);
 }
@@ -773,8 +714,8 @@ fn walkContainerDecl(
     container_decl: Ast.full.ContainerDecl,
 ) Error!void {
     _ = container_decl_node;
-    if (container_decl.ast.arg != 0) {
-        try walkExpression(w, container_decl.ast.arg);
+    if (container_decl.ast.arg.unwrap()) |arg| {
+        try walkExpression(w, arg);
     }
     try walkMembers(w, container_decl.ast.members);
 }
@@ -785,14 +726,13 @@ fn walkBuiltinCall(
     params: []const Ast.Node.Index,
 ) Error!void {
     const ast = w.ast;
-    const main_tokens = ast.nodes.items(.main_token);
-    const builtin_token = main_tokens[call_node];
+    const builtin_token = ast.nodeMainToken(call_node);
     const builtin_name = ast.tokenSlice(builtin_token);
     const info = BuiltinFn.list.get(builtin_name).?;
     switch (info.tag) {
         .import => {
             const operand_node = params[0];
-            const str_lit_token = main_tokens[operand_node];
+            const str_lit_token = ast.nodeMainToken(operand_node);
             const token_bytes = ast.tokenSlice(str_lit_token);
             if (std.mem.endsWith(u8, token_bytes, ".zig\"")) {
                 const imported_string = std.zig.string_literal.parseAlloc(w.arena, token_bytes) catch
@@ -821,29 +761,30 @@ fn walkFnProto(w: *Walk, fn_proto: Ast.full.FnProto) Error!void {
     {
         var it = fn_proto.iterate(ast);
         while (it.next()) |param| {
-            if (param.type_expr != 0) {
-                try walkExpression(w, param.type_expr);
+            if (param.type_expr) |type_expr| {
+                try walkExpression(w, type_expr);
             }
         }
     }
 
-    if (fn_proto.ast.align_expr != 0) {
-        try walkExpression(w, fn_proto.ast.align_expr);
+    if (fn_proto.ast.align_expr.unwrap()) |align_expr| {
+        try walkExpression(w, align_expr);
     }
 
-    if (fn_proto.ast.addrspace_expr != 0) {
-        try walkExpression(w, fn_proto.ast.addrspace_expr);
+    if (fn_proto.ast.addrspace_expr.unwrap()) |addrspace_expr| {
+        try walkExpression(w, addrspace_expr);
     }
 
-    if (fn_proto.ast.section_expr != 0) {
-        try walkExpression(w, fn_proto.ast.section_expr);
+    if (fn_proto.ast.section_expr.unwrap()) |section_expr| {
+        try walkExpression(w, section_expr);
     }
 
-    if (fn_proto.ast.callconv_expr != 0) {
-        try walkExpression(w, fn_proto.ast.callconv_expr);
+    if (fn_proto.ast.callconv_expr.unwrap()) |callconv_expr| {
+        try walkExpression(w, callconv_expr);
     }
 
-    try walkExpression(w, fn_proto.ast.return_type);
+    const return_type = fn_proto.ast.return_type.unwrap().?;
+    try walkExpression(w, return_type);
 }
 
 fn walkExpressions(w: *Walk, expressions: []const Ast.Node.Index) Error!void {
@@ -860,16 +801,13 @@ fn walkSwitchCase(w: *Walk, switch_case: Ast.full.SwitchCase) Error!void {
 }
 
 fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) Error!void {
-    assert(while_node.ast.cond_expr != 0);
-    assert(while_node.ast.then_expr != 0);
-
     // Perform these transformations in this priority order:
     // 1. If the `else` expression is missing or an empty block, replace the condition with `if (true)` if it is not already.
     // 2. If the `then` block is empty, replace the condition with `if (false)` if it is not already.
     // 3. If the condition is `if (true)`, replace the `if` expression with the contents of the `then` expression.
     // 4. If the condition is `if (false)`, replace the `if` expression with the contents of the `else` expression.
     if (!isTrueIdent(w.ast, while_node.ast.cond_expr) and
-        (while_node.ast.else_expr == 0 or isEmptyBlock(w.ast, while_node.ast.else_expr)))
+        (while_node.ast.else_expr == .none or isEmptyBlock(w.ast, while_node.ast.else_expr.unwrap().?)))
     {
         try w.transformations.ensureUnusedCapacity(1);
         w.transformations.appendAssumeCapacity(.{ .replace_with_true = while_node.ast.cond_expr });
@@ -886,45 +824,39 @@ fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) E
         try w.transformations.ensureUnusedCapacity(1);
         w.transformations.appendAssumeCapacity(.{ .replace_node = .{
             .to_replace = node_index,
-            .replacement = while_node.ast.else_expr,
+            .replacement = while_node.ast.else_expr.unwrap().?,
         } });
     }
 
     try walkExpression(w, while_node.ast.cond_expr); // condition
 
-    if (while_node.ast.cont_expr != 0) {
-        try walkExpression(w, while_node.ast.cont_expr);
+    if (while_node.ast.cont_expr.unwrap()) |cont_expr| {
+        try walkExpression(w, cont_expr);
     }
 
-    if (while_node.ast.then_expr != 0) {
-        try walkExpression(w, while_node.ast.then_expr);
-    }
-    if (while_node.ast.else_expr != 0) {
-        try walkExpression(w, while_node.ast.else_expr);
+    try walkExpression(w, while_node.ast.then_expr);
+
+    if (while_node.ast.else_expr.unwrap()) |else_expr| {
+        try walkExpression(w, else_expr);
     }
 }
 
 fn walkFor(w: *Walk, for_node: Ast.full.For) Error!void {
     try walkParamList(w, for_node.ast.inputs);
-    if (for_node.ast.then_expr != 0) {
-        try walkExpression(w, for_node.ast.then_expr);
-    }
-    if (for_node.ast.else_expr != 0) {
-        try walkExpression(w, for_node.ast.else_expr);
+    try walkExpression(w, for_node.ast.then_expr);
+    if (for_node.ast.else_expr.unwrap()) |else_expr| {
+        try walkExpression(w, else_expr);
     }
 }
 
 fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void {
-    assert(if_node.ast.cond_expr != 0);
-    assert(if_node.ast.then_expr != 0);
-
     // Perform these transformations in this priority order:
     // 1. If the `else` expression is missing or an empty block, replace the condition with `if (true)` if it is not already.
     // 2. If the `then` block is empty, replace the condition with `if (false)` if it is not already.
     // 3. If the condition is `if (true)`, replace the `if` expression with the contents of the `then` expression.
     // 4. If the condition is `if (false)`, replace the `if` expression with the contents of the `else` expression.
     if (!isTrueIdent(w.ast, if_node.ast.cond_expr) and
-        (if_node.ast.else_expr == 0 or isEmptyBlock(w.ast, if_node.ast.else_expr)))
+        (if_node.ast.else_expr == .none or isEmptyBlock(w.ast, if_node.ast.else_expr.unwrap().?)))
     {
         try w.transformations.ensureUnusedCapacity(1);
         w.transformations.appendAssumeCapacity(.{ .replace_with_true = if_node.ast.cond_expr });
@@ -941,17 +873,14 @@ fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void
         try w.transformations.ensureUnusedCapacity(1);
         w.transformations.appendAssumeCapacity(.{ .replace_node = .{
             .to_replace = node_index,
-            .replacement = if_node.ast.else_expr,
+            .replacement = if_node.ast.else_expr.unwrap().?,
         } });
     }
 
     try walkExpression(w, if_node.ast.cond_expr); // condition
-
-    if (if_node.ast.then_expr != 0) {
-        try walkExpression(w, if_node.ast.then_expr);
-    }
-    if (if_node.ast.else_expr != 0) {
-        try walkExpression(w, if_node.ast.else_expr);
+    try walkExpression(w, if_node.ast.then_expr);
+    if (if_node.ast.else_expr.unwrap()) |else_expr| {
+        try walkExpression(w, else_expr);
     }
 }
 
@@ -971,25 +900,13 @@ fn walkParamList(w: *Walk, params: []const Ast.Node.Index) Error!void {
 /// Check if it is already gutted (i.e. its body replaced with `@trap()`).
 fn isFnBodyGutted(ast: *const Ast, body_node: Ast.Node.Index) bool {
     // skip over discards
-    const node_tags = ast.nodes.items(.tag);
-    const datas = ast.nodes.items(.data);
     var statements_buf: [2]Ast.Node.Index = undefined;
-    const statements = switch (node_tags[body_node]) {
+    const statements = switch (ast.nodeTag(body_node)) {
         .block_two,
         .block_two_semicolon,
-        => blk: {
-            statements_buf[0..2].* = .{ datas[body_node].lhs, datas[body_node].rhs };
-            break :blk if (datas[body_node].lhs == 0)
-                statements_buf[0..0]
-            else if (datas[body_node].rhs == 0)
-                statements_buf[0..1]
-            else
-                statements_buf[0..2];
-        },
-
         .block,
         .block_semicolon,
-        => ast.extra_data[datas[body_node].lhs..datas[body_node].rhs],
+        => ast.blockStatements(&statements_buf, body_node).?,
 
         else => return false,
     };
@@ -1012,27 +929,20 @@ const StmtCategory = enum {
 };
 
 fn categorizeStmt(ast: *const Ast, stmt: Ast.Node.Index) StmtCategory {
-    const node_tags = ast.nodes.items(.tag);
-    const datas = ast.nodes.items(.data);
-    const main_tokens = ast.nodes.items(.main_token);
-    switch (node_tags[stmt]) {
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (datas[stmt].lhs == 0) {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{});
-            } else if (datas[stmt].rhs == 0) {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{datas[stmt].lhs});
-            } else {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{ datas[stmt].lhs, datas[stmt].rhs });
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = ast.extra_data[datas[stmt].lhs..datas[stmt].rhs];
-            return categorizeBuiltinCall(ast, main_tokens[stmt], params);
+    switch (ast.nodeTag(stmt)) {
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = ast.builtinCallParams(&buf, stmt).?;
+            return categorizeBuiltinCall(ast, ast.nodeMainToken(stmt), params);
         },
         .assign => {
-            const infix = datas[stmt];
-            if (isDiscardIdent(ast, infix.lhs) and node_tags[infix.rhs] == .identifier) {
-                const name_bytes = ast.tokenSlice(main_tokens[infix.rhs]);
+            const lhs, const rhs = ast.nodeData(stmt).node_and_node;
+            if (isDiscardIdent(ast, lhs) and ast.nodeTag(rhs) == .identifier) {
+                const name_bytes = ast.tokenSlice(ast.nodeMainToken(rhs));
                 if (std.mem.eql(u8, name_bytes, "undefined")) {
                     return .discard_undefined;
                 } else {
@@ -1074,11 +984,9 @@ fn isFalseIdent(ast: *const Ast, node: Ast.Node.Index) bool {
 }
 
 fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bool {
-    const node_tags = ast.nodes.items(.tag);
-    const main_tokens = ast.nodes.items(.main_token);
-    switch (node_tags[node]) {
+    switch (ast.nodeTag(node)) {
         .identifier => {
-            const token_index = main_tokens[node];
+            const token_index = ast.nodeMainToken(node);
             const name_bytes = ast.tokenSlice(token_index);
             return std.mem.eql(u8, name_bytes, string);
         },
@@ -1087,11 +995,10 @@ fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bo
 }
 
 fn isEmptyBlock(ast: *const Ast, node: Ast.Node.Index) bool {
-    const node_tags = ast.nodes.items(.tag);
-    const node_data = ast.nodes.items(.data);
-    switch (node_tags[node]) {
+    switch (ast.nodeTag(node)) {
         .block_two => {
-            return node_data[node].lhs == 0 and node_data[node].rhs == 0;
+            const opt_lhs, const opt_rhs = ast.nodeData(node).opt_node_and_opt_node;
+            return opt_lhs == .none and opt_rhs == .none;
         },
         else => return false,
     }

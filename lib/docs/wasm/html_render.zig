@@ -41,14 +41,10 @@ pub fn fileSourceHtml(
         var field_access_buffer: std.ArrayListUnmanaged(u8) = .empty;
     };
 
-    const token_tags = ast.tokens.items(.tag);
-    const token_starts = ast.tokens.items(.start);
-    const main_tokens = ast.nodes.items(.main_token);
-
     const start_token = ast.firstToken(root_node);
     const end_token = ast.lastToken(root_node) + 1;
 
-    var cursor: usize = token_starts[start_token];
+    var cursor: usize = ast.tokenStart(start_token);
 
     var indent: usize = 0;
     if (std.mem.lastIndexOf(u8, ast.source[0..cursor], "\n")) |newline_index| {
@@ -64,8 +60,8 @@ pub fn fileSourceHtml(
     var next_annotate_index: usize = 0;
 
     for (
-        token_tags[start_token..end_token],
-        token_starts[start_token..end_token],
+        ast.tokens.items(.tag)[start_token..end_token],
+        ast.tokens.items(.start)[start_token..end_token],
         start_token..,
     ) |tag, start, token_index| {
         const between = ast.source[cursor..start];
@@ -184,7 +180,7 @@ pub fn fileSourceHtml(
             .identifier => i: {
                 if (options.fn_link != .none) {
                     const fn_link = options.fn_link.get();
-                    const fn_token = main_tokens[fn_link.ast_node];
+                    const fn_token = ast.nodeMainToken(fn_link.ast_node);
                     if (token_index == fn_token + 1) {
                         try out.appendSlice(gpa, "<a class=\"tok-fn\" href=\"#");
                         _ = missing_feature_url_escape;
@@ -196,7 +192,7 @@ pub fn fileSourceHtml(
                     }
                 }
 
-                if (token_index > 0 and token_tags[token_index - 1] == .keyword_fn) {
+                if (token_index > 0 and ast.tokenTag(token_index - 1) == .keyword_fn) {
                     try out.appendSlice(gpa, "<span class=\"tok-fn\">");
                     try appendEscaped(out, slice);
                     try out.appendSlice(gpa, "</span>");
@@ -358,16 +354,11 @@ fn walkFieldAccesses(
     node: Ast.Node.Index,
 ) Oom!void {
     const ast = file_index.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    assert(node_tags[node] == .field_access);
-    const node_datas = ast.nodes.items(.data);
-    const main_tokens = ast.nodes.items(.main_token);
-    const object_node = node_datas[node].lhs;
-    const dot_token = main_tokens[node];
-    const field_ident = dot_token + 1;
-    switch (node_tags[object_node]) {
+    assert(ast.nodeTag(node) == .field_access);
+    const object_node, const field_ident = ast.nodeData(node).node_and_token;
+    switch (ast.nodeTag(object_node)) {
         .identifier => {
-            const lhs_ident = main_tokens[object_node];
+            const lhs_ident = ast.nodeMainToken(object_node);
             try resolveIdentLink(file_index, out, lhs_ident);
         },
         .field_access => {

@@ -124,7 +124,9 @@ fn query_exec_fallible(query: []const u8, ignore_case: bool) !void {
         @memcpy(g.full_path_search_text_lower.items, g.full_path_search_text.items);
 
         const ast = decl.file.get_ast();
-        try collect_docs(&g.doc_search_text, ast, info.first_doc_comment);
+        if (info.first_doc_comment.unwrap()) |first_doc_comment| {
+            try collect_docs(&g.doc_search_text, ast, first_doc_comment);
+        }
 
         if (ignore_case) {
             ascii_lower(g.full_path_search_text_lower.items);
@@ -227,18 +229,15 @@ const ErrorIdentifier = packed struct(u64) {
     fn hasDocs(ei: ErrorIdentifier) bool {
         const decl_index = ei.decl_index;
         const ast = decl_index.get().file.get_ast();
-        const token_tags = ast.tokens.items(.tag);
         const token_index = ei.token_index;
         if (token_index == 0) return false;
-        return token_tags[token_index - 1] == .doc_comment;
+        return ast.tokenTag(token_index - 1) == .doc_comment;
     }
 
     fn html(ei: ErrorIdentifier, base_decl: Decl.Index, out: *std.ArrayListUnmanaged(u8)) Oom!void {
         const decl_index = ei.decl_index;
         const ast = decl_index.get().file.get_ast();
         const name = ast.tokenSlice(ei.token_index);
-        const first_doc_comment = Decl.findFirstDocComment(ast, ei.token_index);
-        const has_docs = ast.tokens.items(.tag)[first_doc_comment] == .doc_comment;
         const has_link = base_decl != decl_index;
 
         try out.appendSlice(gpa, "<dt>");
@@ -253,7 +252,7 @@ const ErrorIdentifier = packed struct(u64) {
         }
         try out.appendSlice(gpa, "</dt>");
 
-        if (has_docs) {
+        if (Decl.findFirstDocComment(ast, ei.token_index).unwrap()) |first_doc_comment| {
             try out.appendSlice(gpa, "<dd>");
             try render_docs(out, decl_index, first_doc_comment, false);
             try out.appendSlice(gpa, "</dd>");
@@ -319,17 +318,16 @@ fn addErrorsFromExpr(
 ) Oom!void {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    const node_datas = ast.nodes.items(.data);
 
     switch (decl.file.categorize_expr(node)) {
-        .error_set => |n| switch (node_tags[n]) {
+        .error_set => |n| switch (ast.nodeTag(n)) {
             .error_set_decl => {
                 try addErrorsFromNode(decl_index, out, node);
             },
             .merge_error_sets => {
-                try addErrorsFromExpr(decl_index, out, node_datas[node].lhs);
-                try addErrorsFromExpr(decl_index, out, node_datas[node].rhs);
+                const lhs, const rhs = ast.nodeData(n).node_and_node;
+                try addErrorsFromExpr(decl_index, out, lhs);
+                try addErrorsFromExpr(decl_index, out, rhs);
             },
             else => unreachable,
         },
@@ -347,11 +345,9 @@ fn addErrorsFromNode(
 ) Oom!void {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const main_tokens = ast.nodes.items(.main_token);
-    const token_tags = ast.tokens.items(.tag);
-    const error_token = main_tokens[node];
+    const error_token = ast.nodeMainToken(node);
     var tok_i = error_token + 2;
-    while (true) : (tok_i += 1) switch (token_tags[tok_i]) {
+    while (true) : (tok_i += 1) switch (ast.tokenTag(tok_i)) {
         .doc_comment, .comma => {},
         .identifier => {
             const name = ast.tokenSlice(tok_i);
@@ -391,15 +387,13 @@ fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
 
     switch (decl.categorize()) {
         .type_function => {
-            const node_tags = ast.nodes.items(.tag);
-
             // If the type function returns a reference to another type function, get the fields from there
             if (decl.get_type_fn_return_type_fn()) |function_decl| {
                 return decl_fields_fallible(function_decl);
             }
             // If the type function returns a container, such as a `struct`, read that container's fields
             if (decl.get_type_fn_return_expr()) |return_expr| {
-                switch (node_tags[return_expr]) {
+                switch (ast.nodeTag(return_expr)) {
                     .container_decl, .container_decl_trailing, .container_decl_two, .container_decl_two_trailing, .container_decl_arg, .container_decl_arg_trailing => {
                         return ast_decl_fields_fallible(ast, return_expr);
                     },
@@ -420,10 +414,9 @@ fn ast_decl_fields_fallible(ast: *Ast, ast_index: Ast.Node.Index) ![]Ast.Node.In
         var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
-    const node_tags = ast.nodes.items(.tag);
     var buf: [2]Ast.Node.Index = undefined;
     const container_decl = ast.fullContainerDecl(&buf, ast_index) orelse return &.{};
-    for (container_decl.ast.members) |member_node| switch (node_tags[member_node]) {
+    for (container_decl.ast.members) |member_node| switch (ast.nodeTag(member_node)) {
         .container_field_init,
         .container_field_align,
         .container_field,
@@ -478,9 +471,8 @@ fn decl_field_html_fallible(
     try out.appendSlice(gpa, "</code></pre>");
 
     const field = ast.fullContainerField(field_node).?;
-    const first_doc_comment = Decl.findFirstDocComment(ast, field.firstToken());
 
-    if (ast.tokens.items(.tag)[first_doc_comment] == .doc_comment) {
+    if (Decl.findFirstDocComment(ast, field.firstToken()).unwrap()) |first_doc_comment| {
         try out.appendSlice(gpa, "<div class=\"fieldDocs\">");
         try render_docs(out, decl_index, first_doc_comment, false);
         try out.appendSlice(gpa, "</div>");
@@ -494,14 +486,13 @@ fn decl_param_html_fallible(
 ) !void {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const token_tags = ast.tokens.items(.tag);
     const colon = ast.firstToken(param_node) - 1;
     const name_token = colon - 1;
     const first_doc_comment = f: {
         var it = ast.firstToken(param_node);
         while (it > 0) {
             it -= 1;
-            switch (token_tags[it]) {
+            switch (ast.tokenTag(it)) {
                 .doc_comment, .colon, .identifier, .keyword_comptime, .keyword_noalias => {},
                 else => break,
             }
@@ -516,7 +507,7 @@ fn decl_param_html_fallible(
     try fileSourceHtml(decl.file, out, param_node, .{});
     try out.appendSlice(gpa, "</code></pre>");
 
-    if (ast.tokens.items(.tag)[first_doc_comment] == .doc_comment) {
+    if (ast.tokenTag(first_doc_comment) == .doc_comment) {
         try out.appendSlice(gpa, "<div class=\"fieldDocs\">");
         try render_docs(out, decl_index, first_doc_comment, false);
         try out.appendSlice(gpa, "</div>");
@@ -526,10 +517,8 @@ fn decl_param_html_fallible(
 export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) String {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    const node_datas = ast.nodes.items(.data);
-    const proto_node = switch (node_tags[decl.ast_node]) {
-        .fn_decl => node_datas[decl.ast_node].lhs,
+    const proto_node = switch (ast.nodeTag(decl.ast_node)) {
+        .fn_decl => ast.nodeData(decl.ast_node).node_and_node[0],
 
         .fn_proto,
         .fn_proto_one,
@@ -586,17 +575,16 @@ export fn decl_parent(decl_index: Decl.Index) Decl.Index {
     return decl.parent;
 }
 
-export fn fn_error_set(decl_index: Decl.Index) Ast.Node.Index {
+export fn fn_error_set(decl_index: Decl.Index) Ast.Node.OptionalIndex {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
     var buf: [1]Ast.Node.Index = undefined;
     const full = ast.fullFnProto(&buf, decl.ast_node).?;
-    const node_tags = ast.nodes.items(.tag);
-    const node_datas = ast.nodes.items(.data);
-    return switch (node_tags[full.ast.return_type]) {
-        .error_set_decl => full.ast.return_type,
-        .error_union => node_datas[full.ast.return_type].lhs,
-        else => 0,
+    const return_type = full.ast.return_type.unwrap().?;
+    return switch (ast.nodeTag(return_type)) {
+        .error_set_decl => return_type.toOptional(),
+        .error_union => ast.nodeData(return_type).node_and_node[0].toOptional(),
+        else => .none,
     };
 }
 
@@ -609,21 +597,19 @@ export fn decl_file_path(decl_index: Decl.Index) String {
 export fn decl_category_name(decl_index: Decl.Index) String {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const token_tags = ast.tokens.items(.tag);
     const name = switch (decl.categorize()) {
         .namespace, .container => |node| {
-            const node_tags = ast.nodes.items(.tag);
-            if (node_tags[decl.ast_node] == .root)
+            if (ast.nodeTag(decl.ast_node) == .root)
                 return String.init("struct");
             string_result.clearRetainingCapacity();
             var buf: [2]Ast.Node.Index = undefined;
             const container_decl = ast.fullContainerDecl(&buf, node).?;
             if (container_decl.layout_token) |t| {
-                if (token_tags[t] == .keyword_extern) {
+                if (ast.tokenTag(t) == .keyword_extern) {
                     string_result.appendSlice(gpa, "extern ") catch @panic("OOM");
                 }
             }
-            const main_token_tag = token_tags[container_decl.ast.main_token];
+            const main_token_tag = ast.tokenTag(container_decl.ast.main_token);
             string_result.appendSlice(gpa, main_token_tag.lexeme().?) catch @panic("OOM");
             return String.init(string_result.items);
         },
@@ -656,7 +642,9 @@ export fn decl_name(decl_index: Decl.Index) String {
 export fn decl_docs_html(decl_index: Decl.Index, short: bool) String {
     const decl = decl_index.get();
     string_result.clearRetainingCapacity();
-    render_docs(&string_result, decl_index, decl.extra_info().first_doc_comment, short) catch @panic("OOM");
+    if (decl.extra_info().first_doc_comment.unwrap()) |first_doc_comment| {
+        render_docs(&string_result, decl_index, first_doc_comment, short) catch @panic("OOM");
+    }
     return String.init(string_result.items);
 }
 
@@ -665,10 +653,9 @@ fn collect_docs(
     ast: *const Ast,
     first_doc_comment: Ast.TokenIndex,
 ) Oom!void {
-    const token_tags = ast.tokens.items(.tag);
     list.clearRetainingCapacity();
     var it = first_doc_comment;
-    while (true) : (it += 1) switch (token_tags[it]) {
+    while (true) : (it += 1) switch (ast.tokenTag(it)) {
         .doc_comment, .container_doc_comment => {
             // It is tempting to trim this string but think carefully about how
             // that will affect the markdown parser.
@@ -687,12 +674,11 @@ fn render_docs(
 ) Oom!void {
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
-    const token_tags = ast.tokens.items(.tag);
 
     var parser = try markdown.Parser.init(gpa);
     defer parser.deinit();
     var it = first_doc_comment;
-    while (true) : (it += 1) switch (token_tags[it]) {
+    while (true) : (it += 1) switch (ast.tokenTag(it)) {
         .doc_comment, .container_doc_comment => {
             const line = ast.tokenSlice(it)[3..];
             if (short and line.len == 0) break;
@@ -767,9 +753,9 @@ export fn decl_type_html(decl_index: Decl.Index) String {
     t: {
         // If there is an explicit type, use it.
         if (ast.fullVarDecl(decl.ast_node)) |var_decl| {
-            if (var_decl.ast.type_node != 0) {
+            if (var_decl.ast.type_node.unwrap()) |type_node| {
                 string_result.appendSlice(gpa, "<code>") catch @panic("OOM");
-                fileSourceHtml(decl.file, &string_result, var_decl.ast.type_node, .{
+                fileSourceHtml(decl.file, &string_result, type_node, .{
                     .skip_comments = true,
                     .collapse_whitespace = true,
                 }) catch |e| {
