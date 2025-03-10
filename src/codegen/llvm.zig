@@ -12472,21 +12472,21 @@ fn backendSupportsF80(target: std.Target) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        // LoongArch can be removed from this list with LLVM 20.
-        .loongarch32,
-        .loongarch64,
+        // https://github.com/llvm/llvm-project/issues/97981
+        .csky,
+        // https://github.com/llvm/llvm-project/issues/97981
         .hexagon,
+        // https://github.com/llvm/llvm-project/issues/97981
         .powerpc,
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        // https://github.com/llvm/llvm-project/issues/97981
         .wasm32,
         .wasm64,
-        .mips,
-        .mipsel,
-        .mips64,
-        .mips64el,
+        // https://github.com/llvm/llvm-project/issues/50374
         .s390x,
+        // https://github.com/llvm/llvm-project/issues/97981
         .sparc,
         .sparc64,
         => false,
@@ -12494,7 +12494,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fullfp16),
+        // https://github.com/llvm/llvm-project/issues/129394
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12507,11 +12508,18 @@ fn backendSupportsF16(target: std.Target) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        // https://github.com/llvm/llvm-project/issues/121122
         .amdgcn,
+        // Test failures all over the place.
         .mips64,
         .mips64el,
+        // https://github.com/llvm/llvm-project/issues/95471
+        .nvptx,
+        .nvptx64,
+        // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
+        // https://github.com/llvm/llvm-project/issues/101545
         .powerpc,
         .powerpcle,
         .powerpc64,
@@ -12522,9 +12530,6 @@ fn backendSupportsF128(target: std.Target) bool {
         .thumb,
         .thumbeb,
         => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
-        .aarch64,
-        .aarch64_be,
-        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
