@@ -15,13 +15,14 @@ pub const Feature = enum {
     int64,
     float16,
     float64,
-    addresses,
     matrix,
     storage_push_constant16,
     kernel,
+    addresses,
     generic_pointer,
     vector16,
     shader,
+    physical_storage_buffer,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -94,11 +95,6 @@ pub const all_features = blk: {
         .description = "Enable Float64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
-    result[@intFromEnum(Feature.addresses)] = .{
-        .llvm_name = null,
-        .description = "Enable either the Addresses capability or, SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
     result[@intFromEnum(Feature.matrix)] = .{
         .llvm_name = null,
         .description = "Enable Matrix capability",
@@ -112,6 +108,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,
         .description = "Enable Kernel capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
+    result[@intFromEnum(Feature.addresses)] = .{
+        .llvm_name = null,
+        .description = "Enable Addresses capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.generic_pointer)] = .{
@@ -128,6 +129,11 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable Shader capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .matrix }),
+    };
+    result[@intFromEnum(Feature.physical_storage_buffer)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
@@ -147,7 +153,7 @@ pub const cpu = struct {
     pub const vulkan_v1_2: CpuModel = .{
         .name = "vulkan_v1_2",
         .llvm_name = null,
-        .features = featureSet(&[_]Feature{ .v1_5, .shader, .addresses }),
+        .features = featureSet(&[_]Feature{ .v1_5, .shader, .physical_storage_buffer }),
     };
 
     pub const opencl_v2: CpuModel = .{
