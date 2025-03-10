@@ -137,9 +137,6 @@ test "vector float operators" {
     try S.doTheTest(f16);
     try comptime S.doTheTest(f16);
 
-    // https://github.com/llvm/llvm-project/issues/102870
-    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-
     try S.doTheTest(f80);
     try comptime S.doTheTest(f80);
 

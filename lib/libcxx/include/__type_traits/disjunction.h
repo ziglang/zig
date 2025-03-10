@@ -31,7 +31,7 @@ struct _OrImpl<true> {
 template <>
 struct _OrImpl<false> {
   template <class _Res, class...>
-  using _Result = _Res;
+  using _Result _LIBCPP_NODEBUG = _Res;
 };
 
 // _Or always performs lazy evaluation of its arguments.
@@ -46,10 +46,10 @@ using _Or _LIBCPP_NODEBUG = typename _OrImpl<sizeof...(_Args) != 0>::template _R
 #if _LIBCPP_STD_VER >= 17
 
 template <class... _Args>
-struct disjunction : _Or<_Args...> {};
+struct _LIBCPP_NO_SPECIALIZATIONS disjunction : _Or<_Args...> {};
 
 template <class... _Args>
-inline constexpr bool disjunction_v = _Or<_Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool disjunction_v = _Or<_Args...>::value;
 
 #endif // _LIBCPP_STD_VER >= 17
 

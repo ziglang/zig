@@ -27,13 +27,13 @@ private:
   mutex_type& __m_;
 
 public:
-  _LIBCPP_NODISCARD
+  [[__nodiscard__]]
   _LIBCPP_HIDE_FROM_ABI explicit lock_guard(mutex_type& __m) _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m))
       : __m_(__m) {
     __m_.lock();
   }
 
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI lock_guard(mutex_type& __m, adopt_lock_t)
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI lock_guard(mutex_type& __m, adopt_lock_t)
       _LIBCPP_THREAD_SAFETY_ANNOTATION(requires_capability(__m))
       : __m_(__m) {}
   _LIBCPP_HIDE_FROM_ABI ~lock_guard() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) { __m_.unlock(); }

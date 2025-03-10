@@ -13,6 +13,7 @@
 #include <__algorithm/comp_ref_type.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/is_callable.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -35,13 +36,15 @@ __max_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp
 }
 
 template <class _ForwardIterator, class _Compare>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 max_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) {
+  static_assert(
+      __is_callable<_Compare&, decltype(*__first), decltype(*__first)>::value, "The comparator has to be callable");
   return std::__max_element<__comp_ref_type<_Compare> >(__first, __last, __comp);
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 max_element(_ForwardIterator __first, _ForwardIterator __last) {
   return std::max_element(__first, __last, __less<>());
 }

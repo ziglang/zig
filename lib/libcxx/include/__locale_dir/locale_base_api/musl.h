@@ -14,8 +14,8 @@
 // in Musl.
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___LOCALE_LOCALE_BASE_API_MUSL_H
-#define _LIBCPP___LOCALE_LOCALE_BASE_API_MUSL_H
+#ifndef _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_MUSL_H
+#define _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_MUSL_H
 
 #include <cstdlib>
 #include <cwchar>
@@ -28,4 +28,4 @@ inline _LIBCPP_HIDE_FROM_ABI unsigned long long strtoull_l(const char* __nptr, c
   return ::strtoull(__nptr, __endptr, __base);
 }
 
-#endif // _LIBCPP___LOCALE_LOCALE_BASE_API_MUSL_H
+#endif // _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_MUSL_H

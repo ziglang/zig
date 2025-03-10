@@ -27,7 +27,7 @@ class _LIBCPP_TEMPLATE_VIS basic_iostream;
 using istream  = basic_istream<char>;
 using iostream = basic_iostream<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wistream  = basic_istream<wchar_t>;
 using wiostream = basic_iostream<wchar_t>;
 #endif

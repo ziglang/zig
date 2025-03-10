@@ -121,7 +121,7 @@ void throw_bad_array_new_length() {
 #ifndef _LIBCXXABI_NO_EXCEPTIONS
   throw std::bad_array_new_length();
 #else
-  abort_message("__cxa_vec_new failed to allocate memory");
+  __abort_message("__cxa_vec_new failed to allocate memory");
 #endif
 }
 

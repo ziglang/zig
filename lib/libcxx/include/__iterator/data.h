@@ -11,7 +11,6 @@
 #define _LIBCPP___ITERATOR_DATA_H
 
 #include <__config>
-#include <cstddef>
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

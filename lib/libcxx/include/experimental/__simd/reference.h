@@ -10,12 +10,14 @@
 #ifndef _LIBCPP_EXPERIMENTAL___SIMD_REFERENCE_H
 #define _LIBCPP_EXPERIMENTAL___SIMD_REFERENCE_H
 
+#include <__config>
+#include <__cstddef/size_t.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_same.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <cstddef>
-#include <experimental/__config>
 #include <experimental/__simd/utility.h>
 
 _LIBCPP_PUSH_MACROS
@@ -71,6 +73,91 @@ public:
 
   template <class _Tp1, class _Storage1, class _Vp1>
   friend void swap(__simd_reference<_Tp1, _Storage1, _Vp1>&& __a, _Vp1& __b) noexcept;
+
+  template <class _Up, class = decltype(std::declval<value_type&>() += std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator+=(_Up&& __v) && noexcept {
+    __set(__get() + static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() -= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator-=(_Up&& __v) && noexcept {
+    __set(__get() - static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() *= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator*=(_Up&& __v) && noexcept {
+    __set(__get() * static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() /= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator/=(_Up&& __v) && noexcept {
+    __set(__get() / static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() %= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator%=(_Up&& __v) && noexcept {
+    __set(__get() % static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() &= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator&=(_Up&& __v) && noexcept {
+    __set(__get() & static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() |= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator|=(_Up&& __v) && noexcept {
+    __set(__get() | static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() ^= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator^=(_Up&& __v) && noexcept {
+    __set(__get() ^ static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() <<= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator<<=(_Up&& __v) && noexcept {
+    __set(__get() << static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  template <class _Up, class = decltype(std::declval<value_type&>() >>= std::declval<_Up>())>
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator>>=(_Up&& __v) && noexcept {
+    __set(__get() >> static_cast<value_type>(std::forward<_Up>(__v)));
+    return {__s_, __idx_};
+  }
+
+  // Note: All legal vectorizable types support operator++/--.
+  // There doesn't seem to be a way to trigger the constraint.
+  // Therefore, no SFINAE check is added here.
+  __simd_reference _LIBCPP_HIDE_FROM_ABI operator++() && noexcept {
+    __set(__get() + 1);
+    return {__s_, __idx_};
+  }
+
+  value_type _LIBCPP_HIDE_FROM_ABI operator++(int) && noexcept {
+    auto __r = __get();
+    __set(__get() + 1);
+    return __r;
+  }
+
+  __simd_reference _LIBCPP_HIDE_FROM_ABI operator--() && noexcept {
+    __set(__get() - 1);
+    return {__s_, __idx_};
+  }
+
+  value_type _LIBCPP_HIDE_FROM_ABI operator--(int) && noexcept {
+    auto __r = __get();
+    __set(__get() - 1);
+    return __r;
+  }
 };
 
 template <class _Tp, class _Storage, class _Vp>

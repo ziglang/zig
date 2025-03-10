@@ -16,6 +16,8 @@
 #include <__iterator/default_sentinel.h>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
+#include <__string/char_traits.h>
+#include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
