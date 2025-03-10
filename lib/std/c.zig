@@ -19,6 +19,7 @@ const netbsd = @import("c/netbsd.zig");
 const dragonfly = @import("c/dragonfly.zig");
 const haiku = @import("c/haiku.zig");
 const openbsd = @import("c/openbsd.zig");
+const serenity = @import("c/serenity.zig");
 
 // These constants are shared among all operating systems even when not linking
 // libc.
@@ -75,12 +76,14 @@ pub const ino_t = switch (native_os) {
     .wasi => wasi.inode_t,
     .windows => windows.LARGE_INTEGER,
     .haiku => i64,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L38
     else => u64,
 };
 
 pub const off_t = switch (native_os) {
     .linux => linux.off_t,
     .emscripten => emscripten.off_t,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L39
     else => i64,
 };
 
@@ -105,7 +108,8 @@ pub const timespec = switch (native_os) {
                 @as(wasi.timestamp_t, @intCast(ts.nsec));
         }
     },
-    .windows => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/0a78056453578c18e0a04a0b45ebfb1c96d59005/Kernel/API/POSIX/time.h#L17-L20
+    .windows, .serenity => extern struct {
         sec: time_t,
         nsec: c_long,
     },
@@ -129,7 +133,8 @@ pub const dev_t = switch (native_os) {
     .emscripten => emscripten.dev_t,
     .wasi => wasi.device_t,
     .openbsd, .haiku, .solaris, .illumos, .macos, .ios, .tvos, .watchos, .visionos => i32,
-    .netbsd, .freebsd => u64,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L43
+    .netbsd, .freebsd, .serenity => u64,
     else => void,
 };
 
@@ -137,7 +142,8 @@ pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
     .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi, .windows => u32,
-    .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .dragonfly => u16,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L44
+    .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .dragonfly, .serenity => u16,
     else => u0,
 };
 
@@ -145,7 +151,8 @@ pub const nlink_t = switch (native_os) {
     .linux => linux.nlink_t,
     .emscripten => emscripten.nlink_t,
     .wasi => c_ulonglong,
-    .freebsd => u64,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L45
+    .freebsd, .serenity => u64,
     .openbsd, .netbsd, .solaris, .illumos => u32,
     .haiku => i32,
     else => void,
@@ -154,12 +161,14 @@ pub const nlink_t = switch (native_os) {
 pub const uid_t = switch (native_os) {
     .linux => linux.uid_t,
     .emscripten => emscripten.uid_t,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L28
     else => u32,
 };
 
 pub const gid_t = switch (native_os) {
     .linux => linux.gid_t,
     .emscripten => emscripten.gid_t,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L29
     else => u32,
 };
 
@@ -167,11 +176,14 @@ pub const blksize_t = switch (native_os) {
     .linux => linux.blksize_t,
     .emscripten => emscripten.blksize_t,
     .wasi => c_long,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L42
+    .serenity => u64,
     else => i32,
 };
 
 pub const passwd = switch (native_os) {
-    .linux => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/7442cfb5072b74a62c0e061e6e9ff44fda08780d/Userland/Libraries/LibC/pwd.h#L15-L23
+    .linux, .serenity => extern struct {
         name: ?[*:0]const u8, // username
         passwd: ?[*:0]const u8, // user password
         uid: uid_t, // user ID
@@ -199,6 +211,8 @@ pub const blkcnt_t = switch (native_os) {
     .linux => linux.blkcnt_t,
     .emscripten => emscripten.blkcnt_t,
     .wasi => c_longlong,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L41
+    .serenity => u64,
     else => i64,
 };
 
@@ -206,6 +220,7 @@ pub const fd_t = switch (native_os) {
     .linux => linux.fd_t,
     .wasi => wasi.fd_t,
     .windows => windows.HANDLE,
+    .serenity => c_int,
     else => i32,
 };
 
@@ -308,6 +323,14 @@ pub const clockid_t = switch (native_os) {
         PROCESS_CPUTIME_ID = 2,
         MONOTONIC = 3,
         THREAD_CPUTIME_ID = 4,
+    },
+    // https://github.com/SerenityOS/serenity/blob/0a78056453578c18e0a04a0b45ebfb1c96d59005/Kernel/API/POSIX/time.h#L24-L36
+    .serenity => enum(c_int) {
+        REALTIME = 0,
+        MONOTONIC = 1,
+        MONOTONIC_RAW = 2,
+        REALTIME_COARSE = 3,
+        MONOTONIC_COARSE = 4,
     },
     else => void,
 };
@@ -681,6 +704,93 @@ pub const E = switch (native_os) {
     .dragonfly => dragonfly.E,
     .haiku => haiku.E,
     .openbsd => openbsd.E,
+    // https://github.com/SerenityOS/serenity/blob/dd59fe35c7e5bbaf6b6b3acb3f9edc56619d4b66/Kernel/API/POSIX/errno.h
+    .serenity => enum(c_int) {
+        SUCCESS = 0,
+        PERM = 1,
+        NOENT = 2,
+        SRCH = 3,
+        INTR = 4,
+        IO = 5,
+        NXIO = 6,
+        @"2BIG" = 7,
+        NOEXEC = 8,
+        BADF = 9,
+        CHILD = 10,
+        AGAIN = 11,
+        NOMEM = 12,
+        ACCES = 13,
+        FAULT = 14,
+        NOTBLK = 15,
+        BUSY = 16,
+        EXIST = 17,
+        XDEV = 18,
+        NODEV = 19,
+        NOTDIR = 20,
+        ISDIR = 21,
+        INVAL = 22,
+        NFILE = 23,
+        MFILE = 24,
+        NOTTY = 25,
+        TXTBSY = 26,
+        FBIG = 27,
+        NOSPC = 28,
+        SPIPE = 29,
+        ROFS = 30,
+        MLINK = 31,
+        PIPE = 32,
+        RANGE = 33,
+        NAMETOOLONG = 34,
+        LOOP = 35,
+        OVERFLOW = 36,
+        OPNOTSUPP = 37,
+        NOSYS = 38,
+        NOTIMPL = 39,
+        AFNOSUPPORT = 40,
+        NOTSOCK = 41,
+        ADDRINUSE = 42,
+        NOTEMPTY = 43,
+        DOM = 44,
+        CONNREFUSED = 45,
+        HOSTDOWN = 46,
+        ADDRNOTAVAIL = 47,
+        ISCONN = 48,
+        CONNABORTED = 49,
+        ALREADY = 50,
+        CONNRESET = 51,
+        DESTADDRREQ = 52,
+        HOSTUNREACH = 53,
+        ILSEQ = 54,
+        MSGSIZE = 55,
+        NETDOWN = 56,
+        NETUNREACH = 57,
+        NETRESET = 58,
+        NOBUFS = 59,
+        NOLCK = 60,
+        NOMSG = 61,
+        NOPROTOOPT = 62,
+        NOTCONN = 63,
+        SHUTDOWN = 64,
+        TOOMANYREFS = 65,
+        SOCKTNOSUPPORT = 66,
+        PROTONOSUPPORT = 67,
+        DEADLK = 68,
+        TIMEDOUT = 69,
+        PROTOTYPE = 70,
+        INPROGRESS = 71,
+        NOTHREAD = 72,
+        PROTO = 73,
+        NOTSUP = 74,
+        PFNOSUPPORT = 75,
+        DIRINTOSELF = 76,
+        DQUOT = 77,
+        NOTRECOVERABLE = 78,
+        CANCELED = 79,
+        PROMISEVIOLATION = 80,
+        STALE = 81,
+        SRCNOTFOUND = 82,
+        _,
+    },
     else => void,
 };
 pub const Elf_Symndx = switch (native_os) {
@@ -1054,6 +1164,24 @@ pub const F = switch (native_os) {
         pub const UNLCK = 2;
         pub const WRLCK = 3;
     },
+    .serenity => struct {
+        // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L15-L24
+        pub const DUPFD = 0;
+        pub const GETFD = 1;
+        pub const SETFD = 2;
+        pub const GETFL = 3;
+        pub const SETFL = 4;
+        pub const ISTTY = 5;
+        pub const GETLK = 6;
+        pub const SETLK = 7;
+        pub const SETLKW = 8;
+        pub const DUPFD_CLOEXEC = 9;
+
+        // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L45-L47
+        pub const RDLCK = 0;
+        pub const WRLCK = 1;
+        pub const UNLCK = 2;
+    },
     else => void,
 };
 pub const FD_CLOEXEC = switch (native_os) {
@@ -1129,18 +1257,29 @@ pub const Flock = switch (native_os) {
         len: off_t,
         pid: pid_t,
     },
+    // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L54-L60
+    .serenity => extern struct {
+        type: c_short,
+        whence: c_short,
+        start: off_t,
+        len: off_t,
+        pid: pid_t,
+    },
     else => void,
 };
 pub const HOST_NAME_MAX = switch (native_os) {
     .linux => linux.HOST_NAME_MAX,
     .macos, .ios, .tvos, .watchos, .visionos => 72,
     .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd => 255,
+    // https://github.com/SerenityOS/serenity/blob/c87557e9c1865fa1a6440de34ff6ce6fc858a2b7/Kernel/API/POSIX/sys/limits.h#L22
+    .serenity => 64,
     else => {},
 };
 pub const IOV_MAX = switch (native_os) {
     .linux => linux.IOV_MAX,
     .emscripten => emscripten.IOV_MAX,
-    .openbsd, .haiku, .solaris, .illumos, .wasi => 1024,
+    // https://github.com/SerenityOS/serenity/blob/098af0f846a87b651731780ff48420205fd33754/Kernel/API/POSIX/sys/uio.h#L16
+    .openbsd, .haiku, .solaris, .illumos, .wasi, .serenity => 1024,
     .macos, .ios, .tvos, .watchos, .visionos => 16,
     .dragonfly, .netbsd, .freebsd => KERN.IOV_MAX,
     else => {},
@@ -1425,6 +1564,16 @@ pub const MADV = switch (native_os) {
         pub const INVAL = 10;
         pub const SETMAP = 11;
     },
+    // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L35-L41
+    .serenity => struct {
+        pub const NORMAL = 0x0;
+        pub const SET_VOLATILE = 0x1;
+        pub const SET_NONVOLATILE = 0x2;
+        pub const DONTNEED = 0x3;
+        pub const WILLNEED = 0x4;
+        pub const SEQUENTIAL = 0x5;
+        pub const RANDOM = 0x6;
+    },
     else => void,
 };
 pub const MSF = switch (native_os) {
@@ -1444,6 +1593,12 @@ pub const MSF = switch (native_os) {
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
     },
+    // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L50-L52
+    .serenity => struct {
+        pub const SYNC = 1;
+        pub const ASYNC = 2;
+        pub const INVALIDATE = 4;
+    },
     else => void,
 };
 pub const MMAP2_UNIT = switch (native_os) {
@@ -1456,7 +1611,8 @@ pub const NAME_MAX = switch (native_os) {
     // Haiku's headers make this 256, to contain room for the terminating null
     // character, but POSIX definition says that NAME_MAX does not include the
     // terminating null.
-    .haiku, .openbsd, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 255,
+    // https://github.com/SerenityOS/serenity/blob/c87557e9c1865fa1a6440de34ff6ce6fc858a2b7/Kernel/API/POSIX/sys/limits.h#L20
+    .haiku, .openbsd, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => 255,
     else => {},
 };
 pub const PATH_MAX = switch (native_os) {
@@ -1464,7 +1620,7 @@ pub const PATH_MAX = switch (native_os) {
     .emscripten => emscripten.PATH_MAX,
     .wasi => 4096,
     .windows => 260,
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 1024,
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => 1024,
     else => {},
 };
 
@@ -1597,6 +1753,19 @@ pub const POLL = switch (native_os) {
         pub const RDBAND = 0x0080;
         pub const WRBAND = 0x0100;
     },
+    // https://github.com/SerenityOS/serenity/blob/265764ff2fec038855193296588a887fc322d76a/Kernel/API/POSIX/poll.h#L15-L24
+    .serenity => struct {
+        pub const IN = 0x0001;
+        pub const PRI = 0x0002;
+        pub const OUT = 0x0004;
+        pub const ERR = 0x0008;
+        pub const HUP = 0x0010;
+        pub const NVAL = 0x0020;
+        pub const RDNORM = IN;
+        pub const WRNORM = OUT;
+        pub const WRBAND = 0x1000;
+        pub const RDHUP = 0x2000;
+    },
     else => void,
 };
 
@@ -1604,7 +1773,8 @@ pub const POLL = switch (native_os) {
 pub const PROT = switch (native_os) {
     .linux => linux.PROT,
     .emscripten => emscripten.PROT,
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .windows => struct {
+    // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L28-L31
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .windows, .serenity => struct {
         /// page can not be accessed
         pub const NONE = 0x0;
         /// page can be read
@@ -1719,7 +1889,8 @@ pub const REG = switch (native_os) {
 pub const RLIM = switch (native_os) {
     .linux => linux.RLIM,
     .emscripten => emscripten.RLIM,
-    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/sys/resource.h#L52
+    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => struct {
         /// No limit
         pub const INFINITY: rlim_t = (1 << 63) - 1;
 
@@ -2174,6 +2345,66 @@ pub const S = switch (native_os) {
             return m & IFMT == IFSOCK;
         }
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/sys/stat.h#L16-L51
+    .serenity => struct {
+        pub const IFMT = 0o170000;
+        pub const IFDIR = 0o040000;
+        pub const IFCHR = 0o020000;
+        pub const IFBLK = 0o060000;
+        pub const IFREG = 0o100000;
+        pub const IFIFO = 0o010000;
+        pub const IFLNK = 0o120000;
+        pub const IFSOCK = 0o140000;
+
+        pub const ISUID = 0o4000;
+        pub const ISGID = 0o2000;
+        pub const ISVTX = 0o1000;
+        pub const IRUSR = 0o400;
+        pub const IWUSR = 0o200;
+        pub const IXUSR = 0o100;
+        pub const IREAD = IRUSR;
+        pub const IWRITE = IWUSR;
+        pub const IEXEC = IXUSR;
+        pub const IRGRP = 0o040;
+        pub const IWGRP = 0o020;
+        pub const IXGRP = 0o010;
+        pub const IROTH = 0o004;
+        pub const IWOTH = 0o002;
+        pub const IXOTH = 0o001;
+
+        pub const IRWXU = IRUSR | IWUSR | IXUSR;
+
+        pub const IRWXG = IRWXU >> 3;
+        pub const IRWXO = IRWXG >> 3;
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISCHR(m: u32) bool {
+            return m & IFMT == IFCHR;
+        }
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
+    },
     else => void,
 };
 pub const SA = switch (native_os) {
@@ -2254,6 +2485,18 @@ pub const SA = switch (native_os) {
         pub const NOCLDWAIT = 0x0020;
         pub const SIGINFO = 0x0040;
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L65-L71
+    .serenity => struct {
+        pub const NOCLDSTOP = 1;
+        pub const NOCLDWAIT = 2;
+        pub const SIGINFO = 4;
+        pub const ONSTACK = 0x08000000;
+        pub const RESTART = 0x10000000;
+        pub const NODEFER = 0x40000000;
+        pub const RESETHAND = 0x80000000;
+        pub const NOMASK = NODEFER;
+        pub const ONESHOT = RESETHAND;
+    },
     else => void,
 };
 pub const sigval_t = switch (native_os) {
@@ -2298,6 +2541,24 @@ pub const _SC = switch (native_os) {
         PAGESIZE = 11,
         NPROCESSORS_ONLN = 15,
     },
+    // https://github.com/SerenityOS/serenity/blob/1dfc9e2df39dd23f1de92530677c845aae4345f2/Kernel/API/POSIX/unistd.h#L36-L52
+    .serenity => enum(c_int) {
+        MONOTONIC_CLOCK = 0,
+        NPROCESSORS_CONF = 1,
+        NPROCESSORS_ONLN = 2,
+        OPEN_MAX = 3,
+        HOST_NAME_MAX = 4,
+        TTY_NAME_MAX = 5,
+        PAGESIZE = 6,
+        GETPW_R_SIZE_MAX = 7,
+        GETGR_R_SIZE_MAX = 8,
+        CLK_TCK = 9,
+        SYMLOOP_MAX = 10,
+        MAPPED_FILES = 11,
+        ARG_MAX = 12,
+        IOV_MAX = 13,
+        PHYS_PAGES = 14,
+    },
     else => void,
 };
 
@@ -2309,7 +2570,8 @@ pub const SEEK = switch (native_os) {
         pub const CUR: wasi.whence_t = .CUR;
         pub const END: wasi.whence_t = .END;
     },
-    .openbsd, .haiku, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .windows => struct {
+    // https://github.com/SerenityOS/serenity/blob/808ce594db1f2190e5212a250e900bde2ffe710b/Kernel/API/POSIX/stdio.h#L15-L17
+    .openbsd, .haiku, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .windows, .serenity => struct {
         pub const SET = 0;
         pub const CUR = 1;
         pub const END = 2;
@@ -2326,6 +2588,7 @@ pub const SEEK = switch (native_os) {
 pub const SHUT = switch (native_os) {
     .linux => linux.SHUT,
     .emscripten => emscripten.SHUT,
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L40-L42
     else => struct {
         pub const RD = 0;
         pub const WR = 1;
@@ -2785,6 +3048,42 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
     },
+    // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h
+    .serenity => struct {
+        pub const INVAL = 0;
+        pub const HUP = 1;
+        pub const INT = 2;
+        pub const QUIT = 3;
+        pub const ILL = 4;
+        pub const TRAP = 5;
+        pub const ABRT = 6;
+        pub const BUS = 7;
+        pub const FPE = 8;
+        pub const KILL = 9;
+        pub const USR1 = 10;
+        pub const SEGV = 11;
+        pub const USR2 = 12;
+        pub const PIPE = 13;
+        pub const ALRM = 14;
+        pub const TERM = 15;
+        pub const STKFLT = 16;
+        pub const CHLD = 17;
+        pub const CONT = 18;
+        pub const STOP = 19;
+        pub const TSTP = 20;
+        pub const TTIN = 21;
+        pub const TTOU = 22;
+        pub const URG = 23;
+        pub const XCPU = 24;
+        pub const XFSZ = 25;
+        pub const VTALRM = 26;
+        pub const PROF = 27;
+        pub const WINCH = 28;
+        pub const IO = 29;
+        pub const INFO = 30;
+        pub const SYS = 31;
+        pub const CANCEL = 32;
+    },
     else => void,
 };
 
@@ -2792,6 +3091,8 @@ pub const SIOCGIFINDEX = switch (native_os) {
     .linux => linux.SIOCGIFINDEX,
     .emscripten => emscripten.SIOCGIFINDEX,
     .solaris, .illumos => solaris.SIOCGLIFINDEX,
+    // https://github.com/SerenityOS/serenity/blob/cb10f70394fb7e9cfc77f827adb2e46d199bc3a5/Kernel/API/Ioctl.h#L118
+    .serenity => 34,
     else => void,
 };
 
@@ -2935,6 +3236,18 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
         /// signal options
         flags: c_uint,
+    },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L39-L46
+    .serenity => extern struct {
+        pub const handler_fn = *align(1) const fn (c_int) callconv(.c) void;
+        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+
+        handler: extern union {
+            handler: ?handler_fn,
+            sigaction: ?sigaction_fn,
+        },
+        mask: sigset_t,
+        flags: c_int,
     },
     else => void,
 };
@@ -3311,6 +3624,22 @@ pub const T = switch (native_os) {
         pub const IOCGDRAINWAIT = 0x40047456;
         pub const IOCISPTMASTER = 0x20007455;
     },
+    // https://github.com/SerenityOS/serenity/blob/cb10f70394fb7e9cfc77f827adb2e46d199bc3a5/Kernel/API/Ioctl.h#L84-L96
+    .serenity => struct {
+        pub const IOCGPGRP = 0;
+        pub const IOCSPGRP = 1;
+        pub const CGETS = 2;
+        pub const CSETS = 3;
+        pub const CSETSW = 4;
+        pub const CSETSF = 5;
+        pub const CFLSH = 6;
+        pub const IOCGWINSZ = 7;
+        pub const IOCSCTTY = 8;
+        pub const IOCSTI = 9;
+        pub const IOCNOTTY = 10;
+        pub const IOCSWINSZ = 11;
+        pub const IOCGPTN = 12;
+    },
     else => void,
 };
 pub const IOCPARM_MASK = switch (native_os) {
@@ -3546,6 +3875,43 @@ pub const W = switch (native_os) {
             return (((s) & 0o177) != 0o177) and (((s) & 0o177) != 0);
         }
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/sys/wait.h
+    .serenity => struct {
+        pub const NOHANG = 1;
+        pub const UNTRACED = 2;
+        pub const STOPPED = UNTRACED;
+        pub const EXITED = 4;
+        pub const CONTINUED = 8;
+        pub const NOWAIT = 0x1000000;
+
+        pub fn EXITSTATUS(s: u32) u8 {
+            return @intCast((s & 0xff00) >> 8);
+        }
+
+        pub fn STOPSIG(s: u32) u32 {
+            return EXITSTATUS(s);
+        }
+
+        pub fn TERMSIG(s: u32) u32 {
+            return s & 0x7f;
+        }
+
+        pub fn IFEXITED(s: u32) bool {
+            return TERMSIG(s) == 0;
+        }
+
+        pub fn IFSTOPPED(s: u32) bool {
+            return (s & 0xff) == 0x7f;
+        }
+
+        pub fn IFSIGNALED(s: u32) bool {
+            return (((s & 0x7f) + 1) >> 1) > 0;
+        }
+
+        pub fn IFCONTINUED(s: u32) bool {
+            return s == 0xffff;
+        }
+    },
     else => void,
 };
 pub const clock_t = switch (native_os) {
@@ -3556,6 +3922,8 @@ pub const clock_t = switch (native_os) {
     .openbsd, .solaris, .illumos => i64,
     .netbsd => u32,
     .haiku => i32,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L50
+    .serenity => u64,
     else => void,
 };
 pub const cpu_set_t = switch (native_os) {
@@ -3568,7 +3936,7 @@ pub const dl_phdr_info = switch (native_os) {
     .emscripten => emscripten.dl_phdr_info,
     .freebsd => extern struct {
         /// Module relocation base.
-        addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+        addr: std.elf.Addr,
         /// Module name.
         name: ?[*:0]const u8,
         /// Pointer to module's phdr.
@@ -3592,11 +3960,12 @@ pub const dl_phdr_info = switch (native_os) {
         /// Incremented when an object is unmapped from the process.
         subs: u64,
     },
-    .openbsd, .haiku, .dragonfly, .netbsd => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/45d81dceed81df0c8ef75b440b20cc0938195faa/Userland/Libraries/LibC/link.h#L15-L20
+    .openbsd, .haiku, .dragonfly, .netbsd, .serenity => extern struct {
         addr: usize,
         name: ?[*:0]const u8,
         phdr: [*]std.elf.Phdr,
-        phnum: u16,
+        phnum: std.elf.Half,
     },
     else => void,
 };
@@ -3608,6 +3977,26 @@ pub const ifreq = switch (native_os) {
     .linux => linux.ifreq,
     .emscripten => emscripten.ifreq,
     .solaris, .illumos => lifreq,
+    // https://github.com/SerenityOS/serenity/blob/9882848e0bf783dfc8e8a6d887a848d70d9c58f4/Kernel/API/POSIX/net/if.h#L49-L82
+    .serenity => extern struct {
+        // Not actually in a union, but the stdlib expects one for ifreq
+        ifrn: extern union {
+            name: [IFNAMESIZE]u8,
+        },
+        ifru: extern union {
+            addr: sockaddr,
+            dstaddr: sockaddr,
+            broadaddr: sockaddr,
+            netmask: sockaddr,
+            hwaddr: sockaddr,
+            flags: c_short,
+            metric: c_int,
+            vnetid: i64,
+            media: u64,
+            data: ?*anyopaque,
+            index: c_uint,
+        },
+    },
     else => void,
 };
 pub const itimerspec = switch (native_os) {
@@ -3650,6 +4039,16 @@ pub const msghdr = switch (native_os) {
         /// flags on received message
         flags: i32,
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
+    .serenity => extern struct {
+        name: ?*anyopaque,
+        namelen: socklen_t,
+        iov: [*]iovec,
+        iovlen: c_int,
+        control: ?*anyopaque,
+        controllen: socklen_t,
+        flags: c_int,
+    },
     else => void,
 };
 pub const msghdr_const = switch (native_os) {
@@ -3684,6 +4083,15 @@ pub const msghdr_const = switch (native_os) {
         /// flags on received message
         flags: i32,
     },
+    .serenity => extern struct {
+        name: ?*const anyopaque,
+        namelen: socklen_t,
+        iov: [*]const iovec,
+        iovlen: c_int,
+        control: ?*const anyopaque,
+        controllen: socklen_t,
+        flags: c_int,
+    },
     else => void,
 };
 pub const nfds_t = switch (native_os) {
@@ -3692,6 +4100,8 @@ pub const nfds_t = switch (native_os) {
     .haiku, .solaris, .illumos, .wasi => usize,
     .windows => c_ulong,
     .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u32,
+    // https://github.com/SerenityOS/serenity/blob/265764ff2fec038855193296588a887fc322d76a/Kernel/API/POSIX/poll.h#L32
+    .serenity => c_uint,
     else => void,
 };
 pub const perf_event_attr = switch (native_os) {
@@ -3702,12 +4112,20 @@ pub const pid_t = switch (native_os) {
     .linux => linux.pid_t,
     .emscripten => emscripten.pid_t,
     .windows => windows.HANDLE,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L31-L32
+    .serenity => c_int,
     else => i32,
 };
 pub const pollfd = switch (native_os) {
     .linux => linux.pollfd,
     .emscripten => emscripten.pollfd,
     .windows => ws2_32.pollfd,
+    // https://github.com/SerenityOS/serenity/blob/265764ff2fec038855193296588a887fc322d76a/Kernel/API/POSIX/poll.h#L26-L30
+    .serenity => extern struct {
+        fd: fd_t,
+        events: c_short,
+        revents: c_short,
+    },
     else => extern struct {
         fd: fd_t,
         events: i16,
@@ -3719,11 +4137,14 @@ pub const rlim_t = switch (native_os) {
     .emscripten => emscripten.rlim_t,
     .openbsd, .netbsd, .solaris, .illumos, .macos, .ios, .tvos, .watchos, .visionos => u64,
     .haiku, .dragonfly, .freebsd => i64,
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/sys/resource.h#L54
+    .serenity => usize,
     else => void,
 };
 pub const rlimit = switch (native_os) {
     .linux, .emscripten => linux.rlimit,
     .windows => void,
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/sys/resource.h#L56-L59
     else => extern struct {
         /// Soft limit
         cur: rlim_t,
@@ -3825,6 +4246,17 @@ pub const rlimit_resource = switch (native_os) {
         NOVMON = 7,
         _,
     },
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/sys/resource.h#L42-L48
+    .serenity => enum(c_int) {
+        CORE = 1,
+        CPU = 2,
+        DATA = 3,
+        FSIZE = 4,
+        NOFILE = 5,
+        STACK = 6,
+        AS = 7,
+        _,
+    },
     else => void,
 };
 pub const rusage = switch (native_os) {
@@ -3872,6 +4304,28 @@ pub const rusage = switch (native_os) {
         pub const SELF = 0;
         pub const CHILDREN = -1;
         pub const THREAD = 1;
+    },
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/sys/resource.h#L18-L38
+    .serenity => extern struct {
+        utime: timeval,
+        stime: timeval,
+        maxrss: c_long,
+        ixrss: c_long,
+        idrss: c_long,
+        isrss: c_long,
+        minflt: c_long,
+        majflt: c_long,
+        nswap: c_long,
+        inblock: c_long,
+        oublock: c_long,
+        msgsnd: c_long,
+        msgrcv: c_long,
+        nsignals: c_long,
+        nvcsw: c_long,
+        nivcsw: c_long,
+
+        pub const SELF = 1;
+        pub const CHILDREN = 2;
     },
     else => void,
 };
@@ -4050,12 +4504,25 @@ pub const siginfo_t = switch (native_os) {
                 assert(@sizeOf(@This()) == 136);
         }
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L27-L37
+    .serenity => extern struct {
+        signo: c_int,
+        code: c_int,
+        errno: c_int,
+        pid: pid_t,
+        uid: uid_t,
+        addr: ?*anyopaque,
+        status: c_int,
+        band: c_int,
+        value: sigval,
+    },
     else => void,
 };
 pub const sigset_t = switch (native_os) {
     .linux => linux.sigset_t,
     .emscripten => emscripten.sigset_t,
-    .openbsd, .macos, .ios, .tvos, .watchos, .visionos => u32,
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L19
+    .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => u32,
     .dragonfly, .netbsd, .solaris, .illumos, .freebsd => extern struct {
         __bits: [SIG.WORDS]u32,
     },
@@ -4075,7 +4542,8 @@ pub const filled_sigset = switch (native_os) {
 };
 pub const sigval = switch (native_os) {
     .linux => linux.sigval,
-    .openbsd, .dragonfly, .freebsd => extern union {
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L22-L25
+    .openbsd, .dragonfly, .freebsd, .serenity => extern union {
         int: c_int,
         ptr: ?*anyopaque,
     },
@@ -4144,7 +4612,8 @@ pub const addrinfo = if (builtin.abi.isAndroid()) extern struct {
         addr: ?*sockaddr,
         next: ?*addrinfo,
     },
-    .openbsd => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/d510d2aeb2facbd8f6c383d70fd1b033e1fee5dd/Userland/Libraries/LibC/netdb.h#L66-L75
+    .openbsd, .serenity => extern struct {
         flags: AI,
         family: c_int,
         socktype: c_int,
@@ -4460,11 +4929,41 @@ pub const sockaddr = switch (native_os) {
             path: [104]u8,
         };
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L110-L114
+    .serenity => extern struct {
+        family: sa_family_t,
+        data: [26]u8,
+
+        // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/netinet/in.h
+        const in_addr = u32;
+        const in6_addr = [16]u8;
+        pub const in = extern struct {
+            family: sa_family_t = AF.INET,
+            port: in_port_t,
+            addr: in_addr,
+            zero: [8]u8 = @splat(0),
+        };
+        pub const in6 = extern struct {
+            family: sa_family_t = AF.INET6,
+            port: in_port_t,
+            flowinfo: u32,
+            addr: in6_addr,
+            scope_id: u32,
+        };
+
+        // https://github.com/SerenityOS/serenity/blob/b92e6b02e53b2927732f31b1442cad420b62d1ef/Kernel/API/POSIX/sys/un.h
+        const UNIX_PATH_MAX = 108;
+        pub const un = extern struct {
+            family: sa_family_t = AF.LOCAL,
+            path: [UNIX_PATH_MAX]u8,
+        };
+    },
     else => void,
 };
 pub const socklen_t = switch (native_os) {
     .linux, .emscripten => linux.socklen_t,
     .windows => ws2_32.socklen_t,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L57
     else => u32,
 };
 pub const in_port_t = u16;
@@ -4472,7 +4971,8 @@ pub const sa_family_t = switch (native_os) {
     .linux, .emscripten => linux.sa_family_t,
     .windows => ws2_32.ADDRESS_FAMILY,
     .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u8,
-    .solaris, .illumos => u16,
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L66
+    .solaris, .illumos, .serenity => u16,
     else => void,
 };
 pub const AF = if (builtin.abi.isAndroid()) struct {
@@ -4751,6 +5251,15 @@ pub const AF = if (builtin.abi.isAndroid()) struct {
         pub const ISDN = 26;
         pub const MAX = 36;
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L17-L22
+    .serenity => struct {
+        pub const UNSPEC = 0;
+        pub const LOCAL = 1;
+        pub const UNIX = LOCAL;
+        pub const INET = 2;
+        pub const INET6 = 3;
+        pub const MAX = 4;
+    },
     else => void,
 };
 pub const PF = if (builtin.abi.isAndroid()) struct {
@@ -5020,11 +5529,21 @@ pub const PF = if (builtin.abi.isAndroid()) struct {
         pub const ISDN = AF.ISDN;
         pub const MAX = AF.MAX;
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L24-L29
+    .serenity => struct {
+        pub const LOCAL = AF.LOCAL;
+        pub const UNIX = AF.LOCAL;
+        pub const INET = AF.INET;
+        pub const INET6 = AF.INET6;
+        pub const UNSPEC = AF.UNSPEC;
+        pub const MAX = AF.MAX;
+    },
     else => void,
 };
 pub const DT = switch (native_os) {
     .linux => linux.DT,
-    .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
+    // https://github.com/SerenityOS/serenity/blob/1262a7d1424d0d2e89d80644409721cbf056ab17/Kernel/API/POSIX/dirent.h#L16-L35
+    .netbsd, .freebsd, .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => struct {
         pub const UNKNOWN = 0;
         pub const FIFO = 1;
         pub const CHR = 2;
@@ -5047,17 +5566,6 @@ pub const DT = switch (native_os) {
         pub const WHT = 14;
         pub const DBF = 15;
     },
-    .openbsd => struct {
-        pub const UNKNOWN = 0;
-        pub const FIFO = 1;
-        pub const CHR = 2;
-        pub const DIR = 4;
-        pub const BLK = 6;
-        pub const REG = 8;
-        pub const LNK = 10;
-        pub const SOCK = 12;
-        pub const WHT = 14; // XXX
-    },
     else => void,
 };
 pub const MSG = switch (native_os) {
@@ -5077,6 +5585,18 @@ pub const MSG = switch (native_os) {
         pub const MCAST = 0x0200;
         pub const EOF = 0x0400;
         pub const NOSIGNAL = 0x0800;
+    },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L56-L64
+    .serenity => struct {
+        pub const TRUNC = 0x1;
+        pub const CTRUNC = 0x2;
+        pub const PEEK = 0x4;
+        pub const OOB = 0x8;
+        pub const DONTROUTE = 0x10;
+        pub const WAITALL = 0x20;
+        pub const DONTWAIT = 0x40;
+        pub const NOSIGNAL = 0x80;
+        pub const EOR = 0x100;
     },
     else => void,
 };
@@ -5168,6 +5688,17 @@ pub const SOCK = switch (native_os) {
         pub const CLOEXEC = 0x8000;
         pub const NONBLOCK = 0x4000;
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L31-L38
+    .serenity => struct {
+        pub const STREAM = 1;
+        pub const DGRAM = 2;
+        pub const RAW = 3;
+        pub const RDM = 4;
+        pub const SEQPACKET = 5;
+
+        pub const NONBLOCK = 0o4000;
+        pub const CLOEXEC = 0o2000000;
+    },
     else => void,
 };
 pub const TCP = switch (native_os) {
@@ -5175,6 +5706,11 @@ pub const TCP = switch (native_os) {
     .linux => linux.TCP,
     .emscripten => emscripten.TCP,
     .windows => ws2_32.TCP,
+    // https://github.com/SerenityOS/serenity/blob/61ac554a3403838f79ca746bd1c65ded6f97d124/Kernel/API/POSIX/netinet/tcp.h#L13-L14
+    .serenity => struct {
+        pub const NODELAY = 10;
+        pub const MAXSEG = 11;
+    },
     else => void,
 };
 pub const IPPROTO = switch (native_os) {
@@ -5759,6 +6295,20 @@ pub const IPPROTO = switch (native_os) {
         /// raw IP packet
         pub const RAW = 255;
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L44-L54
+    .serenity => struct {
+        pub const IP = 0;
+        pub const ICMP = 1;
+        pub const IGMP = 2;
+        pub const IPIP = 4;
+        pub const TCP = 6;
+        pub const UDP = 17;
+        pub const IPV6 = 41;
+        pub const ESP = 50;
+        pub const AH = 51;
+        pub const ICMPV6 = 58;
+        pub const RAW = 255;
+    },
     else => void,
 };
 pub const SOL = switch (native_os) {
@@ -5773,6 +6323,10 @@ pub const SOL = switch (native_os) {
         pub const ROUTE = 0xfffe;
         pub const PACKET = 0xfffd;
         pub const FILTER = 0xfffc;
+    },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L127
+    .serenity => struct {
+        pub const SOCKET = 1;
     },
     else => void,
 };
@@ -5991,12 +6545,35 @@ pub const SO = switch (native_os) {
         pub const DOMAIN = 0x1024;
         pub const PROTOCOL = 0x1025;
     },
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L130-L150
+    .serenity => struct {
+        pub const RCVTIMEO = 0;
+        pub const SNDTIMEO = 1;
+        pub const TYPE = 2;
+        pub const ERROR = 3;
+        pub const PEERCRED = 4;
+        pub const RCVBUF = 5;
+        pub const SNDBUF = 6;
+        pub const DEBUG = 7;
+        pub const REUSEADDR = 8;
+        pub const BINDTODEVICE = 9;
+        pub const KEEPALIVE = 10;
+        pub const TIMESTAMP = 11;
+        pub const BROADCAST = 12;
+        pub const LINGER = 13;
+        pub const ACCEPTCONN = 14;
+        pub const DONTROUTE = 15;
+        pub const OOBINLINE = 16;
+        pub const SNDLOWAT = 17;
+        pub const RCVLOWAT = 18;
+    },
     else => void,
 };
 pub const SOMAXCONN = switch (native_os) {
     .linux => linux.SOMAXCONN,
     .windows => ws2_32.SOMAXCONN,
-    .solaris, .illumos => 128,
+    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L128
+    .solaris, .illumos, .serenity => 128,
     .openbsd => 28,
     else => void,
 };
@@ -6004,7 +6581,8 @@ pub const IFNAMESIZE = switch (native_os) {
     .linux => linux.IFNAMESIZE,
     .emscripten => emscripten.IFNAMESIZE,
     .windows => 30,
-    .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 16,
+    // https://github.com/SerenityOS/serenity/blob/9882848e0bf783dfc8e8a6d887a848d70d9c58f4/Kernel/API/POSIX/net/if.h#L50
+    .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => 16,
     .solaris, .illumos => 32,
     else => void,
 };
@@ -6020,6 +6598,12 @@ pub const stack_t = switch (native_os) {
         /// SS_DISABLE and/or SS_ONSTACK.
         flags: i32,
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L48-L52
+    .serenity => extern struct {
+        sp: *anyopaque,
+        flags: c_int,
+        size: usize,
+    },
     else => extern struct {
         sp: [*]u8,
         size: isize,
@@ -6030,10 +6614,12 @@ pub const time_t = switch (native_os) {
     .linux => linux.time_t,
     .emscripten => emscripten.time_t,
     .haiku, .dragonfly => isize,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L47
     else => i64,
 };
 pub const suseconds_t = switch (native_os) {
-    .solaris, .illumos => i64,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L49
+    .solaris, .illumos, .serenity => i64,
     .freebsd, .dragonfly => c_long,
     .netbsd => c_int,
     .haiku => i32,
@@ -6051,7 +6637,8 @@ pub const timeval = switch (native_os) {
         sec: c_long,
         usec: i32,
     },
-    .dragonfly, .netbsd, .freebsd, .solaris, .illumos => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/6b6eca0631c893c5f8cfb8274cdfe18e2d0637c0/Kernel/API/POSIX/sys/time.h#L15-L18
+    .dragonfly, .netbsd, .freebsd, .solaris, .illumos, .serenity => extern struct {
         /// seconds
         sec: time_t,
         /// microseconds
@@ -6069,6 +6656,11 @@ pub const timezone = switch (native_os) {
     .openbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         minuteswest: i32,
         dsttime: i32,
+    },
+    // https://github.com/SerenityOS/serenity/blob/ba776390b5878ec0be1a9e595a3471a6cfe0a0cf/Userland/Libraries/LibC/sys/time.h#L19-L22
+    .serenity => extern struct {
+        minuteswest: c_int,
+        dsttime: c_int,
     },
     else => void,
 };
@@ -6127,7 +6719,8 @@ pub const ucontext_t = switch (native_os) {
         arg: ?*void,
         _spare: [4]c_int,
     },
-    .haiku => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/87eac0e424cff4a1f941fb704b9362a08654c24d/Kernel/API/POSIX/ucontext.h#L19-L24
+    .haiku, .serenity => extern struct {
         link: ?*ucontext_t,
         sigmask: sigset_t,
         stack: stack_t,
@@ -6222,6 +6815,47 @@ pub const mcontext_t = switch (native_os) {
     },
     .dragonfly => dragonfly.mcontext_t,
     .haiku => haiku.mcontext_t,
+    .serenity => switch (native_arch) {
+        // https://github.com/SerenityOS/serenity/blob/200e91cd7f1ec5453799a2720d4dc114a59cc289/Kernel/Arch/aarch64/mcontext.h#L15-L19
+        .aarch64 => extern struct {
+            x: [31]u64,
+            sp: u64,
+            pc: u64,
+        },
+        // https://github.com/SerenityOS/serenity/blob/66f8d0f031ef25c409dbb4fecaa454800fecae0f/Kernel/Arch/riscv64/mcontext.h#L15-L18
+        .riscv64 => extern struct {
+            x: [31]u64,
+            pc: u64,
+        },
+        // https://github.com/SerenityOS/serenity/blob/7b9ea3efdec9f86a1042893e8107d0b23aad8727/Kernel/Arch/x86_64/mcontext.h#L15-L40
+        .x86_64 => extern struct {
+            rax: u64,
+            rcx: u64,
+            rdx: u64,
+            rbx: u64,
+            rsp: u64,
+            rbp: u64,
+            rsi: u64,
+            rdi: u64,
+            rip: u64,
+            r8: u64,
+            r9: u64,
+            r10: u64,
+            r11: u64,
+            r12: u64,
+            r13: u64,
+            r14: u64,
+            r15: u64,
+            rflags: u64,
+            cs: u32,
+            ss: u32,
+            ds: u32,
+            es: u32,
+            fs: u32,
+            gs: u32,
+        },
+        else => struct {},
+    },
     else => void,
 };
 
@@ -6247,6 +6881,16 @@ pub const utsname = switch (native_os) {
         version: [256:0]u8,
         machine: [256:0]u8,
     },
+    // https://github.com/SerenityOS/serenity/blob/d794ed1de7a46482272683f8dc4c858806390f29/Kernel/API/POSIX/sys/utsname.h#L17-L23
+    .serenity => extern struct {
+        sysname: [UTSNAME_ENTRY_LEN:0]u8,
+        nodename: [UTSNAME_ENTRY_LEN:0]u8,
+        release: [UTSNAME_ENTRY_LEN:0]u8,
+        version: [UTSNAME_ENTRY_LEN:0]u8,
+        machine: [UTSNAME_ENTRY_LEN:0]u8,
+
+        const UTSNAME_ENTRY_LEN = 65;
+    },
     else => void,
 };
 pub const PR = switch (native_os) {
@@ -6265,6 +6909,8 @@ pub const _errno = switch (native_os) {
     .solaris, .illumos => private.___errno,
     .openbsd, .netbsd => private.__errno,
     .haiku => haiku._errnop,
+    // https://github.com/SerenityOS/serenity/blob/a353ceecf13b6f156a078e32f1ddf1d21366934c/Userland/Libraries/LibC/errno.h#L33
+    .serenity => private.__errno_location,
     else => {},
 };
 
@@ -6340,6 +6986,16 @@ pub const RTLD = switch (native_os) {
         FIRST: bool = false,
         _: u23 = 0,
     },
+    // https://github.com/SerenityOS/serenity/blob/36a26d7fa80bc9c72b19442912d8967f448368ff/Userland/Libraries/LibC/dlfcn.h#L13-L17
+    .serenity => packed struct(c_int) {
+        DEFAULT: bool = false,
+        _1: u1,
+        LAZY: bool = false,
+        NOW: bool = false,
+        GLOBAL: bool = false,
+        LOCAL: bool = false,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 6) = 0,
+    },
     else => void,
 };
 
@@ -6413,11 +7069,20 @@ pub const dirent = switch (native_os) {
         _: u32 align(1) = 0,
         name: [MAXNAMLEN:0]u8,
     },
+    // https://github.com/SerenityOS/serenity/blob/abc150085f532f123b598949218893cb272ccc4c/Userland/Libraries/LibC/dirent.h#L14-L20
+    .serenity => extern struct {
+        ino: ino_t,
+        off: off_t,
+        reclen: c_ushort,
+        type: u8,
+        name: [256:0]u8,
+    },
     else => void,
 };
 pub const MAXNAMLEN = switch (native_os) {
     .netbsd, .solaris, .illumos => 511,
-    .haiku => NAME_MAX,
+    // https://github.com/SerenityOS/serenity/blob/1262a7d1424d0d2e89d80644409721cbf056ab17/Kernel/API/POSIX/dirent.h#L37
+    .haiku, .serenity => NAME_MAX,
     .openbsd => 255,
     else => {},
 };
@@ -6499,6 +7164,17 @@ pub const AI = if (builtin.abi.isAndroid()) packed struct(u32) {
         _: u19 = 0,
     },
     .windows => ws2_32.AI,
+    // https://github.com/SerenityOS/serenity/blob/d510d2aeb2facbd8f6c383d70fd1b033e1fee5dd/Userland/Libraries/LibC/netdb.h#L90-L96
+    .serenity => packed struct(c_int) {
+        PASSIVE: bool = false,
+        CANONNAME: bool = false,
+        NUMERICHOST: bool = false,
+        NUMERICSERV: bool = false,
+        V4MAPPED: bool = false,
+        ALL: bool = false,
+        ADDRCONFIG: bool = false,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 7) = 0,
+    },
     else => void,
 };
 
@@ -6522,6 +7198,15 @@ pub const NI = switch (native_os) {
         WITHSCOPEID: bool = false,
         NUMERICSCOPE: bool = false,
         _: u25 = 0,
+    },
+    // https://github.com/SerenityOS/serenity/blob/d510d2aeb2facbd8f6c383d70fd1b033e1fee5dd/Userland/Libraries/LibC/netdb.h#L101-L105
+    .serenity => packed struct(c_int) {
+        NUMERICHOST: bool = false,
+        NUMERICSERV: bool = false,
+        NAMEREQD: bool = false,
+        NOFQDN: bool = false,
+        DGRAM: bool = false,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 5) = 0,
     },
     else => void,
 };
@@ -6673,6 +7358,22 @@ pub const EAI = if (builtin.abi.isAndroid()) enum(c_int) {
         PROTOCOL = -13,
         /// argument buffer overflow
         OVERFLOW = -14,
+        _,
+    },
+    // https://github.com/SerenityOS/serenity/blob/d510d2aeb2facbd8f6c383d70fd1b033e1fee5dd/Userland/Libraries/LibC/netdb.h#L77-L88
+    .serenity => enum(c_int) {
+        ADDRFAMILY = 1,
+        AGAIN = 2,
+        BADFLAGS = 3,
+        FAIL = 4,
+        FAMILY = 5,
+        MEMORY = 6,
+        NODATA = 7,
+        NONAME = 8,
+        SERVICE = 9,
+        SOCKTYPE = 10,
+        SYSTEM = 11,
+        OVERFLOW = 12,
         _,
     },
     else => void,
@@ -7097,6 +7798,34 @@ pub const Stat = switch (native_os) {
             return self.birthtim;
         }
     },
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/sys/stat.h#L53-L67
+    .serenity => extern struct {
+        dev: dev_t,
+        ino: ino_t,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: dev_t,
+        size: off_t,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: timespec,
+        mtim: timespec,
+        ctim: timespec,
+
+        pub fn atime(self: @This()) timespec {
+            return self.atim;
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return self.mtim;
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return self.ctim;
+        }
+    },
     else => void,
 };
 
@@ -7159,6 +7888,13 @@ pub const pthread_mutex_t = switch (native_os) {
     .emscripten => extern struct {
         data: [24]u8 align(4) = [_]u8{0} ** 24,
     },
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L68-L73
+    .serenity => extern struct {
+        lock: u32 = 0,
+        owner: pthread_t = 0,
+        level: c_int = 0,
+        type: c_int = 0,
+    },
     else => void,
 };
 
@@ -7200,6 +7936,12 @@ pub const pthread_cond_t = switch (native_os) {
     },
     .fuchsia, .emscripten => extern struct {
         data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+    },
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L80-L84
+    .serenity => extern struct {
+        mutex: ?*pthread_mutex_t = null,
+        value: u32 = 0,
+        clockid: clockid_t = .REALTIME_COARSE,
     },
     else => void,
 };
@@ -7258,6 +8000,10 @@ pub const pthread_rwlock_t = switch (native_os) {
     .emscripten => extern struct {
         size: [32]u8 align(4) = [_]u8{0} ** 32,
     },
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L86
+    .serenity => extern struct {
+        inner: u64 = 0,
+    },
     else => void,
 };
 
@@ -7270,7 +8016,8 @@ pub const pthread_attr_t = switch (native_os) {
         __sig: c_long,
         __opaque: [56]u8,
     },
-    .freebsd => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L75
+    .freebsd, .openbsd, .serenity => extern struct {
         inner: ?*anyopaque = null,
     },
     .solaris, .illumos => extern struct {
@@ -7288,16 +8035,14 @@ pub const pthread_attr_t = switch (native_os) {
         guard_size: i32,
         stack_address: ?*anyopaque,
     },
-    .openbsd => extern struct {
-        inner: ?*anyopaque = null,
-    },
     else => void,
 };
 
 pub const pthread_key_t = switch (native_os) {
     .linux, .emscripten => c_uint,
     .macos, .ios, .tvos, .watchos, .visionos => c_ulong,
-    .openbsd, .solaris, .illumos => c_int,
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L65
+    .openbsd, .solaris, .illumos, .serenity => c_int,
     else => void,
 };
 
@@ -7352,6 +8097,12 @@ pub const sem_t = switch (native_os) {
             unnamed_sem: i32,
         },
         padding: [2]i32,
+    },
+    // https://github.com/SerenityOS/serenity/blob/aae106e37b48f2158e68902293df1e4bf7b80c0f/Userland/Libraries/LibC/semaphore.h#L23-L27
+    .serenity => extern struct {
+        magic: u32,
+        value: u32,
+        flags: u8,
     },
     else => void,
 };
@@ -7555,6 +8306,13 @@ pub const AT = switch (native_os) {
         /// overridden with a public function called `wasi_cwd` in the root source
         /// file.
         pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
+    },
+    // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L49-L52
+    .serenity => struct {
+        pub const FDCWD = -100;
+        pub const SYMLINK_NOFOLLOW = 0x100;
+        pub const REMOVEDIR = 0x200;
+        pub const EACCESS = 0x400;
     },
     else => void,
 };
@@ -7771,6 +8529,23 @@ pub const O = switch (native_os) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
+    // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L28-L43
+    .serenity => packed struct(c_int) {
+        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        EXEC: bool = false,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        CLOEXEC: bool = false,
+        DIRECT: bool = false,
+        SYNC: bool = false,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 14) = 0,
+    },
     else => void,
 };
 
@@ -7910,6 +8685,21 @@ pub const MAP = switch (native_os) {
         @"32BIT": bool = false,
         _: u12 = 0,
     },
+    // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L16-L26
+    .serenity => packed struct(c_int) {
+        FILE: bool = false,
+        SHARED: bool = false,
+        PRIVATE: bool = false,
+        _3: u2 = 0,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        STACK: bool = false,
+        NORESERVE: bool = false,
+        RANDOMIZED: bool = false,
+        PURGEABLE: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 12) = 0,
+    },
     else => void,
 };
 
@@ -8020,6 +8810,27 @@ pub const V = switch (native_os) {
         LNEXT,
         EOL2,
     },
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L32-L49
+    .serenity => enum {
+        INTR,
+        QUIT,
+        ERASE,
+        KILL,
+        EOF,
+        TIME,
+        MIN,
+        SWTC,
+        START,
+        STOP,
+        SUSP,
+        EOL,
+        REPRINT,
+        DISCARD,
+        WERASE,
+        LNEXT,
+        EOL2,
+        INFO,
+    },
     else => void,
 };
 
@@ -8028,7 +8839,8 @@ pub const NCCS = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly => 20,
     .haiku => 11,
     .solaris, .illumos => 19,
-    .emscripten, .wasi => 32,
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L15
+    .emscripten, .wasi, .serenity => 32,
     else => void,
 };
 
@@ -8043,7 +8855,8 @@ pub const termios = switch (native_os) {
         ispeed: speed_t align(8),
         ospeed: speed_t,
     },
-    .freebsd, .netbsd, .dragonfly, .openbsd => extern struct {
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L21-L29
+    .freebsd, .netbsd, .dragonfly, .openbsd, .serenity => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
@@ -8171,7 +8984,8 @@ pub const tc_iflag_t = switch (native_os) {
         DOSMODE: bool = false,
         _: u16 = 0,
     },
-    .emscripten, .wasi => packed struct(u32) {
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L52-L66
+    .emscripten, .wasi, .serenity => packed struct(u32) {
         IGNBRK: bool = false,
         BRKINT: bool = false,
         IGNPAR: bool = false,
@@ -8263,7 +9077,8 @@ pub const tc_oflag_t = switch (native_os) {
         WRAP: bool = false,
         _: u14 = 0,
     },
-    .haiku, .wasi, .emscripten => packed struct(u32) {
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L69-L97
+    .haiku, .wasi, .emscripten, .serenity => packed struct(u32) {
         OPOST: bool = false,
         OLCUC: bool = false,
         ONLCR: bool = false,
@@ -8422,6 +9237,19 @@ pub const tc_cflag_t = switch (native_os) {
         CLOCAL: bool = false,
         _: u20 = 0,
     },
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L131-L141
+    .serenity => packed struct(u32) {
+        _0: u4 = 0,
+        CSIZE: CSIZE = .CS5,
+        CSTOPB: bool = false,
+        CREAD: bool = false,
+        PARENB: bool = false,
+        PARODD: bool = false,
+        HUPCL: bool = false,
+        CLOCAL: bool = false,
+        CBAUDEX: bool = false,
+        _: u19 = 0,
+    },
     else => void,
 };
 
@@ -8547,6 +9375,27 @@ pub const tc_lflag_t = switch (native_os) {
         _9: u6 = 0,
         IEXTEN: bool = false,
         _: u16 = 0,
+    },
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L168-L189
+    .serenity => packed struct(u32) {
+        ISIG: bool = false,
+        ICANON: bool = false,
+        XCASE: bool = false,
+        ECHO: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHONL: bool = false,
+        NOFLSH: bool = false,
+        TOSTOP: bool = false,
+        ECHOCTL: bool = false,
+        ECHOPRT: bool = false,
+        ECHOKE: bool = false,
+        FLUSHO: bool = false,
+        PENDIN: bool = false,
+        _14: u6 = 0,
+        IEXTEN: bool = false,
+        EXTPROC: bool = false,
+        _: u15 = 0,
     },
     else => void,
 };
@@ -8696,7 +9545,8 @@ pub const speed_t = switch (native_os) {
         B3500000 = 30,
         B4000000 = 31,
     },
-    .emscripten, .wasi => enum(u32) {
+    // https://github.com/SerenityOS/serenity/blob/d277cdfd4c7ed21d5248a83217ae03b9f890c3c8/Kernel/API/POSIX/termios.h#L111-L159
+    .emscripten, .wasi, .serenity => enum(u32) {
         B0 = 0o0000000,
         B50 = 0o0000001,
         B75 = 0o0000002,
@@ -8735,7 +9585,11 @@ pub const speed_t = switch (native_os) {
 
 pub const whence_t = if (native_os == .wasi) std.os.wasi.whence_t else c_int;
 
-pub const sig_atomic_t = c_int;
+pub const sig_atomic_t = switch (native_os) {
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L20
+    .serenity => u32,
+    else => c_int,
+};
 
 /// maximum signal number + 1
 pub const NSIG = switch (native_os) {
@@ -8744,7 +9598,8 @@ pub const NSIG = switch (native_os) {
     .haiku => 65,
     .netbsd, .freebsd => 32,
     .solaris, .illumos => 75,
-    .openbsd => 33,
+    // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h#L42
+    .openbsd, .serenity => 33,
     else => {},
 };
 
@@ -8758,6 +9613,8 @@ pub const MINSIGSTKSZ = switch (native_os) {
     .solaris, .illumos => 2048,
     .haiku, .netbsd => 8192,
     .openbsd => 1 << openbsd.MAX_PAGE_SHIFT,
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L58
+    .serenity => 4096,
     else => {},
 };
 pub const SIGSTKSZ = switch (native_os) {
@@ -8766,6 +9623,8 @@ pub const SIGSTKSZ = switch (native_os) {
     .solaris, .illumos => 8192,
     .haiku => 16384,
     .openbsd => MINSIGSTKSZ + (1 << openbsd.MAX_PAGE_SHIFT) * 4,
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L59
+    .serenity => 32768,
     else => {},
 };
 pub const SS = switch (native_os) {
@@ -8774,7 +9633,8 @@ pub const SS = switch (native_os) {
         pub const ONSTACK = 1;
         pub const DISABLE = 4;
     },
-    .haiku, .solaris, .illumos => struct {
+    // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L54-L55
+    .haiku, .solaris, .illumos, .serenity => struct {
         pub const ONSTACK = 0x1;
         pub const DISABLE = 0x2;
     },
@@ -9267,6 +10127,12 @@ pub const NOTE = switch (native_os) {
     else => void,
 };
 
+pub const FUTEX = switch (native_os) {
+    .openbsd => openbsd.FUTEX,
+    .serenity => serenity.FUTEX,
+    else => void,
+};
+
 // Unix-like systems
 pub const DIR = opaque {};
 pub extern "c" fn opendir(pathname: [*:0]const u8) ?*DIR;
@@ -9327,7 +10193,7 @@ pub extern "c" fn sendfile64(out_fd: fd_t, in_fd: fd_t, offset: ?*i64, count: us
 pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_int;
 
 pub const arc4random_buf = switch (native_os) {
-    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
+    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => private.arc4random_buf,
     else => {},
 };
 pub const getentropy = switch (native_os) {
@@ -9395,7 +10261,7 @@ pub const sigaltstack = switch (native_os) {
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub const pipe2 = switch (native_os) {
-    .dragonfly, .emscripten, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .linux => private.pipe2,
+    .dragonfly, .emscripten, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .linux, .serenity => private.pipe2,
     else => {},
 };
 pub const copy_file_range = switch (native_os) {
@@ -9501,15 +10367,15 @@ pub const _msize = switch (native_os) {
     else => {},
 };
 pub const malloc_size = switch (native_os) {
-    .macos, .ios, .tvos, .watchos, .visionos => private.malloc_size,
+    .macos, .ios, .tvos, .watchos, .visionos, .serenity => private.malloc_size,
     else => {},
 };
 pub const malloc_usable_size = switch (native_os) {
-    .freebsd, .linux => private.malloc_usable_size,
+    .freebsd, .linux, .serenity => private.malloc_usable_size,
     else => {},
 };
 pub const posix_memalign = switch (native_os) {
-    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.posix_memalign,
+    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => private.posix_memalign,
     else => {},
 };
 pub const sysconf = switch (native_os) {
@@ -9530,6 +10396,12 @@ pub const sf_hdtr = switch (native_os) {
 pub const flock = switch (native_os) {
     .windows, .wasi => {},
     else => private.flock,
+};
+
+pub const futex = switch (native_os) {
+    .openbsd => openbsd.futex,
+    .serenity => serenity.futex,
+    else => {},
 };
 
 pub extern "c" var environ: [*:null]?[*:0]u8;
@@ -9582,6 +10454,7 @@ pub const fork = switch (native_os) {
     .watchos,
     .visionos,
     .haiku,
+    .serenity,
     => private.fork,
     else => {},
 };
@@ -9825,7 +10698,11 @@ pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.c) 
 pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.c) E;
 pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.c) E;
 
-pub const pthread_t = *opaque {};
+pub const pthread_t = switch (native_os) {
+    // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L64
+    .serenity => c_int,
+    else => *opaque {},
+};
 pub const FILE = opaque {};
 
 pub extern "c" fn dlopen(path: ?[*:0]const u8, mode: RTLD) ?*anyopaque;
@@ -9958,7 +10835,6 @@ pub const thread_id = haiku.thread_id;
 
 pub const AUTH = openbsd.AUTH;
 pub const BI = openbsd.BI;
-pub const FUTEX = openbsd.FUTEX;
 pub const HW = openbsd.HW;
 pub const PTHREAD_STACK_MIN = openbsd.PTHREAD_STACK_MIN;
 pub const TCFLUSH = openbsd.TCFLUSH;
@@ -9999,7 +10875,6 @@ pub const bcrypt_checkpass = openbsd.bcrypt_checkpass;
 pub const bcrypt_gensalt = openbsd.bcrypt_gensalt;
 pub const bcrypt_newhash = openbsd.bcrypt_newhash;
 pub const endpwent = openbsd.endpwent;
-pub const futex = openbsd.futex;
 pub const getpwent = openbsd.getpwent;
 pub const getpwnam_r = openbsd.getpwnam_r;
 pub const getpwnam_shadow = openbsd.getpwnam_shadow;
@@ -10225,6 +11100,24 @@ pub const lwpid_t = netbsd.lwpid_t;
 pub const lwp_gettid = dragonfly.lwp_gettid;
 pub const umtx_sleep = dragonfly.umtx_sleep;
 pub const umtx_wakeup = dragonfly.umtx_wakeup;
+
+pub const PERF_EVENT = serenity.PERF_EVENT;
+pub const disown = serenity.disown;
+pub const profiling_enable = serenity.profiling_enable;
+pub const profiling_disable = serenity.profiling_disable;
+pub const profiling_free_buffer = serenity.profiling_free_buffer;
+pub const futex_wait = serenity.futex_wait;
+pub const futex_wake = serenity.futex_wake;
+pub const purge = serenity.purge;
+pub const perf_event = serenity.perf_event;
+pub const perf_register_string = serenity.perf_register_string;
+pub const get_stack_bounds = serenity.get_stack_bounds;
+pub const anon_create = serenity.anon_create;
+pub const serenity_readlink = serenity.serenity_readlink;
+pub const serenity_open = serenity.serenity_open;
+pub const getkeymap = serenity.getkeymap;
+pub const setkeymap = serenity.setkeymap;
+pub const internet_checksum = serenity.internet_checksum;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {
