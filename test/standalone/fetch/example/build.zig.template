@@ -1,0 +1,9 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const dep = b.dependency("somedependency", .{});
+    b.getInstallStep().dependOn(&b.addInstallFile(
+        dep.path("<NO_UNPACK>"),
+        "example_dep_file.txt",
+    ).step);
+}
