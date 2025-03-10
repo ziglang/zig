@@ -18,8 +18,6 @@ export fn function_with_return_type_type() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:7: error: unable to evaluate comptime expression
 // :3:5: note: operation is runtime due to this operand
