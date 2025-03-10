@@ -410,7 +410,7 @@ pub fn createEmpty(
             .memsz = reserved,
         })).toOptional();
         self.phdr_indexes.table_load = (try self.addPhdr(.{
-            .type = elf.PT_LOAD,
+            .type = .load,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
             .addr = self.image_base,
@@ -566,7 +566,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     }
 
     for (self.phdrs.items) |phdr| {
-        if (phdr.p_type != elf.PT_LOAD) continue;
+        if (phdr.p_type != .load) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
         const test_end = phdr.p_offset +| increased_size;
         if (start < test_end) {
@@ -2992,13 +2992,13 @@ fn setHashSections(self: *Elf) !void {
 
 fn phdrRank(phdr: elf.Elf64_Phdr) u8 {
     return switch (phdr.p_type) {
-        elf.PT_NULL => 0,
-        elf.PT_PHDR => 1,
-        elf.PT_INTERP => 2,
-        elf.PT_LOAD => 3,
-        elf.PT_DYNAMIC, elf.PT_TLS => 4,
-        elf.PT_GNU_EH_FRAME => 5,
-        elf.PT_GNU_STACK => 6,
+        .null => 0,
+        .phdr => 1,
+        .interp => 2,
+        .load => 3,
+        .dynamic, .tls => 4,
+        .gnu_eh_frame => 5,
+        .gnu_stack => 6,
         else => 7,
     };
 }
@@ -4213,7 +4213,7 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
 }
 
 fn getPhdr(self: *Elf, opts: struct {
-    type: u32 = 0,
+    type: elf.PhdrType = .null,
     flags: u32 = 0,
 }) OptionalProgramHeaderIndex {
     for (self.phdrs.items, 0..) |phdr, phndx| {
@@ -4227,7 +4227,7 @@ fn getPhdr(self: *Elf, opts: struct {
 }
 
 fn addPhdr(self: *Elf, opts: struct {
-    type: u32 = 0,
+    type: elf.PhdrType = .null,
     flags: u32 = 0,
     @"align": u64 = 0,
     offset: u64 = 0,
@@ -4750,20 +4750,20 @@ fn formatPhdr(
     if (write) flags[1] = 'W';
     if (read) flags[2] = 'R';
     const p_type = switch (phdr.p_type) {
-        elf.PT_LOAD => "LOAD",
-        elf.PT_TLS => "TLS",
-        elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
-        elf.PT_GNU_STACK => "GNU_STACK",
-        elf.PT_DYNAMIC => "DYNAMIC",
-        elf.PT_INTERP => "INTERP",
-        elf.PT_NULL => "NULL",
-        elf.PT_PHDR => "PHDR",
-        elf.PT_NOTE => "NOTE",
+        .load => "LOAD",
+        .tls => "TLS",
+        .gnu_eh_frame => "GNU_EH_FRAME",
+        .gnu_stack => "GNU_STACK",
+        .dynamic => "DYNAMIC",
+        .interp => "INTERP",
+        .null => "NULL",
+        .phdr => "PHDR",
+        .note => "NOTE",
         else => "UNKNOWN",
     };
     try writer.print("{s} : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})", .{
-        p_type,       flags,         phdr.p_offset, phdr.p_vaddr,
-        phdr.p_align, phdr.p_filesz, phdr.p_memsz,
+        @tagName(p_type), flags,         phdr.p_offset, phdr.p_vaddr,
+        phdr.p_align,     phdr.p_filesz, phdr.p_memsz,
     });
 }
 

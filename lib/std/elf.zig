@@ -284,45 +284,6 @@ pub const VER_FLG_BASE = 1;
 /// Weak version identifier
 pub const VER_FLG_WEAK = 2;
 
-/// Program header table entry unused
-pub const PT_NULL = 0;
-/// Loadable program segment
-pub const PT_LOAD = 1;
-/// Dynamic linking information
-pub const PT_DYNAMIC = 2;
-/// Program interpreter
-pub const PT_INTERP = 3;
-/// Auxiliary information
-pub const PT_NOTE = 4;
-/// Reserved
-pub const PT_SHLIB = 5;
-/// Entry for header table itself
-pub const PT_PHDR = 6;
-/// Thread-local storage segment
-pub const PT_TLS = 7;
-/// Number of defined types
-pub const PT_NUM = 8;
-/// Start of OS-specific
-pub const PT_LOOS = 0x60000000;
-/// GCC .eh_frame_hdr segment
-pub const PT_GNU_EH_FRAME = 0x6474e550;
-/// Indicates stack executability
-pub const PT_GNU_STACK = 0x6474e551;
-/// Read-only after relocation
-pub const PT_GNU_RELRO = 0x6474e552;
-pub const PT_LOSUNW = 0x6ffffffa;
-/// Sun specific segment
-pub const PT_SUNWBSS = 0x6ffffffa;
-/// Stack segment
-pub const PT_SUNWSTACK = 0x6ffffffb;
-pub const PT_HISUNW = 0x6fffffff;
-/// End of OS-specific
-pub const PT_HIOS = 0x6fffffff;
-/// Start of processor-specific
-pub const PT_LOPROC = 0x70000000;
-/// End of processor-specific
-pub const PT_HIPROC = 0x7fffffff;
-
 /// Section header table entry unused
 pub const SHT_NULL = 0;
 /// Program data
@@ -758,8 +719,81 @@ pub const Elf64_Ehdr = extern struct {
     e_shnum: Half,
     e_shstrndx: Half,
 };
+
+pub const PhdrType = enum(Word) {
+    /// Program header table entry unused
+    null = 0,
+    /// Loadable program segment
+    load = 1,
+    /// Dynamic linking information
+    dynamic = 2,
+    /// Program interpreter
+    interp = 3,
+    /// Auxiliary information
+    note = 4,
+    /// Reserved
+    shlib = 5,
+    /// Entry for header table itself
+    phdr = 6,
+    /// Thread-local storage segment
+    tls = 7,
+    /// Number of defined types
+    num = 8,
+    /// Start of OS-specific
+    loos = 0x60000000,
+    /// GCC .eh_frame_hdr segment
+    gnu_eh_frame = 0x6474e550,
+    /// Indicates stack executability
+    gnu_stack = 0x6474e551,
+    /// Read-only after relocation
+    gnu_relro = 0x6474e552,
+    /// Sun specific segment
+    sunwbss = 0x6ffffffa,
+    /// Stack segment
+    sunwstack = 0x6ffffffb,
+    /// End of OS-specific
+    hios = 0x6fffffff,
+    /// Start of processor-specific
+    loproc = 0x70000000,
+    /// End of processor-specific
+    hiproc = 0x7fffffff,
+    _,
+
+    pub const losunw = PhdrType.sunwbss;
+    pub const hisunw = PhdrType.hios;
+
+    pub fn format(
+        ph_type: PhdrType,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const as_int = @intFromEnum(ph_type);
+        const display: []const u8 = switch (ph_type) {
+            .null => "NULL",
+            .load => "LOAD",
+            .dynamic => "DYNAMIC",
+            .interp => "INTERP",
+            .note => "NOTE",
+            .shlib => "SHLIB",
+            .phdr => "PHDR",
+            .tls => "TLS",
+            .num => "NUM",
+            .gnu_eh_frame => "GNU_EH_FRAME",
+            .gnu_relro => "GNU_RELRO",
+            else => if (@intFromEnum(PhdrType.loos) <= as_int and as_int < @intFromEnum(PhdrType.hios)) {
+                return try writer.print("LOOS+0x{x}", .{as_int - @intFromEnum(PhdrType.loos)});
+            } else if (@intFromEnum(PhdrType.loproc) <= as_int and as_int < @intFromEnum(PhdrType.hiproc)) {
+                return try writer.print("LOPROC+0x{x}", .{as_int - @intFromEnum(PhdrType.loproc)});
+            } else "UNKNOWN",
+        };
+
+        try writer.writeAll(display);
+    }
+};
+
 pub const Elf32_Phdr = extern struct {
-    p_type: Word,
+    p_type: PhdrType,
     p_offset: Elf32_Off,
     p_vaddr: Elf32_Addr,
     p_paddr: Elf32_Addr,
@@ -769,7 +803,7 @@ pub const Elf32_Phdr = extern struct {
     p_align: Word,
 };
 pub const Elf64_Phdr = extern struct {
-    p_type: Word,
+    p_type: PhdrType,
     p_flags: Word,
     p_offset: Elf64_Off,
     p_vaddr: Elf64_Addr,
