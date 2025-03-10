@@ -17,6 +17,7 @@ pub const Feature = enum {
     float64,
     matrix,
     storage_push_constant16,
+    arbitrary_precision_integers,
     kernel,
     addresses,
     generic_pointer,
@@ -104,6 +105,11 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
         .dependencies = featureSet(&[_]Feature{.v1_3}),
+    };
+    result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
+        .dependencies = featureSet(&[_]Feature{ .v1_5, .int8, .int16 }),
     };
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,

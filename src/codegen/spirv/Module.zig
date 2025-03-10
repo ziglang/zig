@@ -343,6 +343,10 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                     try self.addExtension("SPV_KHR_16bit_storage");
                     try self.addCapability(.StoragePushConstant16);
                 },
+                .arbitrary_precision_integers => {
+                    try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
+                    try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
+                },
                 .addresses => try self.addCapability(.Addresses),
                 // Kernel
                 .kernel => try self.addCapability(.Kernel),
