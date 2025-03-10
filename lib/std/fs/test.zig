@@ -298,6 +298,28 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
     }.impl);
 }
 
+test "Dir.statLink" {
+    // https://github.com/ziglang/zig/issues/20890
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const dir_target_path = try ctx.transformPath("test_file");
+            const file = try ctx.dir.createFile(dir_target_path, .{});
+            try file.writeAll("Some test content");
+            file.close();
+
+            try setupSymlink(ctx.dir, dir_target_path, "symlink", .{});
+
+            const file_stat = try ctx.dir.statLink("test_file");
+            const link_stat = try ctx.dir.statLink("symlink");
+
+            try testing.expectEqual(File.Kind.file, file_stat.kind);
+            try testing.expectEqual(File.Kind.sym_link, link_stat.kind);
+        }
+    }.impl);
+}
+
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
