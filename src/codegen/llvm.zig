@@ -1071,8 +1071,7 @@ pub const Object = struct {
                 .thin => .ThinPreLink,
                 .full => .FullPreLink,
             },
-            // https://github.com/ziglang/zig/issues/21215
-            .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
+            .allow_fast_isel = true,
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
