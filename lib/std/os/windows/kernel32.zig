@@ -314,7 +314,7 @@ pub extern "kernel32" fn CreateProcessW(
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
+    dwCreationFlags: windows.CreateProcessFlags,
     lpEnvironment: ?LPVOID,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
