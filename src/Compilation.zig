@@ -5741,13 +5741,6 @@ pub fn addCCArgs(
 
         // LLVM IR files don't support these flags.
         if (ext != .ll and ext != .bc) {
-            // https://github.com/llvm/llvm-project/issues/105972
-            if (target.cpu.arch.isPowerPC() and target.abi.float() == .soft) {
-                try argv.append("-D__NO_FPRS__");
-                try argv.append("-D_SOFT_FLOAT");
-                try argv.append("-D_SOFT_DOUBLE");
-            }
-
             if (comp.config.link_libc) {
                 if (target.isGnuLibC()) {
                     const target_version = target.os.versionRange().gnuLibCVersion().?;
