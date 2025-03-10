@@ -275,6 +275,14 @@ test "string set case insensitive number" {
     try testing.expect((try a.toInt(u32)) == 0xabcdef);
 }
 
+test "string set base 36" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(36, "fifvthrv1mzt79ez9");
+    try testing.expect((try a.to(u128)) == 123456789123456789123456789);
+}
+
 test "string set bad char error" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
@@ -349,6 +357,17 @@ test "string to base 16" {
     const as = try a.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(as);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
+
+    try testing.expect(mem.eql(u8, as, es));
+}
+
+test "string to base 36" {
+    var a = try Managed.initSet(testing.allocator, 123456789123456789123456789);
+    defer a.deinit();
+
+    const as = try a.toString(testing.allocator, 36, .lower);
+    defer testing.allocator.free(as);
+    const es = "fifvthrv1mzt79ez9";
 
     try testing.expect(mem.eql(u8, as, es));
 }

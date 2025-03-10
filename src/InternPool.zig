@@ -6045,8 +6045,9 @@ pub const FuncAnalysis = packed struct(u32) {
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
+    disable_intrinsics: bool,
 
-    _: u24 = 0,
+    _: u23 = 0,
 };
 
 pub const Bytes = struct {
@@ -6260,7 +6261,7 @@ pub const Alignment = enum(u6) {
         return n + 1;
     }
 
-    const LlvmBuilderAlignment = @import("codegen/llvm/Builder.zig").Alignment;
+    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
 
     pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
         return @enumFromInt(@intFromEnum(this));
@@ -9077,6 +9078,7 @@ pub fn getFuncDecl(
             .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         .owner_nav = key.owner_nav,
         .ty = key.ty,
@@ -9186,6 +9188,7 @@ pub fn getFuncDeclIes(
             .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         .owner_nav = key.owner_nav,
         .ty = func_ty,
@@ -9382,6 +9385,7 @@ pub fn getFuncInstance(
             .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         // This is populated after we create the Nav below. It is not read
         // by equality or hashing functions.
@@ -9480,6 +9484,7 @@ pub fn getFuncInstanceIes(
             .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         // This is populated after we create the Nav below. It is not read
         // by equality or hashing functions.
@@ -12310,6 +12315,18 @@ pub fn funcSetDisableInstrumentation(ip: *InternPool, func: Index) void {
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
     analysis.disable_instrumentation = true;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcSetDisableIntrinsics(ip: *InternPool, func: Index) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.disable_intrinsics = true;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 

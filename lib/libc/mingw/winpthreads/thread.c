@@ -970,7 +970,8 @@ void
 _pthread_cleanup_dest (pthread_t t)
 {
 	_pthread_v *tv;
-	unsigned int i, j;
+	unsigned int j;
+	int i;
 
 	if (!t)
 		return;
@@ -983,7 +984,7 @@ _pthread_cleanup_dest (pthread_t t)
 		int flag = 0;
 
 		pthread_spin_lock (&tv->spin_keys);
-		for (i = 0; i < tv->keymax; i++)
+		for (i = tv->keymax - 1; i >= 0; i--)
 		{
 			void *val = tv->keyval[i];
 

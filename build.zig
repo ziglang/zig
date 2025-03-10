@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
 const ValueInterpretMode = enum { direct, by_name };
 
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -257,13 +257,10 @@ pub fn build(b: *std.Build) !void {
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git",
-            "-C",
-            b.build_root.path orelse ".",
-            "describe",
-            "--match",
-            "*.*.*",
-            "--tags",
-            "--abbrev=9",
+            "-C", b.build_root.path orelse ".", // affects the --git-dir argument
+            "--git-dir", ".git", // affected by the -C argument
+            "describe", "--match",    "*.*.*", //
+            "--tags",   "--abbrev=9",
         }, &code, .Ignore) catch {
             break :v version_string;
         };

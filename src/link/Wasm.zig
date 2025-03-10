@@ -3879,6 +3879,11 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
         break :blk null;
     };
+    const ubsan_rt_path: ?Path = blk: {
+        if (comp.ubsan_rt_lib) |lib| break :blk lib.full_object_path;
+        if (comp.ubsan_rt_obj) |obj| break :blk obj.full_object_path;
+        break :blk null;
+    };
 
     const id_symlink_basename = "lld.id";
 
@@ -3901,6 +3906,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
+        try man.addOptionalFilePath(ubsan_rt_path);
         man.hash.addOptionalBytes(wasm.entry_name.slice(wasm));
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
@@ -4146,6 +4152,10 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
         if (compiler_rt_path) |p| {
             try argv.append(try p.toString(arena));
+        }
+
+        if (ubsan_rt_path) |p| {
+            try argv.append(try p.toStringZ(arena));
         }
 
         if (comp.verbose_link) {

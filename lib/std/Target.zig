@@ -299,7 +299,7 @@ pub const Os = struct {
         pub fn parse(str: []const u8) !WindowsVersion {
             return std.meta.stringToEnum(WindowsVersion, str) orelse
                 @enumFromInt(std.fmt.parseInt(u32, str, 0) catch
-                return error.InvalidOperatingSystemVersion);
+                    return error.InvalidOperatingSystemVersion);
         }
 
         /// This function is defined to serialize a Zig source code representation of this
@@ -420,19 +420,19 @@ pub const Os = struct {
                 .contiki => .{
                     .semver = .{
                         .min = .{ .major = 4, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 4, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 0, .patch = 0 },
                     },
                 },
                 .fuchsia => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 20, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 21, .minor = 1, .patch = 0 },
                     },
                 },
                 .hermit => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 4, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 10, .patch = 0 },
                     },
                 },
 
@@ -467,7 +467,7 @@ pub const Os = struct {
 
                                 break :blk default_min;
                             },
-                            .max = .{ .major = 6, .minor = 11, .patch = 5 },
+                            .max = .{ .major = 6, .minor = 13, .patch = 4 },
                         },
                         .glibc = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
@@ -488,7 +488,7 @@ pub const Os = struct {
                 .rtems => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 5, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 1, .patch = 0 },
                     },
                 },
                 .zos => .{
@@ -532,13 +532,13 @@ pub const Os = struct {
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 15, .minor = 3, .patch = 1 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 3, .patch = 1 },
                     },
                 },
                 .tvos => .{
@@ -550,13 +550,13 @@ pub const Os = struct {
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 3, .patch = 1 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 3, .patch = 1 },
                     },
                 },
 
@@ -590,7 +590,7 @@ pub const Os = struct {
                 .amdhsa => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 0, .patch = 2 },
-                        .max = .{ .major = 6, .minor = 2, .patch = 2 },
+                        .max = .{ .major = 6, .minor = 3, .patch = 0 },
                     },
                 },
                 .amdpal => .{
@@ -602,7 +602,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 6, .patch = 1 },
+                        .max = .{ .major = 12, .minor = 8, .patch = 0 },
                     },
                 },
                 .nvcl,
@@ -610,7 +610,7 @@ pub const Os = struct {
                 => .{
                     .semver = .{
                         .min = .{ .major = 2, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 3, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 0, .patch = 17 },
                     },
                 },
                 .opengl => .{
@@ -622,7 +622,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 309 },
                     },
                 },
             };
@@ -803,8 +803,8 @@ pub const Abi = enum {
     // - raygeneration
     // - vertex
 
-    pub fn default(arch: Cpu.Arch, os: Os) Abi {
-        return switch (os.tag) {
+    pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
+        return switch (os_tag) {
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,

@@ -21,6 +21,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     export_table.use_lld = false;
     export_table.export_table = true;
     export_table.link_gc_sections = false;
+    // Don't pull in ubsan, since we're just expecting a very minimal executable.
+    export_table.bundle_ubsan_rt = false;
 
     const regular_table = b.addExecutable(.{
         .name = "regular_table",
@@ -34,6 +36,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
     regular_table.link_gc_sections = false; // Ensure function table is not empty
+    // Don't pull in ubsan, since we're just expecting a very minimal executable.
+    regular_table.bundle_ubsan_rt = false;
 
     const check_export = export_table.checkObject();
     const check_regular = regular_table.checkObject();

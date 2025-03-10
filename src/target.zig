@@ -306,12 +306,8 @@ pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .aarch64,
         .aarch64_be,
-        .powerpc,
-        .powerpcle,
-        .powerpc64,
-        .powerpc64le,
-        .x86_64,
         .x86,
+        .x86_64,
         => true,
 
         else => false,
@@ -624,6 +620,17 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
         => false,
         else => true,
     };
+}
+
+pub fn functionPointerMask(target: std.Target) ?u64 {
+    // 32-bit Arm uses the LSB to mean that the target function contains Thumb code.
+    // MIPS uses the LSB to mean that the target function contains MIPS16/microMIPS code.
+    return if (target.cpu.arch.isArm() or target.cpu.arch.isMIPS32())
+        ~@as(u32, 1)
+    else if (target.cpu.arch.isMIPS64())
+        ~@as(u64, 1)
+    else
+        null;
 }
 
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {

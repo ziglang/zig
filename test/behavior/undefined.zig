@@ -79,6 +79,7 @@ test "assign undefined to struct with method" {
 }
 
 test "type name of undefined" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const x = undefined;
@@ -91,6 +92,7 @@ test "reslice of undefined global var slice" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var stack_buf: [100]u8 = [_]u8{0} ** 100;
     buf = &stack_buf;

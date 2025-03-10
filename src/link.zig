@@ -491,6 +491,8 @@ pub const File = struct {
         /// Force load all members of static archives that implement an
         /// Objective-C class or category
         force_load_objc: bool,
+        /// Whether local symbols should be discarded from the symbol table.
+        discard_local_symbols: bool,
 
         /// Windows-specific linker flags:
         /// PDB source path prefix to instruct the linker how to resolve relative
@@ -596,6 +598,20 @@ pub const File = struct {
             },
             .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
         }
+    }
+
+    /// Some linkers create a separate file for debug info, which we might need to temporarily close
+    /// when moving the compilation result directory due to the host OS not allowing moving a
+    /// file/directory while a handle remains open.
+    /// Returns `true` if a debug info file was closed. In that case, `reopenDebugInfo` may be called.
+    pub fn closeDebugInfo(base: *File) bool {
+        const macho = base.cast(.macho) orelse return false;
+        return macho.closeDebugInfo();
+    }
+
+    pub fn reopenDebugInfo(base: *File) !void {
+        const macho = base.cast(.macho).?;
+        return macho.reopenDebugInfo();
     }
 
     pub fn makeExecutable(base: *File) !void {
@@ -1100,8 +1116,13 @@ pub const File = struct {
 
         log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
 
-        const compiler_rt_path: ?Path = if (comp.include_compiler_rt)
+        const compiler_rt_path: ?Path = if (comp.compiler_rt_strat == .obj)
             comp.compiler_rt_obj.?.full_object_path
+        else
+            null;
+
+        const ubsan_rt_path: ?Path = if (comp.ubsan_rt_strat == .obj)
+            comp.ubsan_rt_obj.?.full_object_path
         else
             null;
 
@@ -1134,6 +1155,7 @@ pub const File = struct {
             }
             try man.addOptionalFile(zcu_obj_path);
             try man.addOptionalFilePath(compiler_rt_path);
+            try man.addOptionalFilePath(ubsan_rt_path);
 
             // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
             _ = try man.hit();
@@ -1179,6 +1201,7 @@ pub const File = struct {
         }
         if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
+        if (ubsan_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
 
         if (comp.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});
@@ -1889,144 +1912,184 @@ pub fn resolveInputs(
     mem.reverse(UnresolvedInput, unresolved_inputs.items);
 
     syslib: while (unresolved_inputs.pop()) |unresolved_input| {
-        const name_query: UnresolvedInput.NameQuery = switch (unresolved_input) {
-            .name_query => |nq| nq,
-            .ambiguous_name => |an| an: {
-                const lib_name, const link_mode = stripLibPrefixAndSuffix(an.name, target) orelse {
-                    try resolvePathInput(gpa, arena, unresolved_inputs, resolved_inputs, &ld_script_bytes, target, .{
+        switch (unresolved_input) {
+            .name_query => |name_query| {
+                const query = name_query.query;
+
+                // Checked in the first pass above while looking for libc libraries.
+                assert(!fs.path.isAbsolute(name_query.name));
+
+                checked_paths.clearRetainingCapacity();
+
+                switch (query.search_strategy) {
+                    .mode_first, .no_fallback => {
+                        // check for preferred mode
+                        for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                            gpa,
+                            arena,
+                            unresolved_inputs,
+                            resolved_inputs,
+                            &checked_paths,
+                            &ld_script_bytes,
+                            lib_directory,
+                            name_query,
+                            target,
+                            query.preferred_mode,
+                            color,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
+                        // check for fallback mode
+                        if (query.search_strategy == .no_fallback) {
+                            try failed_libs.append(arena, .{
+                                .name = name_query.name,
+                                .strategy = query.search_strategy,
+                                .checked_paths = try arena.dupe(u8, checked_paths.items),
+                                .preferred_mode = query.preferred_mode,
+                            });
+                            continue :syslib;
+                        }
+                        for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                            gpa,
+                            arena,
+                            unresolved_inputs,
+                            resolved_inputs,
+                            &checked_paths,
+                            &ld_script_bytes,
+                            lib_directory,
+                            name_query,
+                            target,
+                            query.fallbackMode(),
+                            color,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
+                        try failed_libs.append(arena, .{
+                            .name = name_query.name,
+                            .strategy = query.search_strategy,
+                            .checked_paths = try arena.dupe(u8, checked_paths.items),
+                            .preferred_mode = query.preferred_mode,
+                        });
+                        continue :syslib;
+                    },
+                    .paths_first => {
+                        for (lib_directories) |lib_directory| {
+                            // check for preferred mode
+                            switch (try resolveLibInput(
+                                gpa,
+                                arena,
+                                unresolved_inputs,
+                                resolved_inputs,
+                                &checked_paths,
+                                &ld_script_bytes,
+                                lib_directory,
+                                name_query,
+                                target,
+                                query.preferred_mode,
+                                color,
+                            )) {
+                                .ok => continue :syslib,
+                                .no_match => {},
+                            }
+
+                            // check for fallback mode
+                            switch (try resolveLibInput(
+                                gpa,
+                                arena,
+                                unresolved_inputs,
+                                resolved_inputs,
+                                &checked_paths,
+                                &ld_script_bytes,
+                                lib_directory,
+                                name_query,
+                                target,
+                                query.fallbackMode(),
+                                color,
+                            )) {
+                                .ok => continue :syslib,
+                                .no_match => {},
+                            }
+                        }
+                        try failed_libs.append(arena, .{
+                            .name = name_query.name,
+                            .strategy = query.search_strategy,
+                            .checked_paths = try arena.dupe(u8, checked_paths.items),
+                            .preferred_mode = query.preferred_mode,
+                        });
+                        continue :syslib;
+                    },
+                }
+            },
+            .ambiguous_name => |an| {
+                // First check the path relative to the current working directory.
+                // If the file is a library and is not found there, check the library search paths as well.
+                // This is consistent with the behavior of GNU ld.
+                if (try resolvePathInput(
+                    gpa,
+                    arena,
+                    unresolved_inputs,
+                    resolved_inputs,
+                    &ld_script_bytes,
+                    target,
+                    .{
                         .path = Path.initCwd(an.name),
                         .query = an.query,
-                    }, color);
-                    continue;
-                };
-                break :an .{
-                    .name = lib_name,
-                    .query = .{
-                        .needed = an.query.needed,
-                        .weak = an.query.weak,
-                        .reexport = an.query.reexport,
-                        .must_link = an.query.must_link,
-                        .hidden = an.query.hidden,
-                        .allow_so_scripts = an.query.allow_so_scripts,
-                        .preferred_mode = link_mode,
-                        .search_strategy = .no_fallback,
                     },
-                };
+                    color,
+                )) |lib_result| {
+                    switch (lib_result) {
+                        .ok => continue :syslib,
+                        .no_match => {
+                            for (lib_directories) |lib_directory| {
+                                switch ((try resolvePathInput(
+                                    gpa,
+                                    arena,
+                                    unresolved_inputs,
+                                    resolved_inputs,
+                                    &ld_script_bytes,
+                                    target,
+                                    .{
+                                        .path = .{
+                                            .root_dir = lib_directory,
+                                            .sub_path = an.name,
+                                        },
+                                        .query = an.query,
+                                    },
+                                    color,
+                                )).?) {
+                                    .ok => continue :syslib,
+                                    .no_match => {},
+                                }
+                            }
+                            fatal("{s}: file listed in linker script not found", .{an.name});
+                        },
+                    }
+                }
+                continue;
             },
             .path_query => |pq| {
-                try resolvePathInput(gpa, arena, unresolved_inputs, resolved_inputs, &ld_script_bytes, target, pq, color);
+                if (try resolvePathInput(
+                    gpa,
+                    arena,
+                    unresolved_inputs,
+                    resolved_inputs,
+                    &ld_script_bytes,
+                    target,
+                    pq,
+                    color,
+                )) |lib_result| {
+                    switch (lib_result) {
+                        .ok => {},
+                        .no_match => fatal("{}: file not found", .{pq.path}),
+                    }
+                }
                 continue;
             },
             .dso_exact => |dso_exact| {
                 try resolved_inputs.append(gpa, .{ .dso_exact = dso_exact });
                 continue;
-            },
-        };
-        const query = name_query.query;
-
-        // Checked in the first pass above while looking for libc libraries.
-        assert(!fs.path.isAbsolute(name_query.name));
-
-        checked_paths.clearRetainingCapacity();
-
-        switch (query.search_strategy) {
-            .mode_first, .no_fallback => {
-                // check for preferred mode
-                for (lib_directories) |lib_directory| switch (try resolveLibInput(
-                    gpa,
-                    arena,
-                    unresolved_inputs,
-                    resolved_inputs,
-                    &checked_paths,
-                    &ld_script_bytes,
-                    lib_directory,
-                    name_query,
-                    target,
-                    query.preferred_mode,
-                    color,
-                )) {
-                    .ok => continue :syslib,
-                    .no_match => {},
-                };
-                // check for fallback mode
-                if (query.search_strategy == .no_fallback) {
-                    try failed_libs.append(arena, .{
-                        .name = name_query.name,
-                        .strategy = query.search_strategy,
-                        .checked_paths = try arena.dupe(u8, checked_paths.items),
-                        .preferred_mode = query.preferred_mode,
-                    });
-                    continue :syslib;
-                }
-                for (lib_directories) |lib_directory| switch (try resolveLibInput(
-                    gpa,
-                    arena,
-                    unresolved_inputs,
-                    resolved_inputs,
-                    &checked_paths,
-                    &ld_script_bytes,
-                    lib_directory,
-                    name_query,
-                    target,
-                    query.fallbackMode(),
-                    color,
-                )) {
-                    .ok => continue :syslib,
-                    .no_match => {},
-                };
-                try failed_libs.append(arena, .{
-                    .name = name_query.name,
-                    .strategy = query.search_strategy,
-                    .checked_paths = try arena.dupe(u8, checked_paths.items),
-                    .preferred_mode = query.preferred_mode,
-                });
-                continue :syslib;
-            },
-            .paths_first => {
-                for (lib_directories) |lib_directory| {
-                    // check for preferred mode
-                    switch (try resolveLibInput(
-                        gpa,
-                        arena,
-                        unresolved_inputs,
-                        resolved_inputs,
-                        &checked_paths,
-                        &ld_script_bytes,
-                        lib_directory,
-                        name_query,
-                        target,
-                        query.preferred_mode,
-                        color,
-                    )) {
-                        .ok => continue :syslib,
-                        .no_match => {},
-                    }
-
-                    // check for fallback mode
-                    switch (try resolveLibInput(
-                        gpa,
-                        arena,
-                        unresolved_inputs,
-                        resolved_inputs,
-                        &checked_paths,
-                        &ld_script_bytes,
-                        lib_directory,
-                        name_query,
-                        target,
-                        query.fallbackMode(),
-                        color,
-                    )) {
-                        .ok => continue :syslib,
-                        .no_match => {},
-                    }
-                }
-                try failed_libs.append(arena, .{
-                    .name = name_query.name,
-                    .strategy = query.search_strategy,
-                    .checked_paths = try arena.dupe(u8, checked_paths.items),
-                    .preferred_mode = query.preferred_mode,
-                });
-                continue :syslib;
             },
         }
         @compileError("unreachable");
@@ -2176,10 +2239,10 @@ fn resolvePathInput(
     target: std.Target,
     pq: UnresolvedInput.PathQuery,
     color: std.zig.Color,
-) Allocator.Error!void {
-    switch (switch (Compilation.classifyFileExt(pq.path.sub_path)) {
-        .static_library => try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .static, color),
-        .shared_library => try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
+) Allocator.Error!?ResolveLibInputResult {
+    switch (Compilation.classifyFileExt(pq.path.sub_path)) {
+        .static_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .static, color),
+        .shared_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
         .object => {
             var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
                 fatal("failed to open object {}: {s}", .{ pq.path, @errorName(err) });
@@ -2190,7 +2253,7 @@ fn resolvePathInput(
                 .must_link = pq.query.must_link,
                 .hidden = pq.query.hidden,
             } });
-            return;
+            return null;
         },
         .res => {
             var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
@@ -2200,12 +2263,9 @@ fn resolvePathInput(
                 .path = pq.path,
                 .file = file,
             } });
-            return;
+            return null;
         },
         else => fatal("{}: unrecognized file extension", .{pq.path}),
-    }) {
-        .ok => {},
-        .no_match => fatal("{}: file not found", .{pq.path}),
     }
 }
 
@@ -2226,9 +2286,11 @@ fn resolvePathInputLib(
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
 
     const test_path: Path = pq.path;
-    // In the case of .so files, they might actually be "linker scripts"
+    // In the case of shared libraries, they might actually be "linker scripts"
     // that contain references to other libraries.
-    if (pq.query.allow_so_scripts and target.ofmt == .elf and mem.endsWith(u8, test_path.sub_path, ".so")) {
+    if (pq.query.allow_so_scripts and target.ofmt == .elf and
+        Compilation.classifyFileExt(test_path.sub_path) == .shared_library)
+    {
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return .no_match,
             else => |e| fatal("unable to search for {s} library '{'}': {s}", .{
@@ -2352,21 +2414,6 @@ pub fn openDsoInput(diags: *Diags, path: Path, needed: bool, weak: bool, reexpor
     return .{ .dso = openDso(path, needed, weak, reexport) catch |err| {
         return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
     } };
-}
-
-fn stripLibPrefixAndSuffix(path: []const u8, target: std.Target) ?struct { []const u8, std.builtin.LinkMode } {
-    const prefix = target.libPrefix();
-    const static_suffix = target.staticLibSuffix();
-    const dynamic_suffix = target.dynamicLibSuffix();
-    const basename = fs.path.basename(path);
-    const unlibbed = if (mem.startsWith(u8, basename, prefix)) basename[prefix.len..] else return null;
-    if (mem.endsWith(u8, unlibbed, static_suffix)) return .{
-        unlibbed[0 .. unlibbed.len - static_suffix.len], .static,
-    };
-    if (mem.endsWith(u8, unlibbed, dynamic_suffix)) return .{
-        unlibbed[0 .. unlibbed.len - dynamic_suffix.len], .dynamic,
-    };
-    return null;
 }
 
 /// Returns true if and only if there is at least one input of type object,

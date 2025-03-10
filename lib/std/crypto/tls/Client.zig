@@ -692,7 +692,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         const client_key_exchange_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, u8, .{@intFromEnum(tls.HandshakeType.client_key_exchange)} ++
-                            array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
+                                array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
                         const client_change_cipher_spec_msg = .{@intFromEnum(tls.ContentType.change_cipher_spec)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, tls.ChangeCipherSpecType, .{.change_cipher_spec});
@@ -720,11 +720,11 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                 );
                                 const client_verify_cleartext = .{@intFromEnum(tls.HandshakeType.finished)} ++
                                     array(u24, u8, hmacExpandLabel(
-                                    P.Hmac,
-                                    &master_secret,
-                                    &.{ "client finished", &p.transcript_hash.peek() },
-                                    P.verify_data_length,
-                                ));
+                                        P.Hmac,
+                                        &master_secret,
+                                        &.{ "client finished", &p.transcript_hash.peek() },
+                                        P.verify_data_length,
+                                    ));
                                 p.transcript_hash.update(&client_verify_cleartext);
                                 p.version = .{ .tls_1_2 = .{
                                     .expected_server_verify_data = hmacExpandLabel(
@@ -745,7 +745,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                 var client_verify_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
                                     int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                                     array(u16, u8, nonce[P.fixed_iv_length..].* ++
-                                    @as([client_verify_cleartext.len + P.mac_length]u8, undefined));
+                                        @as([client_verify_cleartext.len + P.mac_length]u8, undefined));
                                 P.AEAD.encrypt(
                                     client_verify_msg[client_verify_msg.len - P.mac_length -
                                         client_verify_cleartext.len ..][0..client_verify_cleartext.len],

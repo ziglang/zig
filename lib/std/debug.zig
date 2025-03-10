@@ -54,6 +54,10 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
                 @tagName(accessed), @tagName(active),
             });
         }
+        pub fn sliceCastLenRemainder(src_len: usize) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "slice length '{d}' does not divide exactly into destination elements", .{src_len});
+        }
         pub fn reachedUnreachable() noreturn {
             @branchHint(.cold);
             call("reached unreachable code", @returnAddress());

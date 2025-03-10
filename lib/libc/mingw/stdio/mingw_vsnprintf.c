@@ -34,11 +34,20 @@ int __cdecl __vsnprintf(APICHAR *buf, size_t length, const APICHAR *fmt, va_list
   register int retval;
 
   if( length == (size_t)(0) )
+  {
+#if defined(__BUILD_WIDEAPI) && defined(__BUILD_WIDEAPI_ISO)
+    /* No buffer; for wide api ISO C95+ vswprintf() function
+     * simply returns negative value as required by ISO C95+.
+     */
+    return -1;
+#else
     /*
      * No buffer; simply compute and return the size required,
      * without actually emitting any data.
      */
     return __pformat( 0, buf, 0, fmt, argv);
+#endif
+  }
 
   /* If we get to here, then we have a buffer...
    * Emit data up to the limit of buffer length less one,
@@ -46,6 +55,15 @@ int __cdecl __vsnprintf(APICHAR *buf, size_t length, const APICHAR *fmt, va_list
    */
   retval = __pformat( 0, buf, --length, fmt, argv );
   buf[retval < (int) length ? retval : (int)length] = '\0';
+
+#if defined(__BUILD_WIDEAPI) && defined(__BUILD_WIDEAPI_ISO)
+  /* For wide api ISO C95+ vswprintf() when requested length
+   * is equal or larger than buffer length, returns negative
+   * value as required by ISO C95+.
+   */
+  if( retval >= (int) length )
+    retval = -1;
+#endif
 
   return retval;
 }

@@ -78,7 +78,7 @@ fn writeFunction(
     };
     const fn_sig = try std.fmt.allocPrint(
         arena,
-        "fn {[name]s}() align(16) callconv(.Naked) void {{",
+        "fn {[name]s}() align(16) callconv(.naked) void {{",
         .{ .name = name },
     );
     try w.writeAll(fn_sig);

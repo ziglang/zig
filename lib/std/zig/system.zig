@@ -539,7 +539,7 @@ pub fn abiAndDynamicLinkerFromFile(
     var result: Target = .{
         .cpu = cpu,
         .os = os,
-        .abi = query.abi orelse Target.Abi.default(cpu.arch, os),
+        .abi = query.abi orelse Target.Abi.default(cpu.arch, os.tag),
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = query.dynamic_linker,
     };
@@ -1213,7 +1213,7 @@ fn detectAbiAndDynamicLinker(
 }
 
 fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Query) Target {
-    const abi = query.abi orelse Target.Abi.default(cpu.arch, os);
+    const abi = query.abi orelse Target.Abi.default(cpu.arch, os.tag);
     return .{
         .cpu = cpu,
         .os = os,

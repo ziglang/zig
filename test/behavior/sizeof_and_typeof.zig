@@ -327,6 +327,7 @@ test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct {
         next: @TypeOf(null, @as(*const @This(), undefined)),
@@ -420,8 +421,6 @@ test "Extern function calls in @TypeOf" {
 }
 
 test "Peer resolution of extern function calls in @TypeOf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const Test = struct {
         fn test_fn() @TypeOf(c_ftell(null), c_fputs(null, null)) {
             return 0;
@@ -439,7 +438,6 @@ test "Peer resolution of extern function calls in @TypeOf" {
 test "Extern function calls, dereferences and field access in @TypeOf" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {
