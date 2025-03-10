@@ -15,6 +15,13 @@ const T = struct {
     const a = 1;
 };
 
+const T2 = struct {
+    const a = 1;
+
+    b: u32,
+    []const u8,
+};
+
 // error
 // backend=stage2
 // target=native
@@ -22,5 +29,8 @@ const T = struct {
 // :2:5: error: enum field missing name
 // :5:5: error: union field missing name
 // :8:5: error: tuple field has a name
+// :9:5: note: tuple field here
 // :15:5: error: tuple declarations cannot contain declarations
 // :12:5: note: tuple field here
+// :19:5: error: tuple declarations cannot contain declarations
+// :22:5: note: tuple field here
