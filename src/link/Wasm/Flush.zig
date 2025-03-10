@@ -1011,7 +1011,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         try emitNameSection(wasm, f.data_segment_groups.items, binary_bytes);
     }
 
-    if (comp.config.debug_format != .strip) {
+    if (comp.config.root_strip != .all) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
         switch (wasm.base.build_id) {
