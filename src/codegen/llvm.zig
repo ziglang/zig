@@ -11262,9 +11262,9 @@ pub const FuncGen = struct {
         const pt = self.ng.pt;
 
         if (bits <= 128) {
-            const compiler_rt_bits = compilerRtIntBits(bits);
-            const needs_extend = bits != compiler_rt_bits;
-            const extended_ty = if (needs_extend) try o.builder.intType(compiler_rt_bits) else ty;
+            const rt_int_bits = compilerRtIntBits(bits);
+            const needs_extend = bits != rt_int_bits;
+            const rt_int_ty = try o.builder.intType(rt_int_bits);
 
             const fn_name = try o.builder.strtabStringFmt("__{s}_u{d}", .{
                 switch (tag) {
@@ -11272,26 +11272,35 @@ pub const FuncGen = struct {
                     .extract_bits => "pext",
                     else => unreachable,
                 },
-                compiler_rt_bits,
+                rt_int_bits,
             });
 
-            const params = .{
-                if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source,
-                if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask,
-            };
+            var extended_source = try self.wip.conv(.unsigned, source, rt_int_ty, "");
+            var extended_mask = try self.wip.conv(.unsigned, mask, rt_int_ty, "");
 
-            const libc_fn = try self.getLibcFunction(fn_name, &.{ extended_ty, extended_ty }, extended_ty);
-            const result = try self.wip.call(
+            var param_ty = rt_int_ty;
+            if (rt_int_bits == 128 and (o.target.os.tag == .windows and o.target.cpu.arch == .x86_64)) {
+                // On Windows x86_64, we expect i128 to be passed in an 2xi64 for both parameters and
+                // the return type.
+                param_ty = try o.builder.vectorType(.normal, 2, .i64);
+                extended_source = try self.wip.cast(.bitcast, extended_source, param_ty, "");
+                extended_mask = try self.wip.cast(.bitcast, extended_mask, param_ty, "");
+            }
+
+            const libc_fn = try self.getLibcFunction(fn_name, &.{ param_ty, param_ty }, param_ty);
+            var result = try self.wip.call(
                 .normal,
                 .ccc,
                 .none,
                 libc_fn.typeOf(&o.builder),
                 libc_fn.toValue(&o.builder),
-                &params,
+                &.{ extended_source, extended_mask },
                 "",
             );
 
-            return if (needs_extend) try self.wip.cast(.trunc, result, ty, "") else result;
+            if (param_ty != rt_int_ty) result = try self.wip.cast(.bitcast, result, rt_int_ty, "");
+            if (needs_extend) result = try self.wip.cast(.trunc, result, ty, "");
+            return result;
         }
 
         // Rounded bits to the nearest 32, as limb size is 32.
