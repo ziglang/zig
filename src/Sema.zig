@@ -3669,7 +3669,10 @@ fn indexablePtrLenOrNone(
     const zcu = pt.zcu;
     const operand_ty = sema.typeOf(operand);
     try checkMemOperand(sema, block, src, operand_ty);
-    if (operand_ty.ptrSize(zcu) == .many) return .none;
+    switch (operand_ty.ptrSize(zcu)) {
+        .many, .c => return .none,
+        .one, .slice => {},
+    }
     const field_name = try zcu.intern_pool.getOrPutString(sema.gpa, pt.tid, "len", .no_embedded_nulls);
     return sema.fieldVal(block, src, operand, field_name, src);
 }
