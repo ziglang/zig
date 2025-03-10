@@ -79,16 +79,6 @@ pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
     return @as(u128, @bitCast(a)) == @as(u128, @bitCast(b));
 }
 
-pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
-    var out: SrcHash = undefined;
-    var hasher = SrcHasher.init(.{});
-    hasher.update(&parent_hash);
-    hasher.update(sep);
-    hasher.update(name);
-    hasher.final(&out);
-    return out;
-}
-
 pub const Loc = struct {
     line: usize,
     column: usize,
