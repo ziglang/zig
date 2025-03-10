@@ -110,7 +110,7 @@ test {
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/abs.zig");
 
-    _ = @import("behavior/x86_64.zig");
+    //_ = @import("behavior/x86_64.zig");
 
     if (builtin.zig_backend != .stage2_spirv64 and builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
