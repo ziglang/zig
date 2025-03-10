@@ -271,8 +271,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .wasi, .emscripten => "unknown",
             else => "musl",
         },
-        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
-        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
+        .muslabin32 => "muslabin32",
+        .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslf32 => "muslf32",
