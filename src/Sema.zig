@@ -7184,7 +7184,7 @@ fn zirCall(
     const extra = sema.code.extraData(ExtraType, inst_data.payload_index);
     const args_len = extra.data.flags.args_len;
 
-    const modifier: std.builtin.CallModifier = @enumFromInt(extra.data.flags.packed_modifier);
+    const modifier = extra.data.flags.packed_modifier;
     const ensure_result_used = extra.data.flags.ensure_result_used;
     const pop_error_return_trace = extra.data.flags.pop_error_return_trace;
 

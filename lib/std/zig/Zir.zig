@@ -2997,22 +2997,13 @@ pub const Inst = struct {
         flags: Flags,
         callee: Ref,
 
-        pub const Flags = packed struct {
-            /// std.builtin.CallModifier in packed form
-            pub const PackedModifier = u3;
+        pub const Flags = packed struct(u32) {
             pub const PackedArgsLen = u27;
 
-            packed_modifier: PackedModifier,
+            packed_modifier: std.builtin.CallModifier,
             ensure_result_used: bool = false,
             pop_error_return_trace: bool,
             args_len: PackedArgsLen,
-
-            comptime {
-                if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
-                    @compileError("Layout of Call.Flags needs to be updated!");
-                if (@bitSizeOf(std.builtin.CallModifier) != @bitSizeOf(PackedModifier))
-                    @compileError("Call.Flags.PackedModifier needs to be updated!");
-            }
         };
     };
 
