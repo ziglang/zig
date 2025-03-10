@@ -343,18 +343,17 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                     try self.addExtension("SPV_KHR_16bit_storage");
                     try self.addCapability(.StoragePushConstant16);
                 },
-                .addresses => if (self.hasFeature(.shader)) {
-                    try self.addExtension("SPV_KHR_physical_storage_buffer");
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
-                } else {
-                    try self.addCapability(.Addresses);
-                },
+                .addresses => try self.addCapability(.Addresses),
                 // Kernel
                 .kernel => try self.addCapability(.Kernel),
                 .generic_pointer => try self.addCapability(.GenericPointer),
                 .vector16 => try self.addCapability(.Vector16),
                 // Shader
                 .shader => try self.addCapability(.Shader),
+                .physical_storage_buffer => {
+                    try self.addExtension("SPV_KHR_physical_storage_buffer");
+                    try self.addCapability(.PhysicalStorageBufferAddresses);
+                },
             }
         }
     }
