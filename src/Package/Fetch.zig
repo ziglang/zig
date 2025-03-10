@@ -707,27 +707,33 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         //     calling run(); no need to add it again.
         //
         // If we add a dep as lazy and then later try to add the same dep as eager,
-        // eagerness takes precedence and the existing entry is updated.
+        // eagerness takes precedence and the existing entry is updated and re-scheduled
+        // for fetching.
 
         for (dep_names, deps) |dep_name, dep| {
+            var promoted_existing_to_eager = false;
             const new_fetch = &new_fetches[new_fetch_index];
             const location: Location = switch (dep.location) {
-                .url => |url| .{ .remote = .{
-                    .url = url,
-                    .hash = h: {
-                        const h = dep.hash orelse break :h null;
-                        const pkg_hash: Package.Hash = .fromSlice(h);
-                        const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
-                        if (gop.found_existing) {
-                            if (!dep.lazy) {
-                                gop.value_ptr.*.lazy_status = .eager;
+                .url => |url| .{
+                    .remote = .{
+                        .url = url,
+                        .hash = h: {
+                            const h = dep.hash orelse break :h null;
+                            const pkg_hash: Package.Hash = .fromSlice(h);
+                            const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
+                            if (gop.found_existing) {
+                                if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
+                                    gop.value_ptr.*.lazy_status = .eager;
+                                    promoted_existing_to_eager = true;
+                                } else {
+                                    continue;
+                                }
                             }
-                            continue;
-                        }
-                        gop.value_ptr.* = new_fetch;
-                        break :h pkg_hash;
+                            gop.value_ptr.* = new_fetch;
+                            break :h pkg_hash;
+                        },
                     },
-                } },
+                },
                 .path => |rel_path| l: {
                     // This might produce an invalid path, which is checked for
                     // at the beginning of run().
@@ -735,10 +741,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     const pkg_hash = relativePathDigest(new_root, cache_root);
                     const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                     if (gop.found_existing) {
-                        if (!dep.lazy) {
+                        if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
                             gop.value_ptr.*.lazy_status = .eager;
+                            promoted_existing_to_eager = true;
+                        } else {
+                            continue;
                         }
-                        continue;
                     }
                     gop.value_ptr.* = new_fetch;
                     break :l .{ .relative_path = new_root };
@@ -746,7 +754,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
             prog_names[new_fetch_index] = dep_name;
             new_fetch_index += 1;
-            f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            if (!promoted_existing_to_eager) {
+                f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            }
             new_fetch.* = .{
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
