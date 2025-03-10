@@ -9766,14 +9766,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
 
-        // Any WebAssembly runtime will trap when the destination pointer is out-of-bounds, regardless
-        // of the length. This means we need to emit a check where we skip the memset when the length
-        // is 0 as we allow for undefined pointers in 0-sized slices.
-        // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
-            ptr_ty.isSlice(zcu) and
-            std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
-
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
             if (elem_val.isUndefDeep(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -9784,24 +9776,14 @@ pub const FuncGen = struct {
                 else
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-                if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(
-                        dest_ptr,
-                        fill_byte,
-                        len,
-                        dest_ptr_align,
-                        access_kind,
-                    );
-                } else {
-                    _ = try self.wip.callMemSet(
-                        dest_ptr,
-                        dest_ptr_align,
-                        fill_byte,
-                        len,
-                        access_kind,
-                        self.disable_intrinsics,
-                    );
-                }
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
                     try self.valgrindMarkUndef(dest_ptr, len);
@@ -9816,24 +9798,14 @@ pub const FuncGen = struct {
             if (try elem_val.hasRepeatedByteRepr(pt)) |byte_val| {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-                if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(
-                        dest_ptr,
-                        fill_byte,
-                        len,
-                        dest_ptr_align,
-                        access_kind,
-                    );
-                } else {
-                    _ = try self.wip.callMemSet(
-                        dest_ptr,
-                        dest_ptr_align,
-                        fill_byte,
-                        len,
-                        access_kind,
-                        self.disable_intrinsics,
-                    );
-                }
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
                 return .none;
             }
         }
@@ -9846,24 +9818,14 @@ pub const FuncGen = struct {
             const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
-            if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(
-                    dest_ptr,
-                    fill_byte,
-                    len,
-                    dest_ptr_align,
-                    access_kind,
-                );
-            } else {
-                _ = try self.wip.callMemSet(
-                    dest_ptr,
-                    dest_ptr_align,
-                    fill_byte,
-                    len,
-                    access_kind,
-                    self.disable_intrinsics,
-                );
-            }
+            _ = try self.wip.callMemSet(
+                dest_ptr,
+                dest_ptr_align,
+                fill_byte,
+                len,
+                access_kind,
+                self.disable_intrinsics,
+            );
             return .none;
         }
 
@@ -9927,33 +9889,6 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn safeWasmMemset(
-        self: *FuncGen,
-        dest_ptr: Builder.Value,
-        fill_byte: Builder.Value,
-        len: Builder.Value,
-        dest_ptr_align: Builder.Alignment,
-        access_kind: Builder.MemoryAccessKind,
-    ) !void {
-        const o = self.ng.object;
-        const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
-        const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
-        const memset_block = try self.wip.block(1, "MemsetTrapSkip");
-        const end_block = try self.wip.block(2, "MemsetTrapEnd");
-        _ = try self.wip.brCond(cond, memset_block, end_block, .none);
-        self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(
-            dest_ptr,
-            dest_ptr_align,
-            fill_byte,
-            len,
-            access_kind,
-            self.disable_intrinsics,
-        );
-        _ = try self.wip.br(end_block);
-        self.wip.cursor = .{ .block = end_block };
-    }
-
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = o.pt;
@@ -9968,35 +9903,6 @@ pub const FuncGen = struct {
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
             dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
-
-        // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
-        // This instruction will trap on an invalid address, regardless of the length.
-        // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
-        // We only have to do this for slices as arrays will have a valid pointer.
-        // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.cpu.arch.isWasm() and
-            std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
-            dest_ptr_ty.isSlice(zcu))
-        {
-            const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
-            const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
-            const memcpy_block = try self.wip.block(1, "MemcpyTrapSkip");
-            const end_block = try self.wip.block(2, "MemcpyTrapEnd");
-            _ = try self.wip.brCond(cond, memcpy_block, end_block, .none);
-            self.wip.cursor = .{ .block = memcpy_block };
-            _ = try self.wip.callMemCpy(
-                dest_ptr,
-                dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                src_ptr,
-                src_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                len,
-                access_kind,
-                self.disable_intrinsics,
-            );
-            _ = try self.wip.br(end_block);
-            self.wip.cursor = .{ .block = end_block };
-            return .none;
-        }
 
         _ = try self.wip.callMemCpy(
             dest_ptr,
