@@ -287,7 +287,8 @@ const Fuzzer = struct {
         while (true) {
             const chosen_index = rng.uintLessThanBiased(usize, f.corpus.items.len);
             const modification = rng.enumValue(Mutation);
-            f.mutateAndRunOne(chosen_index, modification);
+            if (f.corpus.items[chosen_index].bytes.len > 0 or modification == .add_byte)
+                f.mutateAndRunOne(chosen_index, modification);
         }
     }
 
