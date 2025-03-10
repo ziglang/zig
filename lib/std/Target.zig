@@ -775,6 +775,8 @@ pub const Abi = enum {
     muslabi64,
     musleabi,
     musleabihf,
+    muslf32,
+    muslsf,
     muslx32,
     msvc,
     itanium,
@@ -949,6 +951,8 @@ pub const Abi = enum {
             .muslabi64,
             .musleabi,
             .musleabihf,
+            .muslf32,
+            .muslsf,
             .muslx32,
             => true,
             else => abi.isOpenHarmony(),
@@ -2251,9 +2255,20 @@ pub const DynamicLinker = struct {
                         },
                     }),
 
+                    .loongarch32,
+                    .loongarch64,
+                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (abi) {
+                            .musl => "",
+                            .muslf32 => "-sp",
+                            .muslsf => "-sf",
+                            else => return none,
+                        },
+                    }),
+
                     .aarch64,
                     .aarch64_be,
-                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
                     .m68k,
                     .powerpc64,
                     .powerpc64le,

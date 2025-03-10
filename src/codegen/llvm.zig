@@ -275,6 +275,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslf32 => "muslf32",
+        .muslsf => "muslsf",
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
