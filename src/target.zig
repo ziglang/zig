@@ -496,10 +496,9 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => "aapcs",
-        // TODO: `muslsf` and `muslf32` in LLVM 20.
         .loongarch64 => switch (target.abi) {
-            .gnusf => "lp64s",
-            .gnuf32 => "lp64f",
+            .gnusf, .muslsf => "lp64s",
+            .gnuf32, .muslf32 => "lp64f",
             else => "lp64d",
         },
         .loongarch32 => switch (target.abi) {
