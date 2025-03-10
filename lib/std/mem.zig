@@ -6,6 +6,7 @@ const math = std.math;
 const mem = @This();
 const testing = std.testing;
 const Endian = std.builtin.Endian;
+const native_os = builtin.target.os.tag;
 const native_endian = builtin.cpu.arch.endian();
 
 /// The standard library currently thoroughly depends on byte size
@@ -1117,7 +1118,8 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
     if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
-        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)) and
+        (native_os != .freestanding and native_os != .other and native_os != .uefi))
     {
         switch (@import("builtin").cpu.arch) {
             // The below branch assumes that reading past the end of the buffer is valid, as long
