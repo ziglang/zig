@@ -5921,8 +5921,10 @@ pub fn addCCArgs(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    // We communicate float ABI to Clang through the dedicated options further down.
-                    if (std.mem.eql(u8, llvm_name, "soft-float")) continue;
+                    // We communicate float ABI to Clang through the dedicated options.
+                    if (std.mem.startsWith(u8, llvm_name, "soft-float") or
+                        std.mem.startsWith(u8, llvm_name, "hard-float"))
+                        continue;
 
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@intFromBool(is_enabled)];
