@@ -12398,6 +12398,7 @@ const GenZir = struct {
             } else if (args.cc_ref != .none) {
                 astgen.extra.appendAssumeCapacity(@intFromEnum(args.cc_ref));
             }
+
             if (ret_body.len != 0) {
                 astgen.extra.appendAssumeCapacity(
                     astgen.countBodyLenAfterFixups(args.ret_param_refs) +
