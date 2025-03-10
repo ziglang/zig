@@ -114,10 +114,7 @@ pub fn parse(gpa: Allocator, file_contents: []const u8) !Archive {
 
         const gop = try toc.getOrPut(gpa, name);
         if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(gpa, switch (native_endian) {
-            .big => symbol_positions_be[i],
-            .little => @byteSwap(symbol_positions_be[i]),
-        });
+        try gop.value_ptr.append(gpa, std.mem.nativeToBig(u32, symbol_positions_be[i]));
     }
 
     const long_file_names: RelativeSlice = s: {
@@ -175,7 +172,6 @@ pub fn parseObject(
 const Archive = @This();
 
 const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
 const std = @import("std");
 const mem = std.mem;
