@@ -181,7 +181,10 @@ analysis_roots: std.BoundedArray(*Package.Module, 4) = .{},
 /// Allocated into `gpa`.
 resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
-skip_analysis_errors: bool = false,
+/// If `true`, then semantic analysis must not occur on this update due to AstGen errors.
+/// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
+/// Reset to `false` at the start of each update in `Compilation.update`.
+skip_analysis_this_update: bool = false,
 
 stage1_flags: packed struct {
     have_winmain: bool = false,

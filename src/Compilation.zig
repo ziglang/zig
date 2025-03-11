@@ -2261,7 +2261,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
-        zcu.skip_analysis_errors = false;
+        zcu.skip_analysis_this_update = false;
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
@@ -2336,6 +2336,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
+        if (!zcu.skip_analysis_this_update) {
+            if (comp.config.is_test) {
+                // The `test_functions` decl has been intentionally postponed until now,
+                // at which point we must populate it with the list of test functions that
+                // have been discovered and not filtered out.
+                try pt.populateTestFunctions(main_progress_node);
+            }
+
+            try pt.processExports();
+        }
+
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.root_name,
@@ -2350,15 +2361,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             });
             zcu.intern_pool.dumpGenericInstances(gpa);
         }
-
-        if (comp.config.is_test) {
-            // The `test_functions` decl has been intentionally postponed until now,
-            // at which point we must populate it with the list of test functions that
-            // have been discovered and not filtered out.
-            try pt.populateTestFunctions(main_progress_node);
-        }
-
-        try pt.processExports();
     }
 
     if (anyErrors(comp)) {
@@ -3310,7 +3312,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        if (zcu.skip_analysis_errors) break :zcu_errors;
+        if (zcu.skip_analysis_this_update) break :zcu_errors;
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
@@ -3446,7 +3448,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
     if (comp.zcu) |zcu| {
-        if (!zcu.skip_analysis_errors and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
+        if (!zcu.skip_analysis_this_update and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3957,7 +3959,7 @@ fn performAllTheWorkInner(
             // However, this means our analysis data is invalid, so we want to omit all analysis errors.
 
             assert(zcu.failed_files.count() > 0); // we will get an error
-            zcu.skip_analysis_errors = true;
+            zcu.skip_analysis_this_update = true;
             return;
         }
 
