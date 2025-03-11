@@ -21684,6 +21684,15 @@ test mulUnsafe {
     try test_mul_unsafe.testIntVectors();
 }
 
+inline fn mulWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs *% rhs;
+}
+test mulWrap {
+    const test_mul_wrap = binary(mulWrap, .{});
+    try test_mul_wrap.testInts();
+    try test_mul_wrap.testIntVectors();
+}
+
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
     return lhs * rhs;
 }
