@@ -25,6 +25,8 @@ pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
 pub const llvm = @import("zig/llvm.zig");
+pub const introspect = @import("zig/introspect.zig");
+pub const Package = @import("zig/Package.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
@@ -37,6 +39,8 @@ pub const c_translation = @import("zig/c_translation.zig");
 
 pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
+
+pub const build_file_basename = "build.zig";
 
 pub const Color = enum {
     /// Determine whether stderr is a terminal or not automatically.
@@ -73,16 +77,6 @@ pub fn hashSrc(src: []const u8) SrcHash {
 
 pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
     return @as(u128, @bitCast(a)) == @as(u128, @bitCast(b));
-}
-
-pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
-    var out: SrcHash = undefined;
-    var hasher = SrcHasher.init(.{});
-    hasher.update(&parent_hash);
-    hasher.update(sep);
-    hasher.update(name);
-    hasher.final(&out);
-    return out;
 }
 
 pub const Loc = struct {
@@ -876,6 +870,242 @@ pub const SimpleComptimeReason = enum(u32) {
         };
     }
 };
+
+pub const BuildRoot = struct {
+    directory: std.Build.Cache.Directory,
+    build_zig_basename: []const u8,
+    cleanup_build_dir: ?fs.Dir,
+
+    pub fn deinit(br: *BuildRoot) void {
+        if (br.cleanup_build_dir) |*dir| dir.close();
+        br.* = undefined;
+    }
+};
+
+const FindBuildRootOptions = struct {
+    build_file: ?[]const u8 = null,
+    cwd_path: ?[]const u8 = null,
+};
+
+pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot {
+    const cwd_path = options.cwd_path orelse try std.process.getCwdAlloc(arena);
+    const build_zig_basename = if (options.build_file) |bf|
+        fs.path.basename(bf)
+    else
+        build_file_basename;
+
+    if (options.build_file) |bf| {
+        if (fs.path.dirname(bf)) |dirname| {
+            const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+            };
+            return .{
+                .build_zig_basename = build_zig_basename,
+                .directory = .{ .path = dirname, .handle = dir },
+                .cleanup_build_dir = dir,
+            };
+        }
+
+        return .{
+            .build_zig_basename = build_zig_basename,
+            .directory = .{ .path = null, .handle = fs.cwd() },
+            .cleanup_build_dir = null,
+        };
+    }
+    // Search up parent directories until we find build.zig.
+    var dirname: []const u8 = cwd_path;
+    while (true) {
+        const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
+        if (fs.cwd().access(joined_path, .{})) |_| {
+            const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
+            };
+            return .{
+                .build_zig_basename = build_zig_basename,
+                .directory = .{
+                    .path = dirname,
+                    .handle = dir,
+                },
+                .cleanup_build_dir = dir,
+            };
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                dirname = fs.path.dirname(dirname) orelse {
+                    std.log.info("initialize {s} template file with 'zig init'", .{
+                        build_file_basename,
+                    });
+                    std.log.info("see 'zig --help' for more options", .{});
+                    fatal("no build.zig file found, in the current directory or any parent directories", .{});
+                };
+                continue;
+            },
+            else => |e| return e,
+        }
+    }
+}
+
+const LoadManifestOptions = struct {
+    root_name: ?[]const u8,
+    dir: fs.Dir,
+    color: Color,
+};
+
+pub fn loadManifest(
+    gpa: Allocator,
+    arena: Allocator,
+    options: LoadManifestOptions,
+) !struct { Package.Manifest, Ast } {
+    const manifest_bytes = while (true) {
+        break options.dir.readFileAllocOptions(
+            arena,
+            Package.Manifest.basename,
+            Package.Manifest.max_bytes,
+            null,
+            1,
+            0,
+        ) catch |err| switch (err) {
+            error.FileNotFound => {
+                if (options.root_name) |root_name| {
+                    const fingerprint: Package.Fingerprint = .generate(root_name);
+                    var templates = findTemplates(gpa, arena);
+                    defer templates.deinit();
+                    templates.write(
+                        arena,
+                        options.dir,
+                        root_name,
+                        Package.Manifest.basename,
+                        fingerprint,
+                    ) catch |e| {
+                        fatal("unable to write {s}: {s}", .{
+                            Package.Manifest.basename, @errorName(e),
+                        });
+                    };
+                    continue;
+                } else return error.FileNotFound;
+            },
+            else => |e| fatal("unable to load {s}: {s}", .{
+                Package.Manifest.basename, @errorName(e),
+            }),
+        };
+    };
+    var ast = try Ast.parse(gpa, manifest_bytes, .zon);
+    errdefer ast.deinit(gpa);
+
+    if (ast.errors.len > 0) {
+        try std.zig.printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
+        std.process.exit(2);
+    }
+
+    var manifest = try Package.Manifest.parse(gpa, ast, .{});
+    errdefer manifest.deinit(gpa);
+
+    if (manifest.errors.len > 0) {
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        try wip_errors.init(gpa);
+        defer wip_errors.deinit();
+
+        const src_path = try wip_errors.addString(Package.Manifest.basename);
+        try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
+
+        var error_bundle = try wip_errors.toOwnedBundle("");
+        defer error_bundle.deinit(gpa);
+        error_bundle.renderToStdErr(options.color.renderOptions());
+
+        std.process.exit(2);
+    }
+    return .{ manifest, ast };
+}
+
+const Templates = struct {
+    zig_lib_directory: std.Build.Cache.Directory,
+    dir: fs.Dir,
+    buffer: std.ArrayList(u8),
+
+    pub fn deinit(templates: *Templates) void {
+        templates.zig_lib_directory.handle.close();
+        templates.dir.close();
+        templates.buffer.deinit();
+        templates.* = undefined;
+    }
+
+    pub fn write(
+        templates: *Templates,
+        arena: Allocator,
+        out_dir: fs.Dir,
+        root_name: []const u8,
+        template_path: []const u8,
+        fingerprint: Package.Fingerprint,
+    ) !void {
+        if (fs.path.dirname(template_path)) |dirname| {
+            out_dir.makePath(dirname) catch |err| {
+                fatal("unable to make path '{s}': {s}", .{ dirname, @errorName(err) });
+            };
+        }
+
+        const max_bytes = 10 * 1024 * 1024;
+        const contents = templates.dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
+            fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
+        };
+        templates.buffer.clearRetainingCapacity();
+        try templates.buffer.ensureUnusedCapacity(contents.len);
+        var i: usize = 0;
+        while (i < contents.len) {
+            if (contents[i] == '.') {
+                if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
+                    try templates.buffer.append('.');
+                    try templates.buffer.appendSlice(root_name);
+                    i += ".LITNAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".NAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += ".NAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".FINGERPRINT")) {
+                    try templates.buffer.writer().print("0x{x}", .{fingerprint.int()});
+                    i += ".FINGERPRINT".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i..], ".ZIGVER")) {
+                    i += ".ZIGVER".len;
+                    continue;
+                }
+            }
+            try templates.buffer.append(contents[i]);
+            i += 1;
+        }
+
+        return out_dir.writeFile(.{
+            .sub_path = template_path,
+            .data = templates.buffer.items,
+            .flags = .{ .exclusive = true },
+        });
+    }
+};
+
+pub fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
+    const self_exe_path = introspect.findZigExePath(arena) catch |err| {
+        fatal("unable to find self exe path: {s}", .{@errorName(err)});
+    };
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
+    };
+
+    const s = fs.path.sep_str;
+    const template_sub_path = "init";
+    const template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
+        const path = zig_lib_directory.path orelse ".";
+        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{
+            path, s, template_sub_path, @errorName(err),
+        });
+    };
+
+    return .{
+        .zig_lib_directory = zig_lib_directory,
+        .dir = template_dir,
+        .buffer = std.ArrayList(u8).init(gpa),
+    };
+}
+
+const fs = std.fs;
 
 test {
     _ = Ast;
