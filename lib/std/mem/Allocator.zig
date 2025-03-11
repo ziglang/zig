@@ -308,7 +308,8 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
 /// In such case, it is more efficient for the caller to perform those
 /// operations.
 ///
-/// `allocation` may be an empty slice, in which case `null` is always returned.
+/// `allocation` may be an empty slice, in which case `null` is returned,
+/// unless `new_len` is also 0, in which case `allocation` is returned.
 ///
 /// `new_len` may be zero, in which case the allocation is freed.
 pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
