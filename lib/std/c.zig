@@ -2269,7 +2269,10 @@ pub const SC = switch (native_os) {
     else => void,
 };
 
-pub const _SC = switch (native_os) {
+pub const _SC = if (builtin.abi.isAndroid()) enum(c_int) {
+    PAGESIZE = 39,
+    NPROCESSORS_ONLN = 97,
+} else switch (native_os) {
     .driverkit, .ios, .macos, .tvos, .visionos, .watchos => enum(c_int) {
         PAGESIZE = 29,
     },
