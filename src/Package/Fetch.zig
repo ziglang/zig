@@ -1850,7 +1850,11 @@ const FileHeader = struct {
         return magic_number == std.macho.MH_MAGIC or
             magic_number == std.macho.MH_MAGIC_64 or
             magic_number == std.macho.FAT_MAGIC or
-            magic_number == std.macho.FAT_MAGIC_64;
+            magic_number == std.macho.FAT_MAGIC_64 or
+            magic_number == std.macho.MH_CIGAM or
+            magic_number == std.macho.MH_CIGAM_64 or
+            magic_number == std.macho.FAT_CIGAM or
+            magic_number == std.macho.FAT_CIGAM_64;
     }
 
     pub fn isExecutable(self: *FileHeader) bool {
@@ -1874,6 +1878,11 @@ test FileHeader {
     const macho64_magic_bytes = [_]u8{ 0xCF, 0xFA, 0xED, 0xFE };
     h.bytes_read = 0;
     h.update(&macho64_magic_bytes);
+    try std.testing.expect(h.isExecutable());
+
+    const macho64_cigam_bytes = [_]u8{ 0xFE, 0xED, 0xFA, 0xCF };
+    h.bytes_read = 0;
+    h.update(&macho64_cigam_bytes);
     try std.testing.expect(h.isExecutable());
 }
 
