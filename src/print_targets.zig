@@ -9,7 +9,7 @@ const Target = std.Target;
 const target = @import("target.zig");
 const assert = std.debug.assert;
 const glibc = @import("libs/glibc.zig");
-const introspect = @import("introspect.zig");
+const introspect = std.zig.introspect;
 
 pub fn cmdTargets(
     allocator: Allocator,

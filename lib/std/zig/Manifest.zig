@@ -5,12 +5,15 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const testing = std.testing;
-const Package = @import("../Package.zig");
+const Fingerprint = std.zig.Fingerprint;
 
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const max_name_len = 32;
 pub const max_version_len = 32;
+
+/// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+pub const hash_max_len = 32 + 1 + 32 + 1 + (32 + 32 + 200) / 6;
 
 pub const Dependency = struct {
     location: Location,
@@ -169,7 +172,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
-        var fingerprint: ?Package.Fingerprint = null;
+        var fingerprint: ?Fingerprint = null;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -217,13 +220,13 @@ const Parse = struct {
             if (fingerprint) |n| {
                 if (!n.validate(p.name)) {
                     return fail(p, main_token, "invalid fingerprint: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
-                        n.int(), Package.Fingerprint.generate(p.name).int(),
+                        n.int(), Fingerprint.generate(p.name).int(),
                     });
                 }
                 p.id = n.id;
             } else if (!p.allow_missing_fingerprint) {
                 try appendError(p, main_token, "missing top-level 'fingerprint' field; suggested value: 0x{x}", .{
-                    Package.Fingerprint.generate(p.name).int(),
+                    Fingerprint.generate(p.name).int(),
                 });
             } else {
                 p.id = 0;
@@ -374,7 +377,7 @@ const Parse = struct {
         }
     }
 
-    fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Package.Fingerprint {
+    fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Fingerprint {
         const ast = p.ast;
         const main_token = ast.nodeMainToken(node);
         if (ast.nodeTag(node) != .number_literal) {
@@ -441,7 +444,7 @@ const Parse = struct {
         const tok = ast.nodeMainToken(node);
         const h = try parseString(p, node);
 
-        if (h.len > Package.Hash.max_len) {
+        if (h.len > hash_max_len) {
             return fail(p, tok, "hash length exceeds maximum: {d}", .{h.len});
         }
 

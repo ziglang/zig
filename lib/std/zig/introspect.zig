@@ -5,9 +5,9 @@ const Allocator = mem.Allocator;
 const os = std.os;
 const fs = std.fs;
 const Cache = std.Build.Cache;
-const Compilation = @import("Compilation.zig");
-const Package = @import("Package.zig");
 const build_options = @import("build_options");
+
+const build_file_basename = @import("../zig.zig").build_file_basename;
 
 /// Returns the sub_path that worked, or `null` if none did.
 /// The path of the returned Directory is relative to `base`.
@@ -201,7 +201,7 @@ pub const default_local_zig_cache_basename = ".zig-cache";
 pub fn resolveSuitableLocalCacheDir(arena: Allocator, cwd: []const u8) Allocator.Error!?[]u8 {
     var cur_dir = cwd;
     while (true) {
-        const joined = try fs.path.join(arena, &.{ cur_dir, Package.build_zig_basename });
+        const joined = try fs.path.join(arena, &.{ cur_dir, build_file_basename });
         if (fs.cwd().access(joined, .{})) |_| {
             return try fs.path.join(arena, &.{ cur_dir, default_local_zig_cache_basename });
         } else |err| switch (err) {
