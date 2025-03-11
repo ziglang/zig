@@ -23,7 +23,7 @@ pub const DevicePath = extern struct {
     };
 
     /// Returns the next DevicePath node in the sequence, if any.
-    pub fn next(self: *DevicePath) ?*DevicePath {
+    pub fn next(self: *const DevicePath) ?*DevicePath {
         if (self.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
@@ -31,7 +31,7 @@ pub const DevicePath = extern struct {
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
-    pub fn size(self: *DevicePath) usize {
+    pub fn size(self: *const DevicePath) usize {
         var node = self;
 
         while (node.next()) |next_node| {
@@ -42,7 +42,7 @@ pub const DevicePath = extern struct {
     }
 
     /// Creates a file device path from the existing device path and a file path.
-    pub fn create_file_device_path(self: *DevicePath, allocator: Allocator, path: [:0]align(1) const u16) !*DevicePath {
+    pub fn create_file_device_path(self: *const DevicePath, allocator: Allocator, path: []const u16) !*DevicePath {
         const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s

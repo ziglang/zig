@@ -2,6 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 pub const BlockIo = extern struct {
     const Self = @This();
@@ -15,23 +16,48 @@ pub const BlockIo = extern struct {
     _flush_blocks: *const fn (*BlockIo) callconv(cc) Status,
 
     /// Resets the block device hardware.
-    pub fn reset(self: *Self, extended_verification: bool) Status {
-        return self._reset(self, extended_verification);
+    pub fn reset(self: *Self, extended_verification: bool) !void {
+        switch (self._reset(self, extended_verification)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
     /// Reads the number of requested blocks from the device.
-    pub fn readBlocks(self: *Self, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) Status {
-        return self._read_blocks(self, media_id, lba, buffer_size, buf);
+    pub fn readBlocks(self: *Self, media_id: u32, lba: u64, buf: []u8) !void {
+        switch (self._read_blocks(self, media_id, lba, buf.len, buf.ptr)) {
+            .success => {},
+            .device_error => Error.DeviceError,
+            .no_media => Error.NoMedia,
+            .bad_buffer_size => Error.BadBufferSize,
+            .invalid_parameter => Error.InvalidParameter,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
     /// Writes a specified number of blocks to the device.
-    pub fn writeBlocks(self: *Self, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) Status {
-        return self._write_blocks(self, media_id, lba, buffer_size, buf);
+    pub fn writeBlocks(self: *Self, media_id: u32, lba: u64, buf: []const u8) !void {
+        switch (self._write_blocks(self, media_id, lba, buf.len, buf.ptr)) {
+            .success => {},
+            .write_protected => Error.WriteProtected,
+            .no_media => Error.NoMedia,
+            .media_changed => Error.MediaChanged,
+            .device_error => Error.DeviceError,
+            .bad_buffer_size => Error.BadBufferSize,
+            .invalid_parameter => Error.InvalidParameter,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
     /// Flushes all modified data to a physical block device.
-    pub fn flushBlocks(self: *Self) Status {
-        return self._flush_blocks(self);
+    pub fn flushBlocks(self: *Self) !void {
+        switch (self._flush_blocks(self)) {
+            .success => {},
+            .device_error => Error.DeviceError,
+            .no_media => Error.NoMedia,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
     pub const guid align(8) = uefi.Guid{

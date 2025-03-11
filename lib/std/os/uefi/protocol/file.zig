@@ -5,28 +5,45 @@ const Guid = uefi.Guid;
 const Time = uefi.Time;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 pub const File = extern struct {
     revision: u64,
-    _open: *const fn (*const File, **const File, [*:0]const u16, u64, u64) callconv(cc) Status,
-    _close: *const fn (*const File) callconv(cc) Status,
-    _delete: *const fn (*const File) callconv(cc) Status,
-    _read: *const fn (*const File, *usize, [*]u8) callconv(cc) Status,
-    _write: *const fn (*const File, *usize, [*]const u8) callconv(cc) Status,
+    _open: *const fn (*const File, **File, [*:0]const u16, u64, u64) callconv(cc) Status,
+    _close: *const fn (*File) callconv(cc) Status,
+    _delete: *const fn (*File) callconv(cc) Status,
+    _read: *const fn (*File, *usize, [*]u8) callconv(cc) Status,
+    _write: *const fn (*File, *usize, [*]const u8) callconv(cc) Status,
     _get_position: *const fn (*const File, *u64) callconv(cc) Status,
-    _set_position: *const fn (*const File, u64) callconv(cc) Status,
+    _set_position: *const fn (*File, u64) callconv(cc) Status,
     _get_info: *const fn (*const File, *align(8) const Guid, *const usize, [*]u8) callconv(cc) Status,
-    _set_info: *const fn (*const File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
-    _flush: *const fn (*const File) callconv(cc) Status,
+    _set_info: *const fn (*File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
+    _flush: *const fn (*File) callconv(cc) Status,
 
-    pub const SeekError = error{SeekError};
-    pub const GetSeekPosError = error{GetSeekPosError};
-    pub const ReadError = error{ReadError};
-    pub const WriteError = error{WriteError};
+    // seek and position have the same errors
+    pub const SeekError = error{ Unsupported, DeviceError };
+    pub const ReadError = error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall };
+    pub const WriteError = error{
+        Unsupported,
+        NoMedia,
+        DeviceError,
+        VolumeCorrupted,
+        WriteProtected,
+        AccessDenied,
+        VolumeFull,
+    };
 
-    pub const SeekableStream = io.SeekableStream(*const File, SeekError, GetSeekPosError, seekTo, seekBy, getPos, getEndPos);
-    pub const Reader = io.Reader(*const File, ReadError, readFn);
-    pub const Writer = io.Writer(*const File, WriteError, writeFn);
+    pub const SeekableStream = io.SeekableStream(
+        *File,
+        SeekError,
+        SeekError,
+        setPosition,
+        seekBy,
+        getPosition,
+        getEndPos,
+    );
+    pub const Reader = io.Reader(*File, ReadError, read);
+    pub const Writer = io.Writer(*File, WriteError, write);
 
     pub fn seekableStream(self: *File) SeekableStream {
         return .{ .context = self };
@@ -40,75 +57,105 @@ pub const File = extern struct {
         return .{ .context = self };
     }
 
-    pub fn open(self: *const File, new_handle: **const File, file_name: [*:0]const u16, open_mode: u64, attributes: u64) Status {
-        return self._open(self, new_handle, file_name, open_mode, attributes);
+    pub fn open(
+        self: *const File,
+        file_name: [*:0]const u16,
+        open_mode: u64,
+        attributes: u64,
+    ) !*File {
+        var new: *File = undefined;
+        switch (self._open(self, &new, file_name, open_mode, attributes)) {
+            .success => return new,
+            .not_found => return Error.NotFound,
+            .no_media => return Error.NoMedia,
+            .media_changed => return Error.MediaChanged,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .write_protected => return Error.WriteProtected,
+            .access_denied => return Error.AccessDenied,
+            .out_of_resources => return Error.OutOfResources,
+            .volume_full => return Error.VolumeFull,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |err| return uefi.unexpectedError(err),
+        }
     }
 
-    pub fn close(self: *const File) Status {
-        return self._close(self);
+    pub fn close(self: *File) void {
+        switch (self._close(self)) {
+            .success => {},
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn delete(self: *const File) Status {
-        return self._delete(self);
+    /// Delete the file.
+    ///
+    /// Returns true if the file was deleted, false if the file was not deleted, which is a warning
+    /// according to the UEFI specification.
+    pub fn delete(self: *File) bool {
+        switch (self._delete(self)) {
+            .success => return true,
+            .warn_delete_failure => return false,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn read(self: *const File, buffer_size: *usize, buffer: [*]u8) Status {
-        return self._read(self, buffer_size, buffer);
-    }
-
-    fn readFn(self: *const File, buffer: []u8) ReadError!usize {
+    pub fn read(self: *File, buffer: []u8) ReadError!usize {
         var size: usize = buffer.len;
-        if (.success != self.read(&size, buffer.ptr)) return ReadError.ReadError;
-        return size;
+        switch (self._read(self, &size, buffer.ptr)) {
+            .success => return size,
+            .no_media => return Error.NoMedia,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .buffer_too_small => return Error.BufferTooSmall,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn write(self: *const File, buffer_size: *usize, buffer: [*]const u8) Status {
-        return self._write(self, buffer_size, buffer);
+    pub fn write(self: *File, buffer: []const u8) WriteError!usize {
+        var size: usize = buffer.len;
+        switch (self._write(self, &size, buffer.ptr)) {
+            .success => return size,
+            .unsupported => return Error.Unsupported,
+            .no_media => return Error.NoMedia,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .write_protected => return Error.WriteProtected,
+            .access_denied => return Error.AccessDenied,
+            .volume_full => return Error.VolumeFull,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    fn writeFn(self: *const File, bytes: []const u8) WriteError!usize {
-        var size: usize = bytes.len;
-        if (.success != self.write(&size, bytes.ptr)) return WriteError.WriteError;
-        return size;
+    pub fn getPosition(self: *const File) SeekError!u64 {
+        var position: u64 = undefined;
+        switch (self._get_position(self, &position)) {
+            .success => return position,
+            .unsupported => return Error.Unsupported,
+            .device_error => return Error.DeviceError,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn getPosition(self: *const File, position: *u64) Status {
-        return self._get_position(self, position);
+    fn getEndPos(self: *File) !u64 {
+        const start_pos = try self.getPosition();
+        // ignore error
+        defer _ = self.setPosition(start_pos) catch {};
+
+        try self.setPosition(efi_file_position_end_of_file);
+        return try self.getPosition();
     }
 
-    fn getPos(self: *const File) GetSeekPosError!u64 {
-        var pos: u64 = undefined;
-        if (.success != self.getPosition(&pos)) return GetSeekPosError.GetSeekPosError;
-        return pos;
+    pub fn setPosition(self: *File, position: u64) SeekError!void {
+        switch (self._set_position(self, position)) {
+            .success => {},
+            .unsupported => return Error.Unsupported,
+            .device_error => return Error.DeviceError,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    fn getEndPos(self: *const File) GetSeekPosError!u64 {
-        // preserve the old file position
-        var pos: u64 = undefined;
-        var end_pos: u64 = undefined;
-        if (.success != self.getPosition(&pos)) return GetSeekPosError.GetSeekPosError;
-        // seek to end of file to get position = file size
-        if (.success != self.setPosition(efi_file_position_end_of_file)) return GetSeekPosError.GetSeekPosError;
-        // get the position
-        if (.success != self.getPosition(&end_pos)) return GetSeekPosError.GetSeekPosError;
-        // restore the old position
-        if (.success != self.setPosition(pos)) return GetSeekPosError.GetSeekPosError;
-        // return the file size = position
-        return end_pos;
-    }
-
-    pub fn setPosition(self: *const File, position: u64) Status {
-        return self._set_position(self, position);
-    }
-
-    fn seekTo(self: *const File, pos: u64) SeekError!void {
-        if (.success != self.setPosition(pos)) return SeekError.SeekError;
-    }
-
-    fn seekBy(self: *const File, offset: i64) SeekError!void {
-        // save the old position and calculate the delta
-        var pos: u64 = undefined;
-        if (.success != self.getPosition(&pos)) return SeekError.SeekError;
+    fn seekBy(self: *File, offset: i64) SeekError!void {
+        var pos = try self.getPosition();
         const seek_back = offset < 0;
         const amt = @abs(offset);
         if (seek_back) {
@@ -116,19 +163,55 @@ pub const File = extern struct {
         } else {
             pos -= amt;
         }
-        if (.success != self.setPosition(pos)) return SeekError.SeekError;
+        try self.setPosition(pos);
     }
 
-    pub fn getInfo(self: *const File, information_type: *align(8) const Guid, buffer_size: *usize, buffer: [*]u8) Status {
-        return self._get_info(self, information_type, buffer_size, buffer);
+    pub fn getInfo(
+        self: *const File,
+        information_type: *align(8) const Guid,
+        buffer: []u8,
+    ) !usize {
+        var len = buffer.len;
+        switch (self._get_info(self, information_type, &len, buffer.ptr)) {
+            .success => return len,
+            .unsupported => return Error.Unsupported,
+            .no_media => return Error.NoMedia,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .buffer_too_small => return Error.BufferTooSmall,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn setInfo(self: *const File, information_type: *align(8) const Guid, buffer_size: usize, buffer: [*]const u8) Status {
-        return self._set_info(self, information_type, buffer_size, buffer);
+    pub fn setInfo(
+        self: *const File,
+        information_type: *align(8) const Guid,
+        buffer: []const u8,
+    ) !void {
+        switch (self._set_info(self, information_type, buffer.len, buffer.ptr)) {
+            .success => {},
+            .unsupported => return Error.Unsupported,
+            .no_media => return Error.NoMedia,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .write_protected => return Error.WriteProtected,
+            .access_denied => return Error.AccessDenied,
+            .volume_full => return Error.VolumeFull,
+            .bad_buffer_size => return Error.BadBufferSize,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
-    pub fn flush(self: *const File) Status {
-        return self._flush(self);
+    pub fn flush(self: *File) !void {
+        switch (self._flush(self)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            .write_protected => return Error.WriteProtected,
+            .access_denied => return Error.AccessDenied,
+            .volume_full => return Error.VolumeFull,
+            else => |err| uefi.unexpectedError(err),
+        }
     }
 
     pub const efi_file_mode_read: u64 = 0x0000000000000001;

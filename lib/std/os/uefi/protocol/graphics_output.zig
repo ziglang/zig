@@ -3,16 +3,23 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 pub const GraphicsOutput = extern struct {
     _query_mode: *const fn (*const GraphicsOutput, u32, *usize, **Mode.Info) callconv(cc) Status,
-    _set_mode: *const fn (*const GraphicsOutput, u32) callconv(cc) Status,
+    _set_mode: *const fn (*GraphicsOutput, u32) callconv(cc) Status,
     _blt: *const fn (*const GraphicsOutput, ?[*]BltPixel, BltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(cc) Status,
     mode: *Mode,
 
     /// Returns information for an available graphics mode that the graphics device and the set of active video output devices supports.
-    pub fn queryMode(self: *const GraphicsOutput, mode: u32, size_of_info: *usize, info: **Mode.Info) Status {
-        return self._query_mode(self, mode, size_of_info, info);
+    pub fn queryMode(self: *const GraphicsOutput, mode: u32, size_of_info: *usize) !*Mode.Info {
+        var info: *Mode.Info = undefined;
+        switch (self._query_mode(self, mode, size_of_info, &info)) {
+            .success => return info,
+            .device_error => return Error.DeviceError,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |err| uefi.unexpectedError(err.err()),
+        }
     }
 
     /// Set the video device into the specified mode and clears the visible portions of the output display to black.

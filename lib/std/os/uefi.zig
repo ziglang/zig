@@ -247,3 +247,7 @@ test {
     _ = tables;
     _ = protocol;
 }
+
+pub fn unexpectedError(err: Status) noreturn {
+    std.debug.panic("unexpected error: {any}", .{err});
+}
