@@ -2619,7 +2619,7 @@ fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRa
         return;
     }
 
-    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
+    // Sendfile is a zero-copy mechanism if the OS supports it, otherwise the
     // fallback code will copy the contents chunk by chunk.
     const empty_iovec = [0]posix.iovec_const{};
     var offset: u64 = 0;

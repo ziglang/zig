@@ -357,19 +357,19 @@ pub fn EnumSet(comptime E: type) type {
             self.bits.setIntersection(other.bits);
         }
 
-        /// Returns true iff both sets have the same keys.
+        /// Returns true if both sets have the same keys.
         pub fn eql(self: Self, other: Self) bool {
             return self.bits.eql(other.bits);
         }
 
-        /// Returns true iff all the keys in this set are
+        /// Returns true if all the keys in this set are
         /// in the other set. The other set may have keys
         /// not found in this set.
         pub fn subsetOf(self: Self, other: Self) bool {
             return self.bits.subsetOf(other.bits);
         }
 
-        /// Returns true iff this set contains all the keys
+        /// Returns true if this set contains all the keys
         /// in the other set. This set may have keys not
         /// found in the other set.
         pub fn supersetOf(self: Self, other: Self) bool {
@@ -781,7 +781,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             }
         }
 
-        /// Returns true iff all key counts are the same as
+        /// Returns true if all key counts are the same as
         /// given multiset.
         pub fn eql(self: Self, other: Self) bool {
             inline for (@typeInfo(E).@"enum".fields) |field| {
@@ -793,7 +793,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             return true;
         }
 
-        /// Returns true iff all key counts less than or
+        /// Returns true if all key counts less than or
         /// equal to the given multiset.
         pub fn subsetOf(self: Self, other: Self) bool {
             inline for (@typeInfo(E).@"enum".fields) |field| {
@@ -805,7 +805,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             return true;
         }
 
-        /// Returns true iff all key counts greater than or
+        /// Returns true if all key counts greater than or
         /// equal to the given multiset.
         pub fn supersetOf(self: Self, other: Self) bool {
             inline for (@typeInfo(E).@"enum".fields) |field| {
