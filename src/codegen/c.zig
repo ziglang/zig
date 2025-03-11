@@ -8175,7 +8175,7 @@ fn formatIntLiteral(
         try writer.writeAll(string);
     } else {
         try data.ctype.renderLiteralPrefix(writer, data.kind, ctype_pool);
-        wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
+        wrap.truncate(int, .unsigned, c_bits);
         @memset(wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
@@ -8207,7 +8207,6 @@ fn formatIntLiteral(
                 c_limb_int_info.signedness = .signed;
                 c_limb_ctype = c_limb_info.ctype.toSigned();
 
-                c_limb_mut.positive = wrap.positive;
                 c_limb_mut.truncate(
                     c_limb_mut.toConst(),
                     .signed,
