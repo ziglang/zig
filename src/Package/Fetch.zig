@@ -30,7 +30,7 @@
 arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
-hash_tok: std.zig.Ast.TokenIndex,
+hash_tok: std.zig.Ast.OptionalTokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
@@ -317,8 +317,8 @@ pub fn run(f: *Fetch) RunError!void {
                 f.location_tok,
                 try eb.addString("expected path relative to build root; found absolute path"),
             );
-            if (f.hash_tok != 0) return f.fail(
-                f.hash_tok,
+            if (f.hash_tok.unwrap()) |hash_tok| return f.fail(
+                hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
             // Packages fetched by URL may not use relative paths to escape outside the
@@ -555,17 +555,18 @@ fn runResource(
     // job is done.
 
     if (remote_hash) |declared_hash| {
+        const hash_tok = f.hash_tok.unwrap().?;
         if (declared_hash.isOld()) {
             const actual_hex = Package.multiHashHexDigest(f.computed_hash.digest);
             if (!std.mem.eql(u8, declared_hash.toSlice(), &actual_hex)) {
-                return f.fail(f.hash_tok, try eb.printString(
+                return f.fail(hash_tok, try eb.printString(
                     "hash mismatch: manifest declares {s} but the fetched package has {s}",
                     .{ declared_hash.toSlice(), actual_hex },
                 ));
             }
         } else {
             if (!computed_package_hash.eql(&declared_hash)) {
-                return f.fail(f.hash_tok, try eb.printString(
+                return f.fail(hash_tok, try eb.printString(
                     "hash mismatch: manifest declares {s} but the fetched package has {s}",
                     .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
                 ));
@@ -813,15 +814,14 @@ fn srcLoc(
 ) Allocator.Error!ErrorBundle.SourceLocationIndex {
     const ast = f.parent_manifest_ast orelse return .none;
     const eb = &f.error_bundle;
-    const token_starts = ast.tokens.items(.start);
     const start_loc = ast.tokenLocation(0, tok);
     const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
     const msg_off = 0;
     return eb.addSourceLocation(.{
         .src_path = src_path,
-        .span_start = token_starts[tok],
-        .span_end = @intCast(token_starts[tok] + ast.tokenSlice(tok).len),
-        .span_main = token_starts[tok] + msg_off,
+        .span_start = ast.tokenStart(tok),
+        .span_end = @intCast(ast.tokenStart(tok) + ast.tokenSlice(tok).len),
+        .span_main = ast.tokenStart(tok) + msg_off,
         .line = @intCast(start_loc.line),
         .column = @intCast(start_loc.column),
         .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
@@ -2331,7 +2331,7 @@ const TestFetchBuilder = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .location = .{ .path_or_url = path_or_url },
             .location_tok = 0,
-            .hash_tok = 0,
+            .hash_tok = .none,
             .name_tok = 0,
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },
