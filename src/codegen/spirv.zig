@@ -1024,6 +1024,11 @@ const NavGen = struct {
                     else => unreachable,
                 },
                 .un => |un| {
+                    if (un.tag == .none) {
+                        assert(ty.containerLayout(zcu) == .@"packed"); // TODO
+                        const int_ty = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
+                        return try self.constant(int_ty, Value.fromInterned(un.val), .direct);
+                    }
                     const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), zcu).?;
                     const union_obj = zcu.typeToUnion(ty).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
@@ -1356,7 +1361,7 @@ const NavGen = struct {
         const union_obj = zcu.typeToUnion(ty).?;
 
         if (union_obj.flagsUnordered(ip).layout == .@"packed") {
-            return self.todo("packed union types", .{});
+            return try self.intType(.unsigned, @intCast(ty.bitSize(zcu)));
         }
 
         const layout = self.unionLayout(ty);
@@ -3226,10 +3231,13 @@ const NavGen = struct {
     };
 
     fn load(self: *NavGen, value_ty: Type, ptr_id: IdRef, options: MemoryOptions) !IdRef {
+        const zcu = self.pt.zcu;
+        const alignment: u32 = @intCast(value_ty.abiAlignment(zcu).toByteUnits().?);
         const indirect_value_ty_id = try self.resolveType(value_ty, .indirect);
         const result_id = self.spv.allocId();
         const access = spec.MemoryAccess.Extended{
             .Volatile = options.is_volatile,
+            .Aligned = .{ .literal_integer = alignment },
         };
         try self.func.body.emit(self.spv.gpa, .OpLoad, .{
             .id_result_type = indirect_value_ty_id,
@@ -5130,11 +5138,33 @@ const NavGen = struct {
         const union_ty = zcu.typeToUnion(ty).?;
         const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
 
-        if (union_ty.flagsUnordered(ip).layout == .@"packed") {
-            unreachable; // TODO
-        }
-
         const layout = self.unionLayout(ty);
+        const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
+
+        if (union_ty.flagsUnordered(ip).layout == .@"packed") {
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                const int_ty = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
+                return self.constInt(int_ty, 0);
+            }
+
+            assert(payload != null);
+            if (payload_ty.isInt(zcu)) {
+                if (ty.bitSize(zcu) == payload_ty.bitSize(zcu)) {
+                    return self.bitCast(ty, payload_ty, payload.?);
+                }
+
+                const trunc = try self.buildIntConvert(ty, .{ .ty = payload_ty, .value = .{ .singleton = payload.? } });
+                return try trunc.materialize(self);
+            }
+
+            const payload_int_ty = try pt.intType(.unsigned, @intCast(payload_ty.bitSize(zcu)));
+            const payload_int = if (payload_ty.ip_index == .bool_type)
+                try self.convertToIndirect(payload_ty, payload.?)
+            else
+                try self.bitCast(payload_int_ty, payload_ty, payload.?);
+            const trunc = try self.buildIntConvert(ty, .{ .ty = payload_int_ty, .value = .{ .singleton = payload_int } });
+            return try trunc.materialize(self);
+        }
 
         const tag_int = if (layout.tag_size != 0) blk: {
             const tag_val = try pt.enumValueFieldIndex(tag_ty, active_field);
@@ -5155,7 +5185,6 @@ const NavGen = struct {
             try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
-        const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
@@ -5198,7 +5227,6 @@ const NavGen = struct {
     fn airStructFieldVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const pt = self.pt;
         const zcu = pt.zcu;
-        const ip = &zcu.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
@@ -5213,16 +5241,39 @@ const NavGen = struct {
             .@"struct" => switch (object_ty.containerLayout(zcu)) {
                 .@"packed" => {
                     const struct_ty = zcu.typeToPackedStruct(object_ty).?;
-                    const backing_int_ty = Type.fromInterned(struct_ty.backingIntTypeUnordered(ip));
                     const bit_offset = pt.structPackedFieldBitOffset(struct_ty, field_index);
                     const bit_offset_id = try self.constInt(.u16, bit_offset);
                     const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
                     const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
-                    const int_ty = try pt.intType(signedness, field_bit_size);
-                    const shift_lhs: Temporary = .{ .ty = backing_int_ty, .value = .{ .singleton = object_id } };
+                    const field_int_ty = try pt.intType(signedness, field_bit_size);
+                    const shift_lhs: Temporary = .{ .ty = object_ty, .value = .{ .singleton = object_id } };
                     const shift = try self.buildBinary(.srl, shift_lhs, .{ .ty = .u16, .value = .{ .singleton = bit_offset_id } });
+                    const mask_id = try self.constInt(object_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
+                    const masked = try self.buildBinary(.bit_and, shift, .{ .ty = object_ty, .value = .{ .singleton = mask_id } });
+                    const result_id = blk: {
+                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(object_ty.bitSize(zcu))).?)
+                            break :blk try self.bitCast(field_int_ty, object_ty, try masked.materialize(self));
+                        const trunc = try self.buildIntConvert(field_int_ty, masked);
+                        break :blk try trunc.materialize(self);
+                    };
+                    if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
+                    if (field_ty.isInt(zcu)) return result_id;
+                    return try self.bitCast(field_ty, field_int_ty, result_id);
+                },
+                else => return try self.extractField(field_ty, object_id, field_index),
+            },
+            .@"union" => switch (object_ty.containerLayout(zcu)) {
+                .@"packed" => {
+                    const backing_int_ty = try pt.intType(.unsigned, @intCast(object_ty.bitSize(zcu)));
+                    const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
+                    const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                    const int_ty = try pt.intType(signedness, field_bit_size);
                     const mask_id = try self.constInt(backing_int_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
-                    const masked = try self.buildBinary(.bit_and, shift, .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } });
+                    const masked = try self.buildBinary(
+                        .bit_and,
+                        .{ .ty = backing_int_ty, .value = .{ .singleton = object_id } },
+                        .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } },
+                    );
                     const result_id = blk: {
                         if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(backing_int_ty.bitSize(zcu))).?)
                             break :blk try self.bitCast(int_ty, backing_int_ty, try masked.materialize(self));
@@ -5233,10 +5284,6 @@ const NavGen = struct {
                     if (field_ty.isInt(zcu)) return result_id;
                     return try self.bitCast(field_ty, int_ty, result_id);
                 },
-                else => return try self.extractField(field_ty, object_id, field_index),
-            },
-            .@"union" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
                 else => {
                     // Store, ptr-elem-ptr, pointer-cast, load
                     const layout = self.unionLayout(object_ty);
@@ -5317,28 +5364,28 @@ const NavGen = struct {
                     return try self.accessChain(result_ty_id, object_ptr, &.{field_index});
                 },
             },
-            .@"union" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => return self.todo("implement field access for packed unions", .{}),
-                else => {
-                    const layout = self.unionLayout(object_ty);
-                    if (!layout.has_payload) {
-                        // Asked to get a pointer to a zero-sized field. Just lower this
-                        // to undefined, there is no reason to make it be a valid pointer.
-                        return try self.spv.constUndef(result_ty_id);
-                    }
+            .@"union" => {
+                const layout = self.unionLayout(object_ty);
+                if (!layout.has_payload) {
+                    // Asked to get a pointer to a zero-sized field. Just lower this
+                    // to undefined, there is no reason to make it be a valid pointer.
+                    return try self.spv.constUndef(result_ty_id);
+                }
 
-                    const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
-                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class, .indirect);
-                    const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
+                const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
+                const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class, .indirect);
+                const pl_ptr_id = blk: {
+                    if (object_ty.containerLayout(zcu) == .@"packed") break :blk object_ptr;
+                    break :blk try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
+                };
 
-                    const active_pl_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = active_pl_ptr_id,
-                        .operand = pl_ptr_id,
-                    });
-                    return active_pl_ptr_id;
-                },
+                const active_pl_ptr_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = result_ty_id,
+                    .id_result = active_pl_ptr_id,
+                    .operand = pl_ptr_id,
+                });
+                return active_pl_ptr_id;
             },
             else => unreachable,
         }
