@@ -328,11 +328,11 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     if (allocation.len == 0) {
         return null;
     }
-	if (@sizeOf(T) == 0) {
-		var new_memory = allocation;
-		new_memory.len = new_len;
-		return new_memory;
-	}
+    if (@sizeOf(T) == 0) {
+        var new_memory = allocation;
+        new_memory.len = new_len;
+        return new_memory;
+    }
     const old_memory = mem.sliceAsBytes(allocation);
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660

@@ -229,16 +229,15 @@ test "Allocator.resize" {
 }
 
 test "Allocator alloc and remap with zero-bit type" {
-	var values = try testing.allocator.alloc(void, 10);
-	defer testing.allocator.free(values);
+    var values = try testing.allocator.alloc(void, 10);
+    defer testing.allocator.free(values);
 
-	try testing.expectEqual(10, values.len);
-	const remaped = testing.allocator.remap(values, 200);
-	try testing.expect(remaped != null);
+    try testing.expectEqual(10, values.len);
+    const remaped = testing.allocator.remap(values, 200);
+    try testing.expect(remaped != null);
 
-	values = remaped.?;
-	try testing.expectEqual(200, values.len);
-
+    values = remaped.?;
+    try testing.expectEqual(200, values.len);
 }
 
 /// Copy all of source into dest at position 0.
@@ -4303,16 +4302,16 @@ test "bytesAsSlice preserves pointer attributes" {
 }
 
 test "bytesAsSlice with zero-bit element type" {
-	{
-		const bytes = [_]u8{};
-		const slice = bytesAsSlice(void, &bytes);
-		try testing.expectEqual(0, slice.len);
-	}
-	{
-		const bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
-		const slice = bytesAsSlice(u0, &bytes);
-		try testing.expectEqual(0, slice.len);
-	}
+    {
+        const bytes = [_]u8{};
+        const slice = bytesAsSlice(void, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
+    {
+        const bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const slice = bytesAsSlice(u0, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
