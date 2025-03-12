@@ -588,11 +588,11 @@ const NavGen = struct {
 
         if (self.spv.hasFeature(.arbitrary_precision_integers) and bits <= 32) return bits;
 
-        // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
+        // We require Int8 and Int16 capabilities and benefit Int64 when available.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
         const ints = [_]struct { bits: u16, feature: ?Target.spirv.Feature }{
-            .{ .bits = 8, .feature = .int8 },
-            .{ .bits = 16, .feature = .int16 },
+            .{ .bits = 8, .feature = null },
+            .{ .bits = 16, .feature = null },
             .{ .bits = 32, .feature = null },
             .{ .bits = 64, .feature = .int64 },
         };
@@ -1373,7 +1373,7 @@ const NavGen = struct {
         var member_types: [4]IdRef = undefined;
         var member_names: [4][]const u8 = undefined;
 
-        const u8_ty_id = try self.resolveType(Type.u8, .direct); // TODO: What if Int8Type is not enabled?
+        const u8_ty_id = try self.resolveType(Type.u8, .direct);
 
         if (layout.tag_size != 0) {
             const tag_ty_id = try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);

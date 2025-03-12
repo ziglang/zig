@@ -10,8 +10,6 @@ pub const Feature = enum {
     v1_4,
     v1_5,
     v1_6,
-    int8,
-    int16,
     int64,
     float16,
     float64,
@@ -71,16 +69,6 @@ pub const all_features = blk: {
         .description = "Enable version 1.6",
         .dependencies = featureSet(&[_]Feature{.v1_5}),
     };
-    result[@intFromEnum(Feature.int8)] = .{
-        .llvm_name = null,
-        .description = "Enable Int8 capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
-    result[@intFromEnum(Feature.int16)] = .{
-        .llvm_name = null,
-        .description = "Enable Int16 capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
     result[@intFromEnum(Feature.int64)] = .{
         .llvm_name = null,
         .description = "Enable Int64 capability",
@@ -109,7 +97,7 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
         .llvm_name = null,
         .description = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
-        .dependencies = featureSet(&[_]Feature{ .v1_5, .int8, .int16 }),
+        .dependencies = featureSet(&[_]Feature{.v1_5}),
     };
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,

@@ -333,8 +333,6 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                 // Versions
                 .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
                 // Features with no dependencies
-                .int8 => try self.addCapability(.Int8),
-                .int16 => try self.addCapability(.Int16),
                 .int64 => try self.addCapability(.Int64),
                 .float16 => try self.addCapability(.Float16),
                 .float64 => try self.addCapability(.Float64),
@@ -361,6 +359,9 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
             }
         }
     }
+    // These are well supported
+    try self.addCapability(.Int8);
+    try self.addCapability(.Int16);
 
     // Emit memory model
     const addressing_model: spec.AddressingModel = blk: {
