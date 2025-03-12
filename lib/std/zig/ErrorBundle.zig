@@ -481,13 +481,13 @@ pub const Wip = struct {
             const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
             extra_index = item.end;
             const err_span = blk: {
-                if (item.data.node != 0) {
-                    break :blk tree.nodeToSpan(item.data.node);
-                }
-                const token_starts = tree.tokens.items(.start);
-                const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @as(u32, @intCast(tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
-                break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                if (item.data.node.unwrap()) |node| {
+                    break :blk tree.nodeToSpan(node);
+                } else if (item.data.token.unwrap()) |token| {
+                    const start = tree.tokenStart(token) + item.data.byte_offset;
+                    const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                    break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                } else unreachable;
             };
             const err_loc = std.zig.findLineColumn(source, err_span.main);
 
@@ -516,13 +516,13 @@ pub const Wip = struct {
                     const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
                     const msg = zir.nullTerminatedString(note_item.data.msg);
                     const span = blk: {
-                        if (note_item.data.node != 0) {
-                            break :blk tree.nodeToSpan(note_item.data.node);
-                        }
-                        const token_starts = tree.tokens.items(.start);
-                        const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
-                        break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                        if (note_item.data.node.unwrap()) |node| {
+                            break :blk tree.nodeToSpan(node);
+                        } else if (note_item.data.token.unwrap()) |token| {
+                            const start = tree.tokenStart(token) + note_item.data.byte_offset;
+                            const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                            break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                        } else unreachable;
                     };
                     const loc = std.zig.findLineColumn(source, span.main);
 
@@ -560,13 +560,14 @@ pub const Wip = struct {
 
         for (zoir.compile_errors) |err| {
             const err_span: std.zig.Ast.Span = span: {
-                if (err.token == std.zig.Zoir.CompileError.invalid_token) {
-                    break :span tree.nodeToSpan(err.node_or_offset);
+                if (err.token.unwrap()) |token| {
+                    const token_start = tree.tokenStart(token);
+                    const start = token_start + err.node_or_offset;
+                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                    break :span .{ .start = start, .end = end, .main = start };
+                } else {
+                    break :span tree.nodeToSpan(@enumFromInt(err.node_or_offset));
                 }
-                const token_start = tree.tokens.items(.start)[err.token];
-                const start = token_start + err.node_or_offset;
-                const end = token_start + @as(u32, @intCast(tree.tokenSlice(err.token).len));
-                break :span .{ .start = start, .end = end, .main = start };
             };
             const err_loc = std.zig.findLineColumn(source, err_span.main);
 
@@ -588,13 +589,14 @@ pub const Wip = struct {
             for (notes_start.., err.first_note.., 0..err.note_count) |eb_note_idx, zoir_note_idx, _| {
                 const note = zoir.error_notes[zoir_note_idx];
                 const note_span: std.zig.Ast.Span = span: {
-                    if (note.token == std.zig.Zoir.CompileError.invalid_token) {
-                        break :span tree.nodeToSpan(note.node_or_offset);
+                    if (note.token.unwrap()) |token| {
+                        const token_start = tree.tokenStart(token);
+                        const start = token_start + note.node_or_offset;
+                        const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                        break :span .{ .start = start, .end = end, .main = start };
+                    } else {
+                        break :span tree.nodeToSpan(@enumFromInt(note.node_or_offset));
                     }
-                    const token_start = tree.tokens.items(.start)[note.token];
-                    const start = token_start + note.node_or_offset;
-                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(note.token).len));
-                    break :span .{ .start = start, .end = end, .main = start };
                 };
                 const note_loc = std.zig.findLineColumn(source, note_span.main);
 

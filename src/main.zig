@@ -39,7 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = 32 << 20;
+const thread_stack_size = 50 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -5224,7 +5224,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .arena = std.heap.ArenaAllocator.init(gpa),
                     .location = .{ .relative_path = build_mod.root },
                     .location_tok = 0,
-                    .hash_tok = 0,
+                    .hash_tok = .none,
                     .name_tok = 0,
                     .lazy_status = .eager,
                     .parent_package_root = build_mod.root,
@@ -6285,8 +6285,10 @@ fn cmdAstCheck(
                     file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
                 const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
-                        @sizeOf(Ast.Node.Data) +
-                        @sizeOf(Ast.TokenIndex));
+                        @sizeOf(Ast.TokenIndex) +
+                        // Here we don't use @sizeOf(Ast.Node.Data) because it would include
+                        // the debug safety tag but we want to measure release size.
+                        8);
                 const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
@@ -7126,7 +7128,7 @@ fn cmdFetch(
         .arena = std.heap.ArenaAllocator.init(gpa),
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
-        .hash_tok = 0,
+        .hash_tok = .none,
         .name_tok = 0,
         .lazy_status = .eager,
         .parent_package_root = undefined,
@@ -7282,15 +7284,19 @@ fn cmdFetch(
 
         warn("overwriting existing dependency named '{s}'", .{name});
         try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        if (dep.hash_node.unwrap()) |hash_node| {
+            try fixups.replace_nodes_with_string.put(gpa, hash_node, hash_replace);
+        } else {
+            // https://github.com/ziglang/zig/issues/21690
+        }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
         const last_dep_node = deps[deps.len - 1].node;
         try fixups.append_string_after_node.put(gpa, last_dep_node, new_node_text);
-    } else if (manifest.dependencies_node != 0) {
+    } else if (manifest.dependencies_node.unwrap()) |dependencies_node| {
         // Add fixup for replacing the entire dependencies struct.
-        try fixups.replace_nodes_with_string.put(gpa, manifest.dependencies_node, dependencies_init);
+        try fixups.replace_nodes_with_string.put(gpa, dependencies_node, dependencies_init);
     } else {
         // Add fixup for adding dependencies struct.
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);

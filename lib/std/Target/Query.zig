@@ -102,7 +102,7 @@ pub fn fromTarget(target: Target) Query {
         .os_version_min = undefined,
         .os_version_max = undefined,
         .abi = target.abi,
-        .glibc_version = target.os.versionRange().gnuLibCVersion(),
+        .glibc_version = if (target.abi.isGnu()) target.os.versionRange().gnuLibCVersion() else null,
         .android_api_level = if (target.abi.isAndroid()) target.os.version_range.linux.android else null,
     };
     result.updateOsVersionRange(target.os);
