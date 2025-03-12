@@ -126,6 +126,9 @@
         .c_compiler = .{
             .path = "c_compiler",
         },
+        .c_embed_path = .{
+            .path = "c_embed_path",
+        },
         .pie = .{
             .path = "pie",
         },
