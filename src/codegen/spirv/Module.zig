@@ -613,6 +613,17 @@ pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const 
     return result_id;
 }
 
+pub fn constant(self: *Module, result_ty_id: IdRef, value: spec.LiteralContextDependentNumber) !IdRef {
+    const result_id = self.allocId();
+    const section = &self.sections.types_globals_constants;
+    try section.emit(self.gpa, .OpConstant, .{
+        .id_result_type = result_ty_id,
+        .id_result = result_id,
+        .value = value,
+    });
+    return result_id;
+}
+
 pub fn constBool(self: *Module, value: bool) !IdRef {
     if (self.cache.bool_const[@intFromBool(value)]) |b| return b;
 

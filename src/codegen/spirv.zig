@@ -714,6 +714,7 @@ const NavGen = struct {
         const int_info = scalar_ty.intInfo(zcu);
         // Use backing bits so that negatives are sign extended
         const backing_bits = self.backingIntBits(int_info.bits).?; // Assertion failure means big int
+        assert(backing_bits != 0); // u0 is comptime
 
         const signedness: Signedness = switch (@typeInfo(@TypeOf(value))) {
             .int => |int| int.signedness,
@@ -721,35 +722,35 @@ const NavGen = struct {
             else => unreachable,
         };
 
-        const value64: u64 = switch (signedness) {
-            .signed => @bitCast(@as(i64, @intCast(value))),
-            .unsigned => @as(u64, @intCast(value)),
+        const final_value: spec.LiteralContextDependentNumber = blk: {
+            if (self.spv.hasFeature(.kernel)) {
+                const value64: u64 = switch (signedness) {
+                    .signed => @bitCast(@as(i64, @intCast(value))),
+                    .unsigned => @as(u64, @intCast(value)),
+                };
+
+                // Manually truncate the value to the right amount of bits.
+                const truncated_value = if (backing_bits == 64)
+                    value64
+                else
+                    value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+
+                break :blk switch (backing_bits) {
+                    1...32 => .{ .uint32 = @truncate(truncated_value) },
+                    33...64 => .{ .uint64 = truncated_value },
+                    else => unreachable, // TODO: Large integer constants
+                };
+            }
+
+            break :blk switch (backing_bits) {
+                1...32 => if (signedness == .signed) .{ .int32 = @intCast(value) } else .{ .uint32 = @intCast(value) },
+                33...64 => if (signedness == .signed) .{ .int64 = value } else .{ .uint64 = value },
+                else => unreachable, // TODO: Large integer constants
+            };
         };
 
-        // Manually truncate the value to the right amount of bits.
-        const truncated_value = if (backing_bits == 64)
-            value64
-        else
-            value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
-
         const result_ty_id = try self.resolveType(scalar_ty, .indirect);
-        const result_id = self.spv.allocId();
-
-        const section = &self.spv.sections.types_globals_constants;
-        switch (backing_bits) {
-            0 => unreachable, // u0 is comptime
-            1...32 => try section.emit(self.spv.gpa, .OpConstant, .{
-                .id_result_type = result_ty_id,
-                .id_result = result_id,
-                .value = .{ .uint32 = @truncate(truncated_value) },
-            }),
-            33...64 => try section.emit(self.spv.gpa, .OpConstant, .{
-                .id_result_type = result_ty_id,
-                .id_result = result_id,
-                .value = .{ .uint64 = truncated_value },
-            }),
-            else => unreachable, // TODO: Large integer constants
-        }
+        const result_id = try self.spv.constant(result_ty_id, final_value);
 
         if (!ty.isVector(zcu)) return result_id;
         return self.constructCompositeSplat(ty, result_id);
@@ -803,8 +804,6 @@ const NavGen = struct {
         if (val.isUndefDeep(zcu)) {
             return self.spv.constUndef(result_ty_id);
         }
-
-        const section = &self.spv.sections.types_globals_constants;
 
         const cacheable_id = cache: {
             switch (ip.indexToKey(val.toIntern())) {
@@ -860,13 +859,7 @@ const NavGen = struct {
                         80, 128 => unreachable, // TODO
                         else => unreachable,
                     };
-                    const result_id = self.spv.allocId();
-                    try section.emit(self.spv.gpa, .OpConstant, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .value = lit,
-                    });
-                    break :cache result_id;
+                    break :cache try self.spv.constant(result_ty_id, lit);
                 },
                 .err => |err| {
                     const value = try pt.getErrorValue(err.name);
@@ -989,8 +982,17 @@ const NavGen = struct {
                     },
                     .struct_type => {
                         const struct_type = zcu.typeToStruct(ty).?;
+
                         if (struct_type.layout == .@"packed") {
-                            return self.todo("packed struct constants", .{});
+                            // TODO: composite int
+                            // TODO: endianness
+                            const bits: u16 = @intCast(ty.bitSize(zcu));
+                            const bytes = std.mem.alignForward(u16, self.backingIntBits(bits).?, 8) / 8;
+                            var limbs: [8]u8 = undefined;
+                            @memset(&limbs, 0);
+                            val.writeToPackedMemory(ty, pt, limbs[0..bytes], 0) catch unreachable;
+                            const backing_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
+                            return try self.constInt(backing_ty, @as(u64, @bitCast(limbs)));
                         }
 
                         var types = std.ArrayList(Type).init(self.gpa);
@@ -4309,6 +4311,7 @@ const NavGen = struct {
     ) !Temporary {
         const pt = self.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const scalar_ty = lhs.ty.scalarType(zcu);
         const is_vector = lhs.ty.isVector(zcu);
 
@@ -4317,6 +4320,11 @@ const NavGen = struct {
             .@"enum" => {
                 assert(!is_vector);
                 const ty = lhs.ty.intTagType(zcu);
+                return try self.cmp(op, lhs.pun(ty), rhs.pun(ty));
+            },
+            .@"struct" => {
+                const struct_ty = zcu.typeToPackedStruct(scalar_ty).?;
+                const ty = Type.fromInterned(struct_ty.backingIntTypeUnordered(ip));
                 return try self.cmp(op, lhs.pun(ty), rhs.pun(ty));
             },
             .error_set => {
@@ -4746,8 +4754,42 @@ const NavGen = struct {
         switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
                 if (zcu.typeToPackedStruct(result_ty)) |struct_type| {
-                    _ = struct_type;
-                    unreachable; // TODO
+                    comptime assert(Type.packed_struct_layout_version == 2);
+                    const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
+                    var running_int_id = try self.constInt(backing_int_ty, 0);
+                    var running_bits: u16 = 0;
+                    for (struct_type.field_types.get(ip), elements) |field_ty_ip, element| {
+                        const field_ty = Type.fromInterned(field_ty_ip);
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                        const field_id = try self.resolve(element);
+                        const ty_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                        const field_int_ty = try self.pt.intType(.unsigned, ty_bit_size);
+                        const field_int_id = blk: {
+                            if (field_ty.isPtrAtRuntime(zcu)) {
+                                assert(self.spv.hasFeature(.addresses) or
+                                    (self.spv.hasFeature(.physical_storage_buffer) and field_ty.ptrAddressSpace(zcu) == .storage_buffer));
+                                break :blk try self.intFromPtr(field_id);
+                            }
+                            break :blk try self.bitCast(field_int_ty, field_ty, field_id);
+                        };
+                        const shift_rhs = try self.constInt(backing_int_ty, running_bits);
+                        const extended_int_conv = try self.buildIntConvert(backing_int_ty, .{
+                            .ty = field_int_ty,
+                            .value = .{ .singleton = field_int_id },
+                        });
+                        const shifted = try self.buildBinary(.sll, extended_int_conv, .{
+                            .ty = backing_int_ty,
+                            .value = .{ .singleton = shift_rhs },
+                        });
+                        const running_int_tmp = try self.buildBinary(
+                            .bit_or,
+                            .{ .ty = backing_int_ty, .value = .{ .singleton = running_int_id } },
+                            shifted,
+                        );
+                        running_int_id = try running_int_tmp.materialize(self);
+                        running_bits += ty_bit_size;
+                    }
+                    return running_int_id;
                 }
 
                 const types = try self.gpa.alloc(Type, elements.len);
@@ -5156,6 +5198,7 @@ const NavGen = struct {
     fn airStructFieldVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const pt = self.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
@@ -5168,7 +5211,28 @@ const NavGen = struct {
 
         switch (object_ty.zigTypeTag(zcu)) {
             .@"struct" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
+                .@"packed" => {
+                    const struct_ty = zcu.typeToPackedStruct(object_ty).?;
+                    const backing_int_ty = Type.fromInterned(struct_ty.backingIntTypeUnordered(ip));
+                    const bit_offset = pt.structPackedFieldBitOffset(struct_ty, field_index);
+                    const bit_offset_id = try self.constInt(.u16, bit_offset);
+                    const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
+                    const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                    const int_ty = try pt.intType(signedness, field_bit_size);
+                    const shift_lhs: Temporary = .{ .ty = backing_int_ty, .value = .{ .singleton = object_id } };
+                    const shift = try self.buildBinary(.srl, shift_lhs, .{ .ty = .u16, .value = .{ .singleton = bit_offset_id } });
+                    const mask_id = try self.constInt(backing_int_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
+                    const masked = try self.buildBinary(.bit_and, shift, .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } });
+                    const result_id = blk: {
+                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(backing_int_ty.bitSize(zcu))).?)
+                            break :blk try self.bitCast(int_ty, backing_int_ty, try masked.materialize(self));
+                        const trunc = try self.buildIntConvert(int_ty, masked);
+                        break :blk try trunc.materialize(self);
+                    };
+                    if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
+                    if (field_ty.isInt(zcu)) return result_id;
+                    return try self.bitCast(field_ty, int_ty, result_id);
+                },
                 else => return try self.extractField(field_ty, object_id, field_index),
             },
             .@"union" => switch (object_ty.containerLayout(zcu)) {
