@@ -20290,11 +20290,41 @@ fn zirStructInitEmptyResult(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
+
     // Generic poison means this is an untyped anonymous empty struct/array init
-    const ty_operand = try sema.resolveTypeOrPoison(block, src, inst_data.operand) orelse return .empty_tuple;
+    const ty_operand = try sema.resolveTypeOrPoison(block, src, inst_data.operand) orelse {
+        if (is_byref) {
+            return sema.uavRef(.empty_tuple);
+        } else {
+            return .empty_tuple;
+        }
+    };
+
     const init_ty = if (is_byref) ty: {
         const ptr_ty = ty_operand.optEuBaseType(zcu);
         assert(ptr_ty.zigTypeTag(zcu) == .pointer); // validated by a previous instruction
+        switch (ptr_ty.ptrSize(zcu)) {
+            // Use a zero-length array for a slice or many-ptr result
+            .slice, .many => break :ty try pt.arrayType(.{
+                .len = 0,
+                .child = ptr_ty.childType(zcu).toIntern(),
+                .sentinel = if (ptr_ty.sentinel(zcu)) |s| s.toIntern() else .none,
+            }),
+            // Just use the child type for a single-pointer or C-pointer result
+            .one, .c => {
+                const child = ptr_ty.childType(zcu);
+                if (child.toIntern() == .anyopaque_type) {
+                    // ...unless that child is anyopaque, in which case this is equivalent to an untyped init.
+                    // `.{}` is an empty tuple.
+                    if (is_byref) {
+                        return sema.uavRef(.empty_tuple);
+                    } else {
+                        return .empty_tuple;
+                    }
+                }
+                break :ty child;
+            },
+        }
         if (!ptr_ty.isSlice(zcu)) {
             break :ty ptr_ty.childType(zcu);
         }
