@@ -26342,12 +26342,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             var info = dest_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
         const src_array_ptr_ty = try pt.ptrType(info: {
             var info = src_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
 
