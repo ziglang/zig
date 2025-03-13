@@ -3496,8 +3496,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
 
-            .deposit_bits => return f.fail("TODO: C backend: implement deposit_bits", .{}),
-            .extract_bits => return f.fail("TODO: C backend: implement extract_bits", .{}),
+            .deposit_bits => try airDepositExtractBits(f, inst, "deposit_bits"),
+            .extract_bits => try airDepositExtractBits(f, inst, "extract_bits"),
             // zig fmt: on
         };
         if (result_value == .new_local) {
@@ -7690,6 +7690,19 @@ fn airCVaCopy(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, va_list, .Other);
     try writer.writeAll(");\n");
     return local;
+}
+
+fn airDepositExtractBits(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const ty = f.typeOf(bin_op.lhs);
+
+    const ctype = try f.ctypeFromType(ty, .complete);
+    const is_big = ctype.info(&f.object.dg.ctype_pool) == .array;
+
+    if (is_big) return f.fail("TODO: C backend: implement @{{deposit,extract}}Bits for bigints", .{});
+    if (f.byteSize(ctype) > 8) return f.fail("TODO: C backend: implement @{{deposit,extract}}Bits for u128", .{});
+
+    return try airBinBuiltinCall(f, inst, operation, .none);
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
