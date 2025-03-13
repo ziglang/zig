@@ -1,4 +1,5 @@
 const AddOneBit = math.AddOneBit;
+const cast = math.cast;
 const checkExpected = math.checkExpected;
 const Compare = math.Compare;
 const DoubleBits = math.DoubleBits;
@@ -6,6 +7,7 @@ const fmax = math.fmax;
 const fmin = math.fmin;
 const Gpr = math.Gpr;
 const inf = math.inf;
+const Log2Int = math.Log2Int;
 const math = @import("math.zig");
 const nan = math.nan;
 const Scalar = math.Scalar;
@@ -5582,6 +5584,28 @@ test mod {
     try test_mod.testFloatVectors();
 }
 
+inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return @max(lhs, rhs);
+}
+test max {
+    const test_max = binary(max, .{});
+    try test_max.testInts();
+    try test_max.testIntVectors();
+    try test_max.testFloats();
+    try test_max.testFloatVectors();
+}
+
+inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return @min(lhs, rhs);
+}
+test min {
+    const test_min = binary(min, .{});
+    try test_min.testInts();
+    try test_min.testIntVectors();
+    try test_min.testFloats();
+    try test_min.testFloatVectors();
+}
+
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
     return lhs == rhs;
 }
@@ -5654,6 +5678,48 @@ test bitOr {
     try test_bit_or.testIntVectors();
 }
 
+inline fn shr(comptime Type: type, lhs: Type, rhs: Type) Type {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    return lhs >> if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+}
+test shr {
+    const test_shr = binary(shr, .{});
+    try test_shr.testInts();
+}
+
+inline fn shrExact(comptime Type: type, lhs: Type, rhs: Type) Type {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return @shrExact(lhs >> final_rhs << final_rhs, final_rhs);
+}
+test shrExact {
+    const test_shr_exact = binary(shrExact, .{});
+    try test_shr_exact.testInts();
+}
+
+inline fn shl(comptime Type: type, lhs: Type, rhs: Type) Type {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    return lhs << if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+}
+test shl {
+    const test_shl = binary(shl, .{});
+    try test_shl.testInts();
+}
+
+inline fn shlExact(comptime Type: type, lhs: Type, rhs: Type) Type {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return @shlExact(lhs << final_rhs >> final_rhs, final_rhs);
+}
+test shlExact {
+    const test_shl_exact = binary(shlExact, .{});
+    try test_shl_exact.testInts();
+}
+
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
     return lhs ^ rhs;
 }
@@ -5661,28 +5727,6 @@ test bitXor {
     const test_bit_xor = binary(bitXor, .{});
     try test_bit_xor.testInts();
     try test_bit_xor.testIntVectors();
-}
-
-inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
-    return @min(lhs, rhs);
-}
-test min {
-    const test_min = binary(min, .{});
-    try test_min.testInts();
-    try test_min.testIntVectors();
-    try test_min.testFloats();
-    try test_min.testFloatVectors();
-}
-
-inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
-    return @max(lhs, rhs);
-}
-test max {
-    const test_max = binary(max, .{});
-    try test_max.testInts();
-    try test_max.testIntVectors();
-    try test_max.testFloats();
-    try test_max.testFloatVectors();
 }
 
 inline fn optionalsEqual(comptime Type: type, lhs: Type, rhs: Type) bool {

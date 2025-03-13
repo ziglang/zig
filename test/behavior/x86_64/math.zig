@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const math = std.math;
 const std = @import("std");
 
+pub const cast = math.cast;
 pub const fmax = math.floatMax;
 pub const fmin = math.floatMin;
 pub const imax = math.maxInt;
