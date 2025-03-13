@@ -302,7 +302,7 @@ pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision
         index += 2;
         const dp_index = index;
 
-        const dp_poffset: u32 = @intCast(-dp_offset);
+        const dp_poffset: usize = @intCast(-dp_offset);
         @memset(buf[index..][0..dp_poffset], '0');
         index += dp_poffset;
         writeDecimal(buf[index..], &output, olength);
@@ -416,10 +416,10 @@ pub fn binaryToDecimal(comptime T: type, bits: T, mantissa_bits: std.math.Log2In
     var vm_is_trailing_zeros = false;
     var vr_is_trailing_zeros = false;
     if (e2 >= 0) {
-        const q: u32 = log10Pow2(@intCast(e2)) - @intFromBool(e2 > 3);
+        const q = log10Pow2(@intCast(e2)) - @intFromBool(e2 > 3);
         e10 = cast_i32(q);
         const k: i32 = @intCast(tables.POW5_INV_BITCOUNT + pow5Bits(q) - 1);
-        const i: u32 = @intCast(-e2 + cast_i32(q) + k);
+        const i: usize = @intCast(-e2 + cast_i32(q) + k);
 
         const pow5 = tables.computeInvPow5(q);
         vr = tables.mulShift(4 * m2, &pow5, i);
@@ -436,11 +436,11 @@ pub fn binaryToDecimal(comptime T: type, bits: T, mantissa_bits: std.math.Log2In
             }
         }
     } else {
-        const q: u32 = log10Pow5(@intCast(-e2)) - @intFromBool(-e2 > 1);
+        const q: usize = log10Pow5(@intCast(-e2)) - @intFromBool(-e2 > 1);
         e10 = cast_i32(q) + e2;
         const i: i32 = -e2 - cast_i32(q);
         const k: i32 = cast_i32(pow5Bits(@intCast(i))) - tables.POW5_BITCOUNT;
-        const j: u32 = @intCast(cast_i32(q) - k);
+        const j: usize = @intCast(cast_i32(q) - k);
 
         const pow5 = tables.computePow5(@intCast(i));
         vr = tables.mulShift(4 * m2, &pow5, j);
@@ -495,7 +495,7 @@ pub fn binaryToDecimal(comptime T: type, bits: T, mantissa_bits: std.math.Log2In
     };
 }
 
-fn decimalLength(v: anytype) u32 {
+fn decimalLength(v: anytype) usize {
     switch (@TypeOf(v)) {
         u32, u64 => {
             std.debug.assert(v < 100000000000000000);
@@ -520,7 +520,7 @@ fn decimalLength(v: anytype) u32 {
         u128 => {
             const LARGEST_POW10 = (@as(u128, 5421010862427522170) << 64) | 687399551400673280;
             var p10 = LARGEST_POW10;
-            var i: u32 = 39;
+            var i: usize = 39;
             while (i > 0) : (i -= 1) {
                 if (v >= p10) return i;
                 p10 /= 10;
@@ -532,25 +532,25 @@ fn decimalLength(v: anytype) u32 {
 }
 
 // floor(log_10(2^e))
-fn log10Pow2(e: u32) u32 {
+fn log10Pow2(e: usize) usize {
     std.debug.assert(e <= 1 << 15);
     return @intCast((@as(u64, @intCast(e)) * 169464822037455) >> 49);
 }
 
 // floor(log_10(5^e))
-fn log10Pow5(e: u32) u32 {
+fn log10Pow5(e: usize) usize {
     std.debug.assert(e <= 1 << 15);
     return @intCast((@as(u64, @intCast(e)) * 196742565691928) >> 48);
 }
 
 // if (e == 0) 1 else ceil(log_2(5^e))
-fn pow5Bits(e: u32) u32 {
+fn pow5Bits(e: usize) usize {
     std.debug.assert(e <= 1 << 15);
     return @intCast(((@as(u64, @intCast(e)) * 163391164108059) >> 46) + 1);
 }
 
-fn pow5Factor(value_: anytype) u32 {
-    var count: u32 = 0;
+fn pow5Factor(value_: anytype) usize {
+    var count: usize = 0;
     var value = value_;
     while (value > 0) : ({
         count += 1;
@@ -561,26 +561,26 @@ fn pow5Factor(value_: anytype) u32 {
     return 0;
 }
 
-fn multipleOfPowerOf5(value: anytype, p: u32) bool {
+fn multipleOfPowerOf5(value: anytype, p: usize) bool {
     const T = @TypeOf(value);
     std.debug.assert(@typeInfo(T) == .int);
     return pow5Factor(value) >= p;
 }
 
-fn multipleOfPowerOf2(value: anytype, p: u32) bool {
+fn multipleOfPowerOf2(value: anytype, p: usize) bool {
     const T = @TypeOf(value);
     std.debug.assert(@typeInfo(T) == .int);
     return (value & ((@as(T, 1) << @as(std.math.Log2Int(T), @intCast(p))) - 1)) == 0;
 }
 
-fn mulShift128(m: u128, mul: *const [4]u64, j: u32) u128 {
+fn mulShift128(m: u128, mul: *const [4]u64, j: usize) u128 {
     std.debug.assert(j > 128);
     const a: [2]u64 = .{ @truncate(m), @truncate(m >> 64) };
     const r = mul_128_256_shift(&a, mul, j, 0);
     return (@as(u128, r[1]) << 64) | r[0];
 }
 
-fn mul_128_256_shift(a: *const [2]u64, b: *const [4]u64, shift: u32, corr: u32) [4]u64 {
+fn mul_128_256_shift(a: *const [2]u64, b: *const [4]u64, shift: usize, corr: u32) [4]u64 {
     std.debug.assert(shift > 0);
     std.debug.assert(shift < 256);
 
@@ -639,8 +639,8 @@ pub const Backend128_Tables = struct {
     const bound2 = 127;
     const adjust_q = true;
 
-    fn computePow5(i: u32) [4]u64 {
-        const base = i / FLOAT128_POW5_TABLE_SIZE;
+    fn computePow5(i: usize) [4]u64 {
+        const base: usize = i / FLOAT128_POW5_TABLE_SIZE;
         const base2 = base * FLOAT128_POW5_TABLE_SIZE;
         const mul = &FLOAT128_POW5_SPLIT[base];
         if (i == base2) {
@@ -656,7 +656,7 @@ pub const Backend128_Tables = struct {
         }
     }
 
-    fn computeInvPow5(i: u32) [4]u64 {
+    fn computeInvPow5(i: usize) [4]u64 {
         const base = (i + FLOAT128_POW5_TABLE_SIZE - 1) / FLOAT128_POW5_TABLE_SIZE;
         const base2 = base * FLOAT128_POW5_TABLE_SIZE;
         const mul = &FLOAT128_POW5_INV_SPLIT[base]; // 1 / 5^base2
