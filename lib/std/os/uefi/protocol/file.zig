@@ -20,9 +20,21 @@ pub const File = extern struct {
     _set_info: *const fn (*File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
     _flush: *const fn (*File) callconv(cc) Status,
 
+    pub const OpenError = error{
+        NotFound,
+        NoMedia,
+        MediaChanged,
+        DeviceError,
+        VolumeCorrupted,
+        WriteProtected,
+        AccessDenied,
+        OutOfResources,
+        VolumeFull,
+        InvalidParameter,
+    } || uefi.UnexpectedError;
     // seek and position have the same errors
-    pub const SeekError = error{ Unsupported, DeviceError };
-    pub const ReadError = error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall };
+    pub const SeekError = error{ Unsupported, DeviceError } || uefi.UnexpectedError;
+    pub const ReadError = error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall } || uefi.UnexpectedError;
     pub const WriteError = error{
         Unsupported,
         NoMedia,
@@ -31,7 +43,7 @@ pub const File = extern struct {
         WriteProtected,
         AccessDenied,
         VolumeFull,
-    };
+    } || uefi.UnexpectedError;
 
     pub const SeekableStream = io.SeekableStream(
         *File,
@@ -76,14 +88,14 @@ pub const File = extern struct {
             .out_of_resources => return Error.OutOfResources,
             .volume_full => return Error.VolumeFull,
             .invalid_parameter => return Error.InvalidParameter,
-            else => |err| return uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
     pub fn close(self: *File) void {
         switch (self._close(self)) {
             .success => {},
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -95,7 +107,7 @@ pub const File = extern struct {
         switch (self._delete(self)) {
             .success => return true,
             .warn_delete_failure => return false,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -107,7 +119,7 @@ pub const File = extern struct {
             .device_error => return Error.DeviceError,
             .volume_corrupted => return Error.VolumeCorrupted,
             .buffer_too_small => return Error.BufferTooSmall,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -122,7 +134,7 @@ pub const File = extern struct {
             .write_protected => return Error.WriteProtected,
             .access_denied => return Error.AccessDenied,
             .volume_full => return Error.VolumeFull,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -132,7 +144,7 @@ pub const File = extern struct {
             .success => return position,
             .unsupported => return Error.Unsupported,
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -150,7 +162,7 @@ pub const File = extern struct {
             .success => {},
             .unsupported => return Error.Unsupported,
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -179,7 +191,7 @@ pub const File = extern struct {
             .device_error => return Error.DeviceError,
             .volume_corrupted => return Error.VolumeCorrupted,
             .buffer_too_small => return Error.BufferTooSmall,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -198,7 +210,7 @@ pub const File = extern struct {
             .access_denied => return Error.AccessDenied,
             .volume_full => return Error.VolumeFull,
             .bad_buffer_size => return Error.BadBufferSize,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 
@@ -210,7 +222,7 @@ pub const File = extern struct {
             .write_protected => return Error.WriteProtected,
             .access_denied => return Error.AccessDenied,
             .volume_full => return Error.VolumeFull,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| return uefi.unexpectedStatus(err),
         }
     }
 

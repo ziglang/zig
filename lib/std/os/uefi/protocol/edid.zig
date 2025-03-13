@@ -51,7 +51,7 @@ pub const Override = extern struct {
         switch (self._get_edid(self, handle, attributes, &size, &ptr)) {
             .success => {},
             .unsupported => return Error.Unsupported,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
 
         if (size == 0 or ptr == null)

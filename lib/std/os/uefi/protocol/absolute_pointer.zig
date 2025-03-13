@@ -29,7 +29,7 @@ pub const AbsolutePointer = extern struct {
             .success => return state,
             .not_ready => return Error.NotReady,
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 

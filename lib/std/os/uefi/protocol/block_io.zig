@@ -20,7 +20,7 @@ pub const BlockIo = extern struct {
         switch (self._reset(self, extended_verification)) {
             .success => {},
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 
@@ -32,7 +32,7 @@ pub const BlockIo = extern struct {
             .no_media => Error.NoMedia,
             .bad_buffer_size => Error.BadBufferSize,
             .invalid_parameter => Error.InvalidParameter,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 
@@ -46,7 +46,7 @@ pub const BlockIo = extern struct {
             .device_error => Error.DeviceError,
             .bad_buffer_size => Error.BadBufferSize,
             .invalid_parameter => Error.InvalidParameter,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 
@@ -56,7 +56,7 @@ pub const BlockIo = extern struct {
             .success => {},
             .device_error => Error.DeviceError,
             .no_media => Error.NoMedia,
-            else => |err| uefi.unexpectedError(err),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 

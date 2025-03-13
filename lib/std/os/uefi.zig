@@ -248,6 +248,10 @@ test {
     _ = protocol;
 }
 
-pub fn unexpectedError(err: Status) noreturn {
-    std.debug.panic("unexpected error: {any}", .{err});
+pub const UnexpectedError = error{Unexpected};
+
+pub fn unexpectedStatus(err: Status) UnexpectedError {
+    // TODO: debug printing the encountered error? maybe handle warnings?
+    _ = err;
+    return error.Unexpected;
 }

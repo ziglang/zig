@@ -18,7 +18,7 @@ pub const GraphicsOutput = extern struct {
             .success => return info,
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
-            else => |err| uefi.unexpectedError(err.err()),
+            else => |err| uefi.unexpectedStatus(err),
         }
     }
 
