@@ -375,6 +375,15 @@ pub const ReadBuffer = union(enum) {
         group_id: u16,
         len: usize,
     },
+
+    const Self = @This();
+
+    pub fn init(
+        comptime tag: std.meta.Tag(Self),
+        value: std.meta.TagPayload(Self, tag),
+    ) Self {
+        return @unionInit(Self, @tagName(tag), value);
+    }
 };
 
 /// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv(2)` depending on the buffer type.
@@ -618,6 +627,15 @@ pub const RecvBuffer = union(enum) {
         group_id: u16,
         len: usize,
     },
+
+    const Self = @This();
+
+    pub fn init(
+        comptime tag: std.meta.Tag(Self),
+        value: std.meta.TagPayload(Self, tag),
+    ) Self {
+        return @unionInit(Self, @tagName(tag), value);
+    }
 };
 
 /// Queues (but does not submit) an SQE to perform a `recv(2)`.
@@ -1790,7 +1808,7 @@ test "readv" {
 
     var buffer = [_]u8{42} ** 128;
     var iovecs = [_]posix.iovec{posix.iovec{ .base = &buffer, .len = buffer.len }};
-    const sqe = try ring.read(0xcccccccc, fd_index, .{ .iovecs = iovecs[0..] }, 0);
+    const sqe = try ring.read(0xcccccccc, fd_index, .init(.iovecs, iovecs[0..]), 0);
     try testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -1843,7 +1861,7 @@ test "writev/fsync/readv" {
     try testing.expectEqual(fd, sqe_fsync.fd);
     sqe_fsync.flags |= linux.IOSQE_IO_LINK;
 
-    const sqe_readv = try ring.read(0xffffffff, fd, .{ .iovecs = iovecs_read[0..] }, 17);
+    const sqe_readv = try ring.read(0xffffffff, fd, .init(.iovecs, iovecs_read[0..]), 17);
     try testing.expectEqual(linux.IORING_OP.READV, sqe_readv.opcode);
     try testing.expectEqual(@as(u64, 17), sqe_readv.off);
 
@@ -1899,7 +1917,7 @@ test "write/read" {
     try testing.expectEqual(linux.IORING_OP.WRITE, sqe_write.opcode);
     try testing.expectEqual(@as(u64, 10), sqe_write.off);
     sqe_write.flags |= linux.IOSQE_IO_LINK;
-    const sqe_read = try ring.read(0x22222222, fd, .{ .buffer = buffer_read[0..] }, 10);
+    const sqe_read = try ring.read(0x22222222, fd, .init(.buffer, buffer_read[0..]), 10);
     try testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
     try testing.expectEqual(@as(u64, 10), sqe_read.off);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -1963,7 +1981,7 @@ test "splice/read" {
     try testing.expectEqual(@as(u64, 10), sqe_splice_from_pipe.off);
     sqe_splice_from_pipe.flags |= linux.IOSQE_IO_LINK;
 
-    const sqe_read = try ring.read(0x33333333, fd_dst, .{ .buffer = buffer_read[0..] }, 10);
+    const sqe_read = try ring.read(0x33333333, fd_dst, .init(.buffer, buffer_read[0..]), 10);
     try testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
     try testing.expectEqual(@as(u64, 10), sqe_read.off);
     try testing.expectEqual(@as(u32, 3), try ring.submit());
@@ -2162,7 +2180,7 @@ test "accept/connect/send/recv" {
 
     const sqe_send = try ring.send(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], 0);
     sqe_send.flags |= linux.IOSQE_IO_LINK;
-    _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
+    _ = try ring.recv(0xffffffff, socket_test_harness.server, .init(.buffer, buffer_recv[0..]), 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_send = try ring.copy_cqe();
@@ -2411,7 +2429,7 @@ test "accept/connect/recv/link_timeout" {
 
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
-    const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
+    const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .init(.buffer, buffer_recv[0..]), 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
     const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
@@ -2563,7 +2581,7 @@ test "accept/connect/recv/cancel" {
 
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
-    _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
+    _ = try ring.recv(0xffffffff, socket_test_harness.server, .init(.buffer, buffer_recv[0..]), 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const sqe_cancel = try ring.cancel(0x99999999, 0xffffffff, 0);
@@ -2635,7 +2653,7 @@ test "register_files_update" {
 
     var buffer = [_]u8{42} ** 128;
     {
-        const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
+        const sqe = try ring.read(0xcccccccc, fd_index, .init(.buffer, &buffer), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -2656,7 +2674,7 @@ test "register_files_update" {
 
     {
         // Next read should still work since fd_index in the registered file descriptors hasn't been updated yet.
-        const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
+        const sqe = try ring.read(0xcccccccc, fd_index, .init(.buffer, &buffer), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -2673,7 +2691,7 @@ test "register_files_update" {
 
     {
         // Now this should fail since both fds are sparse (-1)
-        const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
+        const sqe = try ring.read(0xcccccccc, fd_index, .init(.buffer, &buffer), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -3065,7 +3083,7 @@ test "provide_buffers: read" {
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
-        const sqe = try ring.read(0xdededede, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdededede, fd, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3091,7 +3109,7 @@ test "provide_buffers: read" {
     // This read should fail
 
     {
-        const sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdfdfdfdf, fd, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3130,7 +3148,7 @@ test "provide_buffers: read" {
     // Final read which should work
 
     {
-        const sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdfdfdfdf, fd, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3209,7 +3227,7 @@ test "remove_buffers" {
     // This read should work
 
     {
-        _ = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        _ = try ring.read(0xdfdfdfdf, fd, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3229,7 +3247,7 @@ test "remove_buffers" {
     // Final read should _not_ work
 
     {
-        _ = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        _ = try ring.read(0xdfdfdfdf, fd, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3303,7 +3321,7 @@ test "provide_buffers: accept/connect/send/recv" {
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
-        const sqe = try ring.recv(0xdededede, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdededede, socket_test_harness.client, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3332,7 +3350,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // This recv should fail
 
     {
-        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3382,7 +3400,7 @@ test "provide_buffers: accept/connect/send/recv" {
     @memset(mem.sliceAsBytes(&buffers), 1);
 
     {
-        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .init(.buffer_selection, .{ .group_id = group_id, .len = buffer_len }), 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3544,7 +3562,7 @@ test "accept/connect/send_zc/recv" {
     // zero-copy send
     const sqe_send = try ring.send_zc(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], 0, 0);
     sqe_send.flags |= linux.IOSQE_IO_LINK;
-    _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
+    _ = try ring.recv(0xffffffff, socket_test_harness.server, .init(.buffer, buffer_recv[0..]), 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     var cqe_send = try ring.copy_cqe();
@@ -3631,7 +3649,7 @@ test "accept_direct" {
             // Submit receive to fixed file returned by accept (fd_index).
             // Fd field is set to registered file index, returned by accept.
             // Flag linux.IOSQE_FIXED_FILE must be set.
-            const recv_sqe = try ring.recv(read_userdata, fd_index, .{ .buffer = &buffer_recv }, 0);
+            const recv_sqe = try ring.recv(read_userdata, fd_index, .init(.buffer, &buffer_recv), 0);
             recv_sqe.flags |= linux.IOSQE_FIXED_FILE;
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
