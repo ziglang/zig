@@ -1096,7 +1096,7 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len + (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftLeft(r: *Mutable, a: Const, shift: usize) void {
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits) + 1);
         r.positive = a.positive;
     }
@@ -1165,7 +1165,7 @@ pub const Mutable = struct {
 
         // This shift should not be able to overflow, so invoke llshl and normalize manually
         // to avoid the extra required limb.
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits));
         r.positive = a.positive;
     }
@@ -1202,17 +1202,11 @@ pub const Mutable = struct {
             break :nonzero a.limbs[full_limbs_shifted_out] << not_covered != 0;
         };
 
-        llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshr(r.limbs, a.limbs, shift);
 
         r.len = a.limbs.len - full_limbs_shifted_out;
         r.positive = a.positive;
-        if (nonzero_negative_shiftout) {
-            if (full_limbs_shifted_out > 0) {
-                r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
-                r.len += 1;
-            }
-            r.addScalar(r.toConst(), -1);
-        }
+        if (nonzero_negative_shiftout) r.addScalar(r.toConst(), -1);
         r.normalize(r.len);
     }
 
