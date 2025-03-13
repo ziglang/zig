@@ -5,28 +5,48 @@ const debug_mode = @import("builtin").mode == .Debug;
 
 pub const MemoryPoolError = Allocator.Error;
 
+pub const MemoryPool = MemoryPoolWithAllocator;
+
 /// A memory pool that can allocate objects of a single type very quickly.
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
-pub fn MemoryPool(comptime Item: type) type {
-    return MemoryPoolAligned(Item, @alignOf(Item));
+/// For a pool that can be initialized directly and does not store an
+/// `Allocator` field, see `MemoryPoolUnmanaged`.
+pub fn MemoryPoolWithAllocator(comptime Item: type) type {
+    return MemoryPoolAlignedWithAllocator(Item, @alignOf(Item));
 }
 
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
+/// This type does not store an `Allocator` field - the `Allocator` must be passed in
+/// with each function call that requires it. See `MemoryPoolWithAllocator` for
+/// a type that stores an `Allocator` field for convenience.
 pub fn MemoryPoolUnmanaged(comptime Item: type) type {
     return MemoryPoolAlignedUnmanaged(Item, @alignOf(Item));
 }
 
+pub const MemoryPoolAligned = MemoryPoolAlignedWithAllocator;
+
 /// A memory pool that can allocate objects of a single type very quickly.
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
-pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: u29) type {
+/// For a pool that can be initialized directly and does not store an
+/// `Allocator` field, see `MemoryPoolAlignedUnmanaged`.
+pub fn MemoryPoolAlignedWithAllocator(comptime Item: type, comptime alignment: u29) type {
     if (@alignOf(Item) == alignment) {
-        return MemoryPoolExtra(Item, .{});
+        return MemoryPoolExtraWithAllocator(Item, .{});
     } else {
-        return MemoryPoolExtra(Item, .{ .alignment = alignment });
+        return MemoryPoolExtraWithAllocator(Item, .{ .alignment = alignment });
     }
 }
 
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
+/// This type does not store an `Allocator` field - the `Allocator` must be passed in
+/// with each function call that requires it. See `MemoryPoolAlignedWithAllocator` for
+/// a type that stores an `Allocator` field for convenience.
 pub fn MemoryPoolAlignedUnmanaged(comptime Item: type, comptime alignment: u29) type {
     if (@alignOf(Item) == alignment) {
         return MemoryPoolExtraUnmanaged(Item, .{});
@@ -34,6 +54,8 @@ pub fn MemoryPoolAlignedUnmanaged(comptime Item: type, comptime alignment: u29) 
         return MemoryPoolExtraUnmanaged(Item, .{ .alignment = alignment });
     }
 }
+
+pub const MemoryPoolExtra = MemoryPoolExtraWithAllocator;
 
 pub const Options = struct {
     /// The alignment of the memory pool items. Use `null` for natural alignment.
@@ -47,7 +69,9 @@ pub const Options = struct {
 /// A memory pool that can allocate objects of a single type very quickly.
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
-pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type {
+/// For a pool that can be initialized directly and does not store an
+/// `Allocator` field, see `MemoryPoolExtraUnmanaged`.
+pub fn MemoryPoolExtraWithAllocator(comptime Item: type, comptime pool_options: Options) type {
     return struct {
         const Pool = @This();
 
@@ -129,11 +153,17 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
     };
 }
 
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
+/// This type does not store an `Allocator` field - the `Allocator` must be passed in
+/// with each function call that requires it. See `MemoryPoolExtraWithAllocator` for
+/// a type that stores an `Allocator` field for convenience.
 pub fn MemoryPoolExtraUnmanaged(comptime Item: type, comptime pool_options: Options) type {
     return struct {
         const Pool = @This();
 
-        pub const Managed = MemoryPoolExtra(Item, pool_options);
+        pub const Managed = MemoryPoolExtraWithAllocator(Item, pool_options);
 
         /// Size of the memory pool items. This is not necessarily the same
         /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
