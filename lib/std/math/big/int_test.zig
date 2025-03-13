@@ -2191,6 +2191,15 @@ test "shift-right negative" {
     a.setSign(true);
     try a.shiftRight(&arg7, 4);
     try testing.expect(try a.toInt(i16) == -2048);
+
+    var arg8_limbs: [1]Limb = undefined;
+    var arg8: Mutable = .{
+        .limbs = &arg8_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    arg8.shiftRight(.{ .limbs = &.{ 1, 1 }, .positive = false }, @bitSizeOf(Limb));
+    try testing.expect(arg8.toConst().orderAgainstScalar(-2).compare(.eq));
 }
 
 test "sat shift-left simple unsigned" {
