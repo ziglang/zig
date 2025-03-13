@@ -13,8 +13,11 @@ pub const AbsolutePointer = extern struct {
     wait_for_input: Event,
     mode: *Mode,
 
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const GetStateError = uefi.UnexpectedError || error{ NotReady, DeviceError };
+
     /// Resets the pointer device hardware.
-    pub fn reset(self: *AbsolutePointer, verify: bool) !void {
+    pub fn reset(self: *AbsolutePointer, verify: bool) ResetError!void {
         switch (self._reset(self, verify)) {
             .success => {},
             .device_error => return Error.DeviceError,
@@ -23,7 +26,7 @@ pub const AbsolutePointer = extern struct {
     }
 
     /// Retrieves the current state of a pointer device.
-    pub fn getState(self: *const AbsolutePointer) !State {
+    pub fn getState(self: *const AbsolutePointer) GetStateError!State {
         var state: State = undefined;
         switch (self._get_state(self, &state)) {
             .success => return state,
