@@ -2076,8 +2076,9 @@ fn renderArrayInit(
 
     const contains_comment = hasComment(tree, array_init.ast.lbrace, rbrace);
     const contains_multiline_string = hasMultilineString(tree, array_init.ast.lbrace, rbrace);
+    const contains_switch = containsSwitch(tree, array_init.ast.elements);
 
-    if (!trailing_comma and !contains_comment and !contains_multiline_string) {
+    if (!trailing_comma and !contains_comment and !contains_multiline_string and !contains_switch) {
         // Render all on one line, no trailing comma.
         if (array_init.ast.elements.len == 1) {
             // If there is only one element, we don't use spaces
@@ -2258,6 +2259,27 @@ fn renderArrayInit(
 
     ais.popIndent();
     return renderToken(r, rbrace, space); // rbrace
+}
+
+/// Returns true if any array element is or contains a switch expression
+fn containsSwitch(tree: Ast, elements: []const Ast.Node.Index) bool {
+    const tags = tree.nodes.items(.tag);
+
+    for (elements) |elem| {
+        const tag = tags[@intFromEnum(elem)];
+
+        if (tag == .switch_case or
+            tag == .switch_case_inline or
+            tag == .switch_case_one or
+            tag == .switch_case_inline_one or
+            tag == .@"switch" or
+            tag == .switch_comma)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 fn renderContainerDecl(
