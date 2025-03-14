@@ -89,8 +89,23 @@ pub fn main() !void {
         ast.deinit(arena);
     }
 
-    var dep_name = std.ArrayList(u8).init(arena);
-    defer dep_name.deinit();
+    const dep_name = blk: {
+        const len = len: {
+            var sum: usize = dep_chain.items.len;
+            for (dep_chain.items) |n| sum += n.len;
+            break :len sum;
+        };
+        const buffer = try arena.alloc(u8, len);
+        var index: usize = 0;
+        for (dep_chain.items) |name| {
+            @memcpy(buffer[index..], name);
+            index += name.len;
+            buffer[index] = '.';
+            index += 1;
+        }
+        break :blk buffer;
+    };
+    defer arena.free(dep_name);
 
     if (dep_chain.items.len > 0) {
         const package = dep_chain.items[0];
@@ -102,25 +117,25 @@ pub fn main() !void {
                 fatal("there is no dependency named '{s}' in the manifest", .{package});
             };
 
-            try dep_name.appendSlice(package);
-
+            var dep_name_len = package.len + 1;
             for (dep_chain.items[1..]) |p| {
+                dep_name_len += p.len;
+
                 const sub_manifest, _ = try loadDepManifest(
                     arena,
                     global_cache,
                     build_root.directory,
                     dep,
-                    dep_name.items,
+                    dep_name[0..dep_name_len],
                     color,
                 );
 
                 dep = sub_manifest.dependencies.get(p) orelse {
                     fatal("{s} has no dependency named '{s}' in its manifest", .{
-                        dep_name.items, p,
+                        dep_name[0..dep_name_len], p,
                     });
                 };
-                try dep_name.append('.');
-                try dep_name.appendSlice(p);
+                dep_name_len += 1;
             }
 
             break :dep dep;
@@ -134,7 +149,7 @@ pub fn main() !void {
                 global_cache,
                 build_root.directory,
                 dep,
-                dep_name.items,
+                dep_name,
                 color,
             );
             defer {
@@ -142,15 +157,13 @@ pub fn main() !void {
                 sub_ast.deinit(arena);
             }
 
-            try dep_name.append('.');
-
-            try listDepHashes(dep_name.items, sub_manifest);
+            try listDepHashes(dep_name, sub_manifest);
         } else {
             if (dep.hash) |hash| {
                 try stdout.print("{s}\n", .{hash});
             } else switch (dep.location) {
-                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name.items}),
-                .path => fatal("{s} is a local dependency", .{dep_name.items}),
+                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
+                .path => fatal("{s} is a local dependency", .{dep_name}),
             }
         }
     } else {
