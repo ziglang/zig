@@ -1037,11 +1037,15 @@ pub const TruncateError = error{
     PermissionDenied,
 } || UnexpectedError;
 
+/// Length must be positive when treated as an i64.
 pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
+    const signed_len: i64 = @bitCast(length);
+    if (signed_len < 0) return error.FileTooBig; // avoid ambiguous EINVAL errors
+
     if (native_os == .windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         var eof_info = windows.FILE_END_OF_FILE_INFORMATION{
-            .EndOfFile = @bitCast(length),
+            .EndOfFile = signed_len,
         };
 
         const rc = windows.ntdll.NtSetInformationFile(
@@ -1057,6 +1061,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .INVALID_HANDLE => unreachable, // Handle not open for writing
             .ACCESS_DENIED => return error.AccessDenied,
             .USER_MAPPED_FILE => return error.AccessDenied,
+            .INVALID_PARAMETER => return error.FileTooBig,
             else => return windows.unexpectedStatus(rc),
         }
     }
@@ -1069,7 +1074,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing
+            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -1077,7 +1082,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 
     const ftruncate_sym = if (lfs64_abi) system.ftruncate64 else system.ftruncate;
     while (true) {
-        switch (errno(ftruncate_sym(fd, @bitCast(length)))) {
+        switch (errno(ftruncate_sym(fd, signed_len))) {
             .SUCCESS => return,
             .INTR => continue,
             .FBIG => return error.FileTooBig,
@@ -1085,7 +1090,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing
+            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
             else => |err| return unexpectedErrno(err),
         }
     }
