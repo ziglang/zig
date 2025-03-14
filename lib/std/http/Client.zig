@@ -1241,10 +1241,14 @@ pub fn initDefaultProxies(client: *Client, arena: Allocator) !void {
 
 fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?*Proxy {
     const content = for (env_var_names) |name| {
-        break std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
+        const content = std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => continue,
             else => |e| return e,
         };
+
+        if (content.len == 0) continue;
+
+        break content;
     } else return null;
 
     const uri = Uri.parse(content) catch try Uri.parseAfterScheme("http", content);
