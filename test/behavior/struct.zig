@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const native_endian = builtin.target.cpu.arch.endian();
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -1314,7 +1313,7 @@ test "under-aligned struct field" {
     _ = &runtime;
     const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
     const array = @as(*const [12]u8, @ptrCast(ptr));
-    const result = std.mem.readInt(u64, array[4..12], native_endian);
+    const result = std.mem.readInt(u64, array[4..12], .native);
     try expect(result == 1234);
 }
 

@@ -1788,7 +1788,7 @@ pub fn readVarPackedInt(
 test readVarPackedInt {
     const T = packed struct(u16) { a: u3, b: u7, c: u6 };
     var st = T{ .a = 1, .b = 2, .c = 4 };
-    const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
+    const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, .native, .unsigned);
     try std.testing.expectEqual(st.b, b_field);
 }
 
@@ -1876,11 +1876,13 @@ fn readPackedIntBig(comptime T: type, bytes: []const u8, bit_offset: usize) T {
     } else return @as(T, @bitCast(val));
 }
 
+/// Deprecated; use readPackedInt with .native
 pub const readPackedIntNative = switch (native_endian) {
     .little => readPackedIntLittle,
     .big => readPackedIntBig,
 };
 
+/// Deprecated; use readPackedInt with .foreign
 pub const readPackedIntForeign = switch (native_endian) {
     .little => readPackedIntBig,
     .big => readPackedIntLittle,
@@ -1898,7 +1900,7 @@ pub fn readPackedInt(comptime T: type, bytes: []const u8, bit_offset: usize, end
 test readPackedInt {
     const T = packed struct(u16) { a: u3, b: u7, c: u6 };
     var st = T{ .a = 1, .b = 2, .c = 4 };
-    const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
+    const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), .native);
     try std.testing.expectEqual(st.b, b_field);
 }
 
@@ -2029,11 +2031,13 @@ fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T)
     writeInt(StoreInt, write_bytes[(byte_count - store_size)..][0..store_size], write_value, .big);
 }
 
+/// Deprecated: use writePackedInt with .native
 pub const writePackedIntNative = switch (native_endian) {
     .little => writePackedIntLittle,
     .big => writePackedIntBig,
 };
 
+/// Deprecated: use writePackedInt with .foreign
 pub const writePackedIntForeign = switch (native_endian) {
     .little => writePackedIntBig,
     .big => writePackedIntLittle,
@@ -2051,7 +2055,7 @@ pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T
 test writePackedInt {
     const T = packed struct(u16) { a: u3, b: u7, c: u6 };
     var st = T{ .a = 1, .b = 2, .c = 4 };
-    writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
+    writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, .native);
     try std.testing.expectEqual(T{ .a = 1, .b = 0x7f, .c = 4 }, st);
 }
 
@@ -2115,7 +2119,7 @@ test writeVarPackedInt {
     const T = packed struct(u16) { a: u3, b: u7, c: u6 };
     var st = T{ .a = 1, .b = 2, .c = 4 };
     const value: u64 = 0x7f;
-    writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
+    writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, .native);
     try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
 }
 
@@ -4638,7 +4642,6 @@ test "read/write(Var)PackedInt" {
         else => {},
     }
 
-    const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
     var prng = std.Random.DefaultPrng.init(1234);
     const random = prng.random();
@@ -4706,15 +4709,15 @@ test "read/write(Var)PackedInt" {
                             var value: BackingType = @byteSwap(init_value);
 
                             // Read
-                            const read_value1 = readPackedInt(PackedType, asBytes(&value), offset, foreign_endian);
+                            const read_value1 = readPackedInt(PackedType, asBytes(&value), offset, .foreign);
                             try expect(read_value1 == @as(PackedType, @bitCast(@as(uPackedType, @truncate(@byteSwap(value) >> @as(Log2T, @intCast(offset)))))));
 
                             // Write
-                            writePackedInt(PackedType, asBytes(&value), offset, write_value, foreign_endian);
+                            writePackedInt(PackedType, asBytes(&value), offset, write_value, .foreign);
                             try expect(write_value == @as(PackedType, @bitCast(@as(uPackedType, @truncate(@byteSwap(value) >> @as(Log2T, @intCast(offset)))))));
 
                             // Read again
-                            const read_value2 = readPackedInt(PackedType, asBytes(&value), offset, foreign_endian);
+                            const read_value2 = readPackedInt(PackedType, asBytes(&value), offset, .foreign);
                             try expect(read_value2 == write_value);
 
                             // Verify bits outside of the target integer are unmodified
@@ -4766,15 +4769,15 @@ test "read/write(Var)PackedInt" {
                                 var value: BackingType = @byteSwap(init_value);
 
                                 // Read
-                                const read_value1 = readVarPackedInt(U, asBytes(&value), offset, @bitSizeOf(PackedType), foreign_endian, signedness);
+                                const read_value1 = readVarPackedInt(U, asBytes(&value), offset, @bitSizeOf(PackedType), .foreign, signedness);
                                 try expect(read_value1 == @as(PackedType, @bitCast(@as(uPackedType, @truncate(@byteSwap(value) >> @as(Log2T, @intCast(offset)))))));
 
                                 // Write
-                                writeVarPackedInt(asBytes(&value), offset, @bitSizeOf(PackedType), @as(U, write_value), foreign_endian);
+                                writeVarPackedInt(asBytes(&value), offset, @bitSizeOf(PackedType), @as(U, write_value), .foreign);
                                 try expect(write_value == @as(PackedType, @bitCast(@as(uPackedType, @truncate(@byteSwap(value) >> @as(Log2T, @intCast(offset)))))));
 
                                 // Read again
-                                const read_value2 = readVarPackedInt(U, asBytes(&value), offset, @bitSizeOf(PackedType), foreign_endian, signedness);
+                                const read_value2 = readVarPackedInt(U, asBytes(&value), offset, @bitSizeOf(PackedType), .foreign, signedness);
                                 try expect(read_value2 == write_value);
 
                                 // Verify bits outside of the target integer are unmodified
