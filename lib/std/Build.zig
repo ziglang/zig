@@ -1526,11 +1526,7 @@ pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
 }
 
 pub fn standardLinkageOption(b: *Build, target: Target) std.builtin.LinkMode {
-    if (b.option(
-        std.builtin.LinkMode,
-        "linkage",
-        "Method of linking binaries"
-    )) |linkage| {
+    if (b.option(std.builtin.LinkMode, "linkage", "Method of linking binaries")) |linkage| {
         return linkage;
     }
 
