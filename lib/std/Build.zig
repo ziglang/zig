@@ -1525,6 +1525,14 @@ pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     return &step_info.step;
 }
 
+pub const StandardLinkageOptionOptions = struct {
+    preferred_link_mode: std.builtin.LinkMode = .static,
+};
+
+pub fn standardLinkageOption(b: *Build, options: StandardLinkageOptionOptions) std.builtin.LinkMode {
+    return b.option(std.builtin.LinkMode, "linkage", "Method of linking libraries") orelse options.preferred_link_mode;
+}
+
 pub const StandardOptimizeOptionOptions = struct {
     preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
 };
