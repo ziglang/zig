@@ -758,8 +758,25 @@ pub const Elf64_Ehdr = extern struct {
     e_shnum: Half,
     e_shstrndx: Half,
 };
+
+pub const PhdrType = enum(Word) {
+    null = PT_NULL,
+    load = PT_LOAD,
+    dynamic = PT_DYNAMIC,
+    interp = PT_INTERP,
+    note = PT_NOTE,
+    shlib = PT_SHLIB,
+    phdr = PT_PHDR,
+    tls = PT_TLS,
+    loos = PT_LOOS,
+    hiios = PT_HIOS,
+    loproc = PT_LOPROC,
+    hiproc = PT_HIPROC,
+    _,
+};
+
 pub const Elf32_Phdr = extern struct {
-    p_type: Word,
+    p_type: PhdrType,
     p_offset: Elf32_Off,
     p_vaddr: Elf32_Addr,
     p_paddr: Elf32_Addr,
@@ -769,7 +786,7 @@ pub const Elf32_Phdr = extern struct {
     p_align: Word,
 };
 pub const Elf64_Phdr = extern struct {
-    p_type: Word,
+    p_type: PhdrType,
     p_flags: Word,
     p_offset: Elf64_Off,
     p_vaddr: Elf64_Addr,
