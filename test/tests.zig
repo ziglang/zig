@@ -1299,6 +1299,50 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         check6.step.dependOn(&run6.step);
 
+        // Test `zig fmt` handling switch expressions in array initializers
+        const switch_in_array_code =
+            \\const bar = .{ .{ switch ({}) {
+            \\        else => {},
+            \\    } }, .{}, .{}, .{},
+            \\};
+            \\
+        ;
+
+        const fmt7_path = b.pathJoin(&.{ tmp_path, "fmt7.zig" });
+        const write7 = b.addUpdateSourceFiles();
+        write7.addBytesToSource(switch_in_array_code, fmt7_path);
+        write7.step.dependOn(&check6.step);
+
+        // Test `zig fmt` handling switch expressions in array initializers
+        const run7 = b.addSystemCommand(&.{ b.graph.zig_exe, "fmt", "fmt7.zig" });
+        run7.setName("run zig fmt on array with switch");
+        run7.setCwd(.{ .cwd_relative = tmp_path });
+        run7.has_side_effects = true;
+        run7.expectStdOutEqual("fmt7.zig\n");
+        run7.step.dependOn(&write7.step);
+
+        // Check that the file is formatted correctly after a single fmt invocation
+        const check7 = b.addCheckFile(.{ .cwd_relative = fmt7_path }, .{
+            .expected_matches = &.{
+                "const bar = .{",
+                "    .{switch ({}) {",
+                "        else => {},",
+                "    }},",
+                "    .{},",
+                "    .{},",
+                "    .{},",
+                "};",
+            },
+        });
+        check7.step.dependOn(&run7.step);
+
+        // Run fmt again to verify that no further changes are made (idempotence)
+        const run8 = b.addSystemCommand(&.{ b.graph.zig_exe, "fmt", "fmt7.zig" });
+        run8.setName("run zig fmt again on array with switch");
+        run8.setCwd(.{ .cwd_relative = tmp_path });
+        run8.has_side_effects = true;
+        run8.step.dependOn(&check7.step);
+
         const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&check6.step);
 
