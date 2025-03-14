@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Standard linkage option allows the person running `zig build` to select
+    // between producing static or dynamic libraries. Note that this option is
+    // not intended for executables; by default, those will have their linkage
+    // inferred from the target, linked libraries, etc.
+    const linkage = b.standardLinkageOption(.{});
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -48,7 +54,7 @@ pub fn build(b: *std.Build) void {
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
     const lib = b.addLibrary(.{
-        .linkage = .static,
+        .linkage = linkage,
         .name = ".NAME",
         .root_module = lib_mod,
     });
