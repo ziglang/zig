@@ -1525,6 +1525,25 @@ pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     return &step_info.step;
 }
 
+pub fn standardLinkageOption(b: *Build, target: Target) std.builtin.LinkMode {
+    if (b.option(
+        std.builtin.LinkMode,
+        "linkage",
+        "Method of linking binaries"
+    )) |linkage| {
+        return linkage;
+    }
+
+    if (target.abi.isGnu() or target.abi.isAndroid()) {
+        return .dynamic;
+    }
+
+    return switch (target.os.tag) {
+        .macos, .ios, .windows => .dynamic,
+        else => .static,
+    };
+}
+
 pub const StandardOptimizeOptionOptions = struct {
     preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
 };
