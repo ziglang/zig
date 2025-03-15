@@ -50,8 +50,8 @@ pub const Override = extern struct {
         handle: Handle,
         attributes: *Attributes,
     ) GetEdidError!?[]u8 {
-        var size: usize = 0;
-        var ptr: ?[*]u8 = null;
+        var size: usize = undefined;
+        var ptr: ?[*]u8 = undefined;
         switch (self._get_edid(self, handle, attributes, &size, &ptr)) {
             .success => {},
             .unsupported => return Error.Unsupported,
@@ -61,7 +61,7 @@ pub const Override = extern struct {
         if (size == 0 or ptr == null)
             return null;
 
-        return ptr[0..size];
+        return ptr.?[0..size];
     }
 
     pub const guid align(8) = Guid{

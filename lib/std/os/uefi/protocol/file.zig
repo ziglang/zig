@@ -207,10 +207,10 @@ pub const File = extern struct {
         self: *const File,
         information_type: *align(8) const Guid,
         buffer: []u8,
-    ) GetInfoError!usize {
+    ) GetInfoError![]u8 {
         var len = buffer.len;
         switch (self._get_info(self, information_type, &len, buffer.ptr)) {
-            .success => return len,
+            .success => return buffer[0..len],
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
             .device_error => return Error.DeviceError,
