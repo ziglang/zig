@@ -464,7 +464,7 @@ const NavGen = struct {
 
         const zcu = self.pt.zcu;
         const ty = Type.fromInterned(zcu.intern_pool.typeOf(val));
-        const decl_ptr_ty_id = try self.ptrType(ty, .Generic, .indirect);
+        const decl_ptr_ty_id = try self.ptrType(ty, self.spvStorageClass(.generic), .indirect);
 
         const spv_decl_index = blk: {
             const entry = try self.object.uav_link.getOrPut(self.object.gpa, .{ val, .Function });
@@ -581,18 +581,18 @@ const NavGen = struct {
     /// that size. In this case, multiple elements of the largest type should be used.
     /// The backing type will be chosen as the smallest supported integer larger or equal to it in number of bits.
     /// The result is valid to be used with OpTypeInt.
-    /// TODO: The extension SPV_INTEL_arbitrary_precision_integers allows any integer size (at least up to 32 bits).
-    /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
     fn backingIntBits(self: *NavGen, bits: u16) ?u16 {
         // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         assert(bits != 0);
 
-        // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
+        if (self.spv.hasFeature(.arbitrary_precision_integers) and bits <= 32) return bits;
+
+        // We require Int8 and Int16 capabilities and benefit Int64 when available.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
         const ints = [_]struct { bits: u16, feature: ?Target.spirv.Feature }{
-            .{ .bits = 8, .feature = .int8 },
-            .{ .bits = 16, .feature = .int16 },
+            .{ .bits = 8, .feature = null },
+            .{ .bits = 16, .feature = null },
             .{ .bits = 32, .feature = null },
             .{ .bits = 64, .feature = .int64 },
         };
@@ -714,6 +714,7 @@ const NavGen = struct {
         const int_info = scalar_ty.intInfo(zcu);
         // Use backing bits so that negatives are sign extended
         const backing_bits = self.backingIntBits(int_info.bits).?; // Assertion failure means big int
+        assert(backing_bits != 0); // u0 is comptime
 
         const signedness: Signedness = switch (@typeInfo(@TypeOf(value))) {
             .int => |int| int.signedness,
@@ -721,35 +722,41 @@ const NavGen = struct {
             else => unreachable,
         };
 
-        const value64: u64 = switch (signedness) {
-            .signed => @bitCast(@as(i64, @intCast(value))),
-            .unsigned => @as(u64, @intCast(value)),
-        };
+        const final_value: spec.LiteralContextDependentNumber = blk: {
+            if (self.spv.hasFeature(.kernel)) {
+                const value64: u64 = switch (signedness) {
+                    .signed => @bitCast(@as(i64, @intCast(value))),
+                    .unsigned => @as(u64, @intCast(value)),
+                };
 
-        // Manually truncate the value to the right amount of bits.
-        const truncated_value = if (backing_bits == 64)
-            value64
-        else
-            value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+                // Manually truncate the value to the right amount of bits.
+                const truncated_value = if (backing_bits == 64)
+                    value64
+                else
+                    value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+
+                break :blk switch (backing_bits) {
+                    1...32 => .{ .uint32 = @truncate(truncated_value) },
+                    33...64 => .{ .uint64 = truncated_value },
+                    else => unreachable, // TODO: Large integer constants
+                };
+            }
+
+            break :blk switch (backing_bits) {
+                1...32 => if (signedness == .signed) .{ .int32 = @intCast(value) } else .{ .uint32 = @intCast(value) },
+                33...64 => if (signedness == .signed) .{ .int64 = value } else .{ .uint64 = value },
+                else => unreachable, // TODO: Large integer constants
+            };
+        };
 
         const result_ty_id = try self.resolveType(scalar_ty, .indirect);
         const result_id = self.spv.allocId();
-
         const section = &self.spv.sections.types_globals_constants;
-        switch (backing_bits) {
-            0 => unreachable, // u0 is comptime
-            1...32 => try section.emit(self.spv.gpa, .OpConstant, .{
-                .id_result_type = result_ty_id,
-                .id_result = result_id,
-                .value = .{ .uint32 = @truncate(truncated_value) },
-            }),
-            33...64 => try section.emit(self.spv.gpa, .OpConstant, .{
-                .id_result_type = result_ty_id,
-                .id_result = result_id,
-                .value = .{ .uint64 = truncated_value },
-            }),
-            else => unreachable, // TODO: Large integer constants
-        }
+        try section.emit(self.spv.gpa, .OpConstant, .{
+            .id_result_type = result_ty_id,
+            .id_result = result_id,
+            .value = final_value,
+        });
 
         if (!ty.isVector(zcu)) return result_id;
         return self.constructCompositeSplat(ty, result_id);
@@ -988,10 +995,48 @@ const NavGen = struct {
                         return self.constructComposite(comp_ty_id, constituents);
                     },
                     .struct_type => {
-                        const struct_type = zcu.typeToStruct(ty).?;
-                        if (struct_type.layout == .@"packed") {
-                            return self.todo("packed struct constants", .{});
+                        if (zcu.typeToPackedStruct(ty)) |struct_type| {
+                            comptime assert(Type.packed_struct_layout_version == 2);
+                            const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
+                            var running_int_id = try self.constInt(backing_int_ty, 0);
+                            var running_bits: u16 = 0;
+                            for (0..struct_type.field_types.len) |field_index| {
+                                const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                                const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                                    .bytes => |bytes| try pt.intern(.{ .int = .{
+                                        .ty = field_ty.toIntern(),
+                                        .storage = .{ .u64 = bytes.at(field_index, ip) },
+                                    } }),
+                                    .elems => |elems| elems[field_index],
+                                    .repeated_elem => |elem| elem,
+                                };
+                                const field_id = try self.constant(field_ty, Value.fromInterned(field_val), .direct);
+                                const ty_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                                const field_int_ty = try self.pt.intType(.unsigned, ty_bit_size);
+                                const field_int_val = try self.bitCast(field_int_ty, field_ty, field_id);
+                                const shift_rhs = try self.constInt(backing_int_ty, running_bits);
+                                const extended_int_conv = try self.buildIntConvert(backing_int_ty, .{
+                                    .ty = field_int_ty,
+                                    .value = .{ .singleton = field_int_val },
+                                });
+                                const shifted = try self.buildBinary(.sll, extended_int_conv, .{
+                                    .ty = backing_int_ty,
+                                    .value = .{ .singleton = shift_rhs },
+                                });
+                                const running_int_tmp = try self.buildBinary(
+                                    .bit_or,
+                                    .{ .ty = backing_int_ty, .value = .{ .singleton = running_int_id } },
+                                    shifted,
+                                );
+                                running_int_id = try running_int_tmp.materialize(self);
+                                running_bits += ty_bit_size;
+                            }
+                            return running_int_id;
                         }
+
+                        const struct_type = zcu.typeToStruct(ty).?;
+                        assert(struct_type.layout != .@"packed");
 
                         var types = std.ArrayList(Type).init(self.gpa);
                         defer types.deinit();
@@ -1022,6 +1067,11 @@ const NavGen = struct {
                     else => unreachable,
                 },
                 .un => |un| {
+                    if (un.tag == .none) {
+                        assert(ty.containerLayout(zcu) == .@"packed"); // TODO
+                        const int_ty = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
+                        return try self.constant(int_ty, Value.fromInterned(un.val), .direct);
+                    }
                     const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), zcu).?;
                     const union_obj = zcu.typeToUnion(ty).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
@@ -1354,7 +1404,7 @@ const NavGen = struct {
         const union_obj = zcu.typeToUnion(ty).?;
 
         if (union_obj.flagsUnordered(ip).layout == .@"packed") {
-            return self.todo("packed union types", .{});
+            return try self.intType(.unsigned, @intCast(ty.bitSize(zcu)));
         }
 
         const layout = self.unionLayout(ty);
@@ -1366,7 +1416,7 @@ const NavGen = struct {
         var member_types: [4]IdRef = undefined;
         var member_names: [4][]const u8 = undefined;
 
-        const u8_ty_id = try self.resolveType(Type.u8, .direct); // TODO: What if Int8Type is not enabled?
+        const u8_ty_id = try self.resolveType(Type.u8, .direct);
 
         if (layout.tag_size != 0) {
             const tag_ty_id = try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);
@@ -2821,6 +2871,7 @@ const NavGen = struct {
     /// TODO is to also write out the error as a function call parameter, and to somehow fetch
     /// the name of an error in the text executor.
     fn generateTestEntryPoint(self: *NavGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
+        const zcu = self.pt.zcu;
         const target = self.spv.target;
 
         const anyerror_ty_id = try self.resolveType(Type.anyerror, .direct);
@@ -2950,7 +3001,7 @@ const NavGen = struct {
             .pointer = p_error_id,
             .object = error_id,
             .memory_access = .{
-                .Aligned = .{ .literal_integer = @sizeOf(u16) },
+                .Aligned = .{ .literal_integer = @intCast(Type.abiAlignment(.anyerror, zcu).toByteUnits().?) },
             },
         });
         try section.emit(self.spv.gpa, .OpReturn, {});
@@ -3222,11 +3273,17 @@ const NavGen = struct {
         is_volatile: bool = false,
     };
 
-    fn load(self: *NavGen, value_ty: Type, ptr_id: IdRef, options: MemoryOptions) !IdRef {
+    fn load(self: *NavGen, value_ty: Type, ptr_id: IdRef, storage_class: StorageClass, options: MemoryOptions) !IdRef {
+        const zcu = self.pt.zcu;
+        const alignment: u32 = @intCast(value_ty.abiAlignment(zcu).toByteUnits().?);
         const indirect_value_ty_id = try self.resolveType(value_ty, .indirect);
         const result_id = self.spv.allocId();
         const access = spec.MemoryAccess.Extended{
             .Volatile = options.is_volatile,
+            .Aligned = switch (storage_class) {
+                .PhysicalStorageBuffer => .{ .literal_integer = alignment },
+                else => null,
+            },
         };
         try self.func.body.emit(self.spv.gpa, .OpLoad, .{
             .id_result_type = indirect_value_ty_id,
@@ -4229,7 +4286,7 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        if (self.spv.hasFeature(.kernel)) {
+        if (self.spv.hasFeature(.addresses)) {
             try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
@@ -4308,6 +4365,7 @@ const NavGen = struct {
     ) !Temporary {
         const pt = self.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const scalar_ty = lhs.ty.scalarType(zcu);
         const is_vector = lhs.ty.isVector(zcu);
 
@@ -4316,6 +4374,11 @@ const NavGen = struct {
             .@"enum" => {
                 assert(!is_vector);
                 const ty = lhs.ty.intTagType(zcu);
+                return try self.cmp(op, lhs.pun(ty), rhs.pun(ty));
+            },
+            .@"struct" => {
+                const struct_ty = zcu.typeToPackedStruct(scalar_ty).?;
+                const ty = Type.fromInterned(struct_ty.backingIntTypeUnordered(ip));
                 return try self.cmp(op, lhs.pun(ty), rhs.pun(ty));
             },
             .error_set => {
@@ -4545,7 +4608,7 @@ const NavGen = struct {
                 .id_result = casted_ptr_id,
                 .operand = tmp_id,
             });
-            break :blk try self.load(dst_ty, casted_ptr_id, .{});
+            break :blk try self.load(dst_ty, casted_ptr_id, .Function, .{});
         };
 
         // Because strange integers use sign-extended representation, we may need to normalize
@@ -4745,8 +4808,42 @@ const NavGen = struct {
         switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
                 if (zcu.typeToPackedStruct(result_ty)) |struct_type| {
-                    _ = struct_type;
-                    unreachable; // TODO
+                    comptime assert(Type.packed_struct_layout_version == 2);
+                    const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
+                    var running_int_id = try self.constInt(backing_int_ty, 0);
+                    var running_bits: u16 = 0;
+                    for (struct_type.field_types.get(ip), elements) |field_ty_ip, element| {
+                        const field_ty = Type.fromInterned(field_ty_ip);
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                        const field_id = try self.resolve(element);
+                        const ty_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                        const field_int_ty = try self.pt.intType(.unsigned, ty_bit_size);
+                        const field_int_id = blk: {
+                            if (field_ty.isPtrAtRuntime(zcu)) {
+                                assert(self.spv.hasFeature(.addresses) or
+                                    (self.spv.hasFeature(.physical_storage_buffer) and field_ty.ptrAddressSpace(zcu) == .storage_buffer));
+                                break :blk try self.intFromPtr(field_id);
+                            }
+                            break :blk try self.bitCast(field_int_ty, field_ty, field_id);
+                        };
+                        const shift_rhs = try self.constInt(backing_int_ty, running_bits);
+                        const extended_int_conv = try self.buildIntConvert(backing_int_ty, .{
+                            .ty = field_int_ty,
+                            .value = .{ .singleton = field_int_id },
+                        });
+                        const shifted = try self.buildBinary(.sll, extended_int_conv, .{
+                            .ty = backing_int_ty,
+                            .value = .{ .singleton = shift_rhs },
+                        });
+                        const running_int_tmp = try self.buildBinary(
+                            .bit_or,
+                            .{ .ty = backing_int_ty, .value = .{ .singleton = running_int_id } },
+                            shifted,
+                        );
+                        running_int_id = try running_int_tmp.materialize(self);
+                        running_bits += ty_bit_size;
+                    }
+                    return running_int_id;
                 }
 
                 const types = try self.gpa.alloc(Type, elements.len);
@@ -4897,11 +4994,17 @@ const NavGen = struct {
         const index_id = try self.resolve(bin_op.rhs);
 
         const ptr_ty = slice_ty.slicePtrFieldType(zcu);
+        const storage_class = self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu));
         const ptr_ty_id = try self.resolveType(ptr_ty, .direct);
 
         const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
         const elem_ptr = try self.ptrAccessChain(ptr_ty_id, slice_ptr, index_id, &.{});
-        return try self.load(slice_ty.childType(zcu), elem_ptr, .{ .is_volatile = slice_ty.isVolatilePtr(zcu) });
+        return try self.load(
+            slice_ty.childType(zcu),
+            elem_ptr,
+            storage_class,
+            .{ .is_volatile = slice_ty.isVolatilePtr(zcu) },
+        );
     }
 
     fn ptrElemPtr(self: *NavGen, ptr_ty: Type, ptr_id: IdRef, index_id: IdRef) !IdRef {
@@ -5003,10 +5106,16 @@ const NavGen = struct {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = self.typeOfIndex(inst);
+        const storage_class = self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu));
         const ptr_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
         const elem_ptr_id = try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
-        return try self.load(elem_ty, elem_ptr_id, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
+        return try self.load(
+            elem_ty,
+            elem_ptr_id,
+            storage_class,
+            .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) },
+        );
     }
 
     fn airVectorStoreElem(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -5087,11 +5196,33 @@ const NavGen = struct {
         const union_ty = zcu.typeToUnion(ty).?;
         const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
 
-        if (union_ty.flagsUnordered(ip).layout == .@"packed") {
-            unreachable; // TODO
-        }
-
         const layout = self.unionLayout(ty);
+        const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
+
+        if (union_ty.flagsUnordered(ip).layout == .@"packed") {
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                const int_ty = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
+                return self.constInt(int_ty, 0);
+            }
+
+            assert(payload != null);
+            if (payload_ty.isInt(zcu)) {
+                if (ty.bitSize(zcu) == payload_ty.bitSize(zcu)) {
+                    return self.bitCast(ty, payload_ty, payload.?);
+                }
+
+                const trunc = try self.buildIntConvert(ty, .{ .ty = payload_ty, .value = .{ .singleton = payload.? } });
+                return try trunc.materialize(self);
+            }
+
+            const payload_int_ty = try pt.intType(.unsigned, @intCast(payload_ty.bitSize(zcu)));
+            const payload_int = if (payload_ty.ip_index == .bool_type)
+                try self.convertToIndirect(payload_ty, payload.?)
+            else
+                try self.bitCast(payload_int_ty, payload_ty, payload.?);
+            const trunc = try self.buildIntConvert(ty, .{ .ty = payload_int_ty, .value = .{ .singleton = payload_int } });
+            return try trunc.materialize(self);
+        }
 
         const tag_int = if (layout.tag_size != 0) blk: {
             const tag_val = try pt.enumValueFieldIndex(tag_ty, active_field);
@@ -5112,7 +5243,6 @@ const NavGen = struct {
             try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
-        const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
@@ -5132,7 +5262,7 @@ const NavGen = struct {
         // Just leave the padding fields uninitialized...
         // TODO: Or should we initialize them with undef explicitly?
 
-        return try self.load(ty, tmp_id, .{});
+        return try self.load(ty, tmp_id, .Function, .{});
     }
 
     fn airUnionInit(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -5167,11 +5297,51 @@ const NavGen = struct {
 
         switch (object_ty.zigTypeTag(zcu)) {
             .@"struct" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
+                .@"packed" => {
+                    const struct_ty = zcu.typeToPackedStruct(object_ty).?;
+                    const bit_offset = pt.structPackedFieldBitOffset(struct_ty, field_index);
+                    const bit_offset_id = try self.constInt(.u16, bit_offset);
+                    const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
+                    const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                    const field_int_ty = try pt.intType(signedness, field_bit_size);
+                    const shift_lhs: Temporary = .{ .ty = object_ty, .value = .{ .singleton = object_id } };
+                    const shift = try self.buildBinary(.srl, shift_lhs, .{ .ty = .u16, .value = .{ .singleton = bit_offset_id } });
+                    const mask_id = try self.constInt(object_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
+                    const masked = try self.buildBinary(.bit_and, shift, .{ .ty = object_ty, .value = .{ .singleton = mask_id } });
+                    const result_id = blk: {
+                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(object_ty.bitSize(zcu))).?)
+                            break :blk try self.bitCast(field_int_ty, object_ty, try masked.materialize(self));
+                        const trunc = try self.buildIntConvert(field_int_ty, masked);
+                        break :blk try trunc.materialize(self);
+                    };
+                    if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
+                    if (field_ty.isInt(zcu)) return result_id;
+                    return try self.bitCast(field_ty, field_int_ty, result_id);
+                },
                 else => return try self.extractField(field_ty, object_id, field_index),
             },
             .@"union" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
+                .@"packed" => {
+                    const backing_int_ty = try pt.intType(.unsigned, @intCast(object_ty.bitSize(zcu)));
+                    const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
+                    const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
+                    const int_ty = try pt.intType(signedness, field_bit_size);
+                    const mask_id = try self.constInt(backing_int_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
+                    const masked = try self.buildBinary(
+                        .bit_and,
+                        .{ .ty = backing_int_ty, .value = .{ .singleton = object_id } },
+                        .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } },
+                    );
+                    const result_id = blk: {
+                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(backing_int_ty.bitSize(zcu))).?)
+                            break :blk try self.bitCast(int_ty, backing_int_ty, try masked.materialize(self));
+                        const trunc = try self.buildIntConvert(int_ty, masked);
+                        break :blk try trunc.materialize(self);
+                    };
+                    if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
+                    if (field_ty.isInt(zcu)) return result_id;
+                    return try self.bitCast(field_ty, int_ty, result_id);
+                },
                 else => {
                     // Store, ptr-elem-ptr, pointer-cast, load
                     const layout = self.unionLayout(object_ty);
@@ -5190,7 +5360,7 @@ const NavGen = struct {
                         .id_result = active_pl_ptr_id,
                         .operand = pl_ptr_id,
                     });
-                    return try self.load(field_ty, active_pl_ptr_id, .{});
+                    return try self.load(field_ty, active_pl_ptr_id, .Function, .{});
                 },
             },
             else => unreachable,
@@ -5252,28 +5422,28 @@ const NavGen = struct {
                     return try self.accessChain(result_ty_id, object_ptr, &.{field_index});
                 },
             },
-            .@"union" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => return self.todo("implement field access for packed unions", .{}),
-                else => {
-                    const layout = self.unionLayout(object_ty);
-                    if (!layout.has_payload) {
-                        // Asked to get a pointer to a zero-sized field. Just lower this
-                        // to undefined, there is no reason to make it be a valid pointer.
-                        return try self.spv.constUndef(result_ty_id);
-                    }
+            .@"union" => {
+                const layout = self.unionLayout(object_ty);
+                if (!layout.has_payload) {
+                    // Asked to get a pointer to a zero-sized field. Just lower this
+                    // to undefined, there is no reason to make it be a valid pointer.
+                    return try self.spv.constUndef(result_ty_id);
+                }
 
-                    const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
-                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class, .indirect);
-                    const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
+                const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
+                const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class, .indirect);
+                const pl_ptr_id = blk: {
+                    if (object_ty.containerLayout(zcu) == .@"packed") break :blk object_ptr;
+                    break :blk try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
+                };
 
-                    const active_pl_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = active_pl_ptr_id,
-                        .operand = pl_ptr_id,
-                    });
-                    return active_pl_ptr_id;
-                },
+                const active_pl_ptr_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = result_ty_id,
+                    .id_result = active_pl_ptr_id,
+                    .operand = pl_ptr_id,
+                });
+                return active_pl_ptr_id;
             },
             else => unreachable,
         }
@@ -5292,7 +5462,7 @@ const NavGen = struct {
         /// The final storage class of the pointer. This may be either `.Generic` or `.Function`.
         /// In either case, the local is allocated in the `.Function` storage class, and optionally
         /// cast back to `.Generic`.
-        storage_class: StorageClass = .Generic,
+        storage_class: StorageClass,
     };
 
     // Allocate a function-local variable, with possible initializer.
@@ -5332,9 +5502,10 @@ const NavGen = struct {
     fn airAlloc(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const zcu = self.pt.zcu;
         const ptr_ty = self.typeOfIndex(inst);
-        assert(ptr_ty.ptrAddressSpace(zcu) == .generic);
         const child_ty = ptr_ty.childType(zcu);
-        return try self.alloc(child_ty, .{});
+        return try self.alloc(child_ty, .{
+            .storage_class = self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu)),
+        });
     }
 
     fn airArg(self: *NavGen) IdRef {
@@ -5630,7 +5801,7 @@ const NavGen = struct {
         }
 
         if (maybe_block_result_var_id) |block_result_var_id| {
-            return try self.load(ty, block_result_var_id, .{});
+            return try self.load(ty, block_result_var_id, .Function, .{});
         }
 
         return null;
@@ -5785,10 +5956,11 @@ const NavGen = struct {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = self.typeOf(ty_op.operand);
         const elem_ty = self.typeOfIndex(inst);
+        const storage_class = self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu));
         const operand = try self.resolve(ty_op.operand);
         if (!ptr_ty.isVolatilePtr(zcu) and self.liveness.isUnused(inst)) return null;
 
-        return try self.load(elem_ty, operand, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
+        return try self.load(elem_ty, operand, storage_class, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
     }
 
     fn airStore(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -5830,6 +6002,7 @@ const NavGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(zcu);
+        const storage_class = self.spvStorageClass(ptr_ty.ptrAddressSpace(zcu));
 
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const fn_info = zcu.typeToFunc(zcu.navValue(self.owner_nav).typeOf(zcu)).?;
@@ -5845,7 +6018,7 @@ const NavGen = struct {
         }
 
         const ptr = try self.resolve(un_op);
-        const value = try self.load(ret_ty, ptr, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
+        const value = try self.load(ret_ty, ptr, storage_class, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
         try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{
             .value = value,
         });
@@ -6012,6 +6185,7 @@ const NavGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const operand_ty = self.typeOf(un_op);
+        const storage_class = if (is_pointer) self.spvStorageClass(operand_ty.ptrAddressSpace(zcu)) else .Function;
         const optional_ty = if (is_pointer) operand_ty.childType(zcu) else operand_ty;
         const payload_ty = optional_ty.optionalChild(zcu);
 
@@ -6020,7 +6194,7 @@ const NavGen = struct {
         if (optional_ty.optionalReprIsPayload(zcu)) {
             // Pointer payload represents nullability: pointer or slice.
             const loaded_id = if (is_pointer)
-                try self.load(optional_ty, operand_id, .{})
+                try self.load(optional_ty, operand_id, storage_class, .{})
             else
                 operand_id;
 
@@ -6050,13 +6224,12 @@ const NavGen = struct {
         const is_non_null_id = blk: {
             if (is_pointer) {
                 if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    const storage_class = self.spvStorageClass(operand_ty.ptrAddressSpace(zcu));
                     const bool_ptr_ty_id = try self.ptrType(Type.bool, storage_class, .indirect);
                     const tag_ptr_id = try self.accessChain(bool_ptr_ty_id, operand_id, &.{1});
-                    break :blk try self.load(Type.bool, tag_ptr_id, .{});
+                    break :blk try self.load(Type.bool, tag_ptr_id, storage_class, .{});
                 }
 
-                break :blk try self.load(Type.bool, operand_id, .{});
+                break :blk try self.load(Type.bool, operand_id, storage_class, .{});
             }
 
             break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu))
@@ -6462,8 +6635,12 @@ const NavGen = struct {
                 if (input_ty.zigTypeTag(zcu) == .type) {
                     // This assembly input is a type instead of a value.
                     // That's fine for now, just make sure to resolve it as such.
-                    const val = (try self.air.value(input, self.pt)).?;
-                    const ty_id = try self.resolveType(val.toType(), .direct);
+                    const ty_id = blk: {
+                        if (try self.air.value(input, self.pt)) |val| {
+                            break :blk try self.resolveType(val.toType(), .direct);
+                        }
+                        break :blk try self.resolve(input);
+                    };
                     try as.value_map.put(as.gpa, name, .{ .ty = ty_id });
                 } else {
                     const ty_id = try self.resolveType(input_ty, .direct);
@@ -6533,7 +6710,7 @@ const NavGen = struct {
 
             switch (result) {
                 .just_declared, .unresolved_forward_reference => unreachable,
-                .ty => return self.fail("cannot return spir-v type as value from assembly", .{}),
+                .ty => |ref| return ref,
                 .value => |ref| return ref,
                 .constant, .string => return self.fail("cannot return constant from assembly", .{}),
             }
@@ -6608,7 +6785,7 @@ const NavGen = struct {
         const spv_decl_index = try self.spv.builtin(ptr_ty_id, builtin);
         try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
         const ptr = self.spv.declPtr(spv_decl_index).result_id;
-        const vec = try self.load(vec_ty, ptr, .{});
+        const vec = try self.load(vec_ty, ptr, .Input, .{});
         return try self.extractVectorComponent(result_ty, vec, dimension);
     }
 

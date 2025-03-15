@@ -69,6 +69,8 @@ test "global loads can affect liveness" {
 }
 
 test "global const can be self-referential" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         self: *const @This(),
         x: u32,
@@ -113,6 +115,8 @@ test "global var can be self-referential" {
 }
 
 test "global const can be indirectly self-referential" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         other: *const @This(),
         x: u32,

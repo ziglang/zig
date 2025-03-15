@@ -143,7 +143,7 @@ const test_targets = blk: {
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+int8+int16+int64+float16+float64",
+                .cpu_features = "vulkan_v1_2+int64+float16+float64",
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
