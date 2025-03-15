@@ -250,8 +250,8 @@ test {
 
 pub const UnexpectedError = error{Unexpected};
 
-pub fn unexpectedStatus(err: Status) UnexpectedError {
+pub fn unexpectedStatus(status: Status) UnexpectedError {
     // TODO: debug printing the encountered error? maybe handle warnings?
-    _ = err;
+    _ = status;
     return error.Unexpected;
 }

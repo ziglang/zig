@@ -11,25 +11,76 @@ pub const GraphicsOutput = extern struct {
     _blt: *const fn (*const GraphicsOutput, ?[*]BltPixel, BltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(cc) Status,
     mode: *Mode,
 
+    pub const QueryModeError = uefi.UnexpectedError || error{
+        DeviceError,
+        InvalidParameter,
+    };
+    pub const SetModeError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const BltError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        DeviceError,
+    };
+
     /// Returns information for an available graphics mode that the graphics device and the set of active video output devices supports.
-    pub fn queryMode(self: *const GraphicsOutput, mode: u32, size_of_info: *usize) !*Mode.Info {
+    pub fn queryMode(self: *const GraphicsOutput, mode: u32) QueryModeError!*Mode.Info {
+        var size_of_info: usize = undefined;
         var info: *Mode.Info = undefined;
-        switch (self._query_mode(self, mode, size_of_info, &info)) {
-            .success => return info,
+        switch (self._query_mode(self, mode, &size_of_info, &info)) {
+            .success => {},
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
-            else => |err| uefi.unexpectedStatus(err),
+            else => |status| uefi.unexpectedStatus(status),
         }
+
+        if (size_of_info != @sizeOf(Mode.Info))
+            return error.Unexpected
+        else
+            return info;
     }
 
     /// Set the video device into the specified mode and clears the visible portions of the output display to black.
-    pub fn setMode(self: *const GraphicsOutput, mode: u32) Status {
-        return self._set_mode(self, mode);
+    pub fn setMode(self: *const GraphicsOutput, mode: u32) SetModeError!void {
+        switch (self._set_mode(self, mode)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| uefi.unexpectedStatus(status),
+        }
     }
 
     /// Blt a rectangle of pixels on the graphics screen. Blt stands for BLock Transfer.
-    pub fn blt(self: *const GraphicsOutput, blt_buffer: ?[*]BltPixel, blt_operation: BltOperation, source_x: usize, source_y: usize, destination_x: usize, destination_y: usize, width: usize, height: usize, delta: usize) Status {
-        return self._blt(self, blt_buffer, blt_operation, source_x, source_y, destination_x, destination_y, width, height, delta);
+    pub fn blt(
+        self: *const GraphicsOutput,
+        blt_buffer: ?[*]BltPixel,
+        blt_operation: BltOperation,
+        source_x: usize,
+        source_y: usize,
+        destination_x: usize,
+        destination_y: usize,
+        width: usize,
+        height: usize,
+        delta: usize,
+    ) BltError!void {
+        switch (self._blt(
+            self,
+            blt_buffer,
+            blt_operation,
+            source_x,
+            source_y,
+            destination_x,
+            destination_y,
+            width,
+            height,
+            delta,
+        )) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

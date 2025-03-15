@@ -3,20 +3,47 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Random Number Generator protocol
 pub const Rng = extern struct {
     _get_info: *const fn (*const Rng, *usize, [*]align(8) Guid) callconv(cc) Status,
     _get_rng: *const fn (*const Rng, ?*align(8) const Guid, usize, [*]u8) callconv(cc) Status,
 
+    pub const GetInfoError = uefi.UnexpectedError || error{
+        Unsupporoted,
+        DeviceError,
+        BufferTooSmall,
+    };
+    pub const GetRNGError = uefi.UnexpectedError || error{
+        Unsupporoted,
+        DeviceError,
+        NotReady,
+        InvalidParameter,
+    };
+
     /// Returns information about the random number generation implementation.
-    pub fn getInfo(self: *const Rng, list_size: *usize, list: [*]align(8) Guid) Status {
-        return self._get_info(self, list_size, list);
+    pub fn getInfo(self: *const Rng, list: []align(8) Guid) GetInfoError![]align(8) Guid {
+        var len: usize = list.len;
+        switch (self._get_info(self, &len, list.ptr)) {
+            .success => return list[0..len],
+            .unsupported => return Error.Unsupporoted,
+            .device_error => return Error.DeviceError,
+            .buffer_too_small => return Error.BufferTooSmall,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Produces and returns an RNG value using either the default or specified RNG algorithm.
-    pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) Status {
-        return self._get_rng(self, algo, value_length, value);
+    pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value: []u8) GetRNGError!void {
+        switch (self._get_rng(self, algo, value.len, value.ptr)) {
+            .success => {},
+            .unsupported => return Error.Unsupporoted,
+            .device_error => return Error.DeviceError,
+            .not_ready => return Error.NotReady,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

@@ -21,11 +21,17 @@ pub const LoadedImage = extern struct {
     image_size: u64,
     image_code_type: MemoryType,
     image_data_type: MemoryType,
-    _unload: *const fn (*const LoadedImage, Handle) callconv(cc) Status,
+    _unload: *const fn (*LoadedImage, Handle) callconv(cc) Status,
+
+    pub const UnloadError = uefi.UnexpectedError || error{InvalidParameter};
 
     /// Unloads an image from memory.
-    pub fn unload(self: *const LoadedImage, handle: Handle) Status {
-        return self._unload(self, handle);
+    pub fn unload(self: *LoadedImage, handle: Handle) Status {
+        switch (self._unload(self, handle)) {
+            .success => return Status.Success,
+            .invalid_parameter => return Status.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{
