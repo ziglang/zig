@@ -11,7 +11,7 @@ pub const SerialIo = extern struct {
     _set_attribute: *const fn (*SerialIo, u64, u32, u32, ParityType, u8, StopBitsType) callconv(cc) Status,
     _set_control: *const fn (*SerialIo, u32) callconv(cc) Status,
     _get_control: *const fn (*const SerialIo, *u32) callconv(cc) Status,
-    _write: *const fn (*SerialIo, *usize, *anyopaque) callconv(cc) Status,
+    _write: *const fn (*SerialIo, *usize, *const anyopaque) callconv(cc) Status,
     _read: *const fn (*SerialIo, *usize, *anyopaque) callconv(cc) Status,
     mode: *Mode,
     device_type_guid: ?*Guid,

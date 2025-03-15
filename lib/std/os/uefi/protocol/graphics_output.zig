@@ -8,7 +8,7 @@ const Error = Status.Error;
 pub const GraphicsOutput = extern struct {
     _query_mode: *const fn (*const GraphicsOutput, u32, *usize, **Mode.Info) callconv(cc) Status,
     _set_mode: *const fn (*GraphicsOutput, u32) callconv(cc) Status,
-    _blt: *const fn (*const GraphicsOutput, ?[*]BltPixel, BltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(cc) Status,
+    _blt: *const fn (*GraphicsOutput, ?[*]BltPixel, BltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(cc) Status,
     mode: *Mode,
 
     pub const QueryModeError = uefi.UnexpectedError || error{
@@ -53,7 +53,7 @@ pub const GraphicsOutput = extern struct {
 
     /// Blt a rectangle of pixels on the graphics screen. Blt stands for BLock Transfer.
     pub fn blt(
-        self: *const GraphicsOutput,
+        self: *GraphicsOutput,
         blt_buffer: ?[*]BltPixel,
         blt_operation: BltOperation,
         source_x: usize,

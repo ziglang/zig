@@ -9,8 +9,8 @@ const Error = Status.Error;
 /// Database manager for HII-related data structures.
 pub const HiiDatabase = extern struct {
     _new_package_list: Status, // TODO
-    _remove_package_list: *const fn (*const HiiDatabase, hii.Handle) callconv(cc) Status,
-    _update_package_list: *const fn (*const HiiDatabase, hii.Handle, *const hii.PackageList) callconv(cc) Status,
+    _remove_package_list: *const fn (*HiiDatabase, hii.Handle) callconv(cc) Status,
+    _update_package_list: *const fn (*HiiDatabase, hii.Handle, *const hii.PackageList) callconv(cc) Status,
     _list_package_lists: *const fn (*const HiiDatabase, u8, ?*const Guid, *usize, [*]hii.Handle) callconv(cc) Status,
     _export_package_lists: *const fn (*const HiiDatabase, ?hii.Handle, *usize, [*]hii.PackageList) callconv(cc) Status,
     _register_package_notify: Status, // TODO
@@ -38,7 +38,7 @@ pub const HiiDatabase = extern struct {
     };
 
     /// Removes a package list from the HII database.
-    pub fn removePackageList(self: *const HiiDatabase, handle: hii.Handle) !void {
+    pub fn removePackageList(self: *HiiDatabase, handle: hii.Handle) !void {
         switch (self._remove_package_list(self, handle)) {
             .success => {},
             .not_found => return Error.NotFound,
@@ -47,7 +47,7 @@ pub const HiiDatabase = extern struct {
     }
 
     /// Update a package list in the HII database.
-    pub fn updatePackageList(self: *const HiiDatabase, handle: hii.Handle, buffer: *const hii.PackageList) Status {
+    pub fn updatePackageList(self: *HiiDatabase, handle: hii.Handle, buffer: *const hii.PackageList) Status {
         switch (self._update_package_list(self, handle, buffer)) {
             .success => {},
             .out_of_resources => return Error.OutOfResources,

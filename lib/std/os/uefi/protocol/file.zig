@@ -20,7 +20,7 @@ pub const File = extern struct {
     _set_info: *const fn (*File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
     _flush: *const fn (*File) callconv(cc) Status,
 
-    pub const OpenError = error{
+    pub const OpenError = uefi.UnexpectedError || error{
         NotFound,
         NoMedia,
         MediaChanged,
@@ -31,12 +31,12 @@ pub const File = extern struct {
         OutOfResources,
         VolumeFull,
         InvalidParameter,
-    } || uefi.UnexpectedError;
+    };
     pub const CloseError = uefi.UnexpectedError;
     // seek and position have the same errors
-    pub const SeekError = error{ Unsupported, DeviceError } || uefi.UnexpectedError;
-    pub const ReadError = error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall } || uefi.UnexpectedError;
-    pub const WriteError = error{
+    pub const SeekError = uefi.UnexpectedError || error{ Unsupported, DeviceError };
+    pub const ReadError = uefi.UnexpectedError || error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall };
+    pub const WriteError = uefi.UnexpectedError || error{
         Unsupported,
         NoMedia,
         DeviceError,
@@ -44,15 +44,15 @@ pub const File = extern struct {
         WriteProtected,
         AccessDenied,
         VolumeFull,
-    } || uefi.UnexpectedError;
-    pub const GetInfoError = error{
+    };
+    pub const GetInfoError = uefi.UnexpectedError || error{
         Unsupported,
         NoMedia,
         DeviceError,
         VolumeCorrupted,
         BufferTooSmall,
-    } || uefi.UnexpectedError;
-    pub const SetInfoError = error{
+    };
+    pub const SetInfoError = uefi.UnexpectedError || error{
         Unsupported,
         NoMedia,
         DeviceError,
@@ -61,14 +61,14 @@ pub const File = extern struct {
         AccessDenied,
         VolumeFull,
         BadBufferWSize,
-    } || uefi.UnexpectedError;
-    pub const FlushError = error{
+    };
+    pub const FlushError = uefi.UnexpectedError || error{
         DeviceError,
         VolumeCorrupted,
         WriteProtected,
         AccessDenied,
         VolumeFull,
-    } || uefi.UnexpectedError;
+    };
 
     pub const SeekableStream = io.SeekableStream(
         *File,
