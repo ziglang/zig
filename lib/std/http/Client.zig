@@ -192,7 +192,7 @@ pub const ConnectionPool = struct {
 pub const Connection = struct {
     stream: net.Stream,
     /// undefined unless protocol is tls.
-    tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
+    tls_client: if (!disable_tls) *std.crypto.tls.Connection(net.Stream) else void,
 
     /// The protocol that this connection is using.
     protocol: Protocol,
@@ -221,12 +221,12 @@ pub const Connection = struct {
     pub const Protocol = enum { plain, tls };
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
-        return conn.tls_client.readv(conn.stream, buffers) catch |err| {
+        return conn.tls_client.readv(buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
 
             switch (err) {
-                error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
+                error.TlsRecordOverflow, error.TlsBadRecordMac, error.TlsUnexpectedMessage => return error.TlsFailure,
                 error.ConnectionTimedOut => return error.ConnectionTimedOut,
                 error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
                 else => return error.UnexpectedReadFailure,
@@ -319,7 +319,7 @@ pub const Connection = struct {
     }
 
     pub fn writeAllDirectTls(conn: *Connection, buffer: []const u8) WriteError!void {
-        return conn.tls_client.writeAll(conn.stream, buffer) catch |err| switch (err) {
+        return conn.tls_client.writeAll(buffer) catch |err| switch (err) {
             error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
             else => return error.UnexpectedWriteFailure,
         };
@@ -387,8 +387,7 @@ pub const Connection = struct {
             if (disable_tls) unreachable;
 
             // try to cleanly close the TLS connection, for any server that cares.
-            _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
-            if (conn.tls_client.ssl_key_log) |key_log| key_log.file.close();
+            conn.tls_client.close() catch {};
             allocator.destroy(conn.tls_client);
         }
 
@@ -1356,33 +1355,18 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     if (protocol == .tls) {
         if (disable_tls) unreachable;
 
-        conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
+        conn.data.tls_client = try client.allocator.create(std.crypto.tls.Connection(net.Stream));
         errdefer client.allocator.destroy(conn.data.tls_client);
 
-        const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
-            const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
-                error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            defer client.allocator.free(ssl_key_log_path);
-            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
-                .truncate = false,
-                .mode = switch (builtin.os.tag) {
-                    .windows, .wasi => 0,
-                    else => 0o600,
-                },
-            }) catch null;
-        } else null;
-        errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
-
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, .{
-            .host = .{ .explicit = host },
-            .ca = .{ .bundle = client.ca_bundle },
-            .ssl_key_log_file = ssl_key_log_file,
+        conn.data.tls_client.* = std.crypto.tls.client(stream, .{
+            .host = host,
+            .root_ca = .{ .bundle = client.ca_bundle },
+            .key_log_callback = if (std.options.http_enable_ssl_key_log_file)
+                // Export tls keys if SSLKEYLOGFILE env is set
+                std.crypto.tls.config.key_log.callback
+            else
+                null,
         }) catch return error.TlsInitializationFailed;
-        // This is appropriate for HTTPS because the HTTP headers contain
-        // the content length which is used to detect truncation attacks.
-        conn.data.tls_client.allow_truncation_attacks = true;
     }
 
     client.connection_pool.addUsed(conn);
