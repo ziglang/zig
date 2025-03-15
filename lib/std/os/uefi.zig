@@ -247,3 +247,11 @@ test {
     _ = tables;
     _ = protocol;
 }
+
+pub const UnexpectedError = error{Unexpected};
+
+pub fn unexpectedStatus(status: Status) UnexpectedError {
+    // TODO: debug printing the encountered error? maybe handle warnings?
+    _ = status;
+    return error.Unexpected;
+}
