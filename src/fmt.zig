@@ -202,6 +202,7 @@ const FmtError = error{
     DestinationAddressRequired,
     DiskQuota,
     FileTooBig,
+    MessageTooBig,
     InputOutput,
     NoSpaceLeft,
     AccessDenied,
