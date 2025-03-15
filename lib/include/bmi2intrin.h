@@ -15,7 +15,13 @@
 #define __BMI2INTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("bmi2")))
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("bmi2"))) constexpr
+#else
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("bmi2")))
+#endif
 
 /// Copies the unsigned 32-bit integer \a __X and zeroes the upper bits
 ///    starting at bit number \a __Y.
@@ -38,8 +44,7 @@
 ///    The lower 8 bits specify the bit number of the lowest bit to zero.
 /// \returns The partially zeroed 32-bit value.
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_bzhi_u32(unsigned int __X, unsigned int __Y)
-{
+_bzhi_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_bzhi_si(__X, __Y);
 }
 
@@ -68,8 +73,7 @@ _bzhi_u32(unsigned int __X, unsigned int __Y)
 ///    The 32-bit mask specifying where to deposit source bits.
 /// \returns The 32-bit result.
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_pdep_u32(unsigned int __X, unsigned int __Y)
-{
+_pdep_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_pdep_si(__X, __Y);
 }
 
@@ -98,8 +102,7 @@ _pdep_u32(unsigned int __X, unsigned int __Y)
 ///    The 32-bit mask specifying which source bits to extract.
 /// \returns The 32-bit result.
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_pext_u32(unsigned int __X, unsigned int __Y)
-{
+_pext_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_pext_si(__X, __Y);
 }
 
@@ -124,8 +127,7 @@ _pext_u32(unsigned int __X, unsigned int __Y)
 ///    A pointer to memory for storing the upper half of the product.
 /// \returns The lower half of the product.
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_mulx_u32(unsigned int __X, unsigned int __Y, unsigned int *__P)
-{
+_mulx_u32(unsigned int __X, unsigned int __Y, unsigned int *__P) {
   unsigned long long __res = (unsigned long long) __X * __Y;
   *__P = (unsigned int)(__res >> 32);
   return (unsigned int)__res;
@@ -154,8 +156,7 @@ _mulx_u32(unsigned int __X, unsigned int __Y, unsigned int *__P)
 ///    The lower 8 bits specify the bit number of the lowest bit to zero.
 /// \returns The partially zeroed 64-bit value.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-_bzhi_u64(unsigned long long __X, unsigned long long __Y)
-{
+_bzhi_u64(unsigned long long __X, unsigned long long __Y) {
   return __builtin_ia32_bzhi_di(__X, __Y);
 }
 
@@ -184,8 +185,7 @@ _bzhi_u64(unsigned long long __X, unsigned long long __Y)
 ///    The 64-bit mask specifying where to deposit source bits.
 /// \returns The 64-bit result.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-_pdep_u64(unsigned long long __X, unsigned long long __Y)
-{
+_pdep_u64(unsigned long long __X, unsigned long long __Y) {
   return __builtin_ia32_pdep_di(__X, __Y);
 }
 
@@ -214,8 +214,7 @@ _pdep_u64(unsigned long long __X, unsigned long long __Y)
 ///    The 64-bit mask specifying which source bits to extract.
 /// \returns The 64-bit result.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-_pext_u64(unsigned long long __X, unsigned long long __Y)
-{
+_pext_u64(unsigned long long __X, unsigned long long __Y) {
   return __builtin_ia32_pext_di(__X, __Y);
 }
 
@@ -241,8 +240,7 @@ _pext_u64(unsigned long long __X, unsigned long long __Y)
 /// \returns The lower half of the product.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
 _mulx_u64 (unsigned long long __X, unsigned long long __Y,
-	   unsigned long long *__P)
-{
+           unsigned long long *__P) {
   unsigned __int128 __res = (unsigned __int128) __X * __Y;
   *__P = (unsigned long long) (__res >> 64);
   return (unsigned long long) __res;

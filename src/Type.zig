@@ -1641,69 +1641,60 @@ pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
 pub fn maxIntAlignment(target: std.Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
-        .msp430 => 2,
-        .xcore => 4,
-        .propeller => 4,
 
+        .msp430 => 2,
+
+        .xcore,
+        .propeller,
+        => 4,
+
+        .amdgcn,
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
+        .lanai,
         .hexagon,
         .mips,
         .mipsel,
         .powerpc,
         .powerpcle,
-        .amdgcn,
         .riscv32,
-        .sparc,
         .s390x,
-        .lanai,
-        .wasm32,
-        .wasm64,
         => 8,
 
-        // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
-        // is a relevant number in three cases:
-        // 1. Different machine code instruction when loading into SIMD register.
-        // 2. The C ABI wants 16 for extern structs.
-        // 3. 16-byte cmpxchg needs 16-byte alignment.
-        // Same logic for powerpc64, mips64, sparc64.
-        .powerpc64,
-        .powerpc64le,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => switch (target.ofmt) {
-            .c => 16,
-            else => 8,
-        },
-
-        .x86_64 => 16,
-
         // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
-        .x86,
         .aarch64,
         .aarch64_be,
-        .riscv64,
         .bpfel,
         .bpfeb,
+        .mips64,
+        .mips64el,
         .nvptx,
         .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc,
+        .sparc64,
+        .wasm32,
+        .wasm64,
+        .x86,
+        .x86_64,
         => 16,
 
         // Below this comment are unverified but based on the fact that C requires
         // int128_t to be 16 bytes aligned, it's a safe default.
-        .csky,
         .arc,
-        .m68k,
+        .csky,
         .kalimba,
-        .spirv,
-        .spirv32,
-        .ve,
-        .spirv64,
         .loongarch32,
         .loongarch64,
+        .m68k,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
         .xtensa,
         => 16,
     };

@@ -31,8 +31,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __is_partitioned {
-struct __fn {
+struct __is_partitioned {
   template <class _Iter, class _Sent, class _Proj, class _Pred>
   _LIBCPP_HIDE_FROM_ABI constexpr static bool
   __is_partitioned_impl(_Iter __first, _Sent __last, _Pred& __pred, _Proj& __proj) {
@@ -70,10 +69,9 @@ struct __fn {
     return __is_partitioned_impl(ranges::begin(__range), ranges::end(__range), __pred, __proj);
   }
 };
-} // namespace __is_partitioned
 
 inline namespace __cpo {
-inline constexpr auto is_partitioned = __is_partitioned::__fn{};
+inline constexpr auto is_partitioned = __is_partitioned{};
 } // namespace __cpo
 } // namespace ranges
 

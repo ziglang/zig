@@ -14,7 +14,7 @@
 
 #include <version>
 // Enable the contents of the header only when libc++ was built with experimental features enabled.
-#if !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#if _LIBCPP_HAS_EXPERIMENTAL_TZDB
 
 #  include <__chrono/calendar.h>
 #  include <__chrono/duration.h>
@@ -22,12 +22,14 @@
 #  include <__chrono/system_clock.h>
 #  include <__chrono/time_zone.h>
 #  include <__chrono/tzdb_list.h>
+#  include <__concepts/constructible.h>
 #  include <__config>
-#  include <__fwd/string_view.h>
 #  include <__type_traits/common_type.h>
 #  include <__type_traits/conditional.h>
 #  include <__type_traits/remove_cvref.h>
+#  include <__utility/declval.h>
 #  include <__utility/move.h>
+#  include <string_view>
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header
@@ -38,8 +40,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#  if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&   \
-      !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#  if _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
 
 namespace chrono {
 
@@ -57,7 +58,7 @@ struct zoned_traits<const time_zone*> {
 template <class _Duration, class _TimeZonePtr = const time_zone*>
 class zoned_time {
   // [time.zone.zonedtime.ctor]/2
-  static_assert(__is_duration<_Duration>::value,
+  static_assert(__is_duration_v<_Duration>,
                 "the program is ill-formed since _Duration is not a specialization of std::chrono::duration");
 
   // The wording uses the constraints like
@@ -65,7 +66,7 @@ class zoned_time {
   // Using these constraints in the code causes the compiler to give an
   // error that the constraint depends on itself. To avoid that issue use
   // the fact it is possible to create this object from a _TimeZonePtr.
-  using __traits = zoned_traits<_TimeZonePtr>;
+  using __traits _LIBCPP_NODEBUG = zoned_traits<_TimeZonePtr>;
 
 public:
   using duration = common_type_t<_Duration, seconds>;
@@ -185,7 +186,7 @@ template <class _Duration>
 zoned_time(sys_time<_Duration>) -> zoned_time<common_type_t<_Duration, seconds>>;
 
 template <class _TimeZonePtrOrName>
-using __time_zone_representation =
+using __time_zone_representation _LIBCPP_NODEBUG =
     conditional_t<is_convertible_v<_TimeZonePtrOrName, string_view>,
                   const time_zone*,
                   remove_cvref_t<_TimeZonePtrOrName>>;
@@ -201,8 +202,8 @@ template <class _TimeZonePtrOrName, class _Duration>
 zoned_time(_TimeZonePtrOrName&&, local_time<_Duration>, choose = choose::earliest)
     -> zoned_time<common_type_t<_Duration, seconds>, __time_zone_representation<_TimeZonePtrOrName>>;
 
-template <class _Duration, class _TimeZonePtrOrName, class TimeZonePtr2>
-zoned_time(_TimeZonePtrOrName&&, zoned_time<_Duration, TimeZonePtr2>, choose = choose::earliest)
+template <class _Duration, class _TimeZonePtrOrName, class _TimeZonePtr2>
+zoned_time(_TimeZonePtrOrName&&, zoned_time<_Duration, _TimeZonePtr2>, choose = choose::earliest)
     -> zoned_time<common_type_t<_Duration, seconds>, __time_zone_representation<_TimeZonePtrOrName>>;
 
 using zoned_seconds = zoned_time<seconds>;
@@ -215,13 +216,13 @@ operator==(const zoned_time<_Duration1, _TimeZonePtr>& __lhs, const zoned_time<_
 
 } // namespace chrono
 
-#  endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM)
-         // && !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#  endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM &&
+         // _LIBCPP_HAS_LOCALIZATION
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
 
 #endif // _LIBCPP___CHRONO_ZONED_TIME_H

@@ -18,9 +18,17 @@
 namespace __sanitizer {
 
 ThreadContextBase::ThreadContextBase(u32 tid)
-    : tid(tid), unique_id(0), reuse_count(), os_id(0), user_id(0),
-      status(ThreadStatusInvalid), detached(false),
-      thread_type(ThreadType::Regular), parent_tid(0), next(0) {
+    : tid(tid),
+      unique_id(0),
+      reuse_count(),
+      os_id(0),
+      user_id(0),
+      status(ThreadStatusInvalid),
+      detached(false),
+      thread_type(ThreadType::Regular),
+      parent_tid(0),
+      stack_id(0),
+      next(0) {
   name[0] = '\0';
   atomic_store(&thread_destroyed, 0, memory_order_release);
 }
@@ -39,8 +47,7 @@ void ThreadContextBase::SetName(const char *new_name) {
 }
 
 void ThreadContextBase::SetDead() {
-  CHECK(status == ThreadStatusRunning ||
-        status == ThreadStatusFinished);
+  CHECK(status == ThreadStatusRunning || status == ThreadStatusFinished);
   status = ThreadStatusDead;
   user_id = 0;
   OnDead();
@@ -68,7 +75,8 @@ void ThreadContextBase::SetFinished() {
   // for a thread that never actually started.  In that case the thread
   // should go to ThreadStatusFinished regardless of whether it was created
   // as detached.
-  if (!detached || status == ThreadStatusCreated) status = ThreadStatusFinished;
+  if (!detached || status == ThreadStatusCreated)
+    status = ThreadStatusFinished;
   OnFinished();
 }
 
@@ -81,14 +89,17 @@ void ThreadContextBase::SetStarted(tid_t _os_id, ThreadType _thread_type,
 }
 
 void ThreadContextBase::SetCreated(uptr _user_id, u64 _unique_id,
-                                   bool _detached, u32 _parent_tid, void *arg) {
+                                   bool _detached, u32 _parent_tid,
+                                   u32 _stack_tid, void *arg) {
   status = ThreadStatusCreated;
   user_id = _user_id;
   unique_id = _unique_id;
   detached = _detached;
   // Parent tid makes no sense for the main thread.
-  if (tid != kMainTid)
+  if (tid != kMainTid) {
     parent_tid = _parent_tid;
+    stack_id = _stack_tid;
+  }
   OnCreated(arg);
 }
 
@@ -124,8 +135,10 @@ void ThreadRegistry::GetNumberOfThreads(uptr *total, uptr *running,
   ThreadRegistryLock l(this);
   if (total)
     *total = threads_.size();
-  if (running) *running = running_threads_;
-  if (alive) *alive = alive_threads_;
+  if (running)
+    *running = running_threads_;
+  if (alive)
+    *alive = alive_threads_;
 }
 
 uptr ThreadRegistry::GetMaxAliveThreads() {
@@ -134,7 +147,7 @@ uptr ThreadRegistry::GetMaxAliveThreads() {
 }
 
 u32 ThreadRegistry::CreateThread(uptr user_id, bool detached, u32 parent_tid,
-                                 void *arg) {
+                                 u32 stack_tid, void *arg) {
   ThreadRegistryLock l(this);
   u32 tid = kInvalidTid;
   ThreadContextBase *tctx = QuarantinePop();
@@ -150,8 +163,10 @@ u32 ThreadRegistry::CreateThread(uptr user_id, bool detached, u32 parent_tid,
     Report("%s: Thread limit (%u threads) exceeded. Dying.\n",
            SanitizerToolName, max_threads_);
 #else
-    Printf("race: limit on %u simultaneously alive goroutines is exceeded,"
-        " dying\n", max_threads_);
+    Printf(
+        "race: limit on %u simultaneously alive goroutines is exceeded,"
+        " dying\n",
+        max_threads_);
 #endif
     Die();
   }
@@ -170,8 +185,8 @@ u32 ThreadRegistry::CreateThread(uptr user_id, bool detached, u32 parent_tid,
     // positives later (e.g. if we join a wrong thread).
     CHECK(live_.try_emplace(user_id, tid).second);
   }
-  tctx->SetCreated(user_id, total_threads_++, detached,
-                   parent_tid, arg);
+  tctx->SetCreated(user_id, total_threads_++, detached, parent_tid, stack_tid,
+                   arg);
   return tid;
 }
 
@@ -196,8 +211,8 @@ u32 ThreadRegistry::FindThread(FindThreadCallback cb, void *arg) {
   return kInvalidTid;
 }
 
-ThreadContextBase *
-ThreadRegistry::FindThreadContextLocked(FindThreadCallback cb, void *arg) {
+ThreadContextBase *ThreadRegistry::FindThreadContextLocked(
+    FindThreadCallback cb, void *arg) {
   CheckLocked();
   for (u32 tid = 0; tid < threads_.size(); tid++) {
     ThreadContextBase *tctx = threads_[tid];
@@ -210,7 +225,7 @@ ThreadRegistry::FindThreadContextLocked(FindThreadCallback cb, void *arg) {
 static bool FindThreadContextByOsIdCallback(ThreadContextBase *tctx,
                                             void *arg) {
   return (tctx->os_id == (uptr)arg && tctx->status != ThreadStatusInvalid &&
-      tctx->status != ThreadStatusDead);
+          tctx->status != ThreadStatusDead);
 }
 
 ThreadContextBase *ThreadRegistry::FindThreadContextByOsIDLocked(tid_t os_id) {

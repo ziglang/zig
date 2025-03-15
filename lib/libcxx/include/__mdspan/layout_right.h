@@ -19,15 +19,14 @@
 
 #include <__assert>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/mdspan.h>
 #include <__mdspan/extents.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__utility/integer_sequence.h>
-#include <cinttypes>
-#include <cstddef>
-#include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

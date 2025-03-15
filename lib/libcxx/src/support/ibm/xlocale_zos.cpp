@@ -20,12 +20,12 @@ locale_t newlocale(int category_mask, const char* locale, locale_t base) {
   std::string current_loc_name(setlocale(LC_ALL, 0));
 
   // Check for errors.
-  if (category_mask == LC_ALL_MASK && setlocale(LC_ALL, locale) == NULL) {
+  if (category_mask == LC_ALL_MASK && setlocale(LC_ALL, locale) == nullptr) {
     errno = EINVAL;
     return (locale_t)0;
   } else {
     for (int _Cat = 0; _Cat <= _LC_MAX; ++_Cat) {
-      if ((_CATMASK(_Cat) & category_mask) != 0 && setlocale(_Cat, locale) == NULL) {
+      if ((_CATMASK(_Cat) & category_mask) != 0 && setlocale(_Cat, locale) == nullptr) {
         setlocale(LC_ALL, current_loc_name.c_str());
         errno = EINVAL;
         return (locale_t)0;
@@ -74,12 +74,12 @@ locale_t uselocale(locale_t newloc) {
   if (newloc) {
     // Set locales and check for errors.
     bool is_error =
-        (newloc->category_mask & LC_COLLATE_MASK && setlocale(LC_COLLATE, newloc->lc_collate.c_str()) == NULL) ||
-        (newloc->category_mask & LC_CTYPE_MASK && setlocale(LC_CTYPE, newloc->lc_ctype.c_str()) == NULL) ||
-        (newloc->category_mask & LC_MONETARY_MASK && setlocale(LC_MONETARY, newloc->lc_monetary.c_str()) == NULL) ||
-        (newloc->category_mask & LC_NUMERIC_MASK && setlocale(LC_NUMERIC, newloc->lc_numeric.c_str()) == NULL) ||
-        (newloc->category_mask & LC_TIME_MASK && setlocale(LC_TIME, newloc->lc_time.c_str()) == NULL) ||
-        (newloc->category_mask & LC_MESSAGES_MASK && setlocale(LC_MESSAGES, newloc->lc_messages.c_str()) == NULL);
+        (newloc->category_mask & LC_COLLATE_MASK && setlocale(LC_COLLATE, newloc->lc_collate.c_str()) == nullptr) ||
+        (newloc->category_mask & LC_CTYPE_MASK && setlocale(LC_CTYPE, newloc->lc_ctype.c_str()) == nullptr) ||
+        (newloc->category_mask & LC_MONETARY_MASK && setlocale(LC_MONETARY, newloc->lc_monetary.c_str()) == nullptr) ||
+        (newloc->category_mask & LC_NUMERIC_MASK && setlocale(LC_NUMERIC, newloc->lc_numeric.c_str()) == nullptr) ||
+        (newloc->category_mask & LC_TIME_MASK && setlocale(LC_TIME, newloc->lc_time.c_str()) == nullptr) ||
+        (newloc->category_mask & LC_MESSAGES_MASK && setlocale(LC_MESSAGES, newloc->lc_messages.c_str()) == nullptr);
 
     if (is_error) {
       setlocale(LC_ALL, current_loc_name.c_str());
