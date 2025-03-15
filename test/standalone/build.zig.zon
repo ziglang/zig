@@ -189,6 +189,9 @@
         .config_header = .{
             .path = "config_header",
         },
+        .x86_cpu_model = .{
+            .path = "x86_cpu_model",
+        },
     },
     .paths = .{
         "build.zig",
