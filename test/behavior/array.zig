@@ -1094,3 +1094,44 @@ test "@splat zero-length array" {
     try S.doTheTest(?*anyopaque, null);
     try comptime S.doTheTest(?*anyopaque, null);
 }
+
+test "initialize slice with reference to empty array initializer" {
+    const a: []const u8 = &.{};
+    comptime assert(a.len == 0);
+}
+
+test "initialize many-pointer with reference to empty array initializer" {
+    const a: [*]const u8 = &.{};
+    _ = a; // nothing meaningful to test; points to zero bits
+}
+
+test "initialize sentinel-terminated slice with reference to empty array initializer" {
+    const a: [:0]const u8 = &.{};
+    comptime assert(a.len == 0);
+    comptime assert(a[0] == 0);
+}
+
+test "initialize sentinel-terminated many-pointer with reference to empty array initializer" {
+    const a: [*:0]const u8 = &.{};
+    comptime assert(a[0] == 0);
+}
+
+test "pass pointer to empty array initializer to anytype parameter" {
+    const S = struct {
+        fn TypeOf(x: anytype) type {
+            return @TypeOf(x);
+        }
+    };
+    comptime assert(S.TypeOf(&.{}) == @TypeOf(&.{}));
+}
+
+test "initialize pointer to anyopaque with reference to empty array initializer" {
+    const ptr: *const anyopaque = &.{};
+    // The above acts like an untyped initializer, since the `.{}` has no result type.
+    // So, `ptr` points in memory to an empty tuple (`@TypeOf(.{})`).
+    const casted: *const @TypeOf(.{}) = @alignCast(@ptrCast(ptr));
+    const loaded = casted.*;
+    // `val` should be a `@TypeOf(.{})`, as expected.
+    // We can't check the value, but it's zero-bit, so the type matching is good enough.
+    comptime assert(@TypeOf(loaded) == @TypeOf(.{}));
+}
