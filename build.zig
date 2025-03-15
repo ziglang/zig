@@ -179,6 +179,7 @@ pub fn build(b: *std.Build) !void {
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
     const value_interpret_mode = b.option(ValueInterpretMode, "value-interpret-mode", "How the compiler translates between 'std.builtin' types and its internal datastructures") orelse .direct;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
+    const zig_max_rss = b.option(usize, "zig-max-rss", "Limit memory usage for compiling Zig binary");
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip == true) break :blk @as(u32, 0);
@@ -193,6 +194,7 @@ pub fn build(b: *std.Build) !void {
         .valgrind = valgrind,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
+        .max_rss = zig_max_rss,
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
@@ -662,6 +664,7 @@ const AddCompilerStepOptions = struct {
     valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,
+    max_rss: ?usize = null,
 };
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
@@ -707,7 +710,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
 
     const exe = b.addExecutable(.{
         .name = "zig",
-        .max_rss = 7_800_000_000,
+        .max_rss = options.max_rss orelse 7_800_000_000,
         .root_module = compiler_mod,
     });
     exe.stack_size = stack_size;
