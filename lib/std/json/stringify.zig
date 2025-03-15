@@ -88,7 +88,7 @@ pub fn stringifyAlloc(
     allocator: Allocator,
     value: anytype,
     options: StringifyOptions,
-) error{OutOfMemory}![]u8 {
+) error{ OutOfMemory, InvalidJSON }![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
     try stringifyArbitraryDepth(allocator, value, options, list.writer());
@@ -195,7 +195,7 @@ pub fn WriteStream(
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
-            .checked_to_arbitrary_depth => Stream.Error || error{OutOfMemory},
+            .checked_to_arbitrary_depth => Stream.Error || error{ OutOfMemory, InvalidJSON },
             .checked_to_fixed_depth, .assumed_correct => Stream.Error,
         };
 
@@ -510,6 +510,9 @@ pub fn WriteStream(
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
                 .float, .comptime_float => {
+                    if (value == std.math.inf(f32)) {
+                        return error.InvalidJSON;
+                    }
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
                         try self.stream.print("{}", .{@as(f64, @floatCast(value))});
