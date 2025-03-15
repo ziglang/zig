@@ -167,3 +167,31 @@ test "global var can be indirectly self-referential" {
     try std.testing.expect(S.bar.other == &S.foo);
     try std.testing.expect(S.bar.other.other == &S.bar);
 }
+
+pub const Callbacks = extern struct {
+    key_callback: *const fn (key: i32) callconv(.c) i32,
+};
+
+var callbacks: Callbacks = undefined;
+var callbacks_loaded: bool = false;
+
+test "function pointer field call on global extern struct, conditional on global" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    if (callbacks_loaded) {
+        try std.testing.expectEqual(42, callbacks.key_callback(42));
+    }
+}
+
+test "function pointer field call on global extern struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn keyCallback(key: i32) callconv(.c) i32 {
+            return key;
+        }
+    };
+
+    callbacks = Callbacks{ .key_callback = S.keyCallback };
+    try std.testing.expectEqual(42, callbacks.key_callback(42));
+}
