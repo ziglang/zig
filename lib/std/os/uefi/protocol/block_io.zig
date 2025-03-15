@@ -40,7 +40,7 @@ pub const BlockIo = extern struct {
         switch (self._reset(self, extended_verification)) {
             .success => {},
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedStatus(err),
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
@@ -48,11 +48,11 @@ pub const BlockIo = extern struct {
     pub fn readBlocks(self: *Self, media_id: u32, lba: u64, buf: []u8) ReadBlocksError!void {
         switch (self._read_blocks(self, media_id, lba, buf.len, buf.ptr)) {
             .success => {},
-            .device_error => Error.DeviceError,
-            .no_media => Error.NoMedia,
-            .bad_buffer_size => Error.BadBufferSize,
-            .invalid_parameter => Error.InvalidParameter,
-            else => |err| uefi.unexpectedStatus(err),
+            .device_error => return Error.DeviceError,
+            .no_media => return Error.NoMedia,
+            .bad_buffer_size => return Error.BadBufferSize,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
@@ -60,13 +60,13 @@ pub const BlockIo = extern struct {
     pub fn writeBlocks(self: *Self, media_id: u32, lba: u64, buf: []const u8) WriteBlocksError!void {
         switch (self._write_blocks(self, media_id, lba, buf.len, buf.ptr)) {
             .success => {},
-            .write_protected => Error.WriteProtected,
-            .no_media => Error.NoMedia,
-            .media_changed => Error.MediaChanged,
-            .device_error => Error.DeviceError,
-            .bad_buffer_size => Error.BadBufferSize,
-            .invalid_parameter => Error.InvalidParameter,
-            else => |err| uefi.unexpectedStatus(err),
+            .write_protected => return Error.WriteProtected,
+            .no_media => return Error.NoMedia,
+            .media_changed => return Error.MediaChanged,
+            .device_error => return Error.DeviceError,
+            .bad_buffer_size => return Error.BadBufferSize,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
@@ -74,9 +74,9 @@ pub const BlockIo = extern struct {
     pub fn flushBlocks(self: *Self) FlushBlocksError!void {
         switch (self._flush_blocks(self)) {
             .success => {},
-            .device_error => Error.DeviceError,
-            .no_media => Error.NoMedia,
-            else => |err| uefi.unexpectedStatus(err),
+            .device_error => return Error.DeviceError,
+            .no_media => return Error.NoMedia,
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 

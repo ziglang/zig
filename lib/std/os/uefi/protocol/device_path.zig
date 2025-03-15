@@ -13,7 +13,7 @@ pub const DevicePath = extern struct {
     subtype: u8,
     length: u16 align(1),
 
-    pub const createFileDevicePathError = Allocator.Error;
+    pub const CreateFileDevicePathError = Allocator.Error;
 
     pub const guid align(8) = Guid{
         .time_low = 0x09576e91,
@@ -44,7 +44,11 @@ pub const DevicePath = extern struct {
     }
 
     /// Creates a file device path from the existing device path and a file path.
-    pub fn createFileDevicePath(self: *const DevicePath, allocator: Allocator, path: []const u16) !*DevicePath {
+    pub fn createFileDevicePath(
+        self: *const DevicePath,
+        allocator: Allocator,
+        path: []const u16,
+    ) CreateFileDevicePathError!*DevicePath {
         const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s

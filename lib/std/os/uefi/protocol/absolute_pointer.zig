@@ -21,7 +21,7 @@ pub const AbsolutePointer = extern struct {
         switch (self._reset(self, verify)) {
             .success => {},
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedError(err),
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
@@ -32,7 +32,7 @@ pub const AbsolutePointer = extern struct {
             .success => return state,
             .not_ready => return Error.NotReady,
             .device_error => return Error.DeviceError,
-            else => |err| uefi.unexpectedStatus(err),
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
