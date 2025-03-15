@@ -6107,6 +6107,39 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: array initializer with switch expression - canonical" {
+    try testCanonical(
+        \\const bar = .{
+        \\    .{switch ({}) {
+        \\        else => {},
+        \\    }},
+        \\    .{},
+        \\    .{},
+        \\    .{},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: array initializer with switch expression - transformation" {
+    try testTransform(
+        \\const bar = .{ .{ switch ({}) {
+        \\        else => {},
+        \\    } }, .{}, .{}, .{},
+        \\};
+        \\
+    ,
+        \\const bar = .{
+        \\    .{switch ({}) {
+        \\        else => {},
+        \\    }},
+        \\    .{}, .{},
+        \\    .{},
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
