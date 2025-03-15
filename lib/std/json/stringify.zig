@@ -510,7 +510,7 @@ pub fn WriteStream(
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
                 .float, .comptime_float => {
-                    if (value == std.math.inf(f32)) {
+                    if (std.math.isInf(value) or std.math.isNan(value)) {
                         return error.InvalidJSON;
                     }
                     if (@as(f64, @floatCast(value)) == value) {

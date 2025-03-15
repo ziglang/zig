@@ -453,14 +453,23 @@ test "nonportable numbers" {
     try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
 }
 
-test "infinite values" {
+test "invalid JSON values" {
     try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, std.math.inf(f32), .{}));
     try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, std.math.inf(f64), .{}));
+    try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, std.math.nan(f32), .{}));
+    try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, std.math.nan(f64), .{}));
+
     try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, .{
         .a = std.math.inf(f32),
     }, .{}));
     try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, .{
         .a = std.math.inf(f64),
+    }, .{}));
+    try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, .{
+        .a = std.math.nan(f32),
+    }, .{}));
+    try std.testing.expectError(error.InvalidJSON, stringifyAlloc(std.testing.allocator, .{
+        .a = std.math.nan(f64),
     }, .{}));
 }
 
