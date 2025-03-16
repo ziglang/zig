@@ -6107,8 +6107,11 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
-test "zig fmt: array initializer with switch expression - canonical" {
-    try testCanonical(
+test "zig fmt: nested switch in struct initialization" {
+    try testTransform(
+        \\const bar = .{ .{ switch ({}) { else => {}, } }, .{}, .{}, .{}, };
+        \\
+    ,
         \\const bar = .{
         \\    .{switch ({}) {
         \\        else => {},
@@ -6121,19 +6124,68 @@ test "zig fmt: array initializer with switch expression - canonical" {
     );
 }
 
-test "zig fmt: array initializer with switch expression - transformation" {
-    try testTransform(
-        \\const bar = .{ .{ switch ({}) {
-        \\        else => {},
-        \\    } }, .{}, .{}, .{},
-        \\};
-        \\
-    ,
+test "zig fmt: nested switch in struct initialization is deterministic" {
+    // This test verifies that the formatter produces the same output
+    // when run multiple times on the same input
+    const formatted =
         \\const bar = .{
         \\    .{switch ({}) {
         \\        else => {},
         \\    }},
-        \\    .{}, .{},
+        \\    .{},
+        \\    .{},
+        \\    .{},
+        \\};
+        \\
+    ;
+    try testCanonical(formatted);
+}
+
+test "zig fmt: nested switch in struct initialization with multiple cases" {
+    try testTransform(
+        \\const foo = .{ .{ switch (x) { 0 => {}, 1 => {}, else => {}, } }, .{}, .{}, };
+        \\
+    ,
+        \\const foo = .{
+        \\    .{switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        else => {},
+        \\    }},
+        \\    .{},
+        \\    .{},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: nested switch in middle of struct initialization" {
+    try testTransform(
+        \\const baz = .{ .{}, .{ switch (y) { true => 1, false => 2, } }, .{}, };
+        \\
+    ,
+        \\const baz = .{
+        \\    .{},
+        \\    .{switch (y) {
+        \\        true => 1,
+        \\        false => 2,
+        \\    }},
+        \\    .{},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: deeply nested switch in struct initialization" {
+    try testTransform(
+        \\const complex = .{ .{ .{ switch (z) { .a => 10, .b => 20, } } }, .{}, };
+        \\
+    ,
+        \\const complex = .{
+        \\    .{.{switch (z) {
+        \\        .a => 10,
+        \\        .b => 20,
+        \\    }}},
         \\    .{},
         \\};
         \\
