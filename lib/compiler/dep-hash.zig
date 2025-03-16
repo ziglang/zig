@@ -54,6 +54,8 @@ pub fn main() !void {
         }
     }
 
+    if (dep_chain.items.len == 0) list = true;
+
     if (build_root_path) |build_root| {
         if (!std.fs.path.isAbsolute(build_root)) {
             const cwd = try std.process.getCwdAlloc(arena);
@@ -107,67 +109,36 @@ pub fn main() !void {
     };
     defer arena.free(dep_name);
 
-    if (dep_chain.items.len > 0) {
-        const package = dep_chain.items[0];
-        if (package.len == 0) {
-            fatal("package name must not be empty", .{});
-        }
-        const dep: std.zig.Manifest.Dependency = dep: {
-            var dep = manifest.dependencies.get(package) orelse {
-                fatal("there is no dependency named '{s}' in the manifest", .{package});
-            };
+    var man = try loadTransitiveDepManifest(
+        arena,
+        global_cache,
+        build_root.directory,
+        manifest,
+        dep_chain.items[0 .. dep_chain.items.len - @intFromBool(!list)],
+        dep_name,
+        color,
+    );
+    defer man.deinit(arena);
 
-            var dep_name_len = package.len + 1;
-            for (dep_chain.items[1..]) |p| {
-                dep_name_len += p.len;
+    const stdout = std.io.getStdOut().writer();
 
-                const sub_manifest, _ = try loadDepManifest(
-                    arena,
-                    global_cache,
-                    build_root.directory,
-                    dep,
-                    dep_name[0..dep_name_len],
-                    color,
-                );
-
-                dep = sub_manifest.dependencies.get(p) orelse {
-                    fatal("{s} has no dependency named '{s}' in its manifest", .{
-                        dep_name[0..dep_name_len], p,
-                    });
-                };
-                dep_name_len += 1;
-            }
-
-            break :dep dep;
-        };
-
-        const stdout = std.io.getStdOut().writer();
-
-        if (list) {
-            var sub_manifest, var sub_ast = try loadDepManifest(
-                arena,
-                global_cache,
-                build_root.directory,
-                dep,
-                dep_name,
-                color,
-            );
-            defer {
-                sub_manifest.deinit(arena);
-                sub_ast.deinit(arena);
-            }
-
-            try listDepHashes(dep_name, sub_manifest);
-        } else {
-            if (dep.hash) |hash| {
-                try stdout.print("{s}\n", .{hash});
-            } else switch (dep.location) {
-                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
-                .path => fatal("{s} is a local dependency", .{dep_name}),
-            }
-        }
+    if (list) {
+        try listDepHashes(dep_name, man);
     } else {
-        try listDepHashes("", manifest);
+        assert(dep_chain.items.len > 0);
+        const dep = man.dependencies.get(dep_chain.items[dep_chain.items.len - 1]) orelse {
+            const name = dep_chain.items[dep_chain.items.len];
+            fatal("{s} has no dependency named '{s}' in the manifest", .{
+                dep_name[0 .. dep_name.len - name.len - 1],
+                name,
+            });
+        };
+        if (dep.hash) |hash| {
+            try stdout.print("{s}\n", .{hash});
+        } else switch (dep.location) {
+            .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
+            .path => fatal("{s} is a local dependency", .{dep_name}),
+        }
     }
 }
 
@@ -214,6 +185,47 @@ fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
             }
         }
     }
+}
+
+fn loadTransitiveDepManifest(
+    allocator: Allocator,
+    global_cache: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Directory,
+    root_manifest: std.zig.Manifest,
+    dep_chain: []const []const u8,
+    dep_name: []const u8,
+    color: std.zig.Color,
+) !std.zig.Manifest {
+    var manifest = root_manifest;
+    var dep_name_len: usize = 0;
+
+    for (dep_chain) |p| {
+        if (p.len == 0) {
+            fatal("package name must not be empty", .{});
+        }
+
+        const dep = manifest.dependencies.get(p) orelse {
+            fatal("{s} has no dependency named '{s}' in the manifest", .{
+                if (dep_name_len == 0) "the root package" else dep_name[0..dep_name_len],
+                p,
+            });
+        };
+
+        dep_name_len += p.len;
+
+        manifest, var sub_ast = try loadDepManifest(
+            allocator,
+            global_cache,
+            build_root,
+            dep,
+            dep_name[0..dep_name_len],
+            color,
+        );
+        sub_ast.deinit(allocator);
+
+        dep_name_len += 1;
+    }
+    return manifest;
 }
 
 fn loadDepManifest(
