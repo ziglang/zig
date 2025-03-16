@@ -28617,7 +28617,8 @@ fn tupleFieldPtr(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
-    const tuple_ty = tuple_ptr_ty.childType(zcu);
+    const tuple_ptr_info = tuple_ptr_ty.ptrInfo(zcu);
+    const tuple_ty: Type = .fromInterned(tuple_ptr_info.child);
     try tuple_ty.resolveFields(pt);
     const field_count = tuple_ty.structFieldCount(zcu);
 
@@ -28635,9 +28636,16 @@ fn tupleFieldPtr(
     const ptr_field_ty = try pt.ptrTypeSema(.{
         .child = field_ty.toIntern(),
         .flags = .{
-            .is_const = !tuple_ptr_ty.ptrIsMutable(zcu),
-            .is_volatile = tuple_ptr_ty.isVolatilePtr(zcu),
-            .address_space = tuple_ptr_ty.ptrAddressSpace(zcu),
+            .is_const = tuple_ptr_info.flags.is_const,
+            .is_volatile = tuple_ptr_info.flags.is_volatile,
+            .address_space = tuple_ptr_info.flags.address_space,
+            .alignment = a: {
+                if (tuple_ptr_info.flags.alignment == .none) break :a .none;
+                // The tuple pointer isn't naturally aligned, so the field pointer might be underaligned.
+                const tuple_align = tuple_ptr_info.flags.alignment;
+                const field_align = try field_ty.abiAlignmentSema(pt);
+                break :a tuple_align.min(field_align);
+            },
         },
     });
 
