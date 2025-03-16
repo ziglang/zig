@@ -95,22 +95,7 @@ pub fn main() !void {
         ast.deinit(arena);
     }
 
-    const dep_name = blk: {
-        const len = len: {
-            var sum: usize = dep_chain.items.len;
-            for (dep_chain.items) |n| sum += n.len;
-            break :len sum;
-        };
-        const buffer = try arena.alloc(u8, len);
-        var index: usize = 0;
-        for (dep_chain.items) |name| {
-            @memcpy(buffer[index..], name);
-            index += name.len;
-            buffer[index] = '.';
-            index += 1;
-        }
-        break :blk buffer;
-    };
+    const dep_name = try std.mem.join(arena, ".", dep_chain.items);
     defer arena.free(dep_name);
 
     var man = try loadTransitiveDepManifest(
@@ -135,13 +120,13 @@ pub fn main() !void {
             man,
             color,
         ),
-        .list => try listDepHashes(dep_name, man),
+        .list => try listDepHashes(man),
         .single => {
             assert(dep_chain.items.len > 0);
             const dep = man.dependencies.get(dep_chain.items[dep_chain.items.len - 1]) orelse {
                 const name = dep_chain.items[dep_chain.items.len];
                 fatal("{s} has no dependency named '{s}' in the manifest", .{
-                    dep_name[0 .. dep_name.len - name.len - 1],
+                    dep_name[0 .. dep_name.len - name.len],
                     name,
                 });
             };
@@ -254,16 +239,10 @@ fn graphInner(
     }
 }
 
-fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
-    assert(parent_prefix.len != 1);
+fn listDepHashes(manifest: std.zig.Manifest) !void {
     if (manifest.dependencies.count() == 0) {
-        const name = if (parent_prefix.len > 0)
-            parent_prefix[0 .. parent_prefix.len - 1]
-        else
-            manifest.name;
-
         const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s} has no dependencies\n", .{name});
+        try stdout.print("{s} has no dependencies\n", .{manifest.name});
         return;
     }
 
@@ -279,18 +258,18 @@ fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
         const stdout = std.io.getStdOut().writer();
         const name = entry.key_ptr.*;
         if (entry.value_ptr.hash) |hash| {
-            try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+            try stdout.print("{s}    ", .{name});
             try stdout.writeByteNTimes(' ', longest_name - name.len);
             try stdout.print("{s}\n", .{hash});
         } else {
             switch (entry.value_ptr.location) {
                 .url => {
-                    try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+                    try stdout.print("{s}    ", .{name});
                     try stdout.writeByteNTimes(' ', longest_name - name.len);
                     try stdout.writeAll("(missing)");
                 },
                 .path => |p| {
-                    try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+                    try stdout.print("{s}    ", .{name});
                     try stdout.writeByteNTimes(' ', longest_name - name.len);
                     try stdout.print("{s} (local)\n", .{p});
                 },
