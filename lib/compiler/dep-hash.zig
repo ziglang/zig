@@ -4,6 +4,7 @@ const usage_dep_hash =
     \\   List the hashes of packages in the build.zig.zon manifest.
     \\
     \\Options:
+    \\  --graph                   Print dependency graph
     \\  --list                    List all package hashes
     \\  --build-root [path]       Set package root directory
     \\  --global-cache-dir [path] Override the global cache directory
@@ -19,7 +20,7 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(arena);
     const color: std.zig.Color = .auto;
-    var list = false;
+    var mode: enum { graph, list, single } = .single;
     var build_root_path: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var dep_chain = std.ArrayList([]const u8).init(arena);
@@ -36,7 +37,9 @@ pub fn main() !void {
                     try stdout.writeAll(usage_dep_hash);
                     return std.process.cleanExit();
                 } else if (std.mem.eql(u8, arg, "--list")) {
-                    list = true;
+                    mode = .list;
+                } else if (std.mem.eql(u8, arg, "--graph")) {
+                    mode = .graph;
                 } else if (std.mem.eql(u8, arg, "--build-root")) {
                     i += 1;
                     if (i >= args.len) fatal("build root expected after --build-root", .{});
@@ -54,7 +57,7 @@ pub fn main() !void {
         }
     }
 
-    if (dep_chain.items.len == 0) list = true;
+    if (dep_chain.items.len == 0 and mode != .list) mode = .graph;
 
     if (build_root_path) |build_root| {
         if (!std.fs.path.isAbsolute(build_root)) {
@@ -85,6 +88,7 @@ pub fn main() !void {
         build_root.directory,
         std.zig.Manifest.basename,
         color,
+        true,
     );
     defer {
         manifest.deinit(arena);
@@ -114,7 +118,7 @@ pub fn main() !void {
         global_cache,
         build_root.directory,
         manifest,
-        dep_chain.items[0 .. dep_chain.items.len - @intFromBool(!list)],
+        dep_chain.items[0 .. dep_chain.items.len - @intFromBool(mode == .single)],
         dep_name,
         color,
     );
@@ -122,23 +126,131 @@ pub fn main() !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    if (list) {
-        try listDepHashes(dep_name, man);
-    } else {
-        assert(dep_chain.items.len > 0);
-        const dep = man.dependencies.get(dep_chain.items[dep_chain.items.len - 1]) orelse {
-            const name = dep_chain.items[dep_chain.items.len];
-            fatal("{s} has no dependency named '{s}' in the manifest", .{
-                dep_name[0 .. dep_name.len - name.len - 1],
-                name,
-            });
-        };
-        if (dep.hash) |hash| {
-            try stdout.print("{s}\n", .{hash});
-        } else switch (dep.location) {
-            .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
-            .path => fatal("{s} is a local dependency", .{dep_name}),
+    switch (mode) {
+        .graph => try graph(
+            arena,
+            stdout,
+            global_cache,
+            build_root.directory,
+            man,
+            color,
+        ),
+        .list => try listDepHashes(dep_name, man),
+        .single => {
+            assert(dep_chain.items.len > 0);
+            const dep = man.dependencies.get(dep_chain.items[dep_chain.items.len - 1]) orelse {
+                const name = dep_chain.items[dep_chain.items.len];
+                fatal("{s} has no dependency named '{s}' in the manifest", .{
+                    dep_name[0 .. dep_name.len - name.len - 1],
+                    name,
+                });
+            };
+            if (dep.hash) |hash| {
+                try stdout.print("{s}\n", .{hash});
+            } else switch (dep.location) {
+                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
+                .path => fatal("{s} is a local dependency", .{dep_name}),
+            }
+        },
+    }
+}
+
+fn graph(
+    allocator: Allocator,
+    writer: anytype,
+    global_cache: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Directory,
+    manifest: std.zig.Manifest,
+    color: std.zig.Color,
+) !void {
+    try writer.print("{s}\n", .{manifest.name});
+    try graphInner(
+        allocator,
+        writer,
+        global_cache,
+        build_root,
+        manifest,
+        0,
+        0,
+        color,
+    );
+}
+
+fn graphInner(
+    allocator: Allocator,
+    writer: anytype,
+    global_cache: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Directory,
+    manifest: std.zig.Manifest,
+    line_count: usize,
+    indent: usize,
+    color: std.zig.Color,
+) !void {
+    var deps = manifest.dependencies.iterator();
+
+    const longest_name: usize = length: {
+        var len: usize = 0;
+        while (deps.next()) |entry| {
+            len = @max(len, entry.key_ptr.len);
         }
+        break :length len;
+    };
+
+    deps.reset();
+
+    while (deps.next()) |entry| {
+        const name = entry.key_ptr.*;
+        const dep = entry.value_ptr.*;
+
+        for (0..line_count) |_| {
+            try writer.writeAll("│  ");
+        }
+
+        try writer.writeByteNTimes(' ', 3 * (indent - line_count));
+
+        const last = deps.index > manifest.dependencies.entries.len - 1;
+        if (last) {
+            try writer.print("└─ {s} ", .{name});
+        } else {
+            try writer.print("├─ {s} ", .{name});
+        }
+
+        try writer.writeByteNTimes(' ', longest_name - name.len);
+
+        if (dep.hash) |hash|
+            try writer.print("{s}\n", .{hash})
+        else switch (dep.location) {
+            .url => try writer.writeAll("(missing)\n"),
+            .path => |p| try writer.print("{s} (local)\n", .{p}),
+        }
+
+        var submanifest, var ast = loadDepManifest(
+            allocator,
+            global_cache,
+            build_root,
+            dep,
+            name,
+            color,
+            false,
+        ) catch |err| switch (err) {
+            error.FileNotFound => {
+                continue;
+            },
+            else => |e| return e,
+        };
+        ast.deinit(allocator);
+        defer submanifest.deinit(allocator);
+
+        try graphInner(
+            allocator,
+            writer,
+            global_cache,
+            build_root,
+            submanifest,
+            line_count + @intFromBool(!last),
+            indent + 1,
+            color,
+        );
     }
 }
 
@@ -220,6 +332,7 @@ fn loadTransitiveDepManifest(
             dep,
             dep_name[0..dep_name_len],
             color,
+            true,
         );
         sub_ast.deinit(allocator);
 
@@ -235,6 +348,7 @@ fn loadDepManifest(
     dep: std.zig.Manifest.Dependency,
     dep_name: []const u8,
     color: std.zig.Color,
+    required: bool,
 ) !struct { std.zig.Manifest, std.zig.Ast } {
     if (dep.hash) |hash| {
         var buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -249,6 +363,7 @@ fn loadDepManifest(
             global_cache,
             manifest_path,
             color,
+            required,
         );
     } else switch (dep.location) {
         .url => fatal("the hash for {s} is missing from the manifest", .{
@@ -268,6 +383,7 @@ fn loadDepManifest(
                 root,
                 std.zig.Manifest.basename,
                 color,
+                required,
             );
         },
     }
@@ -278,6 +394,7 @@ fn loadManifest(
     root: std.Build.Cache.Directory,
     manifest_path: []const u8,
     color: std.zig.Color,
+    required: bool,
 ) !struct { std.zig.Manifest, std.zig.Ast } {
     const manifest_bytes = root.handle.readFileAllocOptions(
         allocator,
@@ -287,6 +404,9 @@ fn loadManifest(
         .@"1",
         0,
     ) catch |err| {
+        if (!required) {
+            if (err == error.FileNotFound) return error.FileNotFound;
+        }
         fatal("unable to load package manifest '{}{s}': {s}", .{
             root,
             manifest_path,
