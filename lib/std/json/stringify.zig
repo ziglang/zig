@@ -196,7 +196,7 @@ pub fn WriteStream(
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
             .checked_to_arbitrary_depth => Stream.Error || error{ OutOfMemory, InvalidJson },
-            .checked_to_fixed_depth, .assumed_correct => Stream.Error,
+            .checked_to_fixed_depth, .assumed_correct => Stream.Error || error{InvalidJson},
         };
 
         options: StringifyOptions,
