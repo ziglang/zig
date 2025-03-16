@@ -147,12 +147,14 @@ fn graph(
     manifest: std.zig.Manifest,
     color: std.zig.Color,
 ) !void {
+    var visited: std.StringArrayHashMapUnmanaged(void) = .empty;
     try writer.print("{s}\n", .{manifest.name});
     try graphInner(
         allocator,
         writer,
         global_cache,
         .{ .root_dir = build_root },
+        &visited,
         manifest,
         0,
         0,
@@ -165,6 +167,7 @@ fn graphInner(
     writer: anytype,
     global_cache: std.Build.Cache.Directory,
     build_root: std.Build.Cache.Path,
+    visited: *std.StringArrayHashMapUnmanaged(void),
     manifest: std.zig.Manifest,
     line_count: usize,
     indent: usize,
@@ -186,6 +189,20 @@ fn graphInner(
         const name = entry.key_ptr.*;
         const dep = entry.value_ptr.*;
 
+        const repeat = repeat: {
+            if (dep.hash) |hash| {
+                const gop = try visited.getOrPut(allocator, hash);
+                break :repeat gop.found_existing;
+            } else switch (dep.location) {
+                .url => break :repeat false,
+                .path => |p| {
+                    const path = try build_root.resolvePosix(allocator, p);
+                    const gop = try visited.getOrPut(allocator, path.sub_path);
+                    break :repeat gop.found_existing;
+                },
+            }
+        };
+
         for (0..line_count) |_| {
             try writer.writeAll("│  ");
         }
@@ -202,11 +219,18 @@ fn graphInner(
         try writer.writeByteNTimes(' ', longest_name - name.len);
 
         if (dep.hash) |hash|
-            try writer.print("{s}\n", .{hash})
+            try writer.print("{s}", .{hash})
         else switch (dep.location) {
-            .url => try writer.writeAll("(missing)\n"),
-            .path => |p| try writer.print("{s} (local)\n", .{p}),
+            .url => try writer.writeAll("(missing)"),
+            .path => |p| try writer.print("{s} (local)", .{p}),
         }
+
+        if (repeat) {
+            try writer.writeAll(" (seen previously)\n");
+            continue;
+        }
+
+        try writer.writeByte('\n');
 
         var submanifest, var ast = loadDepManifest(
             allocator,
@@ -234,6 +258,7 @@ fn graphInner(
             writer,
             global_cache,
             dep_root,
+            visited,
             submanifest,
             line_count + @intFromBool(!last),
             indent + 1,
