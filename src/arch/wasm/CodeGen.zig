@@ -3181,6 +3181,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .tuple_type,
         .union_type,
         .opaque_type,
+        .spirv_type,
         .enum_type,
         .func_type,
         .error_set_type,

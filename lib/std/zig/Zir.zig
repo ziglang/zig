@@ -2032,6 +2032,9 @@ pub const Inst = struct {
         /// `operand` is payload index to `Reify`.
         /// `small` contains `NameStrategy`.
         reify,
+        /// Implement builtin `@SpirvType`.
+        /// `operand` is payload index to `Reify`.
+        reify_spirv,
         /// Implements the `@asyncCall` builtin.
         /// `operand` is payload index to `AsyncCall`.
         builtin_async_call,
@@ -3004,7 +3007,7 @@ pub const Inst = struct {
         flags: Flags,
         callee: Ref,
 
-        pub const Flags = packed struct {
+        pub const Flags = packed struct(u32) {
             /// std.builtin.CallModifier in packed form
             pub const PackedModifier = u3;
             pub const PackedArgsLen = u27;
@@ -3015,8 +3018,6 @@ pub const Inst = struct {
             args_len: PackedArgsLen,
 
             comptime {
-                if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
-                    @compileError("Layout of Call.Flags needs to be updated!");
                 if (@bitSizeOf(std.builtin.CallModifier) != @bitSizeOf(PackedModifier))
                     @compileError("Call.Flags.PackedModifier needs to be updated!");
             }
@@ -3053,15 +3054,10 @@ pub const Inst = struct {
         callee: Ref,
         args: Ref,
 
-        pub const Flags = packed struct {
+        pub const Flags = packed struct(u32) {
             is_nosuspend: bool,
             ensure_result_used: bool,
             _: u30 = undefined,
-
-            comptime {
-                if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
-                    @compileError("Layout of BuiltinCall.Flags needs to be updated!");
-            }
         };
     };
 
@@ -3471,6 +3467,7 @@ pub const Inst = struct {
         export_options,
         extern_options,
         type_info,
+        spirv_type_info,
         branch_hint,
         // Values
         calling_convention_c,
@@ -4379,8 +4376,8 @@ fn findTrackableInner(
                     try zir.findTrackableBody(gpa, contents, defers, body);
                 },
 
-                // Reifications and opaque declarations need tracking, but have no body.
-                .reify, .opaque_decl => return contents.other.append(gpa, inst),
+                // Reifications and opaque declarations need tracking, but have no body..
+                .reify, .reify_spirv, .opaque_decl => return contents.other.append(gpa, inst),
 
                 // Struct declarations need tracking and have bodies.
                 .struct_decl => {
@@ -5127,6 +5124,7 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
             .enum_decl,
             .opaque_decl,
             .reify,
+            .reify_spirv,
             => {}, // tracked in order, as the owner instructions of explicit container types
             else => unreachable, // assertion failure; not trackable
         },

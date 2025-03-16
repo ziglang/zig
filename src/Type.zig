@@ -344,6 +344,10 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             const name = ip.loadEnumType(ty.toIntern()).name;
             try writer.print("{}", .{name.fmt(ip)});
         },
+        .spirv_type => {
+            const name = ip.loadSpirvType(ty.toIntern()).name;
+            try writer.print("{}", .{name.fmt(ip)});
+        },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {
                 try writer.writeAll("noinline ");
@@ -636,6 +640,7 @@ pub fn hasRuntimeBitsInner(
                 }
             },
 
+            .spirv_type => true,
             .opaque_type => true,
             .enum_type => Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty).hasRuntimeBitsInner(
                 ignore_comptime_only,
@@ -683,6 +688,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
         .error_set_type,
         .inferred_error_set_type,
         .tuple_type,
+        .spirv_type,
         .opaque_type,
         .anyframe_type,
         // These are function bodies, not function pointers.
@@ -1139,7 +1145,7 @@ pub fn abiAlignmentInner(
 
                 return .{ .scalar = union_type.flagsUnordered(ip).alignment };
             },
-            .opaque_type => return .{ .scalar = .@"1" },
+            .opaque_type, .spirv_type => return .{ .scalar = .@"1" },
             .enum_type => return .{
                 .scalar = Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty).abiAlignment(zcu),
             },
@@ -1526,6 +1532,13 @@ pub fn abiSizeInner(
                 assert(union_type.haveLayout(ip));
                 return .{ .scalar = union_type.sizeUnordered(ip) };
             },
+            .spirv_type => {
+                const spirv_type = ip.loadSpirvType(ty.toIntern());
+                switch (spirv_type.flags.tag) {
+                    .runtime_array => return .{ .scalar = Type.fromInterned(spirv_type.ty).abiSize(zcu) },
+                    else => unreachable, // no size available
+                }
+            },
             .opaque_type => unreachable, // no size available
             .enum_type => return .{ .scalar = Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty).abiSize(zcu) },
 
@@ -1846,7 +1859,7 @@ pub fn bitSizeInner(
 
             return size;
         },
-        .opaque_type => unreachable,
+        .opaque_type, .spirv_type => unreachable,
         .enum_type => return Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty)
             .bitSizeInner(strat, zcu, tid),
 
@@ -2414,6 +2427,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
             .simple_type => unreachable, // handled via Index enum tag above
 
             .union_type => unreachable,
+            .spirv_type => unreachable,
             .opaque_type => unreachable,
 
             // values, not types
@@ -2719,6 +2733,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                 return Value.fromInterned(only);
             },
             .opaque_type => return null,
+            .spirv_type => return null,
             .enum_type => {
                 const enum_type = ip.loadEnumType(ty.toIntern());
                 switch (enum_type.tag_mode) {
@@ -2966,7 +2981,7 @@ pub fn comptimeOnlyInner(
                 };
             },
 
-            .opaque_type => false,
+            .spirv_type, .opaque_type => false,
 
             .enum_type => return Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty).comptimeOnlyInner(strat, zcu, tid),
 
@@ -3599,7 +3614,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
             .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
             .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
             .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
-            .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            .reify, .reify_spirv => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
             else => unreachable,
         },
         else => unreachable,

@@ -272,6 +272,8 @@ pub const BuiltinDecl = enum {
     @"Type.Opaque",
     @"Type.Declaration",
 
+    SpirvType,
+
     panic,
     @"panic.call",
     @"panic.sentinelMismatch",
@@ -348,6 +350,8 @@ pub const BuiltinDecl = enum {
             .@"Type.Declaration",
             => .type,
 
+            .SpirvType => .type,
+
             .panic => .type,
 
             .@"panic.call",
@@ -395,7 +399,7 @@ pub const BuiltinDecl = enum {
     pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
         if (decl == .VaList) return .va_list;
 
-        if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+        if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.SpirvType)) {
             return .main;
         } else {
             return .panic;
@@ -2438,7 +2442,7 @@ pub const LazySrcLoc = struct {
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
                 .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_node,
                 .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_node,
-                .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.node,
+                .reify, .reify_spirv => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.node,
                 else => unreachable,
             },
             else => unreachable,

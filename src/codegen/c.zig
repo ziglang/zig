@@ -951,6 +951,7 @@ pub const DeclGen = struct {
             .struct_type,
             .tuple_type,
             .union_type,
+            .spirv_type,
             .opaque_type,
             .enum_type,
             .func_type,
@@ -1803,6 +1804,7 @@ pub const DeclGen = struct {
                     }
                 },
                 .anyframe_type,
+                .spirv_type,
                 .opaque_type,
                 .func_type,
                 => unreachable,

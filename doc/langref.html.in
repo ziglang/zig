@@ -5705,6 +5705,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#header_close#}
 
+      {#header_open|@SpirvType#}
+      <pre>{#syntax#}@SpirvType(comptime info: std.builtin.SpirvType) type{#endsyntax#}</pre>
+      <p>
+      Reifies an SPIR-V type information into an {#syntax#}opaque{#endsyntax#} type.
+      </p>
+      {#header_close#}
+
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>

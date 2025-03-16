@@ -71,6 +71,7 @@ pub fn print(
         .anyframe_type,
         .error_union_type,
         .simple_type,
+        .spirv_type,
         .struct_type,
         .tuple_type,
         .union_type,

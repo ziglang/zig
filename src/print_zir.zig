@@ -583,7 +583,7 @@ const Writer = struct {
                 try self.writeSrcNode(stream, inst_data.node);
             },
 
-            .reify => {
+            .reify, .reify_spirv => {
                 const inst_data = self.code.extraData(Zir.Inst.Reify, extended.operand).data;
                 try stream.print("line({d}), ", .{inst_data.src_line});
                 try self.writeInstRef(stream, inst_data.operand);
