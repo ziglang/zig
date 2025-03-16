@@ -14200,7 +14200,7 @@ fn zirShl(
                 var i: usize = 0;
                 while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                     const rhs_elem = try rhs_val.elemValue(pt, i);
-                    if (rhs_elem.compareHetero(.gte, bit_value, zcu)) {
+                    if (!rhs_elem.isUndef(zcu) and rhs_elem.compareHetero(.gte, bit_value, zcu)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
                             rhs_elem.fmtValueSema(pt, sema),
                             i,
@@ -14208,7 +14208,7 @@ fn zirShl(
                         });
                     }
                 }
-            } else if (rhs_val.compareHetero(.gte, bit_value, zcu)) {
+            } else if (!rhs_val.isUndef(zcu) and rhs_val.compareHetero(.gte, bit_value, zcu)) {
                 return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
                     rhs_val.fmtValueSema(pt, sema),
                     scalar_ty.fmt(pt),
@@ -14219,14 +14219,14 @@ fn zirShl(
             var i: usize = 0;
             while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(pt, i);
-                if (rhs_elem.compareHetero(.lt, try pt.intValue(scalar_rhs_ty, 0), zcu)) {
+                if (!rhs_elem.isUndef(zcu) and rhs_elem.compareHetero(.lt, try pt.intValue(scalar_rhs_ty, 0), zcu)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
                         rhs_elem.fmtValueSema(pt, sema),
                         i,
                     });
                 }
             }
-        } else if (rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), zcu)) {
+        } else if (!rhs_val.isUndef(zcu) and rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), zcu)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
                 rhs_val.fmtValueSema(pt, sema),
             });
@@ -14246,10 +14246,25 @@ fn zirShl(
         else switch (air_tag) {
             .shl_exact => val: {
                 const shifted = try lhs_val.shlWithOverflow(rhs_val, lhs_ty, sema.arena, pt);
-                if (shifted.overflow_bit.compareAllWithZero(.eq, zcu)) {
+                if (lhs_ty.zigTypeTag(zcu) == .vector) {
+                    const elems = zcu.intern_pool.indexToKey(shifted.overflow_bit.toIntern()).aggregate.storage.values();
+                    for (elems) |elem| {
+                        const needed_value = Value.fromInterned(elem);
+                        const not_undefined = !needed_value.isUndef(zcu);
+                        if (not_undefined) {
+                            const not_equal_to_zero = (try needed_value.orderAgainstZeroSema(pt)) != .eq;
+                            if (not_equal_to_zero) {
+                                return sema.fail(block, src, "operation caused overflow", .{});
+                            }
+                        }
+                    }
                     break :val shifted.wrapped_result;
+                } else {
+                    if (shifted.overflow_bit.compareAllWithZero(.eq, zcu)) {
+                        break :val shifted.wrapped_result;
+                    }
+                    return sema.fail(block, src, "operation caused overflow", .{});
                 }
-                return sema.fail(block, src, "operation caused overflow", .{});
             },
             .shl_sat => try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, pt),
             .shl => try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, pt),
@@ -14376,7 +14391,7 @@ fn zirShr(
                 var i: usize = 0;
                 while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                     const rhs_elem = try rhs_val.elemValue(pt, i);
-                    if (rhs_elem.compareHetero(.gte, bit_value, zcu)) {
+                    if (!rhs_elem.isUndef(zcu) and rhs_elem.compareHetero(.gte, bit_value, zcu)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
                             rhs_elem.fmtValueSema(pt, sema),
                             i,
@@ -14395,7 +14410,7 @@ fn zirShr(
             var i: usize = 0;
             while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(pt, i);
-                if (rhs_elem.compareHetero(.lt, try pt.intValue(rhs_ty.childType(zcu), 0), zcu)) {
+                if (!rhs_elem.isUndef(zcu) and rhs_elem.compareHetero(.lt, try pt.intValue(rhs_ty.childType(zcu), 0), zcu)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
                         rhs_elem.fmtValueSema(pt, sema),
                         i,
@@ -14414,7 +14429,19 @@ fn zirShr(
             if (air_tag == .shr_exact) {
                 // Detect if any ones would be shifted out.
                 const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, pt);
-                if (!(try truncated.compareAllWithZeroSema(.eq, pt))) {
+                if (lhs_ty.zigTypeTag(zcu) == .vector and !truncated.isUndef(zcu)) {
+                    const elems = zcu.intern_pool.indexToKey(truncated.toIntern()).aggregate.storage.values();
+                    for (elems) |elem| {
+                        const needed_value = Value.fromInterned(elem);
+                        const not_undefined = !needed_value.isUndef(zcu);
+                        if (not_undefined) {
+                            const not_equal_to_zero = (try needed_value.orderAgainstZeroSema(pt)) != .eq;
+                            if (not_equal_to_zero) {
+                                return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
+                            }
+                        }
+                    }
+                } else if (!((try truncated.compareAllWithZeroSema(.eq, pt)) or truncated.isUndef(zcu))) {
                     return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
                 }
             }
@@ -16189,6 +16216,12 @@ fn intRem(
 
 fn intRemScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) CompileError!Value {
     const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(scalar_ty);
+    }
+
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
@@ -24184,8 +24217,12 @@ fn zirBitCount(
                 const scalar_ty = operand_ty.scalarType(zcu);
                 for (elems, 0..) |*elem, i| {
                     const elem_val = try val.elemValue(pt, i);
-                    const count = comptimeOp(elem_val, scalar_ty, zcu);
-                    elem.* = (try pt.intValue(result_scalar_ty, count)).toIntern();
+                    if (elem_val.isUndef(zcu)) {
+                        elem.* = (try pt.undefValue(result_scalar_ty)).toIntern();
+                    } else {
+                        const count = comptimeOp(elem_val, scalar_ty, zcu);
+                        elem.* = (try pt.intValue(result_scalar_ty, count)).toIntern();
+                    }
                 }
                 return Air.internedToRef((try pt.intern(.{ .aggregate = .{
                     .ty = result_ty.toIntern(),

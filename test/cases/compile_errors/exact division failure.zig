@@ -1,6 +1,6 @@
 comptime {
     const x = @divExact(10, 3);
-    _ = x;
+    _ = &x;
 }
 
 // error

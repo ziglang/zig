@@ -935,6 +935,11 @@ pub fn popCount(val: Value, ty: Type, zcu: *Zcu) u64 {
 
 pub fn bitReverse(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) !Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     const info = ty.intInfo(zcu);
 
     var buffer: Value.BigIntSpace = undefined;
@@ -952,6 +957,11 @@ pub fn bitReverse(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) !Va
 
 pub fn byteSwap(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) !Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     const info = ty.intInfo(zcu);
 
     // Bit count must be evenly divisible by 8
@@ -2175,6 +2185,11 @@ pub fn intDivScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
@@ -2224,6 +2239,11 @@ pub fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator,
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
@@ -2267,6 +2287,11 @@ pub fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
@@ -2371,6 +2396,11 @@ pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, pt: 
 
 pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @mod(lhs.toFloat(f16, zcu), rhs.toFloat(f16, zcu)) },
@@ -2493,6 +2523,9 @@ pub fn intTruncBitsAsValue(
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(pt, i);
             const bits_elem = try bits.elemValue(pt, i);
+            if (bits_elem.isUndef(zcu)) {
+                return try pt.undefValue(ty);
+            }
             scalar.* = (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(bits_elem.toUnsignedInt(zcu)), pt)).toIntern();
         }
         return Value.fromInterned(try pt.intern(.{ .aggregate = .{
@@ -2514,7 +2547,9 @@ pub fn intTruncScalar(
     const zcu = pt.zcu;
     if (bits == 0) return pt.intValue(ty, 0);
 
-    if (val.isUndef(zcu)) return pt.undefValue(ty);
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
 
     var val_space: Value.BigIntSpace = undefined;
     const val_bigint = val.toBigInt(&val_space, zcu);
@@ -2551,6 +2586,11 @@ pub fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
     const shift: usize = @intCast(rhs.toUnsignedInt(zcu));
@@ -2614,6 +2654,13 @@ pub fn shlWithOverflowScalar(
 ) !OverflowArithmeticResult {
     const zcu = pt.zcu;
     const info = ty.intInfo(zcu);
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu))
+        return OverflowArithmeticResult{
+            .overflow_bit = try pt.undefValue(Type.u1),
+            .wrapped_result = try pt.undefValue(ty),
+        };
+
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
     const shift: usize = @intCast(rhs.toUnsignedInt(zcu));
@@ -2671,6 +2718,9 @@ pub fn shlSatScalar(
     // resorting to BigInt first.
     const zcu = pt.zcu;
     const info = ty.intInfo(zcu);
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu))
+        return try pt.undefValue(ty);
 
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
@@ -2745,6 +2795,11 @@ pub fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     const zcu = pt.zcu;
+
+    if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
     const shift: usize = @intCast(rhs.toUnsignedInt(zcu));
@@ -3103,6 +3158,11 @@ pub fn sqrt(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
 
 pub fn sqrtScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @sqrt(val.toFloat(f16, zcu)) },
@@ -3137,6 +3197,11 @@ pub fn sin(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
 
 pub fn sinScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @sin(val.toFloat(f16, zcu)) },
@@ -3171,6 +3236,11 @@ pub fn cos(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
 
 pub fn cosScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @cos(val.toFloat(f16, zcu)) },
@@ -3205,6 +3275,11 @@ pub fn tan(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
 
 pub fn tanScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @tan(val.toFloat(f16, zcu)) },
@@ -3239,6 +3314,11 @@ pub fn exp(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
 
 pub fn expScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @exp(val.toFloat(f16, zcu)) },
@@ -3273,6 +3353,11 @@ pub fn exp2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
 
 pub fn exp2Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @exp2(val.toFloat(f16, zcu)) },
@@ -3307,6 +3392,11 @@ pub fn log(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
 
 pub fn logScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @log(val.toFloat(f16, zcu)) },
@@ -3341,6 +3431,11 @@ pub fn log2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
 
 pub fn log2Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @log2(val.toFloat(f16, zcu)) },
@@ -3375,6 +3470,11 @@ pub fn log10(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
 
 pub fn log10Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @log10(val.toFloat(f16, zcu)) },
@@ -3409,6 +3509,11 @@ pub fn abs(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
 
 pub fn absScalar(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(ty);
+    }
+
     switch (ty.zigTypeTag(zcu)) {
         .int => {
             var buffer: Value.BigIntSpace = undefined;
@@ -3462,6 +3567,11 @@ pub fn floor(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
 
 pub fn floorScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @floor(val.toFloat(f16, zcu)) },
@@ -3496,6 +3606,11 @@ pub fn ceil(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
 
 pub fn ceilScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @ceil(val.toFloat(f16, zcu)) },
@@ -3530,6 +3645,11 @@ pub fn round(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
 
 pub fn roundScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @round(val.toFloat(f16, zcu)) },
@@ -3564,6 +3684,11 @@ pub fn trunc(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
 
 pub fn truncScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (val.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @trunc(val.toFloat(f16, zcu)) },
@@ -3613,6 +3738,11 @@ pub fn mulAddScalar(
     pt: Zcu.PerThread,
 ) Allocator.Error!Value {
     const zcu = pt.zcu;
+
+    if (mulend1.isUndef(zcu) or mulend2.isUndef(zcu) or addend.isUndef(zcu)) {
+        return try pt.undefValue(float_type);
+    }
+
     const target = zcu.getTarget();
     const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
         16 => .{ .f16 = @mulAdd(f16, mulend1.toFloat(f16, zcu), mulend2.toFloat(f16, zcu), addend.toFloat(f16, zcu)) },
