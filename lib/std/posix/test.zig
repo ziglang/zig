@@ -725,6 +725,9 @@ test "getenv" {
     if (native_os == .windows) {
         try expect(std.process.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
+        try expect(std.posix.getenv("") == null);
+        try expect(std.posix.getenv("BOGUSDOESNOTEXISTENVVAR") == null);
+        try testing.expectEqualStrings(std.posix.getenv("USER") orelse "", mem.span(std.c.getenv("USER") orelse ""));
         try expect(posix.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
 }
