@@ -3,63 +3,141 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Character output devices
 pub const SimpleTextOutput = extern struct {
-    _reset: *const fn (*const SimpleTextOutput, bool) callconv(cc) Status,
-    _output_string: *const fn (*const SimpleTextOutput, [*:0]const u16) callconv(cc) Status,
+    _reset: *const fn (*SimpleTextOutput, bool) callconv(cc) Status,
+    _output_string: *const fn (*SimpleTextOutput, [*:0]const u16) callconv(cc) Status,
     _test_string: *const fn (*const SimpleTextOutput, [*:0]const u16) callconv(cc) Status,
     _query_mode: *const fn (*const SimpleTextOutput, usize, *usize, *usize) callconv(cc) Status,
-    _set_mode: *const fn (*const SimpleTextOutput, usize) callconv(cc) Status,
-    _set_attribute: *const fn (*const SimpleTextOutput, usize) callconv(cc) Status,
-    _clear_screen: *const fn (*const SimpleTextOutput) callconv(cc) Status,
-    _set_cursor_position: *const fn (*const SimpleTextOutput, usize, usize) callconv(cc) Status,
-    _enable_cursor: *const fn (*const SimpleTextOutput, bool) callconv(cc) Status,
+    _set_mode: *const fn (*SimpleTextOutput, usize) callconv(cc) Status,
+    _set_attribute: *const fn (*SimpleTextOutput, usize) callconv(cc) Status,
+    _clear_screen: *const fn (*SimpleTextOutput) callconv(cc) Status,
+    _set_cursor_position: *const fn (*SimpleTextOutput, usize, usize) callconv(cc) Status,
+    _enable_cursor: *const fn (*SimpleTextOutput, bool) callconv(cc) Status,
     mode: *Mode,
 
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const OutputStringError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const QueryModeError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const SetModeError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const SetAttributeError = uefi.UnexpectedError || error{DeviceError};
+    pub const ClearScreenError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const SetCursorPositionError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const EnableCursorError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+
     /// Resets the text output device hardware.
-    pub fn reset(self: *const SimpleTextOutput, verify: bool) Status {
-        return self._reset(self, verify);
+    pub fn reset(self: *SimpleTextOutput, verify: bool) ResetError!void {
+        switch (self._reset(self, verify)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Writes a string to the output device.
-    pub fn outputString(self: *const SimpleTextOutput, msg: [*:0]const u16) Status {
-        return self._output_string(self, msg);
+    ///
+    /// Returns `true` if the string was successfully written, `false` if an unknown glyph was encountered.
+    pub fn outputString(self: *SimpleTextOutput, msg: [*:0]const u16) OutputStringError!bool {
+        switch (self._output_string(self, msg)) {
+            .success => return true,
+            .warn_unknown_glyph => return false,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Verifies that all characters in a string can be output to the target device.
-    pub fn testString(self: *const SimpleTextOutput, msg: [*:0]const u16) Status {
-        return self._test_string(self, msg);
+    pub fn testString(self: *const SimpleTextOutput, msg: [*:0]const u16) uefi.UnexpectedError!bool {
+        switch (self._test_string(self, msg)) {
+            .success => return true,
+            .unsupported => return false,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Returns information for an available text mode that the output device(s) supports.
-    pub fn queryMode(self: *const SimpleTextOutput, mode_number: usize, columns: *usize, rows: *usize) Status {
-        return self._query_mode(self, mode_number, columns, rows);
+    pub fn queryMode(self: *const SimpleTextOutput, mode_number: usize) QueryModeError!Geometry {
+        var geo: Geometry = undefined;
+        switch (self._query_mode(self, mode_number, &geo.columns, &geo.rows)) {
+            .success => return geo,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Sets the output device(s) to a specified mode.
-    pub fn setMode(self: *const SimpleTextOutput, mode_number: usize) Status {
-        return self._set_mode(self, mode_number);
+    pub fn setMode(self: *SimpleTextOutput, mode_number: usize) SetModeError!void {
+        switch (self._set_mode(self, mode_number)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.
-    pub fn setAttribute(self: *const SimpleTextOutput, attribute: usize) Status {
-        return self._set_attribute(self, attribute);
+    pub fn setAttribute(self: *SimpleTextOutput, attribute: usize) SetAttributeError!void {
+        switch (self._set_attribute(self, attribute)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Clears the output device(s) display to the currently selected background color.
-    pub fn clearScreen(self: *const SimpleTextOutput) Status {
-        return self._clear_screen(self);
+    pub fn clearScreen(self: *SimpleTextOutput) ClearScreenError!void {
+        switch (self._clear_screen(self)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Sets the current coordinates of the cursor position.
-    pub fn setCursorPosition(self: *const SimpleTextOutput, column: usize, row: usize) Status {
-        return self._set_cursor_position(self, column, row);
+    pub fn setCursorPosition(
+        self: *SimpleTextOutput,
+        column: usize,
+        row: usize,
+    ) SetCursorPositionError!void {
+        switch (self._set_cursor_position(self, column, row)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Makes the cursor visible or invisible.
-    pub fn enableCursor(self: *const SimpleTextOutput, visible: bool) Status {
-        return self._enable_cursor(self, visible);
+    pub fn enableCursor(self: *SimpleTextOutput, visible: bool) EnableCursorError!void {
+        switch (self._enable_cursor(self, visible)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{
@@ -151,5 +229,10 @@ pub const SimpleTextOutput = extern struct {
         cursor_column: i32,
         cursor_row: i32,
         cursor_visible: bool,
+    };
+
+    pub const Geometry = struct {
+        columns: usize,
+        rows: usize,
     };
 };

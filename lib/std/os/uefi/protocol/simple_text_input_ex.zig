@@ -4,39 +4,85 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputEx = extern struct {
-    _reset: *const fn (*const SimpleTextInputEx, bool) callconv(cc) Status,
-    _read_key_stroke_ex: *const fn (*const SimpleTextInputEx, *Key) callconv(cc) Status,
+    _reset: *const fn (*SimpleTextInputEx, bool) callconv(cc) Status,
+    _read_key_stroke_ex: *const fn (*SimpleTextInputEx, *Key) callconv(cc) Status,
     wait_for_key_ex: Event,
-    _set_state: *const fn (*const SimpleTextInputEx, *const u8) callconv(cc) Status,
-    _register_key_notify: *const fn (*const SimpleTextInputEx, *const Key, *const fn (*const Key) callconv(cc) usize, **anyopaque) callconv(cc) Status,
-    _unregister_key_notify: *const fn (*const SimpleTextInputEx, *const anyopaque) callconv(cc) Status,
+    _set_state: *const fn (*SimpleTextInputEx, *const u8) callconv(cc) Status,
+    _register_key_notify: *const fn (*SimpleTextInputEx, *const Key, *const fn (*const Key) callconv(cc) usize, **anyopaque) callconv(cc) Status,
+    _unregister_key_notify: *const fn (*SimpleTextInputEx, *const anyopaque) callconv(cc) Status,
+
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const ReadKeyStrokeError = uefi.UnexpectedError || error{
+        NotReady,
+        DeviceError,
+        Unsupported,
+    };
+    pub const SetStateError = uefi.UnexpectedError || error{
+        DeviceError,
+        Unsupported,
+    };
+    pub const RegisterKeyNotifyError = uefi.UnexpectedError || error{OutOfResources};
+    pub const UnregisterKeyNotifyError = uefi.UnexpectedError || error{InvalidParameter};
 
     /// Resets the input device hardware.
-    pub fn reset(self: *const SimpleTextInputEx, verify: bool) Status {
-        return self._reset(self, verify);
+    pub fn reset(self: *SimpleTextInputEx, verify: bool) ResetError!void {
+        switch (self._reset(self, verify)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStrokeEx(self: *const SimpleTextInputEx, key_data: *Key) Status {
-        return self._read_key_stroke_ex(self, key_data);
+    pub fn readKeyStroke(self: *SimpleTextInputEx) ReadKeyStrokeError!Key.Input {
+        var key: Key.Input = undefined;
+        switch (self._read_key_stroke(self, &key)) {
+            .success => return key,
+            .not_ready => return Error.NotReady,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Set certain state for the input device.
-    pub fn setState(self: *const SimpleTextInputEx, state: *const u8) Status {
-        return self._set_state(self, state);
+    pub fn setState(self: *SimpleTextInputEx, state: *const Key.State.Toggle) SetStateError!void {
+        switch (self._set_state(self, state)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Register a notification function for a particular keystroke for the input device.
-    pub fn registerKeyNotify(self: *const SimpleTextInputEx, key_data: *const Key, notify: *const fn (*const Key) callconv(cc) usize, handle: **anyopaque) Status {
-        return self._register_key_notify(self, key_data, notify, handle);
+    pub fn registerKeyNotify(
+        self: *const SimpleTextInputEx,
+        key_data: *const Key,
+        notify: *const fn (*const Key) callconv(cc) Status,
+    ) RegisterKeyNotifyError!uefi.Handle {
+        var handle: uefi.Handle = undefined;
+        switch (self._register_key_notify(self, key_data, notify, &handle)) {
+            .success => return handle,
+            .out_of_resources => return Error.OutOfResources,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Remove the notification that was previously registered.
-    pub fn unregisterKeyNotify(self: *const SimpleTextInputEx, handle: *const anyopaque) Status {
-        return self._unregister_key_notify(self, handle);
+    pub fn unregisterKeyNotify(
+        self: *const SimpleTextInputEx,
+        handle: uefi.Handle,
+    ) UnregisterKeyNotifyError!void {
+        switch (self._unregister_key_notify(self, handle)) {
+            .success => {},
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{
