@@ -866,6 +866,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
@@ -1010,6 +1011,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
@@ -1149,6 +1151,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1270,6 +1273,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1346,6 +1350,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1436,6 +1441,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1521,6 +1527,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
