@@ -222,7 +222,11 @@ fn graphInner(
             try writer.print("{s}", .{hash})
         else switch (dep.location) {
             .url => try writer.writeAll("(missing)"),
-            .path => |p| try writer.print("{s} (local)", .{p}),
+            .path => |p| {
+                const path = try build_root.resolvePosix(allocator, p);
+                try writer.print("{s} (local)", .{path.sub_path});
+                allocator.free(path.sub_path);
+            },
         }
 
         if (repeat) {
