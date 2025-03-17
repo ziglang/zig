@@ -99,7 +99,8 @@ pub const SimpleTextOutput = extern struct {
 
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.
     pub fn setAttribute(self: *SimpleTextOutput, attribute: Attribute) SetAttributeError!void {
-        switch (self._set_attribute(self, attribute)) {
+        const attr_as_num: u8 = @bitCast(attribute);
+        switch (self._set_attribute(self, @intCast(attr_as_num))) {
             .success => {},
             .device_error => return Error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),

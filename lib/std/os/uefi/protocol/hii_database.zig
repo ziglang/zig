@@ -47,7 +47,11 @@ pub const HiiDatabase = extern struct {
     }
 
     /// Update a package list in the HII database.
-    pub fn updatePackageList(self: *HiiDatabase, handle: hii.Handle, buffer: *const hii.PackageList) Status {
+    pub fn updatePackageList(
+        self: *HiiDatabase,
+        handle: hii.Handle,
+        buffer: *const hii.PackageList,
+    ) UpdatePackageListError!void {
         switch (self._update_package_list(self, handle, buffer)) {
             .success => {},
             .out_of_resources => return Error.OutOfResources,
@@ -70,7 +74,7 @@ pub const HiiDatabase = extern struct {
             package_type,
             package_guid,
             &len,
-            handles,
+            handles.ptr,
         )) {
             .success => return handles[0..len],
             .buffer_too_small => return Error.BufferTooSmall,
@@ -87,7 +91,7 @@ pub const HiiDatabase = extern struct {
         buffer: []hii.PackageList,
     ) ExportPackageListError![]hii.PackageList {
         var len = buffer.len;
-        switch (self._export_package_lists(self, handle, &len, buffer)) {
+        switch (self._export_package_lists(self, handle, &len, buffer.ptr)) {
             .success => return buffer[0..len],
             .buffer_too_small => return Error.BufferTooSmall,
             .invalid_parameter => return Error.InvalidParameter,

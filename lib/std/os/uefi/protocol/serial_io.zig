@@ -81,7 +81,7 @@ pub const SerialIo = extern struct {
     }
 
     /// Retrieves the status of the control bits on a serial device.
-    pub fn getControl(self: *const SerialIo) GetControlError!u32 {
+    pub fn getControl(self: *SerialIo) GetControlError!u32 {
         var control: u32 = undefined;
         switch (self._get_control(self, &control)) {
             .success => return control,
@@ -91,7 +91,7 @@ pub const SerialIo = extern struct {
     }
 
     /// Writes data to a serial device.
-    pub fn write(self: *const SerialIo, buffer: []const u8) WriteError!usize {
+    pub fn write(self: *SerialIo, buffer: []const u8) WriteError!usize {
         var len: usize = buffer.len;
         switch (self._write(self, &len, buffer.ptr)) {
             .success => return len,
@@ -102,7 +102,7 @@ pub const SerialIo = extern struct {
     }
 
     /// Reads data from a serial device.
-    pub fn read(self: *const SerialIo, buffer: []u8) ReadError!usize {
+    pub fn read(self: *SerialIo, buffer: []u8) ReadError!usize {
         var len: usize = buffer.len;
         switch (self._read(self, &len, buffer.ptr)) {
             .success => return len,

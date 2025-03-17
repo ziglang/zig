@@ -103,7 +103,7 @@ pub const Ip6 = extern struct {
         switch (self._get_mode_data(self, &data.ip6_mode, &data.mnp_config, &data.snp_mode)) {
             .success => return data,
             .invalid_parameter => return Error.InvalidParameter,
-            .out_of_reosources => return Error.OutOfResources,
+            .out_of_resources => return Error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

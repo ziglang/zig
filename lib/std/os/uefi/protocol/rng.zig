@@ -11,12 +11,12 @@ pub const Rng = extern struct {
     _get_rng: *const fn (*const Rng, ?*align(8) const Guid, usize, [*]u8) callconv(cc) Status,
 
     pub const GetInfoError = uefi.UnexpectedError || error{
-        Unsupporoted,
+        Unsupported,
         DeviceError,
         BufferTooSmall,
     };
     pub const GetRNGError = uefi.UnexpectedError || error{
-        Unsupporoted,
+        Unsupported,
         DeviceError,
         NotReady,
         InvalidParameter,
@@ -27,7 +27,7 @@ pub const Rng = extern struct {
         var len: usize = list.len;
         switch (self._get_info(self, &len, list.ptr)) {
             .success => return list[0..len],
-            .unsupported => return Error.Unsupporoted,
+            .unsupported => return Error.Unsupported,
             .device_error => return Error.DeviceError,
             .buffer_too_small => return Error.BufferTooSmall,
             else => |status| return uefi.unexpectedStatus(status),
@@ -38,7 +38,7 @@ pub const Rng = extern struct {
     pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value: []u8) GetRNGError!void {
         switch (self._get_rng(self, algo, value.len, value.ptr)) {
             .success => {},
-            .unsupported => return Error.Unsupporoted,
+            .unsupported => return Error.Unsupported,
             .device_error => return Error.DeviceError,
             .not_ready => return Error.NotReady,
             .invalid_parameter => return Error.InvalidParameter,

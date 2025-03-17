@@ -25,11 +25,11 @@ pub const DevicePath = extern struct {
     };
 
     /// Returns the next DevicePath node in the sequence, if any.
-    pub fn next(self: *const DevicePath) ?*DevicePath {
+    pub fn next(self: *const DevicePath) ?*const DevicePath {
         if (self.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
-        return @as(*DevicePath, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
+        return @as(*const DevicePath, @ptrCast(@as([*]const u8, @ptrCast(self)) + self.length));
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
@@ -48,7 +48,7 @@ pub const DevicePath = extern struct {
         self: *const DevicePath,
         allocator: Allocator,
         path: []const u16,
-    ) CreateFileDevicePathError!*DevicePath {
+    ) CreateFileDevicePathError!*const DevicePath {
         const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s
@@ -73,7 +73,7 @@ pub const DevicePath = extern struct {
 
         ptr[path.len] = 0;
 
-        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
+        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@constCast(@as(*DevicePath, @ptrCast(new)).next().?)));
         end.type = .end;
         end.subtype = .end_entire;
         end.length = @sizeOf(uefi.DevicePath.End.EndEntireDevicePath);

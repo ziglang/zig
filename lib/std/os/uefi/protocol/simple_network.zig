@@ -18,7 +18,7 @@ pub const SimpleNetwork = extern struct {
     _statistics: *const fn (*const SimpleNetwork, bool, ?*usize, ?*Statistics) callconv(cc) Status,
     _mcast_ip_to_mac: *const fn (*SimpleNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
     _nvdata: *const fn (*SimpleNetwork, bool, usize, usize, [*]u8) callconv(cc) Status,
-    _get_status: *const fn (*SimpleNetwork, *InterruptStatus, ?*?[*]u8) callconv(cc) Status,
+    _get_status: *const fn (*SimpleNetwork, ?*InterruptStatus, ?*?[*]u8) callconv(cc) Status,
     _transmit: *const fn (*SimpleNetwork, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) callconv(cc) Status,
     _receive: *const fn (*SimpleNetwork, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) callconv(cc) Status,
     wait_for_packet: Event,
@@ -211,7 +211,7 @@ pub const SimpleNetwork = extern struct {
     }
 
     pub fn resetStatistics(self: *SimpleNetwork) StatisticsError!void {
-        switch (self._reset_statistics(self, true, null, null)) {
+        switch (self._statistics(self, true, null, null)) {
             .success => {},
             .not_started => return Error.NotStarted,
             .invalid_parameter => return Error.InvalidParameter,
@@ -235,7 +235,7 @@ pub const SimpleNetwork = extern struct {
         }
 
         if (stats_size != @sizeOf(Statistics))
-            return Error.Unexpected
+            return error.Unexpected
         else
             return stats;
     }
@@ -309,7 +309,7 @@ pub const SimpleNetwork = extern struct {
             self,
             header_size,
             buffer.len,
-            buffer,
+            buffer.ptr,
             src_addr,
             dest_addr,
             protocol,
@@ -326,7 +326,7 @@ pub const SimpleNetwork = extern struct {
     }
 
     /// Receives a packet from a network interface.
-    pub fn receive(self: *const SimpleNetwork, buffer: []u8) ReceiveError!Packet {
+    pub fn receive(self: *SimpleNetwork, buffer: []u8) ReceiveError!Packet {
         var packet: Packet = undefined;
         packet.buffer = buffer;
 
@@ -334,9 +334,9 @@ pub const SimpleNetwork = extern struct {
             self,
             &packet.header_size,
             &packet.buffer.len,
-            &packet.buffer.ptr,
+            packet.buffer.ptr,
             &packet.src_addr,
-            &packet.dest_addr,
+            &packet.dst_addr,
             &packet.protocol,
         )) {
             .success => return packet,

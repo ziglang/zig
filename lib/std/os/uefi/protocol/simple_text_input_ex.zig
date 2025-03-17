@@ -12,7 +12,7 @@ pub const SimpleTextInputEx = extern struct {
     _read_key_stroke_ex: *const fn (*SimpleTextInputEx, *Key) callconv(cc) Status,
     wait_for_key_ex: Event,
     _set_state: *const fn (*SimpleTextInputEx, *const u8) callconv(cc) Status,
-    _register_key_notify: *const fn (*SimpleTextInputEx, *const Key, *const fn (*const Key) callconv(cc) usize, **anyopaque) callconv(cc) Status,
+    _register_key_notify: *const fn (*SimpleTextInputEx, *const Key, *const fn (*const Key) callconv(cc) Status, **anyopaque) callconv(cc) Status,
     _unregister_key_notify: *const fn (*SimpleTextInputEx, *const anyopaque) callconv(cc) Status,
 
     pub const ResetError = uefi.UnexpectedError || error{DeviceError};
@@ -38,9 +38,9 @@ pub const SimpleTextInputEx = extern struct {
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStroke(self: *SimpleTextInputEx) ReadKeyStrokeError!Key.Input {
-        var key: Key.Input = undefined;
-        switch (self._read_key_stroke(self, &key)) {
+    pub fn readKeyStroke(self: *SimpleTextInputEx) ReadKeyStrokeError!Key {
+        var key: Key = undefined;
+        switch (self._read_key_stroke_ex(self, &key)) {
             .success => return key,
             .not_ready => return Error.NotReady,
             .device_error => return Error.DeviceError,
@@ -51,7 +51,7 @@ pub const SimpleTextInputEx = extern struct {
 
     /// Set certain state for the input device.
     pub fn setState(self: *SimpleTextInputEx, state: *const Key.State.Toggle) SetStateError!void {
-        switch (self._set_state(self, state)) {
+        switch (self._set_state(self, @ptrCast(state))) {
             .success => {},
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
@@ -61,7 +61,7 @@ pub const SimpleTextInputEx = extern struct {
 
     /// Register a notification function for a particular keystroke for the input device.
     pub fn registerKeyNotify(
-        self: *const SimpleTextInputEx,
+        self: *SimpleTextInputEx,
         key_data: *const Key,
         notify: *const fn (*const Key) callconv(cc) Status,
     ) RegisterKeyNotifyError!uefi.Handle {
@@ -75,7 +75,7 @@ pub const SimpleTextInputEx = extern struct {
 
     /// Remove the notification that was previously registered.
     pub fn unregisterKeyNotify(
-        self: *const SimpleTextInputEx,
+        self: *SimpleTextInputEx,
         handle: uefi.Handle,
     ) UnregisterKeyNotifyError!void {
         switch (self._unregister_key_notify(self, handle)) {

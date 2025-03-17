@@ -12,7 +12,7 @@ pub const BlockIo = extern struct {
 
     _reset: *const fn (*BlockIo, extended_verification: bool) callconv(cc) Status,
     _read_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
-    _write_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
+    _write_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]const u8) callconv(cc) Status,
     _flush_blocks: *const fn (*BlockIo) callconv(cc) Status,
 
     pub const ResetError = uefi.UnexpectedError || error{DeviceError};

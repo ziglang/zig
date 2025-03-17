@@ -60,7 +60,7 @@ pub const File = extern struct {
         WriteProtected,
         AccessDenied,
         VolumeFull,
-        BadBufferWSize,
+        BadBufferSize,
     };
     pub const FlushError = uefi.UnexpectedError || error{
         DeviceError,
@@ -101,7 +101,13 @@ pub const File = extern struct {
         create_attributes: Attributes,
     ) OpenError!*File {
         var new: *File = undefined;
-        switch (self._open(self, &new, file_name, @intFromEnum(mode), create_attributes)) {
+        switch (self._open(
+            self,
+            &new,
+            file_name,
+            @intFromEnum(mode),
+            @bitCast(create_attributes),
+        )) {
             .success => return new,
             .not_found => return Error.NotFound,
             .no_media => return Error.NoMedia,
@@ -128,7 +134,7 @@ pub const File = extern struct {
     ///
     /// Returns true if the file was deleted, false if the file was not deleted, which is a warning
     /// according to the UEFI specification.
-    pub fn delete(self: *File) bool {
+    pub fn delete(self: *File) uefi.UnexpectedError!bool {
         switch (self._delete(self)) {
             .success => return true,
             .warn_delete_failure => return false,
@@ -221,7 +227,7 @@ pub const File = extern struct {
     }
 
     pub fn setInfo(
-        self: *const File,
+        self: *File,
         information_type: *align(8) const Guid,
         buffer: []const u8,
     ) SetInfoError!void {

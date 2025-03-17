@@ -32,7 +32,7 @@ pub const GraphicsOutput = extern struct {
             .success => {},
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
-            else => |status| uefi.unexpectedStatus(status),
+            else => |status| return uefi.unexpectedStatus(status),
         }
 
         if (size_of_info != @sizeOf(Mode.Info))
@@ -47,7 +47,7 @@ pub const GraphicsOutput = extern struct {
             .success => {},
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
-            else => |status| uefi.unexpectedStatus(status),
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
@@ -79,7 +79,7 @@ pub const GraphicsOutput = extern struct {
             .success => {},
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
-            else => |status| uefi.unexpectedStatus(status),
+            else => |status| return uefi.unexpectedStatus(status),
         }
     }
 

@@ -74,11 +74,11 @@ pub fn ServiceBinding(service_guid: uefi.Guid) type {
 
         /// To add this protocol to an existing handle, use `addToHandle` instead.
         pub fn createChild(self: *Self) CreateChildError!Handle {
-            var handle: Handle = null;
+            var handle: ?Handle = null;
             switch (self._create_child(self, &handle)) {
-                .success => handle,
-                // .invalid_parameter => error.InvalidParameter,
-                // .out_of_resources => error.OutOfResources,
+                .success => return handle orelse error.Unexpected,
+                // .invalid_parameter => return Error.InvalidParameter,
+                // .out_of_resources => return Error.OutOfResources,
                 else => |status| {
                     try status.err();
                     // TODO: only warnings get here???
@@ -88,10 +88,10 @@ pub fn ServiceBinding(service_guid: uefi.Guid) type {
         }
 
         pub fn addToHandle(self: *Self, handle: Handle) CreateChildError!void {
-            switch (self._create_child(self, &handle)) {
+            switch (self._create_child(self, @ptrCast(@constCast(&handle)))) {
                 .success => {},
-                .invalid_parameter => error.InvalidParameter,
-                .out_of_resources => error.OutOfResources,
+                // .invalid_parameter => return Error.InvalidParameter,
+                // .out_of_resources => return Error.OutOfResources,
                 else => |status| {
                     try status.err();
                     // TODO: only warnings get here???
