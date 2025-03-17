@@ -72,6 +72,7 @@ pub fn ServiceBinding(service_guid: uefi.Guid) type {
             AccessDenied,
         } || Error; // TODO: according to the spec, _any other_ status is returnable?
 
+        /// To add this protocol to an existing handle, use `addToHandle` instead.
         pub fn createChild(self: *Self) CreateChildError!Handle {
             var handle: Handle = null;
             switch (self._create_child(self, &handle)) {
