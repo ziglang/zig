@@ -85,8 +85,7 @@ pub fn main() !void {
 
     var manifest, var ast = try loadManifest(
         arena,
-        build_root.directory,
-        std.zig.Manifest.basename,
+        .{ .root_dir = build_root.directory },
         color,
         true,
     );
@@ -134,7 +133,7 @@ pub fn main() !void {
                 try stdout.print("{s}\n", .{hash});
             } else switch (dep.location) {
                 .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
-                .path => fatal("{s} is a local dependency", .{dep_name}),
+                .path => fatal("cannot print hash: {s} is a local dependency", .{dep_name}),
             }
         },
     }
@@ -153,7 +152,7 @@ fn graph(
         allocator,
         writer,
         global_cache,
-        build_root,
+        .{ .root_dir = build_root },
         manifest,
         0,
         0,
@@ -165,7 +164,7 @@ fn graphInner(
     allocator: Allocator,
     writer: anytype,
     global_cache: std.Build.Cache.Directory,
-    build_root: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Path,
     manifest: std.zig.Manifest,
     line_count: usize,
     indent: usize,
@@ -226,11 +225,15 @@ fn graphInner(
         ast.deinit(allocator);
         defer submanifest.deinit(allocator);
 
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var fba: std.heap.FixedBufferAllocator = .init(&buf);
+        const dep_root = try getDepRoot(fba.allocator(), global_cache, build_root, dep, name);
+
         try graphInner(
             allocator,
             writer,
             global_cache,
-            build_root,
+            dep_root,
             submanifest,
             line_count + @intFromBool(!last),
             indent + 1,
@@ -290,6 +293,10 @@ fn loadTransitiveDepManifest(
     var manifest = root_manifest;
     var dep_name_len: usize = 0;
 
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buf);
+
+    var dep_build_root: std.Build.Cache.Path = .{ .root_dir = build_root };
     for (dep_chain) |p| {
         if (p.len == 0) {
             fatal("package name must not be empty", .{});
@@ -307,7 +314,7 @@ fn loadTransitiveDepManifest(
         manifest, var sub_ast = try loadDepManifest(
             allocator,
             global_cache,
-            build_root,
+            dep_build_root,
             dep,
             dep_name[0..dep_name_len],
             color,
@@ -315,6 +322,8 @@ fn loadTransitiveDepManifest(
         );
         sub_ast.deinit(allocator);
 
+        fba.reset();
+        dep_build_root = try getDepRoot(fba.allocator(), global_cache, dep_build_root, dep, p);
         dep_name_len += 1;
     }
     return manifest;
@@ -323,7 +332,7 @@ fn loadTransitiveDepManifest(
 fn loadDepManifest(
     allocator: Allocator,
     global_cache: std.Build.Cache.Directory,
-    build_root: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Path,
     dep: std.zig.Manifest.Dependency,
     dep_name: []const u8,
     color: std.zig.Color,
@@ -331,16 +340,13 @@ fn loadDepManifest(
 ) !struct { std.zig.Manifest, std.zig.Ast } {
     if (dep.hash) |hash| {
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const manifest_path = std.fmt.bufPrint(
-            &buf,
-            "p" ++ std.fs.path.sep_str ++ "{s}" ++ std.fs.path.sep_str ++ std.zig.Manifest.basename,
-            .{hash},
-        ) catch return error.NameTooLong;
+        const sub_path = std.fmt.bufPrint(&buf, "p" ++ std.fs.path.sep_str ++ "{s}", .{hash}) catch
+            return error.NameTooLong;
+        const root: std.Build.Cache.Path = .{ .root_dir = global_cache, .sub_path = sub_path };
 
         return try loadManifest(
             allocator,
-            global_cache,
-            manifest_path,
+            root,
             color,
             required,
         );
@@ -349,35 +355,26 @@ fn loadDepManifest(
             dep_name,
         }),
         .path => |path| {
-            const handle = build_root.handle.openDir(path, .{}) catch |e| switch (e) {
-                error.FileNotFound => fatal("local dependency {s} does not exist", .{dep_name}),
-                else => |err| return err,
-            };
-            const root_path = try build_root.join(allocator, &.{path});
-            defer allocator.free(root_path);
-            var root: std.Build.Cache.Directory = .{ .handle = handle, .path = root_path };
-            defer root.closeAndFree(allocator);
-            return try loadManifest(
-                allocator,
-                root,
-                std.zig.Manifest.basename,
-                color,
-                required,
-            );
+            const root = try build_root.join(allocator, path);
+            defer allocator.free(root.sub_path);
+            return try loadManifest(allocator, root, color, required);
         },
     }
 }
 
 fn loadManifest(
     allocator: Allocator,
-    root: std.Build.Cache.Directory,
-    manifest_path: []const u8,
+    root: std.Build.Cache.Path,
     color: std.zig.Color,
     required: bool,
 ) !struct { std.zig.Manifest, std.zig.Ast } {
-    const manifest_bytes = root.handle.readFileAllocOptions(
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buf);
+    const joined_path = root.join(fba.allocator(), std.zig.Manifest.basename) catch
+        return error.NameTooLong;
+    const manifest_bytes = root.root_dir.handle.readFileAllocOptions(
         allocator,
-        manifest_path,
+        joined_path.sub_path,
         std.zig.Manifest.max_bytes,
         null,
         .@"1",
@@ -386,9 +383,8 @@ fn loadManifest(
         if (!required) {
             if (err == error.FileNotFound) return error.FileNotFound;
         }
-        fatal("unable to load package manifest '{}{s}': {s}", .{
-            root,
-            manifest_path,
+        fatal("unable to load package manifest '{s}': {s}", .{
+            try root.joinString(allocator, joined_path.sub_path),
             @errorName(err),
         });
     };
@@ -398,9 +394,7 @@ fn loadManifest(
     errdefer ast.deinit(allocator);
 
     if (ast.errors.len > 0) {
-        const file_path = try std.fmt.allocPrint(allocator, "{}{s}", .{
-            root, manifest_path,
-        });
+        const file_path = try root.joinString(allocator, joined_path.sub_path);
         try std.zig.printAstErrorsToStderr(allocator, ast, file_path, color);
         std.process.exit(1);
     }
@@ -417,10 +411,10 @@ fn loadManifest(
         try wip_errors.init(allocator);
         defer wip_errors.deinit();
 
-        const src_path = try wip_errors.printString("{}{s}", .{
-            root,
-            manifest_path,
-        });
+        const src_path = try wip_errors.addString(try root.joinString(
+            allocator,
+            joined_path.sub_path,
+        ));
         try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
 
         var eb = try wip_errors.toOwnedBundle("");
@@ -430,6 +424,35 @@ fn loadManifest(
         std.process.exit(1);
     }
     return .{ manifest, ast };
+}
+
+fn getDepRoot(
+    allocator: Allocator,
+    global_cache: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Path,
+    dep: std.zig.Manifest.Dependency,
+    name: []const u8,
+) !std.Build.Cache.Path {
+    switch (dep.location) {
+        .url => {
+            const hash = dep.hash orelse
+                fatal("the hash for {s} is missing from the manifest", .{name});
+            const dep_cache_path = std.fmt.allocPrint(
+                allocator,
+                "p" ++ std.fs.path.sep_str ++ "{s}",
+                .{hash},
+            ) catch return error.NameTooLong;
+
+            return .{ .root_dir = global_cache, .sub_path = dep_cache_path };
+        },
+        .path => |local_path| {
+            var bytes: [std.fs.max_path_bytes]u8 = undefined;
+            @memcpy(bytes[0..build_root.sub_path.len], build_root.sub_path);
+            var temp = build_root;
+            temp.sub_path = bytes[0..build_root.sub_path.len];
+            return try temp.join(allocator, local_path);
+        },
+    }
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
