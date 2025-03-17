@@ -1,6 +1,7 @@
 name: ci
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
       - master
@@ -13,82 +14,56 @@ permissions:
   # Sets permission policy for `GITHUB_TOKEN`
   contents: read
 jobs:
-  x86_64-linux-debug:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Linux, x86_64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: sh ci/x86_64-linux-debug.sh
-  x86_64-linux-release:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Linux, x86_64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: sh ci/x86_64-linux-release.sh
-  aarch64-linux-debug:
-    timeout-minutes: 480
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: sh ci/aarch64-linux-debug.sh
-  aarch64-linux-release:
-    timeout-minutes: 480
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: sh ci/aarch64-linux-release.sh
-  x86_64-macos-release:
-    runs-on: "macos-13"
+  build-and-test:
+    strategy:
+      fail-fast: ${{ !contains(github.event.pull_request.labels.*.name, 'ci-build-all') }}
+      matrix:
+        include:
+          - os: [self-hosted, Linux, x86_64]
+            script: sh ci/x86_64-linux-debug.sh
+            name: x86_64-linux-debug
+            timeout: 420
+          - os: [self-hosted, Linux, x86_64]
+            script: sh ci/x86_64-linux-release.sh
+            name: x86_64-linux-release
+            timeout: 420
+          - os: [self-hosted, Linux, aarch64]
+            script: sh ci/aarch64-linux-debug.sh
+            name: aarch64-linux-debug
+            timeout: 480
+          - os: [self-hosted, Linux, aarch64]
+            script: sh ci/aarch64-linux-release.sh
+            name: aarch64-linux-release
+            timeout: 480
+          - os: macos-13
+            script: sh ci/x86_64-macos-release.sh
+            name: x86_64-macos-release
+            arch: x86_64
+          - os: [self-hosted, macOS, aarch64]
+            script: sh ci/aarch64-macos-debug.sh
+            name: aarch64-macos-debug
+            arch: aarch64
+          - os: [self-hosted, macOS, aarch64]
+            script: sh ci/aarch64-macos-release.sh
+            name: aarch64-macos-release
+            arch: aarch64
+          - os: [self-hosted, Windows, x86_64]
+            script: ci/x86_64-windows-debug.ps1
+            name: x86_64-windows-debug
+            arch: x86_64
+            timeout: 420
+          - os: [self-hosted, Windows, x86_64]
+            script: ci/x86_64-windows-release.ps1
+            name: x86_64-windows-release
+            arch: x86_64
+            timeout: 420
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout || 480 }}
     env:
-      ARCH: "x86_64"
+      ARCH: ${{ matrix.arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build and Test
-        run: ci/x86_64-macos-release.sh
-  aarch64-macos-debug:
-    runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: ci/aarch64-macos-debug.sh
-  aarch64-macos-release:
-    runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: ci/aarch64-macos-release.sh
-  x86_64-windows-debug:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: ci/x86_64-windows-debug.ps1
-  x86_64-windows-release:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build and Test
-        run: ci/x86_64-windows-release.ps1
+        run: ${{ matrix.script }}
