@@ -527,31 +527,33 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         @compileError("Windows-only");
     }
     const key_slice = mem.sliceTo(key, 0);
+    // '=' anywhere but the start makes this an invalid environment variable name
+    if (key_slice.len > 0 and std.mem.indexOfScalar(u16, key_slice[1..], '=') != null) {
+        return null;
+    }
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
     while (ptr[i] != 0) {
-        const key_start = i;
+        const key_value = mem.sliceTo(ptr[i..], 0);
 
         // There are some special environment variables that start with =,
         // so we need a special case to not treat = as a key/value separator
         // if it's the first character.
         // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
-        if (ptr[key_start] == '=') i += 1;
+        const equal_search_start: usize = if (key_value[0] == '=') 1 else 0;
+        const equal_index = std.mem.indexOfScalarPos(u16, key_value, equal_search_start, '=') orelse {
+            // This is enforced by CreateProcess.
+            // If violated, CreateProcess will fail with INVALID_PARAMETER.
+            unreachable; // must contain a =
+        };
 
-        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-        const this_key = ptr[key_start..i];
-
-        if (ptr[i] == '=') i += 1;
-
-        const value_start = i;
-        while (ptr[i] != 0) : (i += 1) {}
-        const this_value = ptr[value_start..i :0];
-
+        const this_key = key_value[0..equal_index];
         if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
-            return this_value;
+            return key_value[equal_index + 1 ..];
         }
 
-        i += 1; // skip over null byte
+        // skip past the NUL terminator
+        i += key_value.len + 1;
     }
     return null;
 }
