@@ -88,19 +88,18 @@ pub const Ip6 = extern struct {
         NotStarted,
         InvalidParameter,
         DeviceError,
-        NotReady,
         Timeout,
     };
 
-    pub const GetModeDataData = struct {
+    pub const ModeData = struct {
         ip6_mode: Mode,
         mnp_config: ManagedNetworkConfigData,
         snp_mode: SimpleNetwork,
     };
 
     /// Gets the current operational settings for this instance of the EFI IPv6 Protocol driver.
-    pub fn getModeData(self: *const Ip6) GetModeDataError!GetModeDataData {
-        var data: GetModeDataData = undefined;
+    pub fn getModeData(self: *const Ip6) GetModeDataError!ModeData {
+        var data: ModeData = undefined;
         switch (self._get_mode_data(self, &data.ip6_mode, &data.mnp_config, &data.snp_mode)) {
             .success => return data,
             .invalid_parameter => return Error.InvalidParameter,
@@ -110,7 +109,9 @@ pub const Ip6 = extern struct {
     }
 
     /// Assign IPv6 address and other configuration parameter to this EFI IPv6 Protocol driver instance.
-    pub fn configure(self: *Ip6, ip6_config_data: ?*const Config) ConfigureError!void {
+    ///
+    /// To reset the configuration, use `disable` instead.
+    pub fn configure(self: *Ip6, ip6_config_data: *const Config) ConfigureError!void {
         switch (self._configure(self, ip6_config_data)) {
             .success => {},
             .invalid_parameter => return Error.InvalidParameter,
@@ -123,11 +124,40 @@ pub const Ip6 = extern struct {
         }
     }
 
+    pub fn disable(self: *Ip6) ConfigureError!void {
+        switch (self._configure(self, null)) {
+            .success => {},
+            .invalid_parameter => return Error.InvalidParameter,
+            .out_of_resources => return Error.OutOfResources,
+            .no_mapping => return Error.NoMapping,
+            .already_started => return Error.AlreadyStarted,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    pub fn leaveAllGroups(self: *Ip6) GroupsError!void {
+        switch (self._groups(self, false, null)) {
+            .success => {},
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_started => return Error.NotStarted,
+            .out_of_resources => return Error.OutOfResources,
+            .unsupported => return Error.Unsupported,
+            .already_started => return Error.AlreadyStarted,
+            .not_found => return Error.NotFound,
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
     /// Joins and leaves multicast groups.
+    ///
+    /// To leave all groups, use `leaveAllGroups` instead.
     pub fn groups(
         self: *Ip6,
         join_flag: JoinFlag,
-        group_address: ?*const Address,
+        group_address: *const Address,
     ) GroupsError!void {
         switch (self._groups(
             self,
@@ -150,12 +180,18 @@ pub const Ip6 = extern struct {
     /// Adds and deletes routing table entries.
     pub fn routes(
         self: *Ip6,
-        delete_route: bool,
+        delete_route: DeleteFlag,
         destination: ?*const Address,
         prefix_length: u8,
         gateway_address: ?*const Address,
     ) RoutesError!void {
-        switch (self._routes(self, delete_route, destination, prefix_length, gateway_address)) {
+        switch (self._routes(
+            self,
+            delete_route == .delete,
+            destination,
+            prefix_length,
+            gateway_address,
+        )) {
             .success => {},
             .not_started => return Error.NotStarted,
             .invalid_parameter => return Error.InvalidParameter,
@@ -243,13 +279,15 @@ pub const Ip6 = extern struct {
     }
 
     /// Polls for incoming data packets and processes outgoing data packets.
-    pub fn poll(self: *Ip6) PollError!void {
+    ///
+    /// Returns true if a packet was received or processed.
+    pub fn poll(self: *Ip6) PollError!bool {
         switch (self._poll(self)) {
-            .success => {},
+            .success => return true,
+            .not_ready => return false,
             .not_started => return Error.NotStarted,
             .invalid_parameter => return Error.InvalidParameter,
             .device_error => return Error.DeviceError,
-            .not_ready => return Error.NotReady,
             .timeout => return Error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
