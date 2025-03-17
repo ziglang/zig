@@ -526,32 +526,29 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (native_os != .windows) {
         @compileError("Windows-only");
     }
-    const key_slice = mem.sliceTo(key, 0);
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
-    while (ptr[i] != 0) {
+    while (ptr[i] != 0) : (i += mem.sliceTo(ptr[i..], 0).len + 1) {
         const key_start = i;
 
         // There are some special environment variables that start with =,
         // so we need a special case to not treat = as a key/value separator
         // if it's the first character.
         // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
-        if (ptr[key_start] == '=') i += 1;
-
-        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-        const this_key = ptr[key_start..i];
-
-        if (ptr[i] == '=') i += 1;
-
-        const value_start = i;
-        while (ptr[i] != 0) : (i += 1) {}
-        const this_value = ptr[value_start..i :0];
-
-        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
-            return this_value;
+        if (ptr[key_start] == '=') {
+            if (key[0] != '=') continue;
+            i += 1;
         }
 
-        i += 1; // skip over null byte
+        // Note: A '=' being present after the name is enforced by CreateProcess.
+        // If violated, CreateProcess will fail with INVALID_PARAMETER.
+        const upcaseW = windows.ntdll.RtlUpcaseUnicodeChar;
+        while (ptr[i] != 0 and key[i - key_start] != 0) : (i += 1) {
+            if (upcaseW(ptr[i]) != upcaseW(key[i - key_start])) break;
+        }
+        if ((key[i - key_start] != 0) or (ptr[i] != '=')) continue;
+
+        return mem.sliceTo(ptr[i + 1 ..], 0);
     }
     return null;
 }
