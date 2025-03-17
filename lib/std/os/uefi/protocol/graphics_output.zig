@@ -25,10 +25,10 @@ pub const GraphicsOutput = extern struct {
     };
 
     /// Returns information for an available graphics mode that the graphics device and the set of active video output devices supports.
-    pub fn queryMode(self: *const GraphicsOutput, mode: u32) QueryModeError!*Mode.Info {
+    pub fn queryMode(self: *const GraphicsOutput, mode_id: u32) QueryModeError!*Mode.Info {
         var size_of_info: usize = undefined;
         var info: *Mode.Info = undefined;
-        switch (self._query_mode(self, mode, &size_of_info, &info)) {
+        switch (self._query_mode(self, mode_id, &size_of_info, &info)) {
             .success => {},
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
@@ -42,8 +42,8 @@ pub const GraphicsOutput = extern struct {
     }
 
     /// Set the video device into the specified mode and clears the visible portions of the output display to black.
-    pub fn setMode(self: *const GraphicsOutput, mode: u32) SetModeError!void {
-        switch (self._set_mode(self, mode)) {
+    pub fn setMode(self: *GraphicsOutput, mode_id: u32) SetModeError!void {
+        switch (self._set_mode(self, mode_id)) {
             .success => {},
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,

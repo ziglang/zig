@@ -98,7 +98,7 @@ pub const SimpleTextOutput = extern struct {
     }
 
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.
-    pub fn setAttribute(self: *SimpleTextOutput, attribute: usize) SetAttributeError!void {
+    pub fn setAttribute(self: *SimpleTextOutput, attribute: Attribute) SetAttributeError!void {
         switch (self._set_attribute(self, attribute)) {
             .success => {},
             .device_error => return Error.DeviceError,
@@ -196,31 +196,42 @@ pub const SimpleTextOutput = extern struct {
     pub const geometricshape_left_triangle: u16 = 0x25c4;
     pub const arrow_up: u16 = 0x2591;
     pub const arrow_down: u16 = 0x2593;
-    pub const black: u8 = 0x00;
-    pub const blue: u8 = 0x01;
-    pub const green: u8 = 0x02;
-    pub const cyan: u8 = 0x03;
-    pub const red: u8 = 0x04;
-    pub const magenta: u8 = 0x05;
-    pub const brown: u8 = 0x06;
-    pub const lightgray: u8 = 0x07;
-    pub const bright: u8 = 0x08;
-    pub const darkgray: u8 = 0x08;
-    pub const lightblue: u8 = 0x09;
-    pub const lightgreen: u8 = 0x0a;
-    pub const lightcyan: u8 = 0x0b;
-    pub const lightred: u8 = 0x0c;
-    pub const lightmagenta: u8 = 0x0d;
-    pub const yellow: u8 = 0x0e;
-    pub const white: u8 = 0x0f;
-    pub const background_black: u8 = 0x00;
-    pub const background_blue: u8 = 0x10;
-    pub const background_green: u8 = 0x20;
-    pub const background_cyan: u8 = 0x30;
-    pub const background_red: u8 = 0x40;
-    pub const background_magenta: u8 = 0x50;
-    pub const background_brown: u8 = 0x60;
-    pub const background_lightgray: u8 = 0x70;
+
+    pub const Attribute = packed struct(u8) {
+        foreground: ForegroundColor = .white,
+        background: BackgroundColor = .black,
+
+        pub const ForegroundColor = enum(u4) {
+            black,
+            blue,
+            green,
+            cyan,
+            red,
+            magenta,
+            brown,
+            lightgray,
+            bright,
+            darkgray,
+            lightblue,
+            lightgreen,
+            lightcyan,
+            lightred,
+            lightmagenta,
+            yellow,
+            white,
+        };
+
+        pub const BackgroundColor = enum(u4) {
+            black,
+            blue,
+            green,
+            cyan,
+            red,
+            magenta,
+            brown,
+            lightgray,
+        };
+    };
 
     pub const Mode = extern struct {
         max_mode: u32, // specified as signed
