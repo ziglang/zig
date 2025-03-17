@@ -98,7 +98,7 @@ pub const File = extern struct {
         self: *const File,
         file_name: [*:0]const u16,
         mode: OpenMode,
-        create_attributes: CreateAttributes,
+        create_attributes: Attributes,
     ) OpenError!*File {
         var new: *File = undefined;
         switch (self._open(self, &new, file_name, @intFromEnum(mode), create_attributes)) {
@@ -259,7 +259,7 @@ pub const File = extern struct {
         create = 0x8000000000000000,
     };
 
-    pub const CreateAttributes = packed struct(u64) {
+    pub const Attributes = packed struct(u64) {
         // 0x0000000000000001
         read_only: bool = false,
         // 0x0000000000000002
@@ -277,7 +277,7 @@ pub const File = extern struct {
         _pad: u57 = 0,
 
         // 0x0000000000000037
-        pub const valid_attr: CreateAttributes = .{
+        pub const valid_attr: Attributes = .{
             .read_only = true,
             .system = true,
             ._flag = true,
