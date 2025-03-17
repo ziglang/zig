@@ -97,11 +97,11 @@ pub const File = extern struct {
     pub fn open(
         self: *const File,
         file_name: [*:0]const u16,
-        open_mode: u64,
-        attributes: u64,
+        mode: OpenMode,
+        create_attributes: CreateAttributes,
     ) OpenError!*File {
         var new: *File = undefined;
-        switch (self._open(self, &new, file_name, open_mode, attributes)) {
+        switch (self._open(self, &new, file_name, @intFromEnum(mode), create_attributes)) {
             .success => return new,
             .not_found => return Error.NotFound,
             .no_media => return Error.NoMedia,
@@ -251,17 +251,38 @@ pub const File = extern struct {
         }
     }
 
-    pub const efi_file_mode_read: u64 = 0x0000000000000001;
-    pub const efi_file_mode_write: u64 = 0x0000000000000002;
-    pub const efi_file_mode_create: u64 = 0x8000000000000000;
+    pub const OpenMode = enum(u64) {
+        read = 0x0000000000000001,
+        // implies read
+        write = 0x0000000000000002,
+        // implies read+write
+        create = 0x8000000000000000,
+    };
 
-    pub const efi_file_read_only: u64 = 0x0000000000000001;
-    pub const efi_file_hidden: u64 = 0x0000000000000002;
-    pub const efi_file_system: u64 = 0x0000000000000004;
-    pub const efi_file_reserved: u64 = 0x0000000000000008;
-    pub const efi_file_directory: u64 = 0x0000000000000010;
-    pub const efi_file_archive: u64 = 0x0000000000000020;
-    pub const efi_file_valid_attr: u64 = 0x0000000000000037;
+    pub const CreateAttributes = packed struct(u64) {
+        // 0x0000000000000001
+        read_only: bool = false,
+        // 0x0000000000000002
+        hidden: bool = false,
+        // 0x0000000000000004
+        system: bool = false,
+        // 0x0000000000000008
+        reserved: bool = false,
+        // 0x0000000000000010
+        directory: bool = false,
+        // 0x0000000000000020
+        archive: bool = false,
+        // used exclusively for `valid_attr` as far as i can tell...
+        _flag: bool = false,
+        _pad: u57 = 0,
 
-    pub const efi_file_position_end_of_file: u64 = 0xffffffffffffffff;
+        // 0x0000000000000037
+        pub const valid_attr: CreateAttributes = .{
+            .read_only = true,
+            .system = true,
+            ._flag = true,
+        };
+    };
+
+    const efi_file_position_end_of_file: u64 = 0xffffffffffffffff;
 };
