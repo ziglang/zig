@@ -5,16 +5,27 @@ const meta = std.meta;
 const expect = std.testing.expect;
 
 pub fn isNan(x: anytype) bool {
-    return x != x;
+    const T = @TypeOf(x);
+    switch (@typeInfo(T)) {
+        .comptime_float => return false, // comptime does not allow NaN
+        .float => return x != x,
+        else => @compileError("isNan unsupported for " ++ @typeName(T)),
+    }
 }
 
 /// TODO: LLVM is known to miscompile on some architectures to quiet NaN -
 ///       this is tracked by https://github.com/ziglang/zig/issues/14366
 pub fn isSignalNan(x: anytype) bool {
     const T = @TypeOf(x);
-    const U = meta.Int(.unsigned, @bitSizeOf(T));
-    const quiet_signal_bit_mask = 1 << (math.floatFractionalBits(T) - 1);
-    return isNan(x) and (@as(U, @bitCast(x)) & quiet_signal_bit_mask == 0);
+    switch (@typeInfo(T)) {
+        .comptime_float => return false, // comptime does not allow NaN
+        .float => {
+            const U = meta.Int(.unsigned, @bitSizeOf(T));
+            const quiet_signal_bit_mask = 1 << (math.floatFractionalBits(T) - 1);
+            return isNan(x) and (@as(U, @bitCast(x)) & quiet_signal_bit_mask == 0);
+        },
+        else => @compileError("isSignalNan unsupported for " ++ @typeName(T)),
+    }
 }
 
 test isNan {
@@ -23,8 +34,9 @@ test isNan {
         try expect(isNan(-math.nan(T)));
         try expect(isNan(math.snan(T)));
         try expect(!isNan(@as(T, 1.0)));
-        try expect(!isNan(@as(T, math.inf(T))));
+        try expect(!isNan(math.inf(T)));
     }
+    try expect(!isNan(1.0));
 }
 
 test isSignalNan {
@@ -44,4 +56,5 @@ test isSignalNan {
         try expect(!isSignalNan(@as(T, 1.0)));
         try expect(!isSignalNan(math.inf(T)));
     }
+    try expect(!isSignalNan(1.0));
 }
