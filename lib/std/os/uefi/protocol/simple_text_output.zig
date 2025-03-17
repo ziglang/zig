@@ -210,7 +210,6 @@ pub const SimpleTextOutput = extern struct {
             magenta,
             brown,
             lightgray,
-            bright,
             darkgray,
             lightblue,
             lightgreen,
