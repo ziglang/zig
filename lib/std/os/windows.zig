@@ -4855,6 +4855,10 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
+    /// Points to a NUL-terminated sequence of NUL-terminated
+    /// WTF-16 LE encoded `name=value` sequences.
+    /// Example using string literal syntax:
+    /// `"NAME=value\x00foo=bar\x00\x00"`
     Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
