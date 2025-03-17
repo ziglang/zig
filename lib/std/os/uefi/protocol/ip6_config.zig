@@ -90,7 +90,11 @@ pub const Ip6Config = extern struct {
         }
     }
 
-    pub fn unregisterDataNotify(self: *const Ip6Config, data_type: DataType, event: Event) Status {
+    pub fn unregisterDataNotify(
+        self: *const Ip6Config,
+        data_type: DataType,
+        event: Event,
+    ) UnregisterDataNotifyError!void {
         switch (self._unregister_data_notify(self, data_type, event)) {
             .success => {},
             .invalid_parameter => return Error.InvalidParameter,

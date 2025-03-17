@@ -106,11 +106,6 @@ pub const SimpleNetwork = extern struct {
         DeviceError,
     };
 
-    pub const NvDataOperation = enum {
-        read,
-        write,
-    };
-
     /// Changes the state of a network interface from "stopped" to "started".
     pub fn start(self: *SimpleNetwork) StartError!void {
         switch (self._start(self)) {
@@ -290,9 +285,9 @@ pub const SimpleNetwork = extern struct {
     pub fn getStatus(
         self: *SimpleNetwork,
         interrupt_status: ?*InterruptStatus,
-        tx_buf: ?*?[*]u8,
+        recycled_tx_buf: ?*?[*]u8,
     ) GetStatusError!void {
-        switch (self._get_status(self, interrupt_status, tx_buf)) {
+        switch (self._get_status(self, interrupt_status, recycled_tx_buf)) {
             .success => {},
             .not_started => return Error.NotStarted,
             .invalid_parameter => return Error.InvalidParameter,
@@ -361,6 +356,11 @@ pub const SimpleNetwork = extern struct {
         .clock_seq_high_and_reserved = 0x9a,
         .clock_seq_low = 0x2d,
         .node = [_]u8{ 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d },
+    };
+
+    pub const NvDataOperation = enum {
+        read,
+        write,
     };
 
     pub const MacAddress = [32]u8;

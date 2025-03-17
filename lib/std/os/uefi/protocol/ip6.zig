@@ -126,10 +126,15 @@ pub const Ip6 = extern struct {
     /// Joins and leaves multicast groups.
     pub fn groups(
         self: *Ip6,
-        join_flag: bool,
+        join_flag: JoinFlag,
         group_address: ?*const Address,
     ) GroupsError!void {
-        switch (self._groups(self, join_flag, group_address)) {
+        switch (self._groups(
+            self,
+            // set to TRUE to join the multicast group session and FALSE to leave
+            join_flag == .join,
+            group_address,
+        )) {
             .success => {},
             .invalid_parameter => return Error.InvalidParameter,
             .not_started => return Error.NotStarted,
@@ -164,7 +169,7 @@ pub const Ip6 = extern struct {
     /// Add or delete Neighbor cache entries.
     pub fn neighbors(
         self: *Ip6,
-        delete_flag: bool,
+        delete_flag: DeleteFlag,
         target_ip6_address: *const Address,
         target_link_address: ?*const MacAddress,
         timeout: u32,
@@ -172,7 +177,9 @@ pub const Ip6 = extern struct {
     ) NeighborsError!void {
         switch (self._neighbors(
             self,
-            delete_flag,
+            // set to TRUE to delete this route from the routing table.
+            // set to FALSE to add this route to the routing table.
+            delete_flag == .delete,
             target_ip6_address,
             target_link_address,
             timeout,
@@ -255,6 +262,16 @@ pub const Ip6 = extern struct {
         .clock_seq_high_and_reserved = 0x92,
         .clock_seq_low = 0x5f,
         .node = [_]u8{ 0xb6, 0x6c, 0x10, 0x19, 0x57, 0xe2 },
+    };
+
+    pub const DeleteFlag = enum {
+        delete,
+        add,
+    };
+
+    pub const JoinFlag = enum {
+        join,
+        leave,
     };
 
     pub const Mode = extern struct {

@@ -43,6 +43,11 @@ pub const Ipv6Address = extern struct {
     address: [16]u8,
 };
 
+pub const IpAddress = extern union {
+    v4: Ipv4Address,
+    v6: Ipv6Address,
+};
+
 /// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
     time_low: u32,

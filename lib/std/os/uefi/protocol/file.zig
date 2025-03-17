@@ -179,7 +179,7 @@ pub const File = extern struct {
         defer _ = self.setPosition(start_pos) catch {};
 
         try self.setPosition(efi_file_position_end_of_file);
-        return try self.getPosition();
+        return self.getPosition();
     }
 
     pub fn setPosition(self: *File, position: u64) SeekError!void {

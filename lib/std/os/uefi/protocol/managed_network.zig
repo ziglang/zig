@@ -15,8 +15,8 @@ pub const ManagedNetwork = extern struct {
     _configure: *const fn (*ManagedNetwork, ?*const Config) callconv(cc) Status,
     _mcast_ip_to_mac: *const fn (*ManagedNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
     _groups: *const fn (*ManagedNetwork, bool, ?*const MacAddress) callconv(cc) Status,
-    _transmit: *const fn (*ManagedNetwork, *const CompletionToken) callconv(cc) Status,
-    _receive: *const fn (*ManagedNetwork, *const CompletionToken) callconv(cc) Status,
+    _transmit: *const fn (*ManagedNetwork, *CompletionToken) callconv(cc) Status,
+    _receive: *const fn (*ManagedNetwork, *CompletionToken) callconv(cc) Status,
     _cancel: *const fn (*ManagedNetwork, ?*const CompletionToken) callconv(cc) Status,
     _poll: *const fn (*ManagedNetwork) callconv(cc) Status,
 
@@ -120,7 +120,7 @@ pub const ManagedNetwork = extern struct {
     pub fn mcastIpToMac(
         self: *ManagedNetwork,
         ipv6flag: bool,
-        ipaddress: *const anyopaque,
+        ipaddress: *const uefi.IpAddress,
     ) McastIpToMacError!MacAddress {
         var result: MacAddress = undefined;
         switch (self._mcast_ip_to_mac(self, ipv6flag, ipaddress, &result)) {
@@ -161,7 +161,7 @@ pub const ManagedNetwork = extern struct {
     }
 
     /// Places asynchronous outgoing data packets into the transmit queue.
-    pub fn transmit(self: *ManagedNetwork, token: *const CompletionToken) TransmitError!void {
+    pub fn transmit(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
         switch (self._transmit(self, token)) {
             .success => {},
             .not_started => return Error.NotStarted,
@@ -176,7 +176,7 @@ pub const ManagedNetwork = extern struct {
     }
 
     /// Places an asynchronous receiving request into the receiving queue.
-    pub fn receive(self: *ManagedNetwork, token: *const CompletionToken) TransmitError!void {
+    pub fn receive(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
         switch (self._receive(self, token)) {
             .success => {},
             .not_started => return Error.NotStarted,
