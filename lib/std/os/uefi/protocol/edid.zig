@@ -38,7 +38,7 @@ pub const Discovered = extern struct {
 
 /// Override EDID information
 pub const Override = extern struct {
-    _get_edid: *const fn (*const Override, Handle, *Attributes, *usize, *?[*]u8) callconv(cc) Status,
+    _get_edid: *const fn (*const Override, *const Handle, *Attributes, *usize, *?[*]u8) callconv(cc) Status,
 
     pub const GetEdidError = uefi.UnexpectedError || error{
         Unsupported,
@@ -49,7 +49,7 @@ pub const Override = extern struct {
         var size: usize = undefined;
         var ptr: ?[*]u8 = undefined;
         var attributes: Attributes = undefined;
-        switch (self._get_edid(self, handle, &attributes, &size, &ptr)) {
+        switch (self._get_edid(self, &handle, &attributes, &size, &ptr)) {
             .success => {},
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
