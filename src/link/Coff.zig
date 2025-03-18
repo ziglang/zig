@@ -2104,7 +2104,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                             try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.crtFileAsString(arena, "mingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",
