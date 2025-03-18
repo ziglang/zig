@@ -218,12 +218,14 @@ pub const File = extern struct {
 
     pub fn getInfo(
         self: *const File,
-        information_type: *align(8) const Guid,
-        buffer: []u8,
-    ) GetInfoError![]u8 {
-        var len = buffer.len;
-        switch (self._get_info(self, information_type, &len, buffer.ptr)) {
-            .success => return buffer[0..len],
+        comptime info: std.meta.Tag(Info),
+    ) GetInfoError!std.meta.TagPayload(Info, info) {
+        const InfoType = std.meta.TagPayload(Info, info);
+
+        var val: InfoType = undefined;
+        var len: usize = @sizeOf(InfoType);
+        switch (self._get_info(self, &InfoType.guid, &len, @ptrCast(&val))) {
+            .success => return val,
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
             .device_error => return Error.DeviceError,
@@ -235,10 +237,11 @@ pub const File = extern struct {
 
     pub fn setInfo(
         self: *File,
-        information_type: *align(8) const Guid,
-        buffer: []const u8,
+        comptime info: std.meta.Tag(Info),
+        data: *const std.meta.TagPayload(Info, info),
     ) SetInfoError!void {
-        switch (self._set_info(self, information_type, buffer.len, buffer.ptr)) {
+        const InfoType = @TypeOf(data);
+        switch (self._set_info(self, &InfoType.guid, @sizeOf(InfoType), @ptrCast(data))) {
             .success => {},
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
@@ -288,48 +291,72 @@ pub const File = extern struct {
         _pad: u58 = 0,
     };
 
-    pub const FileInfo = extern struct {
-        size: u64,
-        file_size: u64,
-        physical_size: u64,
-        create_time: Time,
-        last_access_time: Time,
-        modification_time: Time,
-        attribute: Attributes,
+    pub const Info = union(enum) {
+        file: Info.File,
+        file_system: FileSystem,
+        volume_label: VolumeLabel,
 
-        pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-            return @ptrCast(@alignCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
-        }
+        pub const File = extern struct {
+            size: u64,
+            file_size: u64,
+            physical_size: u64,
+            create_time: Time,
+            last_access_time: Time,
+            modification_time: Time,
+            attribute: Attributes,
+            _file_name: u16,
 
-        pub const guid align(8) = Guid{
-            .time_low = 0x09576e92,
-            .time_mid = 0x6d3f,
-            .time_high_and_version = 0x11d2,
-            .clock_seq_high_and_reserved = 0x8e,
-            .clock_seq_low = 0x39,
-            .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+            pub fn getFileName(self: *const Info.File) [*:0]const u16 {
+                return @as([*:0]const u16, @ptrCast(&self._file_name));
+            }
+
+            pub const guid align(8) = Guid{
+                .time_low = 0x09576e92,
+                .time_mid = 0x6d3f,
+                .time_high_and_version = 0x11d2,
+                .clock_seq_high_and_reserved = 0x8e,
+                .clock_seq_low = 0x39,
+                .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+            };
         };
-    };
 
-    pub const FileSystemInfo = extern struct {
-        size: u64,
-        read_only: bool,
-        volume_size: u64,
-        free_space: u64,
-        block_size: u32,
-        _volume_label: u16,
+        pub const FileSystem = extern struct {
+            size: u64,
+            read_only: bool,
+            volume_size: u64,
+            free_space: u64,
+            block_size: u32,
+            _volume_label: u16,
 
-        pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
-            return @as([*:0]const u16, @ptrCast(&self._volume_label));
-        }
+            pub fn getVolumeLabel(self: *const FileSystem) [*:0]const u16 {
+                return @as([*:0]const u16, @ptrCast(&self._volume_label));
+            }
 
-        pub const guid align(8) = Guid{
-            .time_low = 0x09576e93,
-            .time_mid = 0x6d3f,
-            .time_high_and_version = 0x11d2,
-            .clock_seq_high_and_reserved = 0x8e,
-            .clock_seq_low = 0x39,
-            .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+            pub const guid align(8) = Guid{
+                .time_low = 0x09576e93,
+                .time_mid = 0x6d3f,
+                .time_high_and_version = 0x11d2,
+                .clock_seq_high_and_reserved = 0x8e,
+                .clock_seq_low = 0x39,
+                .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+            };
+        };
+
+        pub const VolumeLabel = extern struct {
+            _volume_label: u16,
+
+            pub fn getVolumeLabel(self: *const VolumeLabel) [*:0]const u16 {
+                return @as([*:0]const u16, @ptrCast(&self._volume_label));
+            }
+
+            pub const guid align(8) = Guid{
+                .time_low = 0xdb47d7d3,
+                .time_mid = 0xfe81,
+                .time_high_and_version = 0x11d3,
+                .clock_seq_high_and_reserved = 0x9a,
+                .clock_seq_low = 0x35,
+                .node = [_]u8{ 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d },
+            };
         };
     };
 
