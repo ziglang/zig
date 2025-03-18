@@ -419,10 +419,10 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
@@ -431,10 +431,10 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasNonEmptyEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         const value = getenvW(key_w) orelse return false;
         return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -451,10 +451,10 @@ pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariab
 ///
 /// Since the key is comptime-known, no allocation is needed.
 ///
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(key);
         const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
     } else if (native_os == .wasi and !builtin.link_libc) {
