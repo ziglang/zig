@@ -899,6 +899,13 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .uefi,
+            },
+            .link_libc = false,
+        },
     };
 };
 
