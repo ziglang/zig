@@ -46,7 +46,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) @TypeOf(out_stream).Error!void {
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
     var jw = writeStream(out_stream, options);
     defer jw.deinit();
     try jw.write(value);
@@ -61,7 +61,7 @@ pub fn stringifyMaxDepth(
     options: StringifyOptions,
     out_stream: anytype,
     comptime max_depth: ?usize,
-) @TypeOf(out_stream).Error!void {
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
     var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
 }
