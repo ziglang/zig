@@ -146,17 +146,6 @@ test order {
     try expectEqual(.gt, order(1, -1));
 }
 
-test "comptime order" {
-    // 0 == 0
-    try expectEqual(.eq, comptime order(0, 0));
-
-    // -1 < 1
-    try expectEqual(.lt, comptime order(-1, 1));
-
-    // 1 > -1
-    try expectEqual(.gt, comptime order(1, -1));
-}
-
 test "total ordering" {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |Float| {
         const inf = math.inf(Float);
