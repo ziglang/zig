@@ -499,9 +499,18 @@ const usage_build_generic =
     \\    hex  (planned feature)  Intel IHEX
     \\    raw  (planned feature)  Dump machine code directly
     \\  -mcpu [cpu]               Specify target CPU and feature set
-    \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
-    \\            small|kernel|
-    \\            medium|large]
+    \\  -mcmodel=[model]          Limit range of code and data virtual addresses
+    \\    default
+    \\    extreme
+    \\    kernel
+    \\    large
+    \\    medany
+    \\    medium
+    \\    medlow
+    \\    medmid
+    \\    normal
+    \\    small
+    \\    tiny
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
