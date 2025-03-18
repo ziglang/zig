@@ -1198,6 +1198,10 @@ pub const WriteError = error{
     /// This error occurs when a device gets disconnected before or mid-flush
     /// while it's being written to - errno(6): No such device or address.
     NoDevice,
+
+    /// The socket type requires that message be sent atomically, and the size of the message
+    /// to be sent made this impossible. The message is not transmitted.
+    MessageTooBig,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1279,6 +1283,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .CONNRESET => return error.ConnectionResetByPeer,
             .BUSY => return error.DeviceBusy,
             .NXIO => return error.NoDevice,
+            .MSGSIZE => return error.MessageTooBig,
             else => |err| return unexpectedErrno(err),
         }
     }
