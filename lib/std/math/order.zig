@@ -107,7 +107,9 @@ pub fn order(lhs: anytype, rhs: anytype) Order {
     const T = @TypeOf(lhs, rhs);
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
-            return @enumFromInt(@as(i2, @intFromBool(lhs > rhs)) - @intFromBool(lhs < rhs));
+            const gt: i8 = @intFromBool(lhs > rhs);
+            const lt: i8 = @intFromBool(lhs < rhs);
+            return @enumFromInt(gt - lt);
         },
         .comptime_float => {
             return order(@as(f128, lhs), @as(f128, rhs));
@@ -142,6 +144,17 @@ test order {
 
     // 1 > -1
     try expectEqual(.gt, order(1, -1));
+}
+
+test "comptime order" {
+    // 0 == 0
+    try expectEqual(.eq, comptime order(0, 0));
+
+    // -1 < 1
+    try expectEqual(.lt, comptime order(-1, 1));
+
+    // 1 > -1
+    try expectEqual(.gt, comptime order(1, -1));
 }
 
 test "total ordering" {
