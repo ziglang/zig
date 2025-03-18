@@ -624,10 +624,8 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = @min(lhs.len, rhs.len);
     for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
-        switch (math.order(lhs_elem, rhs_elem)) {
-            .eq => continue,
-            .lt => return .lt,
-            .gt => return .gt,
+        if (math.order(lhs_elem, rhs_elem).differ()) |diff| {
+            return diff;
         }
     }
     return math.order(lhs.len, rhs.len);

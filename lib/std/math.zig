@@ -237,6 +237,8 @@ pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
+pub const order = @import("math/order.zig").order;
+pub const Order = @import("math/order.zig").Order;
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
@@ -1480,111 +1482,6 @@ test mulWide {
     try testing.expect(mulWide(u8, 5, 5) == 25);
     try testing.expect(mulWide(i8, 5, -5) == -25);
     try testing.expect(mulWide(u8, 100, 100) == 10000);
-}
-
-/// See also `CompareOperator`.
-pub const Order = enum {
-    /// Greater than (`>`)
-    gt,
-
-    /// Less than (`<`)
-    lt,
-
-    /// Equal (`==`)
-    eq,
-
-    pub fn invert(self: Order) Order {
-        return switch (self) {
-            .lt => .gt,
-            .eq => .eq,
-            .gt => .lt,
-        };
-    }
-
-    test invert {
-        try testing.expect(Order.invert(order(0, 0)) == .eq);
-        try testing.expect(Order.invert(order(1, 0)) == .lt);
-        try testing.expect(Order.invert(order(-1, 0)) == .gt);
-    }
-
-    pub fn differ(self: Order) ?Order {
-        return if (self != .eq) self else null;
-    }
-
-    test differ {
-        const neg: i32 = -1;
-        const zero: i32 = 0;
-        const pos: i32 = 1;
-        try testing.expect(order(zero, neg).differ() orelse
-            order(pos, zero) == .gt);
-        try testing.expect(order(zero, zero).differ() orelse
-            order(zero, zero) == .eq);
-        try testing.expect(order(pos, pos).differ() orelse
-            order(neg, zero) == .lt);
-        try testing.expect(order(zero, zero).differ() orelse
-            order(pos, neg).differ() orelse
-            order(neg, zero) == .gt);
-        try testing.expect(order(pos, pos).differ() orelse
-            order(pos, pos).differ() orelse
-            order(neg, neg) == .eq);
-        try testing.expect(order(zero, pos).differ() orelse
-            order(neg, pos).differ() orelse
-            order(pos, neg) == .lt);
-    }
-
-    pub fn compare(self: Order, op: CompareOperator) bool {
-        return switch (self) {
-            .lt => switch (op) {
-                .lt => true,
-                .lte => true,
-                .eq => false,
-                .gte => false,
-                .gt => false,
-                .neq => true,
-            },
-            .eq => switch (op) {
-                .lt => false,
-                .lte => true,
-                .eq => true,
-                .gte => true,
-                .gt => false,
-                .neq => false,
-            },
-            .gt => switch (op) {
-                .lt => false,
-                .lte => false,
-                .eq => false,
-                .gte => true,
-                .gt => true,
-                .neq => true,
-            },
-        };
-    }
-
-    // https://github.com/ziglang/zig/issues/19295
-    test "compare" {
-        try testing.expect(order(-1, 0).compare(.lt));
-        try testing.expect(order(-1, 0).compare(.lte));
-        try testing.expect(order(0, 0).compare(.lte));
-        try testing.expect(order(0, 0).compare(.eq));
-        try testing.expect(order(0, 0).compare(.gte));
-        try testing.expect(order(1, 0).compare(.gte));
-        try testing.expect(order(1, 0).compare(.gt));
-        try testing.expect(order(1, 0).compare(.neq));
-    }
-};
-
-/// Given two numbers, this function returns the order they are with respect to each other.
-pub fn order(a: anytype, b: anytype) Order {
-    if (a == b) {
-        return .eq;
-    } else if (a < b) {
-        return .lt;
-    } else if (a > b) {
-        return .gt;
-    } else {
-        unreachable;
-    }
 }
 
 /// See also `Order`.
