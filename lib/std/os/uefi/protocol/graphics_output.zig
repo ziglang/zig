@@ -29,16 +29,11 @@ pub const GraphicsOutput = extern struct {
         var size_of_info: usize = undefined;
         var info: *Mode.Info = undefined;
         switch (self._query_mode(self, mode_id, &size_of_info, &info)) {
-            .success => {},
+            .success => return info,
             .device_error => return Error.DeviceError,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
-
-        if (size_of_info != @sizeOf(Mode.Info))
-            return error.Unexpected
-        else
-            return info;
     }
 
     /// Set the video device into the specified mode and clears the visible portions of the output display to black.

@@ -184,7 +184,7 @@ pub const File = extern struct {
         // ignore error
         defer _ = self.setPosition(start_pos) catch {};
 
-        try self.setPosition(efi_file_position_end_of_file);
+        try self.setPosition(end_of_file);
         return self.getPosition();
     }
 
@@ -290,5 +290,5 @@ pub const File = extern struct {
         };
     };
 
-    const efi_file_position_end_of_file: u64 = 0xffffffffffffffff;
+    const end_of_file: u64 = 0xffffffffffffffff;
 };

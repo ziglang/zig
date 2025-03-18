@@ -20,8 +20,6 @@ pub const ManagedNetwork = extern struct {
     _cancel: *const fn (*ManagedNetwork, ?*const CompletionToken) callconv(cc) Status,
     _poll: *const fn (*ManagedNetwork) callconv(cc) Status,
 
-    // TODO: according to the spec, "Other" errors are also possible for some of these fns,
-    // but i think it's referring to warnings?
     pub const GetModeDataError = uefi.UnexpectedError || error{
         InvalidParameter,
         Unsupported,
@@ -88,12 +86,8 @@ pub const ManagedNetwork = extern struct {
         var data: GetModeDataData = undefined;
         switch (self._get_mode_data(self, &data.mnp_config, &data.snp_mode)) {
             .success => return data,
-            // .invalid_parameter => return Error.InvalidParameter,
-            // .unsupported => return Error.Unsupported,
-            // .not_started => return Error.NotStarted,
             else => |status| {
                 try status.err();
-                // TODO: only warnings get here I think?
                 return uefi.unexpectedStatus(status);
             },
         }
@@ -103,13 +97,8 @@ pub const ManagedNetwork = extern struct {
     pub fn configure(self: *ManagedNetwork, mnp_config_data: ?*const Config) ConfigureError!void {
         switch (self._configure(self, mnp_config_data)) {
             .success => {},
-            // .invalid_parameter => Error.InvalidParameter,
-            // .out_of_resources => Error.OutOfResources,
-            // .unsupported => Error.Unsupported,
-            // .device_error => Error.DeviceError,
             else => |status| {
                 try status.err();
-                // TODO: only warnings get here I think?
                 return uefi.unexpectedStatus(status);
             },
         }
@@ -125,13 +114,8 @@ pub const ManagedNetwork = extern struct {
         var result: MacAddress = undefined;
         switch (self._mcast_ip_to_mac(self, ipv6flag, ipaddress, &result)) {
             .success => return result,
-            // .invalid_parameter => return Error.InvalidParameter,
-            // .not_started => return Error.NotStarted,
-            // .unsupported => return Error.Unsupported,
-            // .device_error => return Error.DeviceError,
             else => |status| {
                 try status.err();
-                // TODO: only warnings get here I think?
                 return uefi.unexpectedStatus(status);
             },
         }
@@ -146,15 +130,8 @@ pub const ManagedNetwork = extern struct {
     ) GroupsError!void {
         switch (self._groups(self, join_flag, mac_address)) {
             .success => {},
-            // .invalid_parameter => return Error.InvalidParameter,
-            // .not_started => return Error.NotStarted,
-            // .already_started => return Error.AlreadyStarted,
-            // .not_found => return Error.NotFound,
-            // .device_error => return Error.DeviceError,
-            // .unsupported => return Error.Unsupported,
             else => |status| {
                 try status.err();
-                // TODO: only warnings get here I think?
                 return uefi.unexpectedStatus(status);
             },
         }
