@@ -13,7 +13,7 @@ pub const GetAppDataDirError = error{
 
 /// Caller owns returned memory.
 /// TODO determine if we can remove the allocator requirement
-pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
+pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) ![]u8 {
     switch (native_os) {
         .windows => {
             const local_app_data_dir = std.process.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
@@ -24,10 +24,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             return fs.path.join(allocator, &[_][]const u8{ local_app_data_dir, appname });
         },
         .macos => {
-            const home_dir = posix.getenv("HOME") orelse {
-                // TODO look in /etc/passwd
-                return error.AppDataDirUnavailable;
-            };
+            const home_dir = posix.getenv("HOME") orelse try getHomeDirFromPasswd();
             return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos, .serenity => {
@@ -37,10 +34,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
                 }
             }
 
-            const home_dir = posix.getenv("HOME") orelse {
-                // TODO look in /etc/passwd
-                return error.AppDataDirUnavailable;
-            };
+            const home_dir = posix.getenv("HOME") orelse try getHomeDirFromPasswd();
             return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
         .haiku => {
@@ -54,6 +48,101 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             }
         },
         else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Parses home directory from /etc/passwd.
+fn getHomeDirFromPasswd() ![]u8 {
+    const ReaderState = enum {
+        Start,
+        WaitForNextLine,
+        SkipUsername,
+        SkipPassword,
+        ReadUserId,
+        SkipGroupId,
+        SkipGECOS,
+        ReadHomeDirectory,
+    };
+
+    const file = try fs.openFileAbsolute("/etc/passwd", .{});
+    defer file.close();
+
+    const reader = file.reader();
+
+    var buf: [std.heap.page_size_min]u8 = undefined;
+    var state = ReaderState.Start;
+    var uid: posix.uid_t = 0;
+    var home_dir_start: usize = 0;
+    var home_dir_len: usize = 0;
+
+    while (true) {
+        const bytes_read = try reader.read(buf[0..]);
+        for (0.., buf[0..bytes_read]) |i, byte| {
+            switch (state) {
+                .Start => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .SkipPassword,
+                    else => continue,
+                },
+                .WaitForNextLine => switch (byte) {
+                    '\n' => {
+                        uid = 0;
+                        home_dir_len = 0;
+                        state = .Start;
+                    },
+                    else => continue,
+                },
+                .SkipUsername => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => std.debug.print("*", .{}),
+                    else => continue,
+                },
+                .SkipPassword => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .ReadUserId,
+                    else => continue,
+                },
+                .ReadUserId => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = if (uid == std.os.linux.getuid()) .SkipGroupId else .WaitForNextLine,
+                    else => {
+                        const digit = switch (byte) {
+                            '0'...'9' => byte - '0',
+                            else => return error.CorruptPasswordFile,
+                        };
+                        {
+                            const ov = @mulWithOverflow(uid, 10);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
+                        {
+                            const ov = @addWithOverflow(uid, digit);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
+                    },
+                },
+                .SkipGroupId => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .SkipGECOS,
+                    else => continue,
+                },
+                .SkipGECOS => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => {
+                        home_dir_start = i + 1;
+                        state = .ReadHomeDirectory;
+                    },
+                    else => continue,
+                },
+                .ReadHomeDirectory => switch (byte) {
+                    '\n', ':' => return buf[home_dir_start .. home_dir_start + home_dir_len],
+                    else => {
+                        home_dir_len += 1;
+                    },
+                },
+            }
+        }
     }
 }
 
