@@ -333,8 +333,6 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                 // Versions
                 .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
                 // Features with no dependencies
-                .int8 => try self.addCapability(.Int8),
-                .int16 => try self.addCapability(.Int16),
                 .int64 => try self.addCapability(.Int64),
                 .float16 => try self.addCapability(.Float16),
                 .float64 => try self.addCapability(.Float64),
@@ -343,21 +341,27 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                     try self.addExtension("SPV_KHR_16bit_storage");
                     try self.addCapability(.StoragePushConstant16);
                 },
-                .addresses => if (self.hasFeature(.shader)) {
-                    try self.addExtension("SPV_KHR_physical_storage_buffer");
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
-                } else {
-                    try self.addCapability(.Addresses);
+                .arbitrary_precision_integers => {
+                    try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
+                    try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
                 },
+                .addresses => try self.addCapability(.Addresses),
                 // Kernel
                 .kernel => try self.addCapability(.Kernel),
                 .generic_pointer => try self.addCapability(.GenericPointer),
                 .vector16 => try self.addCapability(.Vector16),
                 // Shader
                 .shader => try self.addCapability(.Shader),
+                .physical_storage_buffer => {
+                    try self.addExtension("SPV_KHR_physical_storage_buffer");
+                    try self.addCapability(.PhysicalStorageBufferAddresses);
+                },
             }
         }
     }
+    // These are well supported
+    try self.addCapability(.Int8);
+    try self.addCapability(.Int16);
 
     // Emit memory model
     const addressing_model: spec.AddressingModel = blk: {
@@ -606,6 +610,17 @@ pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const 
         .id_result = result_id,
         .return_type = return_ty_id,
         .id_ref_2 = param_type_ids,
+    });
+    return result_id;
+}
+
+pub fn constant(self: *Module, result_ty_id: IdRef, value: spec.LiteralContextDependentNumber) !IdRef {
+    const result_id = self.allocId();
+    const section = &self.sections.types_globals_constants;
+    try section.emit(self.gpa, .OpConstant, .{
+        .id_result_type = result_ty_id,
+        .id_result = result_id,
+        .value = value,
     });
     return result_id;
 }

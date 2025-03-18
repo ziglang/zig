@@ -1372,14 +1372,13 @@ test "packed union in packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
         nested: packed union {
-            val: usize,
+            val: u16,
             foo: u32,
         },
-        bar: u32,
+        bar: u16,
 
         fn unpack(self: @This()) usize {
             return self.nested.foo;
@@ -1460,7 +1459,6 @@ test "packed union with zero-bit field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
         nested: packed union {
@@ -1479,7 +1477,6 @@ test "packed union with zero-bit field" {
 test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = packed union {
         tag: enum(u8) { a, b },
@@ -1527,7 +1524,6 @@ test "defined-layout union field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest(comptime U: type) !void {
@@ -1901,8 +1897,6 @@ test "inner struct initializer uses union layout" {
 }
 
 test "inner struct initializer uses packed union layout" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const namespace = struct {
         const U = packed union {
             a: packed struct {
@@ -1946,8 +1940,6 @@ test "extern union initialized via reintepreted struct field initializer" {
 }
 
 test "packed union initialized via reintepreted struct field initializer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {
@@ -1988,8 +1980,6 @@ test "store of comptime reinterpreted memory to extern union" {
 }
 
 test "store of comptime reinterpreted memory to packed union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {

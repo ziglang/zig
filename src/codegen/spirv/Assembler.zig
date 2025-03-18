@@ -368,6 +368,40 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             });
             break :blk result_id;
         },
+        .OpTypeStruct => blk: {
+            const ids = try self.gpa.alloc(IdRef, operands[1..].len);
+            defer self.gpa.free(ids);
+            for (operands[1..], ids) |op, *id| id.* = try self.resolveRefId(op.ref_id);
+            const result_id = self.spv.allocId();
+            try self.spv.structType(result_id, ids, null);
+            break :blk result_id;
+        },
+        .OpTypeImage => blk: {
+            const sampled_type = try self.resolveRefId(operands[1].ref_id);
+            const result_id = self.spv.allocId();
+            try section.emit(self.gpa, .OpTypeImage, .{
+                .id_result = result_id,
+                .sampled_type = sampled_type,
+                .dim = @enumFromInt(operands[2].value),
+                .depth = operands[3].literal32,
+                .arrayed = operands[4].literal32,
+                .ms = operands[5].literal32,
+                .sampled = operands[6].literal32,
+                .image_format = @enumFromInt(operands[7].value),
+            });
+            break :blk result_id;
+        },
+        .OpTypeSampler => blk: {
+            const result_id = self.spv.allocId();
+            try section.emit(self.gpa, .OpTypeSampler, .{ .id_result = result_id });
+            break :blk result_id;
+        },
+        .OpTypeSampledImage => blk: {
+            const image_type = try self.resolveRefId(operands[1].ref_id);
+            const result_id = self.spv.allocId();
+            try section.emit(self.gpa, .OpTypeSampledImage, .{ .id_result = result_id, .image_type = image_type });
+            break :blk result_id;
+        },
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
             const return_type = try self.resolveRefId(operands[1].ref_id);
@@ -406,18 +440,18 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         else => switch (self.inst.opcode) {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
-            .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
-                .Function => &self.func.prologue,
-                .Input, .Output => section: {
-                    maybe_spv_decl_index = try self.spv.allocDecl(.global);
-                    try self.func.decl_deps.put(self.spv.gpa, maybe_spv_decl_index.?, {});
-                    // TODO: In theory this can be non-empty if there is an initializer which depends on another global...
-                    try self.spv.declareDeclDeps(maybe_spv_decl_index.?, &.{});
+            .OpVariable => section: {
+                const storage_class: spec.StorageClass = @enumFromInt(operands[2].value);
+                if (storage_class == .Function) break :section &self.func.prologue;
+                maybe_spv_decl_index = try self.spv.allocDecl(.global);
+                if (self.spv.version.minor < 4 and storage_class != .Input and storage_class != .Output) {
+                    // Before version 1.4, the interface’s storage classes are limited to the Input and Output
                     break :section &self.spv.sections.types_globals_constants;
-                },
-                // These don't need to be marked in the dependency system.
-                // Probably we should add them anyway, then filter out PushConstant globals.
-                else => &self.spv.sections.types_globals_constants,
+                }
+                try self.func.decl_deps.put(self.spv.gpa, maybe_spv_decl_index.?, {});
+                // TODO: In theory this can be non-empty if there is an initializer which depends on another global...
+                try self.spv.declareDeclDeps(maybe_spv_decl_index.?, &.{});
+                break :section &self.spv.sections.types_globals_constants;
             },
             // Default case - to be worked out further.
             else => &self.func.body,
