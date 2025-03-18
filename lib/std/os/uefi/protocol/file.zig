@@ -33,9 +33,16 @@ pub const File = extern struct {
         InvalidParameter,
     };
     pub const CloseError = uefi.UnexpectedError;
-    // seek and position have the same errors
-    pub const SeekError = uefi.UnexpectedError || error{ Unsupported, DeviceError };
-    pub const ReadError = uefi.UnexpectedError || error{ NoMedia, DeviceError, VolumeCorrupted, BufferTooSmall };
+    pub const SeekError = uefi.UnexpectedError || error{
+        Unsupported,
+        DeviceError,
+    };
+    pub const ReadError = uefi.UnexpectedError || error{
+        NoMedia,
+        DeviceError,
+        VolumeCorrupted,
+        BufferTooSmall,
+    };
     pub const WriteError = uefi.UnexpectedError || error{
         Unsupported,
         NoMedia,
@@ -182,7 +189,7 @@ pub const File = extern struct {
     fn getEndPos(self: *File) SeekError!u64 {
         const start_pos = try self.getPosition();
         // ignore error
-        defer _ = self.setPosition(start_pos) catch {};
+        defer self.setPosition(start_pos) catch {};
 
         try self.setPosition(end_of_file);
         return self.getPosition();
