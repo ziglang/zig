@@ -182,9 +182,9 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     }
 
     const extra_data = try parser.extra_data.toOwnedSlice(gpa);
-    errdefer extra_data.deinit(gpa);
+    errdefer gpa.free(extra_data);
     const errors = try parser.errors.toOwnedSlice(gpa);
-    errdefer errors.deinit(gpa);
+    errdefer gpa.free(errors);
 
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
