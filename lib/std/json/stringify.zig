@@ -88,7 +88,7 @@ pub fn stringifyAlloc(
     allocator: Allocator,
     value: anytype,
     options: StringifyOptions,
-) error{ OutOfMemory, InvalidJson }![]u8 {
+) error{ OutOfMemory, InvalidInput }![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
     try stringifyArbitraryDepth(allocator, value, options, list.writer());
@@ -195,8 +195,8 @@ pub fn WriteStream(
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
-            .checked_to_arbitrary_depth => Stream.Error || error{ OutOfMemory, InvalidJson },
-            .checked_to_fixed_depth, .assumed_correct => Stream.Error || error{InvalidJson},
+            .checked_to_arbitrary_depth => Stream.Error || error{ OutOfMemory, InvalidInput },
+            .checked_to_fixed_depth, .assumed_correct => Stream.Error || error{InvalidInput},
         };
 
         options: StringifyOptions,
@@ -468,6 +468,7 @@ pub fn WriteStream(
         ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
         ///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
         ///  * Zig floats -> JSON number or string.
+        ///      * If the value is NaN or infinity, an error is returned.
         ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
         ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
         ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
@@ -509,9 +510,21 @@ pub fn WriteStream(
                 .comptime_int => {
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .float, .comptime_float => {
+                .comptime_float => {
+                    if (@as(f64, @floatCast(value)) == value) {
+                        try self.valueStart();
+                        try self.stream.print("{}", .{@as(f64, @floatCast(value))});
+                        self.valueDone();
+                        return;
+                    }
+                    try self.valueStart();
+                    try self.stream.print("\"{}\"", .{value});
+                    self.valueDone();
+                    return;
+                },
+                .float => {
                     if (std.math.isInf(value) or std.math.isNan(value)) {
-                        return error.InvalidJson;
+                        return error.InvalidInput;
                     }
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
