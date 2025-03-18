@@ -2036,7 +2036,8 @@ test createNullDelimitedEnvMap {
 pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        // Only need 2 trailing NUL code units for an empty environment
+        var max_chars_needed: usize = if (env_map.count() == 0) 2 else 1;
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -2060,12 +2061,14 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     }
     result[i] = 0;
     i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
+    // An empty environment is a special case that requires a redundant
+    // NUL terminator. CreateProcess will read the second code unit even
+    // though theoretically the first should be enough to recognize that the
+    // environment is empty (see https://nullprogram.com/blog/2023/08/23/)
+    if (env_map.count() == 0) {
+        result[i] = 0;
+        i += 1;
+    }
     return try allocator.realloc(result, i);
 }
 
