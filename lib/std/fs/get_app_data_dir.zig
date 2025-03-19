@@ -13,7 +13,7 @@ pub const GetAppDataDirError = error{
 
 /// Caller owns returned memory.
 /// TODO determine if we can remove the allocator requirement
-pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) ![]u8 {
+pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
     switch (native_os) {
         .windows => {
             const local_app_data_dir = std.process.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
@@ -24,7 +24,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) ![]u8 {
             return fs.path.join(allocator, &[_][]const u8{ local_app_data_dir, appname });
         },
         .macos => {
-            const home_dir = posix.getenv("HOME") orelse try getHomeDirFromPasswd();
+            const home_dir = posix.getenv("HOME") orelse (getHomeDirFromPasswd() catch return error.AppDataDirUnavailable);
             return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos, .serenity => {
@@ -34,7 +34,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) ![]u8 {
                 }
             }
 
-            const home_dir = posix.getenv("HOME") orelse try getHomeDirFromPasswd();
+            const home_dir = posix.getenv("HOME") orelse (getHomeDirFromPasswd() catch return error.AppDataDirUnavailable);
             return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
         .haiku => {
