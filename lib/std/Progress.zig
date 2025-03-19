@@ -195,12 +195,15 @@ pub const Node = struct {
             };
         }
 
-        const free_index = @atomicRmw(u32, &global_progress.node_end_index, .Add, 1, .monotonic);
-        if (free_index >= global_progress.node_storage.len) {
-            // Ran out of node storage memory. Progress for this node will not be tracked.
-            _ = @atomicRmw(u32, &global_progress.node_end_index, .Sub, 1, .monotonic);
-            return Node.none;
-        }
+        var cur_free_index = @atomicLoad(u32, &global_progress.node_end_index, .monotonic);
+        const free_index = brk: while (true) {
+            const new_node_end_index = cur_free_index + 1;
+            if (new_node_end_index >= global_progress.node_storage.len) {
+                // Ran out of node storage memory. Progress for this node will not be tracked.
+                return Node.none;
+            }
+            cur_free_index = @cmpxchgWeak(u32, &global_progress.node_end_index, cur_free_index, new_node_end_index, .monotonic, .monotonic) orelse break :brk cur_free_index;
+        };
 
         return init(@enumFromInt(free_index), parent, name, estimated_total_items);
     }
