@@ -26,10 +26,12 @@ pub const DevicePath = extern struct {
 
     /// Returns the next DevicePath node in the sequence, if any.
     pub fn next(self: *const DevicePath) ?*const DevicePath {
-        if (self.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
+        const bytes: [*]const u8 = @ptrCast(self);
+        const next_node: *const DevicePath = @ptrCast(bytes + self.length);
+        if (next_node.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
-        return @as(*const DevicePath, @ptrCast(@as([*]const u8, @ptrCast(self)) + self.length));
+        return next_node;
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
