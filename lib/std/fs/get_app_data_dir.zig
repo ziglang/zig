@@ -71,6 +71,7 @@ fn getHomeDirFromPasswd() ![]u8 {
 
     var buf: [std.heap.page_size_min]u8 = undefined;
     var state = ReaderState.Start;
+    const currentUid = std.os.linux.getuid();
     var uid: posix.uid_t = 0;
     var home_dir_start: usize = 0;
     var home_dir_len: usize = 0;
@@ -104,7 +105,7 @@ fn getHomeDirFromPasswd() ![]u8 {
                 },
                 .ReadUserId => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
-                    ':' => state = if (uid == std.os.linux.getuid()) .SkipGroupId else .WaitForNextLine,
+                    ':' => state = if (uid == currentUid) .SkipGroupId else .WaitForNextLine,
                     else => {
                         const digit = switch (byte) {
                             '0'...'9' => byte - '0',
