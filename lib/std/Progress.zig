@@ -307,7 +307,8 @@ pub const Node = struct {
             @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
-        assert(parent_ptr.* == .unused);
+        const current_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
+        assert(current_parent == .unused);
         @atomicStore(Node.Parent, parent_ptr, parent, .release);
 
         return .{ .index = free_index.toOptional() };
