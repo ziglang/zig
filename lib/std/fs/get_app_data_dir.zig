@@ -54,14 +54,14 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
 /// Parses home directory from /etc/passwd.
 fn getHomeDirFromPasswd() ![]u8 {
     const ReaderState = enum {
-        Start,
-        WaitForNextLine,
-        SkipUsername,
-        SkipPassword,
-        ReadUserId,
-        SkipGroupId,
-        SkipGECOS,
-        ReadHomeDirectory,
+        start,
+        wait_for_next_line,
+        skip_username,
+        skip_password,
+        read_user_id,
+        skip_group_id,
+        skip_gecos,
+        read_home_directory,
     };
 
     const file = try fs.openFileAbsolute("/etc/passwd", .{});
@@ -70,7 +70,7 @@ fn getHomeDirFromPasswd() ![]u8 {
     const reader = file.reader();
 
     var buf: [std.heap.page_size_min]u8 = undefined;
-    var state = ReaderState.Start;
+    var state = ReaderState.start;
     const currentUid = std.os.linux.getuid();
     var uid: posix.uid_t = 0;
     var home_dir_start: usize = 0;
@@ -80,32 +80,32 @@ fn getHomeDirFromPasswd() ![]u8 {
         const bytes_read = try reader.read(buf[0..]);
         for (0.., buf[0..bytes_read]) |i, byte| {
             switch (state) {
-                .Start => switch (byte) {
+                .start => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
-                    ':' => state = .SkipPassword,
+                    ':' => state = .skip_password,
                     else => continue,
                 },
-                .WaitForNextLine => switch (byte) {
+                .wait_for_next_line => switch (byte) {
                     '\n' => {
                         uid = 0;
                         home_dir_len = 0;
-                        state = .Start;
+                        state = .start;
                     },
                     else => continue,
                 },
-                .SkipUsername => switch (byte) {
+                .skip_username => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
                     ':' => std.debug.print("*", .{}),
                     else => continue,
                 },
-                .SkipPassword => switch (byte) {
+                .skip_password => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
-                    ':' => state = .ReadUserId,
+                    ':' => state = .read_user_id,
                     else => continue,
                 },
-                .ReadUserId => switch (byte) {
+                .read_user_id => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
-                    ':' => state = if (uid == currentUid) .SkipGroupId else .WaitForNextLine,
+                    ':' => state = if (uid == currentUid) .skip_group_id else .wait_for_next_line,
                     else => {
                         const digit = switch (byte) {
                             '0'...'9' => byte - '0',
@@ -123,20 +123,20 @@ fn getHomeDirFromPasswd() ![]u8 {
                         }
                     },
                 },
-                .SkipGroupId => switch (byte) {
+                .skip_group_id => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
-                    ':' => state = .SkipGECOS,
+                    ':' => state = .skip_gecos,
                     else => continue,
                 },
-                .SkipGECOS => switch (byte) {
+                .skip_gecos => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
                     ':' => {
                         home_dir_start = i + 1;
-                        state = .ReadHomeDirectory;
+                        state = .read_home_directory;
                     },
                     else => continue,
                 },
-                .ReadHomeDirectory => switch (byte) {
+                .read_home_directory => switch (byte) {
                     '\n', ':' => return buf[home_dir_start .. home_dir_start + home_dir_len],
                     else => {
                         home_dir_len += 1;
