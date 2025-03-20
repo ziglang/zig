@@ -302,12 +302,13 @@ test dumpHexInternal {
     defer output.deinit();
     try dumpHexInternal(bytes, .no_color, output.writer());
     const expected = try std.fmt.allocPrint(std.testing.allocator,
-        \\{x:0>16}  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
-        \\{x:0>16}  01 12 13                                          ...
+        \\{x:0>[2]}  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
+        \\{x:0>[2]}  01 12 13                                          ...
         \\
     , .{
         @intFromPtr(bytes.ptr),
         @intFromPtr(bytes.ptr) + 16,
+        @sizeOf(usize) * 2,
     });
     defer std.testing.allocator.free(expected);
     try std.testing.expectEqualStrings(expected, output.items);
