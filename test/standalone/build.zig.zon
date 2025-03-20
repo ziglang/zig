@@ -189,6 +189,9 @@
         .config_header = .{
             .path = "config_header",
         },
+        .case_sensitivity = .{
+            .path = "case_sensitivity",
+        },
     },
     .paths = .{
         "build.zig",
