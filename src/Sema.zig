@@ -1867,9 +1867,13 @@ fn analyzeBodyInner(
                 const err_union = try sema.resolveInst(extra.data.operand);
                 const err_union_ty = sema.typeOf(err_union);
                 if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-                    return sema.fail(block, operand_src, "expected error union type, found '{}'", .{
-                        err_union_ty.fmt(pt),
-                    });
+                    const msg = msg: {
+                        const msg = try sema.errMsg(operand_src, "expected error union type, found '{}'", .{err_union_ty.fmt(pt)});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
                 }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
@@ -18888,9 +18892,13 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-        return sema.fail(parent_block, operand_src, "expected error union type, found '{}'", .{
-            err_union_ty.fmt(pt),
-        });
+        const msg = msg: {
+            const msg = try sema.errMsg(operand_src, "expected error union type, found '{}'", .{err_union_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(parent_block, msg);
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
@@ -18948,9 +18956,13 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-        return sema.fail(parent_block, operand_src, "expected error union type, found '{}'", .{
-            err_union_ty.fmt(pt),
-        });
+        const msg = msg: {
+            const msg = try sema.errMsg(operand_src, "expected error union type, found '{}'", .{err_union_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(parent_block, msg);
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
