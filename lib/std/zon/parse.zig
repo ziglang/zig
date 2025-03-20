@@ -2071,38 +2071,6 @@ test "std.zon arrays and slices" {
     }
 }
 
-test "std.zon enum as string" {
-    const gpa = std.testing.allocator;
-    // bare literal
-    {
-        const parsed = try fromSlice([:0]const u8, gpa, ".my_enum_literal", null, .{
-            .enum_literals_as_strings = true,
-        });
-        defer free(gpa, parsed);
-        try std.testing.expectEqualStrings(@as([:0]const u8, "my_enum_literal"), parsed);
-    }
-    // quoted enum literal with a " special character
-    {
-        const parsed = try fromSlice([]const u8, gpa, ".@\"test\\\"\"", null, .{
-            .enum_literals_as_strings = true,
-        });
-        defer free(gpa, parsed);
-        try std.testing.expectEqualStrings(@as([]const u8, "test\""), parsed);
-    }
-    // bare literal in struct
-    {
-        const parsed = try fromSlice(struct {
-            name: []const u8,
-            type: []const u8,
-        }, gpa, ".{ .name = .literal_0, .type = .literal_1 }", null, .{
-            .enum_literals_as_strings = true,
-        });
-        defer free(gpa, parsed);
-        try std.testing.expectEqualStrings(@as([]const u8, "literal_0"), parsed.name);
-        try std.testing.expectEqualStrings(@as([]const u8, "literal_1"), parsed.type);
-    }
-}
-
 test "std.zon string literal" {
     const gpa = std.testing.allocator;
 
@@ -2425,6 +2393,38 @@ test "std.zon enum literals" {
             "{}",
             .{diag},
         );
+    }
+}
+
+test "std.zon enums_as_strings" {
+    const gpa = std.testing.allocator;
+    // bare literal
+    {
+        const parsed = try fromSlice([:0]const u8, gpa, ".my_enum_literal", null, .{
+            .enum_literals_as_strings = true,
+        });
+        defer free(gpa, parsed);
+        try std.testing.expectEqualStrings(@as([:0]const u8, "my_enum_literal"), parsed);
+    }
+    // quoted enum literal with a " special character
+    {
+        const parsed = try fromSlice([]const u8, gpa, ".@\"test\\\"\"", null, .{
+            .enum_literals_as_strings = true,
+        });
+        defer free(gpa, parsed);
+        try std.testing.expectEqualStrings(@as([]const u8, "test\""), parsed);
+    }
+    // bare literal in struct
+    {
+        const parsed = try fromSlice(struct {
+            name: []const u8,
+            type: []const u8,
+        }, gpa, ".{ .name = .literal_0, .type = .literal_1 }", null, .{
+            .enum_literals_as_strings = true,
+        });
+        defer free(gpa, parsed);
+        try std.testing.expectEqualStrings(@as([]const u8, "literal_0"), parsed.name);
+        try std.testing.expectEqualStrings(@as([]const u8, "literal_1"), parsed.type);
     }
 }
 
