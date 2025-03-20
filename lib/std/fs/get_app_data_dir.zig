@@ -71,7 +71,7 @@ fn getHomeDirFromPasswd() ![]u8 {
 
     var buf: [std.heap.page_size_min]u8 = undefined;
     var state = ReaderState.start;
-    const currentUid = std.os.linux.getuid();
+    const currentUid = std.posix.getuid();
     var uid: posix.uid_t = 0;
     var home_dir_start: usize = 0;
     var home_dir_len: usize = 0;
