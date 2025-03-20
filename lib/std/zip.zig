@@ -444,13 +444,13 @@ pub fn Iterator(comptime SeekableStream: type) type {
             ) !u32 {
                 if (filename_buf.len < self.filename_len)
                     return error.ZipInsufficientBuffer;
-                const filename = filename_buf[0..self.filename_len];
+                const orig_filename = filename_buf[0..self.filename_len];
 
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
 
                 {
-                    const len = try stream.context.reader().readAll(filename);
-                    if (len != filename.len)
+                    const len = try stream.context.reader().readAll(orig_filename);
+                    if (len != orig_filename.len)
                         return error.ZipBadFileOffset;
                 }
 
@@ -518,33 +518,36 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         @as(u64, local_header.extra_len);
                 };
 
-                if (isBadFilename(filename))
+                if (isBadFilename(orig_filename))
                     return error.ZipBadFilename;
 
                 if (options.allow_backslashes) {
-                    std.mem.replaceScalar(u8, filename, '\\', '/');
+                    std.mem.replaceScalar(u8, orig_filename, '\\', '/');
                 } else {
-                    if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
+                    if (std.mem.indexOfScalar(u8, orig_filename, '\\')) |_|
                         return error.ZipFilenameHasBackslash;
                 }
 
+                const strip_filename = stripComponents(orig_filename, options.strip_components);
+
                 // All entries that end in '/' are directories
-                if (filename[filename.len - 1] == '/') {
+                if (orig_filename[orig_filename.len - 1] == '/') {
                     if (self.uncompressed_size != 0)
                         return error.ZipBadDirectorySize;
-                    try dest.makePath(filename[0 .. filename.len - 1]);
+                    try dest.makePath(strip_filename);
                     return std.hash.Crc32.hash(&.{});
                 }
 
-                const out_file = blk: {
-                    if (std.fs.path.dirname(filename)) |dirname| {
+                const out_file = try blk: {
+                    if (std.fs.path.dirname(strip_filename)) |dirname| {
                         var parent_dir = try dest.makeOpenPath(dirname, .{});
                         defer parent_dir.close();
 
-                        const basename = std.fs.path.basename(filename);
+                        const basename = std.fs.path.basename(strip_filename);
                         break :blk try parent_dir.createFile(basename, .{ .exclusive = true });
                     }
-                    break :blk try dest.createFile(filename, .{ .exclusive = true });
+                    if (strip_filename.len == 0) break :blk error.BadFileName;
+                    break :blk try dest.createFile(strip_filename, .{ .exclusive = true });
                 };
                 defer out_file.close();
                 const local_data_file_offset: u64 =
@@ -610,6 +613,8 @@ pub const ExtractOptions = struct {
     /// Allow filenames within the zip to use backslashes.  Back slashes are normalized
     /// to forward slashes before forwarding them to platform APIs.
     allow_backslashes: bool = false,
+    /// Number of directory levels to skip when extracting files.
+    strip_components: u32 = 0,
 
     diagnostics: ?*Diagnostics = null,
 };
@@ -631,6 +636,29 @@ pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptio
             try d.nextFilename(filename_buf[0..entry.filename_len]);
         }
     }
+}
+
+fn stripComponents(path: []const u8, count: u32) []const u8 {
+    var i: usize = 0;
+    var c = count;
+    while (c > 0) : (c -= 1) {
+        if (std.mem.indexOfScalarPos(u8, path, i, '/')) |pos| {
+            i = pos + 1;
+        } else {
+            i = path.len;
+            break;
+        }
+    }
+    return path[i..];
+}
+
+test stripComponents {
+    const expectEqualStrings = testing.expectEqualStrings;
+    try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
+    try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
+    try expectEqualStrings("c", stripComponents("a/b/c", 2));
+    try expectEqualStrings("", stripComponents("a/b/c", 3));
+    try expectEqualStrings("", stripComponents("a/b/c", 4));
 }
 
 fn testZip(options: ExtractOptions, comptime files: []const File, write_opt: testutil.WriteZipOptions) !void {
