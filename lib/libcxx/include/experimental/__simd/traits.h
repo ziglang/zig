@@ -11,10 +11,10 @@
 #define _LIBCPP_EXPERIMENTAL___SIMD_TRAITS_H
 
 #include <__bit/bit_ceil.h>
+#include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_same.h>
-#include <cstddef>
-#include <experimental/__config>
 #include <experimental/__simd/declaration.h>
 #include <experimental/__simd/utility.h>
 

@@ -44,7 +44,7 @@ unsigned char _InterlockedCompareExchange128_rel(__int64 volatile *_Destination,
                                                  __int64 *_ComparandResult);
 #endif
 
-#ifdef __x86_64__ && !defined(__arm64ec__)
+#if defined(__x86_64__) && !defined(__arm64ec__)
 unsigned __int64 _umul128(unsigned __int64, unsigned __int64,
                           unsigned __int64 *);
 unsigned __int64 __shiftleft128(unsigned __int64 _LowPart,
@@ -207,6 +207,9 @@ long _InterlockedExchange_rel(long volatile *_Target, long _Value);
 __int64 _InterlockedExchange64_acq(__int64 volatile *_Target, __int64 _Value);
 __int64 _InterlockedExchange64_nf(__int64 volatile *_Target, __int64 _Value);
 __int64 _InterlockedExchange64_rel(__int64 volatile *_Target, __int64 _Value);
+void *_InterlockedExchangePointer_acq(void *volatile *_Target, void *_Value);
+void *_InterlockedExchangePointer_nf(void *volatile *_Target, void *_Value);
+void *_InterlockedExchangePointer_rel(void *volatile *_Target, void *_Value);
 
 /*----------------------------------------------------------------------------*\
 |* Interlocked Compare Exchange
@@ -237,6 +240,12 @@ __int64 _InterlockedCompareExchange64_nf(__int64 volatile *_Destination,
 __int64 _InterlockedCompareExchange64_rel(__int64 volatile *_Destination,
                                           __int64 _Exchange,
                                           __int64 _Comparand);
+void *_InterlockedCompareExchangePointer_acq(void *volatile *_Destination,
+                                             void *_Exchange, void *_Comparand);
+void *_InterlockedCompareExchangePointer_nf(void *volatile *_Destination,
+                                            void *_Exchange, void *_Comparand);
+void *_InterlockedCompareExchangePointer_rel(void *volatile *_Destination,
+                                             void *_Exchange, void *_Comparand);
 #endif
 
 #ifdef __cplusplus

@@ -9,8 +9,8 @@
 #ifndef _LIBCPP___ATOMIC_FENCE_H
 #define _LIBCPP___ATOMIC_FENCE_H
 
-#include <__atomic/cxx_atomic_impl.h>
 #include <__atomic/memory_order.h>
+#include <__atomic/support.h>
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

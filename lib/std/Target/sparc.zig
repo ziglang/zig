@@ -7,6 +7,11 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     deprecated_v8,
     detectroundchange,
+    fix_tn0009,
+    fix_tn0010,
+    fix_tn0011,
+    fix_tn0012,
+    fix_tn0013,
     fixallfdivsqrt,
     hard_quad_float,
     hasleoncasa,
@@ -48,6 +53,7 @@ pub const Feature = enum {
     slow_rdpc,
     soft_float,
     soft_mul_div,
+    v8plus,
     v9,
     vis,
     vis2,
@@ -71,6 +77,31 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.detectroundchange)] = .{
         .llvm_name = "detectroundchange",
         .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0009)] = .{
+        .llvm_name = "fix-tn0009",
+        .description = "Enable workaround for errata described in GRLIB-TN-0009",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0010)] = .{
+        .llvm_name = "fix-tn0010",
+        .description = "Enable workaround for errata described in GRLIB-TN-0010",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0011)] = .{
+        .llvm_name = "fix-tn0011",
+        .description = "Enable workaround for errata described in GRLIB-TN-0011",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0012)] = .{
+        .llvm_name = "fix-tn0012",
+        .description = "Enable workaround for errata described in GRLIB-TN-0012",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0013)] = .{
+        .llvm_name = "fix-tn0013",
+        .description = "Enable workaround for errata described in GRLIB-TN-0013",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fixallfdivsqrt)] = .{
@@ -278,6 +309,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.soft_mul_div)] = .{
         .llvm_name = "soft-mul-div",
         .description = "Use software emulation for integer multiply and divide",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.v8plus)] = .{
+        .llvm_name = "v8plus",
+        .description = "Enable V8+ mode, allowing use of 64-bit V9 instructions in 32-bit code",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v9)] = .{

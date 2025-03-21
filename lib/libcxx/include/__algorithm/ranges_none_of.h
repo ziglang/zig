@@ -30,8 +30,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __none_of {
-struct __fn {
+struct __none_of {
   template <class _Iter, class _Sent, class _Proj, class _Pred>
   _LIBCPP_HIDE_FROM_ABI constexpr static bool
   __none_of_impl(_Iter __first, _Sent __last, _Pred& __pred, _Proj& __proj) {
@@ -59,10 +58,9 @@ struct __fn {
     return __none_of_impl(ranges::begin(__range), ranges::end(__range), __pred, __proj);
   }
 };
-} // namespace __none_of
 
 inline namespace __cpo {
-inline constexpr auto none_of = __none_of::__fn{};
+inline constexpr auto none_of = __none_of{};
 } // namespace __cpo
 } // namespace ranges
 
