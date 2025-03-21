@@ -246,7 +246,7 @@ pub const Node = struct {
         }
         const index = n.index.unwrap() orelse return;
         const parent_ptr = parentByIndex(index);
-        if (parent_ptr.unwrap()) |parent_index| {
+        if (@atomicLoad(Parent, parent_ptr, .acquire).unwrap()) |parent_index| {
             _ = @atomicRmw(u32, &storageByIndex(parent_index).completed_count, .Add, 1, .monotonic);
             @atomicStore(Node.Parent, parent_ptr, .unused, .seq_cst);
 
