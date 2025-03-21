@@ -76,9 +76,18 @@ pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
     return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
 }
 
-// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+pub fn calcNonZeroTwosCompLimbCount(bit_count: usize) usize {
+    assert(bit_count != 0);
+    return calcTwosCompLimbCount(bit_count);
+}
+
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+///
+/// Special cases `bit_count == 0` to return 1. Zero-bit integers can only store the value zero
+/// and this big integer implementation stores zero using one limb.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
-    return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
+    return @max(std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable, 1);
 }
 
 /// a + b * c + *carry, sets carry to the overflow bits
@@ -188,8 +197,10 @@ pub const Mutable = struct {
         if (self.limbs.ptr != other.limbs.ptr) {
             @memcpy(self.limbs[0..other.limbs.len], other.limbs[0..other.limbs.len]);
         }
-        self.positive = other.positive;
-        self.len = other.limbs.len;
+        // Normalize before setting `positive` so the `eqlZero` doesn't need to iterate
+        // over the extra zero limbs.
+        self.normalize(other.limbs.len);
+        self.positive = other.positive or other.eqlZero();
     }
 
     /// Efficiently swap an Mutable with another. This swaps the limb pointers and a full copy is not
