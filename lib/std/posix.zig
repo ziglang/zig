@@ -3407,6 +3407,12 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
     }
 }
 
+/// POSIX IEEE Std 1003.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
+/// Conforming environments will always be successful and never modify errno.
+pub fn getuid() uid_t {
+    return system.getuid();
+}
+
 pub const SetEidError = error{
     InvalidUserId,
     PermissionDenied,
