@@ -619,3 +619,15 @@ test "generic parameter resolves to comptime-only type but is not marked comptim
     const ct_result = comptime S.foo(u8, false, S.bar);
     comptime std.debug.assert(ct_result == 123);
 }
+
+test "instantiate coerced generic function" {
+    const S = struct {
+        fn generic(comptime T: type, arg: *const u8) !void {
+            _ = T;
+            _ = arg;
+        }
+    };
+    const coerced: fn (comptime type, *u8) anyerror!void = S.generic;
+    var x: u8 = 20;
+    try coerced(u8, &x);
+}

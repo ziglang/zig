@@ -9443,7 +9443,7 @@ pub fn getFuncInstanceIes(
     try items.ensureUnusedCapacity(4);
 
     const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
-    const generic_owner_ty = ip.indexToKey(ip.funcDeclInfo(arg.generic_owner).ty).func_type;
+    const generic_owner_ty = ip.indexToKey(ip.funcDeclInfo(generic_owner).ty).func_type;
 
     // The strategy here is to add the function decl unconditionally, then to
     // ask if it already exists, and if so, revert the lengths of the mutated
