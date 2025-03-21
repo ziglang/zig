@@ -76,8 +76,17 @@ pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
     return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
 }
 
-// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+pub fn calcNonZeroTwosCompLimbCount(bit_count: usize) usize {
+    assert(bit_count != 0);
+    return calcTwosCompLimbCount(bit_count);
+}
+
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+///
+/// Special cases `bit_count == 0` to return 1.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
+    if (bit_count == 0) return 1;
     return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
 }
 
@@ -424,7 +433,10 @@ pub const Mutable = struct {
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn addCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqlZero()) {
+        if (a.eqlZero() and b.eqlZero()) {
+            r.set(0);
+            return false;
+        } else if (a.eqlZero()) {
             r.copy(b);
             return false;
         } else if (b.eqlZero()) {
@@ -561,7 +573,10 @@ pub const Mutable = struct {
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn subCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqlZero()) {
+        if (a.eqlZero() and b.eqlZero()) {
+            r.set(0);
+            return false;
+        } else if (a.eqlZero()) {
             r.copy(b);
             r.positive = !b.positive;
             return false;
@@ -1803,7 +1818,7 @@ pub const Mutable = struct {
         };
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or abs_trunc_a.eqlZero()) {
+        if (bit_count == 0 or abs_trunc_a.eqlZero()) {
             r.set(0);
             return;
         }
