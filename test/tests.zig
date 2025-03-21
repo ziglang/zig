@@ -30,11 +30,9 @@ const TestTarget = struct {
     strip: ?bool = null,
     skip_modules: []const []const u8 = &.{},
 
-    // This is intended for targets that are known to be slow to compile. These are acceptable to
-    // run in CI, but should not be run on developer machines by default. As an example, at the time
-    // of writing, this included LLVM's MIPS backend which takes upwards of 20 minutes longer to
-    // compile tests than other backends. (No longer the case.)
-    slow_backend: bool = false,
+    // This is intended for targets that are known to be slow to compile, or require a newer LLVM
+    // version than is present on the CI machines, etc.
+    extra_target: bool = false,
 };
 
 const test_targets = blk: {
@@ -1363,7 +1361,7 @@ pub fn addRunTranslatedCTests(
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
-    test_slow_targets: bool,
+    test_extra_targets: bool,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
@@ -1388,7 +1386,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             }
         }
 
-        if (!options.test_slow_targets and test_target.slow_backend) continue;
+        if (!options.test_extra_targets and test_target.extra_target) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
