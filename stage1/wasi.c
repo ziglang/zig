@@ -1003,6 +1003,8 @@ uint32_t wasi_snapshot_preview1_fd_seek(uint32_t fd, uint64_t in_offset, uint32_
         default: panic("unimplemented");
     }
 
+    if (fds[fd].stream == NULL) return wasi_errno_success;
+
     int seek_whence;
     switch (whence) {
         case wasi_whence_set:
