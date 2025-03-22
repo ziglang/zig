@@ -1391,6 +1391,60 @@ test "pwritev, preadv" {
     try testing.expectEqualStrings(&buf2, "line1\n");
 }
 
+test "setEndPos" {
+    // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file_name = "afile.txt";
+    try tmp.dir.writeFile(.{ .sub_path = file_name, .data = "ninebytes" });
+    const f = try tmp.dir.openFile(file_name, .{ .mode = .read_write });
+    defer f.close();
+
+    const initial_size = try f.getEndPos();
+    var buffer: [32]u8 = undefined;
+
+    {
+        try f.setEndPos(initial_size);
+        try testing.expectEqual(initial_size, try f.getEndPos());
+        try testing.expectEqual(initial_size, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("ninebytes", buffer[0..@intCast(initial_size)]);
+    }
+
+    {
+        const larger = initial_size + 4;
+        try f.setEndPos(larger);
+        try testing.expectEqual(larger, try f.getEndPos());
+        try testing.expectEqual(larger, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("ninebytes\x00\x00\x00\x00", buffer[0..@intCast(larger)]);
+    }
+
+    {
+        const smaller = initial_size - 5;
+        try f.setEndPos(smaller);
+        try testing.expectEqual(smaller, try f.getEndPos());
+        try testing.expectEqual(smaller, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("nine", buffer[0..@intCast(smaller)]);
+    }
+
+    try f.setEndPos(0);
+    try testing.expectEqual(0, try f.getEndPos());
+    try testing.expectEqual(0, try f.preadAll(&buffer, 0));
+
+    // Invalid file length should error gracefully. Actual limit is host
+    // and file-system dependent, but 1PB should fail most everywhere.
+    // Except MacOS APFS limit is 8 exabytes.
+    f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
+
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63))); // Maximum signed value
+
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
+}
+
 test "access file" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
