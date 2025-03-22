@@ -41,6 +41,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_wasm => .wasm_backend,
         .stage2_x86 => .x86_backend,
         .stage2_x86_64 => .x86_64_backend,
+        .stage2_loongarch => .loongarch_backend,
         _ => unreachable,
     };
 }
@@ -53,6 +54,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
         .stage2_powerpc => unreachable,
+        .stage2_loongarch => @import("arch/loongarch/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_spirv => @import("codegen/spirv.zig"),
@@ -75,6 +77,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_spirv,
+        .stage2_loongarch,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).legalizeFeatures(target);
@@ -174,6 +177,7 @@ pub fn emitFunction(
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_riscv64,
+        .stage2_loongarch,
         .stage2_sparc64,
         .stage2_x86_64,
         => |backend| {
