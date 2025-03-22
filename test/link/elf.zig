@@ -1795,7 +1795,7 @@ fn testImportingDataDynamic(b: *Build, opts: Options) *Step {
         \\    printFoo();
         \\}
         ,
-        .strip = true, // TODO temp hack
+        .strip = .all, // TODO temp hack // temp hack for what?
     });
     main.pie = true;
     main.linkLibrary(dso);
@@ -1842,7 +1842,7 @@ fn testImportingDataStatic(b: *Build, opts: Options) *Step {
         \\    @import("std").debug.print("{d}\n", .{foo});
         \\}
         ,
-        .strip = true, // TODO temp hack
+        .strip = .all, // TODO temp hack // temp hack for what?
     });
     main.linkLibrary(lib);
     main.linkLibC();
@@ -2259,7 +2259,7 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     }, .{
         .name = "a",
         .c_source_bytes = "int foo;",
-        .strip = true,
+        .strip = .all,
     });
 
     const exe = addExecutable(b, opts, .{ .name = "main" });
@@ -3004,7 +3004,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
     {
         const exe = addExecutable(b, opts, .{ .name = "main1" });
         exe.addObject(obj);
-        exe.root_module.strip = false;
+        exe.root_module.strip = .none;
         exe.linkLibC();
 
         const check = exe.checkObject();
@@ -3017,7 +3017,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
     {
         const exe = addExecutable(b, opts, .{ .name = "main2" });
         exe.addObject(obj);
-        exe.root_module.strip = true;
+        exe.root_module.strip = .all;
         exe.linkLibC();
 
         const check = exe.checkObject();
