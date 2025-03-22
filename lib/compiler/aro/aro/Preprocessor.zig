@@ -430,12 +430,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if_level = sum;
 
                         if (try pp.expr(&tokenizer)) {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering then branch of #if", .{});
                             }
                         } else {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                             try pp.skip(&tokenizer, .until_else);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering else branch of #if", .{});
@@ -451,12 +451,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         const macro_name = (try pp.expectMacroName(&tokenizer)) orelse continue;
                         try pp.expectNl(&tokenizer);
                         if (pp.defines.get(macro_name) != null) {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering then branch of #ifdef", .{});
                             }
                         } else {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                             try pp.skip(&tokenizer, .until_else);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering else branch of #ifdef", .{});
@@ -472,9 +472,9 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         const macro_name = (try pp.expectMacroName(&tokenizer)) orelse continue;
                         try pp.expectNl(&tokenizer);
                         if (pp.defines.get(macro_name) == null) {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                         } else {
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                             try pp.skip(&tokenizer, .until_else);
                         }
                     },
@@ -482,13 +482,13 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elif_without_if);
                             if_level += 1;
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
+                        switch (std.mem.readPackedInt(u2, &if_kind, if_level * 2, .native)) {
                             until_else => if (try pp.expr(&tokenizer)) {
-                                std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                                std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                                 if (pp.verbose) {
                                     pp.verboseLog(directive, "entering then branch of #elif", .{});
                                 }
@@ -510,15 +510,15 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elifdef_without_if);
                             if_level += 1;
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
+                        switch (std.mem.readPackedInt(u2, &if_kind, if_level * 2, .native)) {
                             until_else => {
                                 const macro_name = try pp.expectMacroName(&tokenizer);
                                 if (macro_name == null) {
-                                    std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                                    std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                                     try pp.skip(&tokenizer, .until_else);
                                     if (pp.verbose) {
                                         pp.verboseLog(directive, "entering else branch of #elifdef", .{});
@@ -526,12 +526,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                                 } else {
                                     try pp.expectNl(&tokenizer);
                                     if (pp.defines.get(macro_name.?) != null) {
-                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                                        std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering then branch of #elifdef", .{});
                                         }
                                     } else {
-                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                                        std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                                         try pp.skip(&tokenizer, .until_else);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering else branch of #elifdef", .{});
@@ -551,15 +551,15 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elifdef_without_if);
                             if_level += 1;
-                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                            std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
+                        switch (std.mem.readPackedInt(u2, &if_kind, if_level * 2, .native)) {
                             until_else => {
                                 const macro_name = try pp.expectMacroName(&tokenizer);
                                 if (macro_name == null) {
-                                    std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                                    std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                                     try pp.skip(&tokenizer, .until_else);
                                     if (pp.verbose) {
                                         pp.verboseLog(directive, "entering else branch of #elifndef", .{});
@@ -567,12 +567,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                                 } else {
                                     try pp.expectNl(&tokenizer);
                                     if (pp.defines.get(macro_name.?) == null) {
-                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
+                                        std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif, .native);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering then branch of #elifndef", .{});
                                         }
                                     } else {
-                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
+                                        std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_else, .native);
                                         try pp.skip(&tokenizer, .until_else);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering else branch of #elifndef", .{});
@@ -596,9 +596,9 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
+                        switch (std.mem.readPackedInt(u2, &if_kind, if_level * 2, .native)) {
                             until_else => {
-                                std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif_seen_else);
+                                std.mem.writePackedInt(u2, &if_kind, if_level * 2, until_endif_seen_else, .native);
                                 if (pp.verbose) {
                                     pp.verboseLog(directive, "#else branch here", .{});
                                 }
