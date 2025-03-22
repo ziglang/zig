@@ -419,10 +419,10 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
@@ -431,10 +431,10 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasNonEmptyEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         const value = getenvW(key_w) orelse return false;
         return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -451,10 +451,10 @@ pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariab
 ///
 /// Since the key is comptime-known, no allocation is needed.
 ///
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(key);
         const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -526,32 +526,29 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (native_os != .windows) {
         @compileError("Windows-only");
     }
-    const key_slice = mem.sliceTo(key, 0);
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
-    while (ptr[i] != 0) {
+    while (ptr[i] != 0) : (i += mem.sliceTo(ptr[i..], 0).len + 1) {
         const key_start = i;
 
         // There are some special environment variables that start with =,
         // so we need a special case to not treat = as a key/value separator
         // if it's the first character.
         // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
-        if (ptr[key_start] == '=') i += 1;
-
-        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-        const this_key = ptr[key_start..i];
-
-        if (ptr[i] == '=') i += 1;
-
-        const value_start = i;
-        while (ptr[i] != 0) : (i += 1) {}
-        const this_value = ptr[value_start..i :0];
-
-        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
-            return this_value;
+        if (ptr[key_start] == '=') {
+            if (key[0] != '=') continue;
+            i += 1;
         }
 
-        i += 1; // skip over null byte
+        // Note: A '=' being present after the name is enforced by CreateProcess.
+        // If violated, CreateProcess will fail with INVALID_PARAMETER.
+        const upcaseW = windows.ntdll.RtlUpcaseUnicodeChar;
+        while (ptr[i] != 0 and key[i - key_start] != 0) : (i += 1) {
+            if (upcaseW(ptr[i]) != upcaseW(key[i - key_start])) break;
+        }
+        if ((key[i - key_start] != 0) or (ptr[i] != '=')) continue;
+
+        return mem.sliceTo(ptr[i + 1 ..], 0);
     }
     return null;
 }
@@ -2036,7 +2033,8 @@ test createNullDelimitedEnvMap {
 pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        // Only need 2 trailing NUL code units for an empty environment
+        var max_chars_needed: usize = if (env_map.count() == 0) 2 else 1;
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -2060,12 +2058,14 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     }
     result[i] = 0;
     i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
+    // An empty environment is a special case that requires a redundant
+    // NUL terminator. CreateProcess will read the second code unit even
+    // though theoretically the first should be enough to recognize that the
+    // environment is empty (see https://nullprogram.com/blog/2023/08/23/)
+    if (env_map.count() == 0) {
+        result[i] = 0;
+        i += 1;
+    }
     return try allocator.realloc(result, i);
 }
 
