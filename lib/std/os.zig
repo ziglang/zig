@@ -65,7 +65,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.PermissionDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }

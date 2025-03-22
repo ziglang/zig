@@ -1517,7 +1517,7 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
 
 pub const GetFileAttributesError = error{
     FileNotFound,
-    PermissionDenied,
+    AccessDenied,
     Unexpected,
 };
 
@@ -1532,7 +1532,7 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.PermissionDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1747,12 +1747,12 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
+pub const TerminateProcessError = error{ AccessDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (GetLastError()) {
-            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
+            Win32Error.ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
