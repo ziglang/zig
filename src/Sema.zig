@@ -25720,18 +25720,21 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const array_ty = try pt.arrayType(.{
             .child = dest_elem_ty.toIntern(),
             .len = len_u64,
+            .sentinel = dest_ty.ptrInfo(zcu).sentinel,
         });
 
         const dest_array_ptr_ty = try pt.ptrType(info: {
             var info = dest_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
         const src_array_ptr_ty = try pt.ptrType(info: {
             var info = src_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
 
