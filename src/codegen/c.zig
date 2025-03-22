@@ -611,7 +611,7 @@ pub const Function = struct {
         const a = try Assignment.start(f, writer, ctype);
         try f.writeCValue(writer, dst, .Other);
         try a.assign(f, writer);
-        try f.writeCValue(writer, src, .Initializer);
+        try f.writeCValue(writer, src, .Other);
         try a.end(f, writer);
     }
 
@@ -2826,7 +2826,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                 });
                 try o.dg.renderTypeAndName(w, name_ty, .{ .identifier = "name" }, Const, .none, .complete);
                 try w.writeAll(" = ");
-                try o.dg.renderValue(w, Value.fromInterned(name_val), .Initializer);
+                try o.dg.renderValue(w, Value.fromInterned(name_val), .StaticInitializer);
                 try w.writeAll(";\n   return (");
                 try o.dg.renderType(w, name_slice_ty);
                 try w.print("){{{}, {}}};\n", .{
@@ -4045,7 +4045,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
             const new_local = try f.allocLocal(inst, src_ty);
             try f.writeCValue(writer, new_local, .Other);
             try writer.writeAll(" = ");
-            try f.writeCValue(writer, src_val, .Initializer);
+            try f.writeCValue(writer, src_val, .Other);
             try writer.writeAll(";\n");
 
             break :blk new_local;
@@ -4516,7 +4516,7 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
         const a = try Assignment.start(f, writer, .usize);
         try f.writeCValueMember(writer, local, .{ .identifier = "len" });
         try a.assign(f, writer);
-        try f.writeCValue(writer, len, .Initializer);
+        try f.writeCValue(writer, len, .Other);
         try a.end(f, writer);
     }
     return local;
@@ -4934,7 +4934,7 @@ fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
     const cond_local = f.loop_switch_conds.get(br.block_inst).?;
     try f.writeCValue(writer, .{ .local = cond_local }, .Other);
     try writer.writeAll(" = ");
-    try f.writeCValue(writer, cond, .Initializer);
+    try f.writeCValue(writer, cond, .Other);
     try writer.writeAll(";\n");
     try writer.print("goto zig_switch_{d}_loop;", .{@intFromEnum(br.block_inst)});
 }
@@ -4979,14 +4979,13 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
     const operand_lval = if (operand == .constant) blk: {
         const operand_local = try f.allocLocal(null, operand_ty);
         try f.writeCValue(writer, operand_local, .Other);
-        if (operand_ty.isAbiInt(zcu)) {
-            try writer.writeAll(" = ");
-        } else {
-            try writer.writeAll(" = (");
+        try writer.writeAll(" = ");
+        if (!operand_ty.isAbiInt(zcu)) {
+            try writer.writeByte('(');
             try f.renderType(writer, operand_ty);
             try writer.writeByte(')');
         }
-        try f.writeCValue(writer, operand, .Initializer);
+        try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
         break :blk operand_local;
     } else operand;
@@ -5698,7 +5697,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
             const a = try Assignment.start(f, writer, opt_ctype);
             try f.writeCValueDeref(writer, operand);
             try a.assign(f, writer);
-            try f.object.dg.renderValue(writer, Value.false, .Initializer);
+            try f.object.dg.renderValue(writer, Value.false, .Other);
             try a.end(f, writer);
             return .none;
         },
@@ -5718,7 +5717,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
                 const a = try Assignment.start(f, writer, opt_ctype);
                 try f.writeCValueDerefMember(writer, operand, .{ .identifier = "is_null" });
                 try a.assign(f, writer);
-                try f.object.dg.renderValue(writer, Value.false, .Initializer);
+                try f.object.dg.renderValue(writer, Value.false, .Other);
                 try a.end(f, writer);
             }
             if (f.liveness.isUnused(inst)) return .none;
@@ -5844,7 +5843,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeByte(')');
 
     switch (fieldLocation(container_ptr_ty, field_ptr_ty, extra.field_index, pt)) {
-        .begin => try f.writeCValue(writer, field_ptr_val, .Initializer),
+        .begin => try f.writeCValue(writer, field_ptr_val, .Other),
         .field => |field| {
             const u8_ptr_ty = try pt.adjustPtrTypeChild(field_ptr_ty, .u8);
 
@@ -5898,7 +5897,7 @@ fn fieldPtr(
     try writer.writeByte(')');
 
     switch (fieldLocation(container_ptr_ty, field_ptr_ty, field_index, pt)) {
-        .begin => try f.writeCValue(writer, container_ptr_val, .Initializer),
+        .begin => try f.writeCValue(writer, container_ptr_val, .Other),
         .field => |field| {
             try writer.writeByte('&');
             try f.writeCValueDerefMember(writer, container_ptr_val, field);
@@ -6021,7 +6020,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                         const operand_local = try f.allocLocal(inst, struct_ty);
                         try f.writeCValue(writer, operand_local, .Other);
                         try writer.writeAll(" = ");
-                        try f.writeCValue(writer, struct_byval, .Initializer);
+                        try f.writeCValue(writer, struct_byval, .Other);
                         try writer.writeAll(";\n");
                         break :blk operand_local;
                     } else struct_byval;
@@ -6119,7 +6118,7 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValu
         try writer.writeAll(" = (");
         try f.renderType(writer, inst_ty);
         try writer.writeByte(')');
-        try f.writeCValue(writer, operand, .Initializer);
+        try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
         return local;
     }
@@ -6164,7 +6163,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
                     const a = try Assignment.start(f, writer, operand_ctype);
                     try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
                     try a.assign(f, writer);
-                    try f.writeCValue(writer, operand, .Initializer);
+                    try f.writeCValue(writer, operand, .Other);
                     try a.end(f, writer);
                 }
                 return local;
@@ -6365,7 +6364,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.writeCValueMember(writer, local, .{ .identifier = "ptr" });
         try a.assign(f, writer);
         if (operand == .undef) {
-            try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(zcu) }, .Initializer);
+            try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(zcu) }, .Other);
         } else {
             const ptr_ctype = try f.ctypeFromType(ptr_ty, .complete);
             const ptr_child_ctype = ptr_ctype.info(ctype_pool).pointer.elem_ctype;
@@ -6382,7 +6381,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeByte('&');
                 try f.writeCValueDeref(writer, operand);
                 try writer.print("[{}]", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
-            } else try f.writeCValue(writer, operand, .Initializer);
+            } else try f.writeCValue(writer, operand, .Other);
         }
         try a.end(f, writer);
     }
@@ -6912,7 +6911,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("for (");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, 0), .Initializer);
+        try f.object.dg.renderValue(writer, try pt.intValue(.usize, 0), .Other);
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
@@ -7294,7 +7293,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
             .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
-    }, .Initializer);
+    }, .Other);
     try writer.writeAll(";\n");
 
     const v = try Vectorize.start(f, inst, writer, operand_ty);
