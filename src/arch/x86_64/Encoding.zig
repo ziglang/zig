@@ -592,6 +592,7 @@ pub const Op = enum {
                         else => unreachable,
                     },
                 },
+                .gphi => .r8,
                 .segment => .sreg,
                 .x87 => switch (reg) {
                     .st0 => .st0,

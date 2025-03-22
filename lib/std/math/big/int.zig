@@ -1096,7 +1096,7 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len + (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftLeft(r: *Mutable, a: Const, shift: usize) void {
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits) + 1);
         r.positive = a.positive;
     }
@@ -1165,7 +1165,7 @@ pub const Mutable = struct {
 
         // This shift should not be able to overflow, so invoke llshl and normalize manually
         // to avoid the extra required limb.
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits));
         r.positive = a.positive;
     }
@@ -1202,17 +1202,11 @@ pub const Mutable = struct {
             break :nonzero a.limbs[full_limbs_shifted_out] << not_covered != 0;
         };
 
-        llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshr(r.limbs, a.limbs, shift);
 
         r.len = a.limbs.len - full_limbs_shifted_out;
         r.positive = a.positive;
-        if (nonzero_negative_shiftout) {
-            if (full_limbs_shifted_out > 0) {
-                r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
-                r.len += 1;
-            }
-            r.addScalar(r.toConst(), -1);
-        }
+        if (nonzero_negative_shiftout) r.addScalar(r.toConst(), -1);
         r.normalize(r.len);
     }
 
@@ -1755,119 +1749,60 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
-    /// If a is positive, this passes through to truncate.
-    /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
-    /// r may alias a.
-    ///
-    /// Asserts `r` has enough storage to store the result.
-    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
-    pub fn convertToTwosComplement(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
-        if (a.positive) {
-            r.truncate(a, signedness, bit_count);
-            return;
-        }
-
-        const req_limbs = calcTwosCompLimbCount(bit_count);
-        if (req_limbs == 0 or a.eqlZero()) {
-            r.set(0);
-            return;
-        }
-
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
-        const signmask = @as(Limb, 1) << bit;
-        const mask = (signmask << 1) -% 1;
-
-        r.addScalar(a.abs(), -1);
-        if (req_limbs > r.len) {
-            @memset(r.limbs[r.len..req_limbs], 0);
-        }
-
-        assert(r.limbs.len >= req_limbs);
-        r.len = req_limbs;
-
-        llnot(r.limbs[0..r.len]);
-        r.limbs[r.len - 1] &= mask;
-        r.normalize(r.len);
-    }
-
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
-    /// r may alias a.
+    /// `r` may alias `a`.
     ///
-    /// Asserts `r` has enough storage to store the result.
+    /// Asserts `r` has enough storage to compute the result.
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
     pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
-        const req_limbs = calcTwosCompLimbCount(bit_count);
-        const abs_trunc_a: Const = .{
-            .positive = true,
-            .limbs = a.limbs[0..@min(a.limbs.len, req_limbs)],
-        };
-
         // Handle 0-bit integers.
-        if (req_limbs == 0 or abs_trunc_a.eqlZero()) {
+        if (bit_count == 0) {
+            @branchHint(.unlikely);
             r.set(0);
             return;
         }
 
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
-        const signmask = @as(Limb, 1) << bit; // 0b0..010...0 where 1 is the sign bit.
-        const mask = (signmask << 1) -% 1; // 0b0..01..1 where the leftmost 1 is the sign bit.
+        const max_limbs = calcTwosCompLimbCount(bit_count);
+        const sign_bit = @as(Limb, 1) << @truncate(bit_count - 1);
+        const mask = @as(Limb, maxInt(Limb)) >> @truncate(-%bit_count);
 
-        if (!a.positive) {
-            // Convert the integer from sign-magnitude into twos-complement.
-            // -x = ~(x - 1)
-            // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
-            // target bit count.
+        // Guess whether the result will have the same sign as `a`.
+        //  * If the result will be signed zero, the guess is `true`.
+        //  * If the result will be the minimum signed integer, the guess is `false`.
+        //  * If the result will be unsigned zero, the guess is `a.positive`.
+        //  * Otherwise the guess is correct.
+        const same_sign_guess = switch (signedness) {
+            .signed => max_limbs > a.limbs.len or a.limbs[max_limbs - 1] & sign_bit == 0,
+            .unsigned => a.positive,
+        };
 
-            r.addScalar(abs_trunc_a, -1);
-
-            // Zero-extend the result
-            @memset(r.limbs[r.len..req_limbs], 0);
-            r.len = req_limbs;
-
-            // Without truncating, we can already peek at the sign bit of the result here.
-            // Note that it will be 0 if the result is negative, as we did not apply the flip here.
-            // If the result is negative, we have
-            // -(-x & mask)
-            // = ~(~(x - 1) & mask) + 1
-            // = ~(~((x - 1) | ~mask)) + 1
-            // = ((x - 1) | ~mask)) + 1
-            // Note, this is only valid for the target bits and not the upper bits
-            // of the most significant limb. Those still need to be cleared.
-            // Also note that `mask` is zero for all other bits, reducing to the identity.
-            // This means that we still need to use & mask to clear off the upper bits.
-
-            if (signedness == .signed and r.limbs[r.len - 1] & signmask == 0) {
-                // Re-add the one and negate to get the result.
-                r.limbs[r.len - 1] &= mask;
-                // Note, addition cannot require extra limbs here as we did a subtraction before.
-                r.addScalar(r.toConst(), 1);
-                r.normalize(r.len);
-                r.positive = false;
-            } else {
-                llnot(r.limbs[0..r.len]);
-                r.limbs[r.len - 1] &= mask;
-                r.normalize(r.len);
-            }
-        } else {
+        const abs_trunc_a: Const = .{
+            .positive = true,
+            .limbs = a.limbs[0..llnormalize(a.limbs[0..@min(a.limbs.len, max_limbs)])],
+        };
+        if (same_sign_guess or abs_trunc_a.eqlZero()) {
+            // One of the following is true:
+            //  * The result is zero.
+            //  * The result is non-zero and has the same sign as `a`.
             r.copy(abs_trunc_a);
-            // If the integer fits within target bits, no wrapping is required.
-            if (r.len < req_limbs) return;
-
-            r.limbs[r.len - 1] &= mask;
+            if (max_limbs <= r.len) r.limbs[max_limbs - 1] &= mask;
             r.normalize(r.len);
-
-            if (signedness == .signed and r.limbs[r.len - 1] & signmask != 0) {
-                // Convert 2s-complement back to sign-magnitude.
-                // Sign-extend the upper bits so that they are inverted correctly.
-                r.limbs[r.len - 1] |= ~mask;
-                llnot(r.limbs[0..r.len]);
-
-                // Note, can only overflow if r holds 0xFFF...F which can only happen if
-                // a holds 0.
-                r.addScalar(r.toConst(), 1);
-
-                r.positive = false;
-            }
+            r.positive = a.positive or r.eqlZero();
+        } else {
+            // One of the following is true:
+            //  * The result is the minimum signed integer.
+            //  * The result is unsigned zero.
+            //  * The result is non-zero and has the opposite sign as `a`.
+            r.addScalar(abs_trunc_a, -1);
+            llnot(r.limbs[0..r.len]);
+            @memset(r.limbs[r.len..max_limbs], maxInt(Limb));
+            r.limbs[max_limbs - 1] &= mask;
+            r.normalize(max_limbs);
+            r.positive = switch (signedness) {
+                // The only value with the sign bit still set is the minimum signed integer.
+                .signed => !a.positive and r.limbs[max_limbs - 1] & sign_bit == 0,
+                .unsigned => !a.positive or r.eqlZero(),
+            };
         }
     }
 
