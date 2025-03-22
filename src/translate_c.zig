@@ -3379,6 +3379,49 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
     return maybeSuppressResult(c, used, res);
 }
 
+fn restoreValueQualifiersPtr(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.Expr,
+    pointee_ty: clang.QualType,
+    address_of_node: Node,
+) TransError!Node {
+    const pointer_ty = try Tag.c_pointer.create(c.arena, .{
+        .is_const = pointee_ty.isConstQualified(),
+        .is_volatile = pointee_ty.isVolatileQualified(),
+        .elem_type = try transQualType(c, scope, pointee_ty, expr.getBeginLoc()),
+    });
+    return try Tag.as.create(c.arena, .{
+        .lhs = pointer_ty,
+        .rhs = try Tag.ptr_cast.create(c.arena, address_of_node),
+    });
+}
+
+fn restoreValueQualifiersValue(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.Expr,
+    expr_ty: clang.QualType,
+    node: Node,
+) TransError!Node {
+    assert(expr_ty.isVolatileQualified() or expr_ty.isConstQualified());
+    // TODO(theofabilous): is this 100% guaranteed?
+    // If the result type is an array, don't apply qualifiers (yet). In C, an array cannot be legally
+    // used by-value, and anything that looks like a by-value obtention of a whole array isn't *actually*
+    // a load -- we don't want to falsely annotate this as a volatile load which cannot be optimized away.
+    // Presumably, this expression will later be dereferenced or decay to a pointer, at which point
+    // pointer qualifiers will be applied.
+    switch (expr_ty.getTypeClass()) {
+        // TODO(theofabilous): are there other type classes we will want to ignore?
+        // what is a 'ConstantMatrix'? and why is this undocumented?
+        .ConstantArray => return node,
+        else => {},
+    }
+    const address_of_node = try Tag.address_of.create(c.arena, node);
+    const qual_ptr = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, address_of_node);
+    return Tag.deref.create(c.arena, qual_ptr);
+}
+
 fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, result_used: ResultUsed) TransError!Node {
     var container_node = try transExpr(c, scope, stmt.getBase(), .used);
     if (stmt.isArrow()) {
@@ -3405,6 +3448,15 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
     if (exprIsFlexibleArrayRef(c, @as(*const clang.Expr, @ptrCast(stmt)))) {
         node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &.{} });
     }
+
+    if (stmt.isArrow()) {
+        // TODO(theofabilous): function types, flexible array, opaque demotion?
+        const expr = @as(*const clang.Expr, @ptrCast(stmt));
+        const expr_ty = expr.getType();
+        if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
+            node = try restoreValueQualifiersValue(c, scope, expr, expr_ty, node);
+        }
+    }
     return maybeSuppressResult(c, result_used, node);
 }
 
@@ -3417,6 +3469,7 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
 fn transSignedArrayAccess(
     c: *Context,
     scope: *Scope,
+    stmt: *const clang.ArraySubscriptExpr,
     container_expr: *const clang.Expr,
     subscr_expr: *const clang.Expr,
     result_used: ResultUsed,
@@ -3481,7 +3534,13 @@ fn transSignedArrayAccess(
     try block_scope.statements.append(if_node);
     const block_node = try block_scope.complete(c);
 
-    const derefed = try Tag.deref.create(c.arena, block_node);
+    var node = block_node;
+    const expr = @as(*const clang.Expr, @ptrCast(stmt));
+    const expr_ty = expr.getType();
+    if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
+        node = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, node);
+    }
+    const derefed = try Tag.deref.create(c.arena, node);
 
     return maybeSuppressResult(c, result_used, derefed);
 }
@@ -3511,7 +3570,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     // Special case: actual pointer (not decayed array) and signed integer subscript
     // See discussion at https://github.com/ziglang/zig/pull/8589
     if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal)
-        return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
+        return transSignedArrayAccess(c, scope, stmt, base_stmt, subscr_expr, result_used);
 
     const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
@@ -3526,10 +3585,15 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
         });
     } else try transExpr(c, scope, subscr_expr, .used);
 
-    const node = try Tag.array_access.create(c.arena, .{
+    var node = try Tag.array_access.create(c.arena, .{
         .lhs = container_node,
         .rhs = rhs,
     });
+    const expr = @as(*const clang.Expr, @ptrCast(stmt));
+    const expr_ty = expr.getType();
+    if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
+        node = try restoreValueQualifiersValue(c, scope, expr, expr_ty, node);
+    }
     return maybeSuppressResult(c, result_used, node);
 }
 
@@ -3714,17 +3778,29 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         else
             return transCreatePreCrement(c, scope, stmt, .sub_assign, used),
         .AddrOf => {
-            return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
+            const node = try Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
+            const op_ty = op_expr.getType();
+            if (op_ty.isVolatileQualified() or op_ty.isConstQualified()) {
+                const expr = @as(*const clang.Expr, @ptrCast(stmt));
+                return restoreValueQualifiersPtr(c, scope, expr, op_ty, node);
+            } else {
+                return node;
+            }
         },
         .Deref => {
             if (qualTypeWasDemotedToOpaque(c, stmt.getType()))
                 return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "cannot dereference opaque type", .{});
 
-            const node = try transExpr(c, scope, op_expr, used);
+            var node = try transExpr(c, scope, op_expr, used);
             var is_ptr = false;
             const fn_ty = qualTypeGetFnProto(op_expr.getType(), &is_ptr);
             if (fn_ty != null and is_ptr)
                 return node;
+            const expr = @as(*const clang.Expr, @ptrCast(stmt));
+            const expr_ty = expr.getType();
+            if (expr_ty.isVolatileQualified() or expr_ty.isConstQualified()) {
+                node = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, node);
+            }
             return Tag.deref.create(c.arena, node);
         },
         .Plus => return transExpr(c, scope, op_expr, used),
