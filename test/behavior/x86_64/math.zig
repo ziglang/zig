@@ -21685,20 +21685,7 @@ test mulUnsafe {
 }
 
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
-    if (@inComptime() and @typeInfo(Type) == .vector) {
-        // workaround https://github.com/ziglang/zig/issues/22743
-        // TODO: return @select(Scalar(Type), boolAnd(lhs == lhs, rhs == rhs), lhs * rhs, lhs + rhs);
-        // workaround https://github.com/ziglang/zig/issues/22744
-        var res: Type = undefined;
-        for (0..@typeInfo(Type).vector.len) |i| res[i] = lhs[i] * rhs[i];
-        return res;
-    }
-    // workaround https://github.com/ziglang/zig/issues/22745
-    // TODO: return lhs * rhs;
-    var rt_lhs = lhs;
-    var rt_rhs = rhs;
-    _ = .{ &rt_lhs, &rt_rhs };
-    return rt_lhs * rt_rhs;
+    return lhs * rhs;
 }
 test multiply {
     const test_multiply = binary(multiply, .{});
@@ -21715,24 +21702,8 @@ test divide {
     try test_divide.testFloatVectors();
 }
 
-inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) Type {
-    switch (@typeInfo(Scalar(Type))) {
-        else => @compileError(@typeName(Type)),
-        .int => return @divTrunc(lhs, rhs),
-        .float => {
-            if (@inComptime()) {
-                // workaround https://github.com/ziglang/zig/issues/22748
-                return @trunc(lhs / rhs);
-            }
-            // workaround https://github.com/ziglang/zig/issues/22748
-            // workaround https://github.com/ziglang/zig/issues/22749
-            // TODO: return @divTrunc(lhs, rhs);
-            var rt_lhs = lhs;
-            var rt_rhs = rhs;
-            _ = .{ &rt_lhs, &rt_rhs };
-            return @divTrunc(rt_lhs, rt_rhs);
-        },
-    }
+inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@divTrunc(lhs, rhs)) {
+    return @divTrunc(lhs, rhs);
 }
 test divTrunc {
     const test_div_trunc = binary(divTrunc, .{ .compare = .approx_int });
@@ -21742,24 +21713,8 @@ test divTrunc {
     try test_div_trunc.testFloatVectors();
 }
 
-inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) Type {
-    switch (@typeInfo(Scalar(Type))) {
-        else => @compileError(@typeName(Type)),
-        .int => return @divFloor(lhs, rhs),
-        .float => {
-            if (@inComptime()) {
-                // workaround https://github.com/ziglang/zig/issues/22748
-                return @floor(lhs / rhs);
-            }
-            // workaround https://github.com/ziglang/zig/issues/22748
-            // workaround https://github.com/ziglang/zig/issues/22749
-            // TODO: return @divFloor(lhs, rhs);
-            var rt_lhs = lhs;
-            var rt_rhs = rhs;
-            _ = .{ &rt_lhs, &rt_rhs };
-            return @divFloor(rt_lhs, rt_rhs);
-        },
-    }
+inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@divFloor(lhs, rhs)) {
+    return @divFloor(lhs, rhs);
 }
 test divFloor {
     const test_div_floor = binary(divFloor, .{ .compare = .approx_int });
@@ -21767,31 +21722,8 @@ test divFloor {
     try test_div_floor.testFloatVectors();
 }
 
-// workaround https://github.com/ziglang/zig/issues/22748
-// TODO: @TypeOf(@rem(lhs, rhs))
-inline fn rem(comptime Type: type, lhs: Type, rhs: Type) Type {
-    switch (@typeInfo(Scalar(Type))) {
-        else => @compileError(@typeName(Type)),
-        .int => return @rem(lhs, rhs),
-        .float => {
-            if (@inComptime()) {
-                // workaround https://github.com/ziglang/zig/issues/22748
-                switch (@typeInfo(Type)) {
-                    else => return if (rhs != 0) @rem(lhs, rhs) else nan(Type),
-                    .vector => |info| {
-                        var res: Type = undefined;
-                        inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @rem(lhs[i], rhs[i]) else nan(Scalar(Type));
-                        return res;
-                    },
-                }
-            }
-            // workaround https://github.com/ziglang/zig/issues/22748
-            // TODO: return @rem(lhs, rhs);
-            var rt_rhs = rhs;
-            _ = &rt_rhs;
-            return @rem(lhs, rt_rhs);
-        },
-    }
+inline fn rem(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@rem(lhs, rhs)) {
+    return @rem(lhs, rhs);
 }
 test rem {
     const test_rem = binary(rem, .{});
@@ -21801,25 +21733,16 @@ test rem {
     try test_rem.testFloatVectors();
 }
 
-inline fn mod(comptime Type: type, lhs: Type, rhs: Type) Type {
+inline fn mod(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mod(lhs, rhs)) {
+    // workaround llvm backend bugs
     if (@inComptime()) {
         const scalarMod = struct {
             fn scalarMod(scalar_lhs: Scalar(Type), scalar_rhs: Scalar(Type)) Scalar(Type) {
-                // workaround https://github.com/ziglang/zig/issues/22748
-                if (scalar_rhs == 0) return nan(Scalar(Type));
                 const scalar_rem = @rem(scalar_lhs, scalar_rhs);
                 return if (scalar_rem == 0 or math.signbit(scalar_rem) == math.signbit(scalar_rhs)) scalar_rem else scalar_rem + scalar_rhs;
             }
         }.scalarMod;
-        // workaround https://github.com/ziglang/zig/issues/22748
         switch (@typeInfo(Type)) {
-            // workaround llvm backend bugs
-            // TODO: else => return if (rhs != 0) @mod(lhs, rhs) else nan(Type),
-            // TODO: .vector => |info| {
-            // TODO:     var res: Type = undefined;
-            // TODO:     inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @mod(lhs[i], rhs[i]) else nan(Scalar(Type));
-            // TODO:     return res;
-            // TODO: },
             else => return scalarMod(lhs, rhs),
             .vector => |info| {
                 var res: Type = undefined;
@@ -21828,11 +21751,7 @@ inline fn mod(comptime Type: type, lhs: Type, rhs: Type) Type {
             },
         }
     }
-    // workaround https://github.com/ziglang/zig/issues/22748
-    // TODO: return @mod(lhs, rhs);
-    var rt_rhs = rhs;
-    _ = &rt_rhs;
-    return @mod(lhs, rt_rhs);
+    return @mod(lhs, rhs);
 }
 test mod {
     const test_mod = binary(mod, .{});

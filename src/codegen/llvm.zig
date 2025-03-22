@@ -457,6 +457,30 @@ pub fn dataLayout(target: std.Target) []const u8 {
     };
 }
 
+// Avoid depending on `llvm.CodeModel` in the bitcode-only case.
+const CodeModel = enum {
+    default,
+    tiny,
+    small,
+    kernel,
+    medium,
+    large,
+};
+
+fn codeModel(model: std.builtin.CodeModel, target: std.Target) CodeModel {
+    // Roughly match Clang's mapping of GCC code models to LLVM code models.
+    return switch (model) {
+        .default => .default,
+        .extreme, .large => .large,
+        .kernel => .kernel,
+        .medany => if (target.cpu.arch.isRISCV()) .medium else .large,
+        .medium => if (target.os.tag == .aix) .large else .medium,
+        .medmid => .medium,
+        .normal, .medlow, .small => .small,
+        .tiny => .tiny,
+    };
+}
+
 pub const Object = struct {
     gpa: Allocator,
     builder: Builder,
@@ -821,14 +845,17 @@ pub const Object = struct {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_error,
                     try o.builder.metadataString("Code Model"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
-                        .tiny => 0,
-                        .small => 1,
-                        .kernel => 2,
-                        .medium => 3,
-                        .large => 4,
-                        else => unreachable,
-                    }))),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(
+                        i32,
+                        switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
+                            .default => unreachable,
+                            .tiny => 0,
+                            .small => 1,
+                            .kernel => 2,
+                            .medium => 3,
+                            .large => 4,
+                        },
+                    ))),
                 ));
             }
 
@@ -980,7 +1007,7 @@ pub const Object = struct {
         else
             .Static;
 
-        const code_model: llvm.CodeModel = switch (comp.root_mod.code_model) {
+        const code_model: llvm.CodeModel = switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
             .default => .Default,
             .tiny => .Tiny,
             .small => .Small,
