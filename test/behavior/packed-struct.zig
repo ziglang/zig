@@ -1335,3 +1335,17 @@ test "assign packed struct initialized with RLS to packed struct literal field" 
     try expect(outer.inner.x == x);
     try expect(outer.x == x);
 }
+
+test "byte-aligned packed relocation" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        var global: u8 align(2) = 0;
+        var packed_value: packed struct { x: u8, y: *align(2) u8 } = .{ .x = 111, .y = &global };
+    };
+    try expect(S.packed_value.x == 111);
+    try expect(S.packed_value.y == &S.global);
+}
