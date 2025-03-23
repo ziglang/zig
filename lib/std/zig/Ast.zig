@@ -3886,7 +3886,7 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the `{` token.
         block_two,
-        /// Same as `block_two_semicolon` except there is known to be a trailing
+        /// Same as `block_two` except there is known to be a trailing
         /// comma before the final rbrace.
         block_two_semicolon,
         /// `{a b}`.
