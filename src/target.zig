@@ -810,6 +810,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     return switch (target.cpu.arch) {
         .aarch64, .aarch64_be => .stage2_aarch64,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .loongarch64 => .stage2_loongarch64,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
