@@ -26,6 +26,7 @@ const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 const target_util = @import("target.zig");
+const codegen = @import("codegen.zig");
 
 pub const LdScript = @import("link/LdScript.zig");
 
@@ -683,13 +684,7 @@ pub const File = struct {
 
     /// Note that `LinkFailure` is not a member of this error set because the error message
     /// must be attached to `Zcu.failed_codegen` rather than `Compilation.link_diags`.
-    pub const UpdateNavError = error{
-        Overflow,
-        OutOfMemory,
-        /// Indicates the error is already reported and stored in
-        /// `failed_codegen` on the Zcu.
-        CodegenFail,
-    };
+    pub const UpdateNavError = codegen.CodeGenError;
 
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
@@ -920,7 +915,7 @@ pub const File = struct {
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
-    ) !@import("codegen.zig").GenResult {
+    ) !codegen.GenResult {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
