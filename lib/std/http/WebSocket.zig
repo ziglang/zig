@@ -23,6 +23,9 @@ pub fn init(
     send_buffer: []u8,
     recv_buffer: []align(4) u8,
 ) InitError!bool {
+    if (request.head.method != .GET)
+        return false;
+
     var sec_websocket_key: ?[]const u8 = null;
     var upgrade_websocket: bool = false;
     var it = request.iterateHeaders();
