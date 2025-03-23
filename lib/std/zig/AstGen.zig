@@ -9497,6 +9497,16 @@ fn builtinCall(
             const result = new_index.toRef();
             return rvalue(gz, ri, result, node);
         },
+        .SpirvType => {
+            const spirv_type_info_ty = try gz.addBuiltinValue(node, .spirv_type_info);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = spirv_type_info_ty } }, params[0], .operand_SpirvType);
+            const result = try gz.addExtendedPayload(.reify_spirv, Zir.Inst.Reify{
+                .node = node, // Absolute node index -- see the definition of `Reify`.
+                .operand = operand,
+                .src_line = astgen.source_line,
+            });
+            return rvalue(gz, ri, result, node);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0], .panic);

@@ -1378,6 +1378,7 @@ fn analyzeBodyInner(
                     .int_from_error     => try sema.zirIntFromError(      block, extended),
                     .error_from_int     => try sema.zirErrorFromInt(      block, extended),
                     .reify              => try sema.zirReify(             block, extended, inst),
+                    .reify_spirv        => try sema.zirReifySpirv(        block, extended, inst),
                     .builtin_async_call => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg            => try sema.zirCmpxchg(           block, extended),
                     .c_va_arg           => try sema.zirCVaArg(            block, extended),
@@ -2754,7 +2755,7 @@ fn zirTupleDecl(
         } });
 
         const field_type = try sema.resolveType(block, type_src, zir_field_ty);
-        try sema.validateTupleFieldType(block, field_type, type_src);
+        try sema.validateTupleOrStructFieldType(block, field_type, type_src, "tuple");
 
         field_ty.* = field_type.toIntern();
         field_init.* = init: {
@@ -2781,31 +2782,102 @@ fn zirTupleDecl(
     }));
 }
 
-fn validateTupleFieldType(
+fn validateTupleOrStructFieldType(
     sema: *Sema,
     block: *Block,
     field_ty: Type,
-    field_ty_src: LazySrcLoc,
+    field_src: LazySrcLoc,
+    type_str: []const u8,
 ) CompileError!void {
-    const gpa = sema.gpa;
-    const zcu = sema.pt.zcu;
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &pt.zcu.intern_pool;
     if (field_ty.zigTypeTag(zcu) == .@"opaque") {
-        return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(field_ty_src, "opaque types have unknown size and therefore cannot be directly embedded in tuples", .{});
-            errdefer msg.destroy(gpa);
+        if (ip.indexToKey(field_ty.toIntern()) == .spirv_type) {
+            const spirv_type = ip.loadSpirvType(field_ty.toIntern());
+            switch (spirv_type.flags.tag) {
+                .runtime_array => return,
+                .sampler, .image, .sampled_image => {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(
+                            field_src,
+                            "SPIR-V type '{}' have unknown size and therefore cannot be directly embedded in {s}s",
+                            .{ field_ty.fmt(pt), type_str },
+                        );
+                        errdefer msg.destroy(sema.gpa);
+
+                        try sema.addDeclaredHereNote(msg, field_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                },
+            }
+        }
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                field_src,
+                "opaque types have unknown size and therefore cannot be directly embedded in {s}s",
+                .{type_str},
+            );
+            errdefer msg.destroy(sema.gpa);
 
             try sema.addDeclaredHereNote(msg, field_ty);
             break :msg msg;
-        });
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
+
     if (field_ty.zigTypeTag(zcu) == .noreturn) {
-        return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(field_ty_src, "tuple fields cannot be 'noreturn'", .{});
-            errdefer msg.destroy(gpa);
+        const msg = msg: {
+            const msg = try sema.errMsg(field_src, "{s} fields cannot be 'noreturn'", .{type_str});
+            errdefer msg.destroy(sema.gpa);
 
             try sema.addDeclaredHereNote(msg, field_ty);
             break :msg msg;
-        });
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+}
+
+fn validateUnionFieldType(
+    sema: *Sema,
+    block: *Block,
+    field_ty: Type,
+    field_src: LazySrcLoc,
+) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &pt.zcu.intern_pool;
+    if (field_ty.zigTypeTag(zcu) == .@"opaque") {
+        if (ip.indexToKey(field_ty.toIntern()) == .spirv_type) {
+            const spirv_type = ip.loadSpirvType(field_ty.toIntern());
+            switch (spirv_type.flags.tag) {
+                .runtime_array => return,
+                .sampler, .image, .sampled_image => {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(
+                            field_src,
+                            "SPIR-V type '{}' have unknown size and therefore cannot be directly embedded in unions",
+                            .{field_ty.fmt(pt)},
+                        );
+                        errdefer msg.destroy(sema.gpa);
+
+                        try sema.addDeclaredHereNote(msg, field_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                },
+            }
+        }
+
+        const msg = msg: {
+            const msg = try sema.errMsg(field_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.addDeclaredHereNote(msg, field_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 }
 
@@ -10025,10 +10097,14 @@ fn analyzeAs(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const operand = try sema.resolveInst(zir_operand);
     const dest_ty = try sema.resolveTypeOrPoison(block, src, zir_dest_type) orelse return operand;
     switch (dest_ty.zigTypeTag(zcu)) {
-        .@"opaque" => return sema.fail(block, src, "cannot cast to opaque type '{}'", .{dest_ty.fmt(pt)}),
+        .@"opaque" => {
+            const opaque_str = if (ip.indexToKey(dest_ty.toIntern()) == .spirv_type) "SPIR-V" else "opaque";
+            return sema.fail(block, src, "cannot cast to {s} type '{}'", .{ opaque_str, dest_ty.fmt(pt) });
+        },
         .noreturn => return sema.fail(block, src, "cannot cast to noreturn", .{}),
         else => {},
     }
@@ -20179,20 +20255,11 @@ fn structInitAnon(
 
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init).toIntern();
-            if (Type.fromInterned(field_ty.*).zigTypeTag(zcu) == .@"opaque") {
-                const msg = msg: {
-                    const field_src = block.src(.{ .init_elem = .{
-                        .init_node_offset = src.offset.node_offset.x,
-                        .elem_index = @intCast(i_usize),
-                    } });
-                    const msg = try sema.errMsg(field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
-                    errdefer msg.destroy(sema.gpa);
-
-                    try sema.addDeclaredHereNote(msg, Type.fromInterned(field_ty.*));
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
+            const field_src = block.src(.{ .init_elem = .{
+                .init_node_offset = src.offset.node_offset.x,
+                .elem_index = @intCast(i_usize),
+            } });
+            try sema.validateTupleOrStructFieldType(block, .fromInterned(field_ty.*), field_src, "struct");
             if (try sema.resolveValue(init)) |init_val| {
                 field_val.* = init_val.toIntern();
                 any_values = true;
@@ -20955,8 +21022,8 @@ fn zirReify(
     if (try sema.anyUndef(block, operand_src, Value.fromInterned(union_val.val))) {
         return sema.failWithUseOfUndef(block, operand_src);
     }
-    const tag_index = type_info_ty.unionTagFieldIndex(Value.fromInterned(union_val.tag), zcu).?;
-    switch (@as(std.builtin.TypeId, @enumFromInt(tag_index))) {
+    const tag = try sema.interpretBuiltinType(block, src, .fromInterned(union_val.tag), std.builtin.TypeId);
+    switch (tag) {
         .type => return .type_type,
         .void => return .void_type,
         .bool => return .bool_type,
@@ -21440,6 +21507,177 @@ fn zirReify(
     }
 }
 
+fn zirReifySpirv(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+    const gpa = sema.gpa;
+    const ip = &zcu.intern_pool;
+    const extra = sema.code.extraData(Zir.Inst.Reify, extended.operand).data;
+    const tracked_inst = try block.trackZir(inst);
+    const src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = LazySrcLoc.Offset.nodeOffset(.zero),
+    };
+    const operand_src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = .{
+            .node_offset_builtin_call_arg = .{
+                .builtin_call_node = .zero, // `tracked_inst` is precisely the `spirv_reify` instruction, so offset is 0
+                .arg_index = 0,
+            },
+        },
+    };
+
+    if (!target.cpu.arch.isSpirV()) {
+        return sema.fail(block, operand_src, "builtin @SpirvType is available when targeting SPIR-V; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
+    }
+
+    const spirv_type_info_ty = try sema.getBuiltinType(src, .SpirvType);
+    const uncasted_operand = try sema.resolveInst(extra.operand);
+    const spirv_type_info = try sema.coerce(block, spirv_type_info_ty, uncasted_operand, operand_src);
+    const val = try sema.resolveConstDefinedValue(block, operand_src, spirv_type_info, .{ .simple = .operand_SpirvType });
+    const union_val = ip.indexToKey(val.toIntern()).un;
+
+    if (try sema.anyUndef(block, operand_src, .fromInterned(union_val.val))) {
+        return sema.failWithUseOfUndef(block, operand_src);
+    }
+
+    // The validation work here is non-trivial, and it's possible the type already exists.
+    // So in this first pass, let's just construct a hash to optimize for this case. If the
+    // inputs turn out to be invalid, we can cancel the WIP type later.
+
+    // For deduplication purposes, we must create a hash including all details of this type.
+    // TODO: use a longer hash!
+    var hasher = std.hash.Wyhash.init(0);
+    std.hash.autoHash(&hasher, union_val.tag);
+
+    const name = try sema.createTypeName(block, .anon, "SpirvType", inst, union_val.val);
+    const tag = try sema.interpretBuiltinType(block, src, .fromInterned(union_val.tag), @typeInfo(std.builtin.SpirvType).@"union".tag_type.?);
+    const ip_data: InternPool.Tag.TypeSpirv = switch (tag) {
+        .sampler => .{
+            .name = name,
+            .zir_index = tracked_inst,
+            .ty = .none,
+            .flags = .{ .tag = .sampler },
+        },
+        .image => ip_data: {
+            const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
+            const usage_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "usage", .no_embedded_nulls),
+            ).?);
+            const format_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "format", .no_embedded_nulls),
+            ).?);
+            const dim_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "dim", .no_embedded_nulls),
+            ).?);
+            const depth_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "depth", .no_embedded_nulls),
+            ).?);
+            const access_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "access", .no_embedded_nulls),
+            ).?);
+            const arrayed_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "arrayed", .no_embedded_nulls),
+            ).?);
+            const multisampled_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, pt.tid, "multisampled", .no_embedded_nulls),
+            ).?);
+            const format = try sema.interpretBuiltinType(block, operand_src, format_val, std.builtin.SpirvType.Image.Format);
+            const dim = try sema.interpretBuiltinType(block, operand_src, dim_val, std.builtin.SpirvType.Image.Dimensionality);
+            const depth = try sema.interpretBuiltinType(block, operand_src, depth_val, std.builtin.SpirvType.Image.Depth);
+            const access = try sema.interpretBuiltinType(block, operand_src, access_val, std.builtin.SpirvType.Image.Access);
+
+            if (target.os.tag != .opencl and access != .unknown) {
+                return sema.fail(block, operand_src, "access qualifer '.{s}' is only valid under the 'opencl' os", .{@tagName(access)});
+            }
+
+            const arrayed = try sema.interpretBuiltinType(block, operand_src, arrayed_val, bool);
+            const multisampled = try sema.interpretBuiltinType(block, operand_src, multisampled_val, bool);
+
+            const usage_tag_val = usage_val.unionTag(zcu).?;
+            const usage_tag = try sema.interpretBuiltinType(block, operand_src, usage_tag_val, @typeInfo(std.builtin.SpirvType.Image.Usage).@"union".tag_type.?);
+
+            std.hash.autoHash(&hasher, usage_tag);
+            std.hash.autoHash(&hasher, format);
+            std.hash.autoHash(&hasher, dim);
+            std.hash.autoHash(&hasher, depth);
+            std.hash.autoHash(&hasher, access);
+            std.hash.autoHash(&hasher, arrayed);
+            std.hash.autoHash(&hasher, multisampled);
+
+            break :ip_data .{
+                .name = name,
+                .zir_index = tracked_inst,
+                .ty = switch (usage_tag) {
+                    .sampled, .unknown => blk: {
+                        const sampled_type = usage_val.unionValue(zcu).toType();
+                        std.hash.autoHash(&hasher, sampled_type.toIntern());
+
+                        if (target.os.tag != .opencl and sampled_type.toIntern() == .void_type) {
+                            return sema.fail(block, operand_src, "'void' type for '{s}' field is only valid under the 'opencl' os", .{@tagName(usage_tag)});
+                        }
+
+                        if (!sampled_type.hasRuntimeBits(zcu) or (!sampled_type.isRuntimeFloat() and !sampled_type.isInt(zcu))) {
+                            return sema.fail(block, operand_src, "invalid '{s}' field value '{}'", .{ @tagName(usage_tag), sampled_type.fmt(pt) });
+                        }
+
+                        if (target.os.tag == .vulkan and sampled_type.bitSize(zcu) != 32 and sampled_type.bitSize(zcu) != 64) {
+                            return sema.fail(
+                                block,
+                                operand_src,
+                                "'{s}' field value must be a 32-bit int, 64-bit int or 32-bit float under the 'vulkan' os",
+                                .{@tagName(usage_tag)},
+                            );
+                        }
+
+                        break :blk sampled_type.toIntern();
+                    },
+                    .storage => .none,
+                },
+                .flags = .{
+                    .tag = .image,
+                    .usage = usage_tag,
+                    .format = format,
+                    .dim = dim,
+                    .depth = depth,
+                    .access = access,
+                    .is_arrayed = arrayed,
+                    .is_multisampled = multisampled,
+                },
+            };
+        },
+        .sampled_image, .runtime_array => blk: {
+            std.hash.autoHash(&hasher, union_val.val);
+            break :blk .{
+                .name = name,
+                .zir_index = tracked_inst,
+                .ty = union_val.val,
+                .flags = .{ .tag = tag },
+            };
+        },
+    };
+
+    return Air.internedToRef(try ip.getSpirvType(
+        gpa,
+        pt.tid,
+        .{ .type_hash = hasher.final(), .type_spirv = ip_data },
+    ));
+}
+
 fn reifyEnum(
     sema: *Sema,
     block: *Block,
@@ -21779,15 +22017,7 @@ fn reifyUnion(
 
     for (field_types) |field_ty_ip| {
         const field_ty = Type.fromInterned(field_ty_ip);
-        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
-            return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
-                errdefer msg.destroy(gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            });
-        }
+        try sema.validateUnionFieldType(block, field_ty, src);
         if (layout == .@"extern" and !try sema.validateExternType(field_ty, .union_field)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(pt)});
@@ -21892,7 +22122,7 @@ fn reifyTuple(
             );
         }
 
-        try sema.validateTupleFieldType(block, field_type, src);
+        try sema.validateTupleOrStructFieldType(block, field_type, src, "tuple");
 
         {
             const alignment_ok = ok: {
@@ -22106,24 +22336,7 @@ fn reifyStruct(
             struct_type.field_inits.get(ip)[field_idx] = field_default;
         }
 
-        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
-            return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
-                errdefer msg.destroy(gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            });
-        }
-        if (field_ty.zigTypeTag(zcu) == .noreturn) {
-            return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "struct fields cannot be 'noreturn'", .{});
-                errdefer msg.destroy(gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            });
-        }
+        try sema.validateTupleOrStructFieldType(block, field_ty, src, "struct");
         if (layout == .@"extern" and !try sema.validateExternType(field_ty, .struct_field)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "extern structs cannot contain fields of type '{}'", .{field_ty.fmt(pt)});
@@ -26433,6 +26646,7 @@ fn zirBuiltinValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         .export_options     => try sema.getBuiltinType(src, .ExportOptions),
         .extern_options     => try sema.getBuiltinType(src, .ExternOptions),
         .type_info          => try sema.getBuiltinType(src, .Type),
+        .spirv_type_info    => try sema.getBuiltinType(src, .SpirvType),
         .branch_hint        => try sema.getBuiltinType(src, .BranchHint),
         // zig fmt: on
 
@@ -34814,6 +35028,25 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
             continue;
         }
 
+        if (ip.indexToKey(field_ty.toIntern()) == .spirv_type) {
+            const spirv_type = ip.loadSpirvType(field_ty.toIntern());
+            assert(spirv_type.flags.tag == .runtime_array);
+
+            if (struct_type.layout != .@"extern") {
+                const msg = try sema.errMsg(
+                    ty.srcLoc(zcu),
+                    "non-extern struct cannot contain fields of type '{}'",
+                    .{field_ty.fmt(pt)},
+                );
+                try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
+                return sema.failWithOwnedErrorMsg(null, msg);
+            } else if (i != aligns.len - 1) {
+                const msg = try sema.errMsg(ty.srcLoc(zcu), "struct field of type '{}' must be the last field", .{field_ty.fmt(pt)});
+                try sema.addFieldErrNote(ty, i, msg, "while checking this field", .{});
+                return sema.failWithOwnedErrorMsg(null, msg);
+            }
+        }
+
         field_size.* = field_ty.abiSizeSema(pt) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
@@ -35686,26 +35919,7 @@ fn structFields(
 
         struct_type.field_types.get(ip)[field_i] = field_ty.toIntern();
 
-        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
-            const msg = msg: {
-                const msg = try sema.errMsg(ty_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        }
-        if (field_ty.zigTypeTag(zcu) == .noreturn) {
-            const msg = msg: {
-                const msg = try sema.errMsg(ty_src, "struct fields cannot be 'noreturn'", .{});
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        }
+        try sema.validateTupleOrStructFieldType(&block_scope, field_ty, ty_src, "struct");
         switch (struct_type.layout) {
             .@"extern" => if (!try sema.validateExternType(field_ty, .struct_field)) {
                 const msg = msg: {
@@ -36163,16 +36377,7 @@ fn unionFields(
             }
         }
 
-        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
-            const msg = msg: {
-                const msg = try sema.errMsg(type_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        }
+        try sema.validateUnionFieldType(&block_scope, field_ty, type_src);
         const layout = union_type.flagsUnordered(ip).layout;
         if (layout == .@"extern" and
             !try sema.validateExternType(field_ty, .union_field))
@@ -36441,6 +36646,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_anyerror_union,
             .type_error_set,
             .type_inferred_error_set,
+            .type_spirv,
             .type_opaque,
             .type_function,
             => null,

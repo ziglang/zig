@@ -2748,6 +2748,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
         .opt_type,
         .error_union_type,
         .anyframe_type,
+        .spirv_type,
         .simple_type,
         .tuple_type,
         .func_type,
@@ -3440,6 +3441,7 @@ fn updateLazyType(
         .struct_type,
         .union_type,
         .opaque_type,
+        .spirv_type,
         => unreachable,
         .tuple_type => |tuple_type| if (tuple_type.types.len == 0) {
             try wip_nav.abbrevCode(.generated_empty_struct_type);
@@ -3677,6 +3679,7 @@ fn updateLazyValue(
         .tuple_type,
         .union_type,
         .opaque_type,
+        .spirv_type,
         .enum_type,
         .func_type,
         .error_set_type,

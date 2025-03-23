@@ -819,6 +819,7 @@ const NavGen = struct {
                 .tuple_type,
                 .union_type,
                 .opaque_type,
+                .spirv_type,
                 .enum_type,
                 .func_type,
                 .error_set_type,
@@ -1294,7 +1295,7 @@ const NavGen = struct {
             }
 
             switch (ip.indexToKey(child_ty.toIntern())) {
-                .func_type, .opaque_type => {},
+                .func_type, .opaque_type, .spirv_type => {},
                 else => {
                     try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
                 },
@@ -1445,6 +1446,84 @@ const NavGen = struct {
 
         const section = &self.spv.sections.types_globals_constants;
 
+        switch (ip.indexToKey(ty.toIntern())) {
+            .spirv_type => {
+                const spirv_type = ip.loadSpirvType(ty.toIntern());
+                const result_id = self.spv.allocId();
+                switch (spirv_type.flags.tag) {
+                    .sampler => try section.emit(self.gpa, .OpTypeSampler, .{ .id_result = result_id }),
+                    .image => {
+                        const sampled_type_id = blk: {
+                            if (spirv_type.ty == .none) break :blk try self.intType(.unsigned, 32);
+                            break :blk try self.resolveType(Type.fromInterned(spirv_type.ty), .direct);
+                        };
+                        try section.emit(self.gpa, .OpTypeImage, .{
+                            .id_result = result_id,
+                            .sampled_type = sampled_type_id,
+                            .dim = switch (spirv_type.flags.dim) {
+                                .@"1d" => .@"1D",
+                                .@"2d" => .@"2D",
+                                .@"3d" => .@"3D",
+                                .cube => .Cube,
+                            },
+                            .depth = switch (spirv_type.flags.depth) {
+                                .not_depth => 0,
+                                .depth => 1,
+                                .unknown => 2,
+                            },
+                            .arrayed = @intFromBool(spirv_type.flags.is_arrayed),
+                            .ms = @intFromBool(spirv_type.flags.is_multisampled),
+                            .sampled = switch (spirv_type.flags.usage) {
+                                .unknown => 1,
+                                .sampled => 1,
+                                .storage => 2,
+                            },
+                            .image_format = switch (spirv_type.flags.format) {
+                                .unknown => .Unknown,
+                                .rgba32f => .Rgba32f,
+                                .rgba32i => .Rgba32i,
+                                .rgba32u => .Rgba32ui,
+                                .rgba16f => .Rgba16f,
+                                .rgba16i => .Rgba16i,
+                                .rgba16u => .Rgba16ui,
+                                .rgba8unorm => .Rgba8,
+                                .rgba8snorm => .Rgba8Snorm,
+                                .rgba8i => .Rgba8i,
+                                .rgba8u => .Rgba8ui,
+                                .r32f => .R32f,
+                                .r32i => .R32i,
+                                .r32u => .R32ui,
+                            },
+                            .access_qualifier = switch (spirv_type.flags.access) {
+                                .unknown => null,
+                                .read_only => .ReadOnly,
+                                .write_only => .WriteOnly,
+                                .read_write => .ReadWrite,
+                            },
+                        });
+                    },
+                    .sampled_image => {
+                        const image_ty_id = try self.resolveType(.fromInterned(spirv_type.ty), .indirect);
+                        try section.emit(self.gpa, .OpTypeSampledImage, .{
+                            .id_result = result_id,
+                            .image_type = image_ty_id,
+                        });
+                    },
+                    .runtime_array => {
+                        const elem_ty_id = try self.resolveType(.fromInterned(spirv_type.ty), .indirect);
+                        try section.emit(self.gpa, .OpTypeRuntimeArray, .{
+                            .id_result = result_id,
+                            .element_type = elem_ty_id,
+                        });
+                        try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(ty.abiSize(zcu)) } });
+                    },
+                }
+                return result_id;
+            },
+            else => {},
+        }
+
+        // TODO: switch by intern pool key
         switch (ty.zigTypeTag(zcu)) {
             .noreturn => {
                 assert(repr == .direct);
@@ -1626,6 +1705,7 @@ const NavGen = struct {
                 }
             },
             .@"struct" => {
+                // TODO: merge tuple and struct code
                 const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                     .tuple_type => |tuple| {
                         const member_types = try self.gpa.alloc(IdRef, tuple.values.len);
@@ -1670,6 +1750,10 @@ const NavGen = struct {
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                         // This is a zero-bit field - we only needed it for the alignment.
                         continue;
+                    }
+
+                    if (ip.indexToKey(field_ty.toIntern()) == .spirv_type) {
+                        try self.spv.decorate(result_id, .Block);
                     }
 
                     if (self.spv.hasFeature(.shader)) {
@@ -6557,6 +6641,7 @@ const NavGen = struct {
                     .struct_type,
                     .union_type,
                     .opaque_type,
+                    .spirv_type,
                     .enum_type,
                     .func_type,
                     .error_set_type,
