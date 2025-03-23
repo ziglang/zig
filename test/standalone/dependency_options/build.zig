@@ -81,25 +81,56 @@ pub fn build(b: *std.Build) !void {
 
     if (all_specified_optional != all_specified) return error.TestFailed;
 
+    const all_specified_literal = b.dependency("other", .{
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu }),
+        .optimize = .ReleaseSafe,
+        .bool = true,
+        .int = 123,
+        .float = 0.5,
+        .string = "abc",
+        .string_list = &[_][]const u8{ "a", "b", "c" },
+        .lazy_path = @as(std.Build.LazyPath, .{ .cwd_relative = "abc.txt" }),
+        .lazy_path_list = &[_]std.Build.LazyPath{
+            .{ .cwd_relative = "a.txt" },
+            .{ .cwd_relative = "b.txt" },
+            .{ .cwd_relative = "c.txt" },
+        },
+        .@"enum" = .alfa,
+        //.enum_list = &[_]Enum{ .alfa, .bravo, .charlie },
+        //.build_id = @as(std.zig.BuildId, .uuid),
+    });
+
+    if (all_specified_literal != all_specified) return error.TestFailed;
+
+    var mut_string_buf = "abc".*;
+    const mut_string: []u8 = &mut_string_buf;
+    var mut_string_list_buf = [_][]const u8{ "a", "b", "c" };
+    const mut_string_list: [][]const u8 = &mut_string_list_buf;
+    var mut_lazy_path_list_buf = [_]std.Build.LazyPath{
+        .{ .cwd_relative = "a.txt" },
+        .{ .cwd_relative = "b.txt" },
+        .{ .cwd_relative = "c.txt" },
+    };
+    const mut_lazy_path_list: []std.Build.LazyPath = &mut_lazy_path_list_buf;
+    var mut_enum_list_buf = [_]Enum{ .alfa, .bravo, .charlie };
+    const mut_enum_list: []Enum = &mut_enum_list_buf;
+    _ = mut_enum_list;
+
     // Most supported option types are serialized to a string representation,
     // so alternative representations of the same option value should resolve
     // to the same cached dependency instance.
     const all_specified_alt = b.dependency("other", .{
         .target = @as(std.Target.Query, .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu }),
-        .optimize = @as([]const u8, "ReleaseSafe"),
+        .optimize = "ReleaseSafe",
         .bool = .true,
-        .int = @as([]const u8, "123"),
+        .int = "123",
         .float = @as(f16, 0.5),
-        .string = .abc,
-        .string_list = @as([]const []const u8, &.{ "a", "b", "c" }),
+        .string = mut_string,
+        .string_list = mut_string_list,
         .lazy_path = @as(std.Build.LazyPath, .{ .cwd_relative = "abc.txt" }),
-        .lazy_path_list = @as([]const std.Build.LazyPath, &.{
-            .{ .cwd_relative = "a.txt" },
-            .{ .cwd_relative = "b.txt" },
-            .{ .cwd_relative = "c.txt" },
-        }),
-        .@"enum" = @as([]const u8, "alfa"),
-        //.enum_list = @as([]const Enum, &.{ .alfa, .bravo, .charlie }),
+        .lazy_path_list = mut_lazy_path_list,
+        .@"enum" = "alfa",
+        //.enum_list = mut_enum_list,
         //.build_id = @as(std.zig.BuildId, .uuid),
     });
 

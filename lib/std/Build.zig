@@ -511,6 +511,40 @@ fn addUserInputOptionFromArg(
                     .used = false,
                 }) catch @panic("OOM");
             },
+            .pointer => |ptr_info| switch (ptr_info.size) {
+                .one => switch (@typeInfo(ptr_info.child)) {
+                    .array => |array_info| {
+                        comptime var slice_info = ptr_info;
+                        slice_info.size = .slice;
+                        slice_info.is_const = true;
+                        slice_info.child = array_info.child;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
+                    else => {},
+                },
+                .slice => {
+                    comptime var slice_info = ptr_info;
+                    slice_info.is_const = true;
+                    slice_info.sentinel_ptr = null;
+                    addUserInputOptionFromArg(
+                        arena,
+                        map,
+                        field,
+                        @Type(.{ .pointer = slice_info }),
+                        maybe_value orelse null,
+                    );
+                    return;
+                },
+                else => {},
+            },
             .null => unreachable,
             .optional => |info| switch (@typeInfo(info.child)) {
                 .optional => {},
