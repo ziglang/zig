@@ -1134,7 +1134,7 @@ pub fn updateFunc(
     ) catch |err| switch (err) {
         error.CodegenFail => return error.CodegenFail,
         error.OutOfMemory => return error.OutOfMemory,
-        error.Overflow => |e| {
+        error.Overflow, error.RelocationNotByteAligned => |e| {
             try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                 gpa,
                 zcu.navSrcLoc(nav_index),
