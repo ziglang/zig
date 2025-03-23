@@ -530,18 +530,29 @@ fn addUserInputOptionFromArg(
                     },
                     else => {},
                 },
-                .slice => {
-                    comptime var slice_info = ptr_info;
-                    slice_info.is_const = true;
-                    slice_info.sentinel_ptr = null;
-                    addUserInputOptionFromArg(
-                        arena,
-                        map,
-                        field,
-                        @Type(.{ .pointer = slice_info }),
-                        maybe_value orelse null,
-                    );
-                    return;
+                .slice => switch (@typeInfo(ptr_info.child)) {
+                    .@"enum" => return if (maybe_value) |v| {
+                        var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+                        for (v) |tag| list.appendAssumeCapacity(@tagName(tag));
+                        map.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .list = list },
+                            .used = false,
+                        }) catch @panic("OOM");
+                    },
+                    else => {
+                        comptime var slice_info = ptr_info;
+                        slice_info.is_const = true;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
                 },
                 else => {},
             },

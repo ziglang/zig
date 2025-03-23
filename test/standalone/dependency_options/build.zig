@@ -50,7 +50,7 @@ pub fn build(b: *std.Build) !void {
             .{ .cwd_relative = "c.txt" },
         }),
         .@"enum" = @as(Enum, .alfa),
-        //.enum_list = @as([]const Enum, &.{ .alfa, .bravo, .charlie }),
+        .enum_list = @as([]const Enum, &.{ .alfa, .bravo, .charlie }),
         //.build_id = @as(std.zig.BuildId, .uuid),
     });
 
@@ -75,7 +75,7 @@ pub fn build(b: *std.Build) !void {
             .{ .cwd_relative = "c.txt" },
         }),
         .@"enum" = @as(?Enum, .alfa),
-        //.enum_list = @as(?[]const Enum, &.{ .alfa, .bravo, .charlie }),
+        .enum_list = @as(?[]const Enum, &.{ .alfa, .bravo, .charlie }),
         //.build_id = @as(?std.zig.BuildId, .uuid),
     });
 
@@ -96,7 +96,7 @@ pub fn build(b: *std.Build) !void {
             .{ .cwd_relative = "c.txt" },
         },
         .@"enum" = .alfa,
-        //.enum_list = &[_]Enum{ .alfa, .bravo, .charlie },
+        .enum_list = &[_]Enum{ .alfa, .bravo, .charlie },
         //.build_id = @as(std.zig.BuildId, .uuid),
     });
 
@@ -114,7 +114,6 @@ pub fn build(b: *std.Build) !void {
     const mut_lazy_path_list: []std.Build.LazyPath = &mut_lazy_path_list_buf;
     var mut_enum_list_buf = [_]Enum{ .alfa, .bravo, .charlie };
     const mut_enum_list: []Enum = &mut_enum_list_buf;
-    _ = mut_enum_list;
 
     // Most supported option types are serialized to a string representation,
     // so alternative representations of the same option value should resolve
@@ -130,7 +129,7 @@ pub fn build(b: *std.Build) !void {
         .lazy_path = @as(std.Build.LazyPath, .{ .cwd_relative = "abc.txt" }),
         .lazy_path_list = mut_lazy_path_list,
         .@"enum" = "alfa",
-        //.enum_list = mut_enum_list,
+        .enum_list = mut_enum_list,
         //.build_id = @as(std.zig.BuildId, .uuid),
     });
 
