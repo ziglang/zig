@@ -1,0 +1,7 @@
+.{
+    .name = .other,
+    .fingerprint = 0xd95835207bc8b630,
+    .version = "0.0.0",
+    .dependencies = .{},
+    .paths = .{""},
+}
