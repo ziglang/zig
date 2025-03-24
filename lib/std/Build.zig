@@ -507,7 +507,7 @@ fn addUserInputOptionFromArg(
             .comptime_float, .float => return if (maybe_value) |v| {
                 map.put(field.name, .{
                     .name = field.name,
-                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{e}", .{v}) catch @panic("OOM") },
+                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{x}", .{v}) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
             },

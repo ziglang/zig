@@ -1563,17 +1563,23 @@ pub fn printFloatHexOptions(w: *Writer, value: anytype, options: std.fmt.Number)
 }
 
 pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precision: ?usize) Error!void {
-    if (std.math.signbit(value)) try w.writeByte('-');
-    if (std.math.isNan(value)) return w.writeAll(switch (case) {
+    const v = switch (@TypeOf(value)) {
+        // comptime_float internally is a f128; this preserves precision.
+        comptime_float => @as(f128, value),
+        else => value,
+    };
+
+    if (std.math.signbit(v)) try w.writeByte('-');
+    if (std.math.isNan(v)) return w.writeAll(switch (case) {
         .lower => "nan",
         .upper => "NAN",
     });
-    if (std.math.isInf(value)) return w.writeAll(switch (case) {
+    if (std.math.isInf(v)) return w.writeAll(switch (case) {
         .lower => "inf",
         .upper => "INF",
     });
 
-    const T = @TypeOf(value);
+    const T = @TypeOf(v);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = std.math.floatMantissaBits(T);
@@ -1583,7 +1589,7 @@ pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precisi
     const exponent_mask = (1 << exponent_bits) - 1;
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
-    const as_bits: TU = @bitCast(value);
+    const as_bits: TU = @bitCast(v);
     var mantissa = as_bits & mantissa_mask;
     var exponent: i32 = @as(u16, @truncate((as_bits >> mantissa_bits) & exponent_mask));
 
