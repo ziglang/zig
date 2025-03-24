@@ -23,8 +23,10 @@ pub fn init(
     send_buffer: []u8,
     recv_buffer: []align(4) u8,
 ) InitError!bool {
-    if (request.head.version == .@"HTTP/1.0" or request.head.method != .GET)
-        return false;
+    switch (request.head.version) {
+        .@"HTTP/1.0" => return false,
+        .@"HTTP/1.1" => if (request.head.method != .GET) return false,
+    }
 
     var sec_websocket_key: ?[]const u8 = null;
     var upgrade_websocket: bool = false;
