@@ -100,14 +100,19 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .zon => try parser.parseZon(),
     }
 
+    const extra_data = try parser.extra_data.toOwnedSlice(gpa);
+    errdefer gpa.free(extra_data);
+    const errors = try parser.errors.toOwnedSlice(gpa);
+    errdefer gpa.free(errors);
+
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
         .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
-        .extra_data = try parser.extra_data.toOwnedSlice(gpa),
-        .errors = try parser.errors.toOwnedSlice(gpa),
+        .extra_data = extra_data,
+        .errors = errors,
     };
 }
 
