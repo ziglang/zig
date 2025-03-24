@@ -535,3 +535,12 @@ test "return from inline for" {
     };
     try std.testing.expect(!S.do());
 }
+
+test "for loop 0 length range" {
+    const map: []const u8 = &.{};
+    for (map, 0..map.len) |i, j| {
+        _ = i;
+        _ = j;
+        comptime unreachable;
+    }
+}
