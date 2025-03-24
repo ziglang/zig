@@ -469,13 +469,13 @@ fn addUserInputOptionFromArg(
         []const u8 => return if (maybe_value) |v| {
             map.put(field.name, .{
                 .name = field.name,
-                .value = .{ .scalar = v },
+                .value = .{ .scalar = arena.dupe(u8, v) catch @panic("OOM") },
                 .used = false,
             }) catch @panic("OOM");
         },
         []const []const u8 => return if (maybe_value) |v| {
             var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
-            list.appendSliceAssumeCapacity(v);
+            for (v) |s| list.appendAssumeCapacity(arena.dupe(u8, s) catch @panic("OOM"));
             map.put(field.name, .{
                 .name = field.name,
                 .value = .{ .list = list },
