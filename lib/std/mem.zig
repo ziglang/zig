@@ -228,6 +228,18 @@ test "Allocator.resize" {
     }
 }
 
+test "Allocator alloc and remap with zero-bit type" {
+    var values = try testing.allocator.alloc(void, 10);
+    defer testing.allocator.free(values);
+
+    try testing.expectEqual(10, values.len);
+    const remaped = testing.allocator.remap(values, 200);
+    try testing.expect(remaped != null);
+
+    values = remaped.?;
+    try testing.expectEqual(200, values.len);
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
