@@ -1335,3 +1335,45 @@ test "assign packed struct initialized with RLS to packed struct literal field" 
     try expect(outer.inner.x == x);
     try expect(outer.x == x);
 }
+
+test "byte-aligned packed relocation" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        var global: u8 align(2) = 0;
+        var packed_value: packed struct { x: u8, y: *align(2) u8 } = .{ .x = 111, .y = &global };
+    };
+    try expect(S.packed_value.x == 111);
+    try expect(S.packed_value.y == &S.global);
+}
+
+test "packed struct store of comparison result" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S1 = packed struct {
+        val1: u3,
+        val2: u3,
+    };
+    const S2 = packed struct {
+        a: bool,
+        b: bool,
+    };
+
+    var A: S1 = .{ .val1 = 1, .val2 = 1 };
+    A.val2 += 1;
+    try expectEqual(1, A.val1);
+    try expectEqual(2, A.val2);
+    try expect((A.val2 & 1) != 1);
+    const result1: S2 = .{ .a = (A.val2 & 1) != 1, .b = (A.val1 & 1) != 1 };
+    try expect(result1.a);
+    try expect(!result1.b);
+
+    try expect((A.val2 == 3) == false);
+    try expect((A.val2 == 2) == true);
+    const result2: S2 = .{ .a = !(A.val2 == 3), .b = (A.val1 == 2) };
+    try expect(result2.a);
+    try expect(!result2.b);
+}

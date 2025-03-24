@@ -183,9 +183,11 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
 
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    // On Emscripten, Zig only supports `@returnAddress()` in debug builds
+    // because Emscripten's implementation is very slow.
     .wasm32,
     .wasm64,
-    => native_os == .emscripten,
+    => native_os == .emscripten and builtin.mode == .Debug,
 
     // `@returnAddress()` is unsupported in LLVM 13.
     .bpfel,

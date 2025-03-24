@@ -23,12 +23,11 @@ debug_str: StringSection,
 pub const UpdateError = error{
     ReinterpretDeclRef,
     Unimplemented,
-    OutOfMemory,
     EndOfStream,
-    Overflow,
     Underflow,
     UnexpectedEndOfFile,
 } ||
+    codegen.GenerateSymbolError ||
     std.fs.File.OpenError ||
     std.fs.File.SetEndPosError ||
     std.fs.File.CopyRangeError ||

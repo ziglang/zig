@@ -30422,20 +30422,17 @@ fn coerceInMemoryAllowedFns(
             } };
         }
 
-        switch (src_param_ty.toIntern()) {
-            .generic_poison_type => {},
-            else => {
-                // Note: Cast direction is reversed here.
-                const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, dest_is_mut, target, dest_src, src_src, null);
-                if (param != .ok) {
-                    return .{ .fn_param = .{
-                        .child = try param.dupe(sema.arena),
-                        .actual = src_param_ty,
-                        .wanted = dest_param_ty,
-                        .index = param_i,
-                    } };
-                }
-            },
+        if (!src_param_ty.isGenericPoison() and !dest_param_ty.isGenericPoison()) {
+            // Note: Cast direction is reversed here.
+            const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, dest_is_mut, target, dest_src, src_src, null);
+            if (param != .ok) {
+                return .{ .fn_param = .{
+                    .child = try param.dupe(sema.arena),
+                    .actual = src_param_ty,
+                    .wanted = dest_param_ty,
+                    .index = param_i,
+                } };
+            }
         }
     }
 
@@ -36377,6 +36374,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .slice_const_u8_sentinel_0_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_1_u8_type,
+        .vector_2_u8_type,
+        .vector_4_u8_type,
+        .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
         .vector_8_i16_type,
