@@ -619,3 +619,23 @@ test "generic parameter resolves to comptime-only type but is not marked comptim
     const ct_result = comptime S.foo(u8, false, S.bar);
     comptime std.debug.assert(ct_result == 123);
 }
+
+test "noalias paramters with generic return type" {
+    const S = struct {
+        pub fn a(noalias _: *u8, im_noalias: usize) im_noalias {}
+        pub fn b(noalias _: *u8, im_noalias: usize, x: *isize) x {
+            _ = im_noalias;
+        }
+        pub fn c(noalias _: *u8, im_noalias: usize, x: isize) struct { x } {
+            _ = im_noalias;
+        }
+        pub fn d(noalias _: *u8, im_noalias: usize, _: anytype) struct { im_noalias } {}
+        pub fn e(noalias _: *u8, _: usize, im_noalias: [5]u9) switch (@TypeOf(im_noalias)) {
+            else => void,
+        } {}
+        pub fn f(noalias _: *u8, _: anytype, im_noalias: u8) switch (@TypeOf(im_noalias)) {
+            else => enum { x, y, z },
+        } {}
+    };
+    std.testing.refAllDecls(S);
+}
