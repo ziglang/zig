@@ -321,6 +321,27 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
+
+    pub fn format(id: BuildId, writer: *std.io.Writer) std.io.Writer.Error!void {
+        switch (id) {
+            .none, .fast, .uuid, .sha1, .md5 => {
+                try writer.writeAll(@tagName(id));
+            },
+            .hexstring => |hs| {
+                try writer.print("0x{x}", .{hs.toSlice()});
+            },
+        }
+    }
+
+    test format {
+        try std.testing.expectFmt("none", "{f}", .{@as(BuildId, .none)});
+        try std.testing.expectFmt("fast", "{f}", .{@as(BuildId, .fast)});
+        try std.testing.expectFmt("uuid", "{f}", .{@as(BuildId, .uuid)});
+        try std.testing.expectFmt("sha1", "{f}", .{@as(BuildId, .sha1)});
+        try std.testing.expectFmt("md5", "{f}", .{@as(BuildId, .md5)});
+        try std.testing.expectFmt("0x", "{f}", .{BuildId.initHexString("")});
+        try std.testing.expectFmt("0x1234cdef", "{f}", .{BuildId.initHexString("\x12\x34\xcd\xef")});
+    }
 };
 
 pub const LtoMode = enum { none, full, thin };

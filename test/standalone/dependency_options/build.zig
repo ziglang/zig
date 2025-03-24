@@ -51,7 +51,8 @@ pub fn build(b: *std.Build) !void {
         }),
         .@"enum" = @as(Enum, .alfa),
         .enum_list = @as([]const Enum, &.{ .alfa, .bravo, .charlie }),
-        //.build_id = @as(std.zig.BuildId, .uuid),
+        .build_id = @as(std.zig.BuildId, .uuid),
+        .hex_build_id = std.zig.BuildId.initHexString("\x12\x34\xcd\xef"),
     });
 
     const all_specified_mod = all_specified.module("dummy");
@@ -76,7 +77,8 @@ pub fn build(b: *std.Build) !void {
         }),
         .@"enum" = @as(?Enum, .alfa),
         .enum_list = @as(?[]const Enum, &.{ .alfa, .bravo, .charlie }),
-        //.build_id = @as(?std.zig.BuildId, .uuid),
+        .build_id = @as(?std.zig.BuildId, .uuid),
+        .hex_build_id = @as(?std.zig.BuildId, .initHexString("\x12\x34\xcd\xef")),
     });
 
     if (all_specified_optional != all_specified) return error.TestFailed;
@@ -97,7 +99,8 @@ pub fn build(b: *std.Build) !void {
         },
         .@"enum" = .alfa,
         .enum_list = &[_]Enum{ .alfa, .bravo, .charlie },
-        //.build_id = @as(std.zig.BuildId, .uuid),
+        .build_id = .uuid,
+        .hex_build_id = std.zig.BuildId.initHexString("\x12\x34\xcd\xef"),
     });
 
     if (all_specified_literal != all_specified) return error.TestFailed;
@@ -130,7 +133,8 @@ pub fn build(b: *std.Build) !void {
         .lazy_path_list = mut_lazy_path_list,
         .@"enum" = "alfa",
         .enum_list = mut_enum_list,
-        //.build_id = @as(std.zig.BuildId, .uuid),
+        .build_id = "uuid",
+        .hex_build_id = "0x1234cdef",
     });
 
     if (all_specified_alt != all_specified) return error.TestFailed;

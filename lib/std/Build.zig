@@ -450,6 +450,13 @@ fn addUserInputOptionFromArg(
                 .used = false,
             }) catch @panic("OOM");
         },
+        std.zig.BuildId => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = std.fmt.allocPrint(arena, "{f}", .{v}) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
         LazyPath => return if (maybe_value) |v| {
             map.put(field.name, .{
                 .name = field.name,

@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) !void {
     const expected_enum: Enum = .alfa;
     const expected_enum_list: []const Enum = &.{ .alfa, .bravo, .charlie };
     const expected_build_id: std.zig.BuildId = .uuid;
+    const expected_hex_build_id: std.zig.BuildId = .initHexString("\x12\x34\xcd\xef");
 
     const @"bool" = b.option(bool, "bool", "bool") orelse expected_bool;
     const int = b.option(i64, "int", "int") orelse expected_int;
@@ -31,6 +32,7 @@ pub fn build(b: *std.Build) !void {
     const @"enum" = b.option(Enum, "enum", "enum") orelse expected_enum;
     const enum_list = b.option([]const Enum, "enum_list", "enum_list") orelse expected_enum_list;
     const build_id = b.option(std.zig.BuildId, "build_id", "build_id") orelse expected_build_id;
+    const hex_build_id = b.option(std.zig.BuildId, "hex_build_id", "hex_build_id") orelse expected_hex_build_id;
 
     if (@"bool" != expected_bool) return error.TestFailed;
     if (int != expected_int) return error.TestFailed;
@@ -47,6 +49,7 @@ pub fn build(b: *std.Build) !void {
     if (@"enum" != expected_enum) return error.TestFailed;
     if (!std.mem.eql(Enum, enum_list, expected_enum_list)) return error.TestFailed;
     if (!std.meta.eql(build_id, expected_build_id)) return error.TestFailed;
+    if (!hex_build_id.eql(expected_hex_build_id)) return error.TestFailed;
 
     _ = b.addModule("dummy", .{
         .root_source_file = b.path("build.zig"),
