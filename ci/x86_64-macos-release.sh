@@ -73,3 +73,12 @@ stage3/bin/zig build \
 echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
 diff stage3/bin/zig stage4/bin/zig
+
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build/stage3/bin/zig
+cd $wd
+
+unset wd
