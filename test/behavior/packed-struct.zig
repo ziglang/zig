@@ -1321,7 +1321,6 @@ test "packed struct with signed field" {
 test "assign packed struct initialized with RLS to packed struct literal field" {
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Inner = packed struct { x: u17 };

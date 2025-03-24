@@ -759,6 +759,16 @@ fn resolveInst(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     return result;
 }
 
+fn resolveValue(cg: *CodeGen, val: Value) InnerError!WValue {
+    const zcu = cg.pt.zcu;
+    const ty = val.typeOf(zcu);
+
+    return if (isByRef(ty, zcu, cg.target))
+        .{ .uav_ref = .{ .ip_index = val.toIntern() } }
+    else
+        try cg.lowerConstant(val, ty);
+}
+
 /// NOTE: if result == .stack, it will be stored in .local
 fn finishAir(cg: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []const Air.Inst.Ref) InnerError!void {
     assert(operands.len <= Liveness.bpi - 1);
@@ -2319,39 +2329,56 @@ fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
     } else {
         // at this point we have a non-natural alignment, we must
         // load the value, and then shift+or the rhs into the result location.
-        const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
+        const host_size = ptr_info.packed_offset.host_size * 8;
+        const host_ty = try pt.intType(.unsigned, host_size);
+        const bit_size: u16 = @intCast(ty.bitSize(zcu));
+        const bit_offset = ptr_info.packed_offset.bit_offset;
 
-        if (isByRef(int_elem_ty, zcu, cg.target)) {
-            return cg.fail("TODO: airStore for pointers to bitfields with backing type larger than 64bits", .{});
+        const mask_val = try cg.resolveValue(val: {
+            const limbs = try cg.gpa.alloc(
+                std.math.big.Limb,
+                std.math.big.int.calcTwosCompLimbCount(host_size) + 1,
+            );
+            defer cg.gpa.free(limbs);
+
+            var mask_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
+            mask_bigint.setTwosCompIntLimit(.max, .unsigned, host_size);
+
+            if (bit_size != host_size) {
+                mask_bigint.shiftRight(mask_bigint.toConst(), host_size - bit_size);
+            }
+            if (bit_offset != 0) {
+                mask_bigint.shiftLeft(mask_bigint.toConst(), bit_offset);
+            }
+            mask_bigint.bitNotWrap(mask_bigint.toConst(), .unsigned, host_size);
+
+            break :val try pt.intValue_big(host_ty, mask_bigint.toConst());
+        });
+
+        const shift_val: WValue = if (33 <= host_size and host_size <= 64)
+            .{ .imm64 = bit_offset }
+        else
+            .{ .imm32 = bit_offset };
+
+        if (host_size <= 64) {
+            try cg.emitWValue(lhs);
         }
-
-        var mask = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(ty.bitSize(zcu)))) - 1));
-        mask <<= @as(u6, @intCast(ptr_info.packed_offset.bit_offset));
-        mask ^= ~@as(u64, 0);
-        const shift_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
-            .{ .imm32 = ptr_info.packed_offset.bit_offset }
+        const loaded = if (host_size <= 64)
+            try cg.load(lhs, host_ty, 0)
         else
-            .{ .imm64 = ptr_info.packed_offset.bit_offset };
-        const mask_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
-            .{ .imm32 = @as(u32, @truncate(mask)) }
+            lhs;
+        const anded = try cg.binOp(loaded, mask_val, host_ty, .@"and");
+        const extended_value = try cg.intcast(rhs, ty, host_ty);
+        const shifted_value = if (bit_offset > 0)
+            try cg.binOp(extended_value, shift_val, host_ty, .shl)
         else
-            .{ .imm64 = mask };
-        const wrap_mask_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
-            .{ .imm32 = @truncate(~@as(u64, 0) >> @intCast(64 - ty.bitSize(zcu))) }
-        else
-            .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - ty.bitSize(zcu)) };
-
-        try cg.emitWValue(lhs);
-        const loaded = try cg.load(lhs, int_elem_ty, 0);
-        const anded = try cg.binOp(loaded, mask_val, int_elem_ty, .@"and");
-        const extended_value = try cg.intcast(rhs, ty, int_elem_ty);
-        const masked_value = try cg.binOp(extended_value, wrap_mask_val, int_elem_ty, .@"and");
-        const shifted_value = if (ptr_info.packed_offset.bit_offset > 0) shifted: {
-            break :shifted try cg.binOp(masked_value, shift_val, int_elem_ty, .shl);
-        } else masked_value;
-        const result = try cg.binOp(anded, shifted_value, int_elem_ty, .@"or");
-        // lhs is still on the stack
-        try cg.store(.stack, result, int_elem_ty, lhs.offset());
+            extended_value;
+        const result = try cg.binOp(anded, shifted_value, host_ty, .@"or");
+        if (host_size <= 64) {
+            try cg.store(.stack, result, host_ty, lhs.offset());
+        } else {
+            try cg.store(lhs, result, host_ty, lhs.offset());
+        }
     }
 
     return cg.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
@@ -2494,22 +2521,30 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
 
         if (ptr_info.packed_offset.host_size == 0) {
-            break :result try cg.load(operand, ty, 0);
+            const loaded = try cg.load(operand, ty, 0);
+            const ty_size = ty.abiSize(zcu);
+            if (ty.isAbiInt(zcu) and ty_size * 8 > ty.bitSize(zcu)) {
+                const int_elem_ty = try pt.intType(.unsigned, @intCast(ty_size * 8));
+                break :result try cg.trunc(loaded, ty, int_elem_ty);
+            } else {
+                break :result loaded;
+            }
+        } else {
+            const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
+            const shift_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
+                .{ .imm32 = ptr_info.packed_offset.bit_offset }
+            else if (ptr_info.packed_offset.host_size <= 8)
+                .{ .imm64 = ptr_info.packed_offset.bit_offset }
+            else
+                .{ .imm32 = ptr_info.packed_offset.bit_offset };
+
+            const stack_loaded = if (ptr_info.packed_offset.host_size <= 8)
+                try cg.load(operand, int_elem_ty, 0)
+            else
+                operand;
+            const shifted = try cg.binOp(stack_loaded, shift_val, int_elem_ty, .shr);
+            break :result try cg.trunc(shifted, ty, int_elem_ty);
         }
-
-        // at this point we have a non-natural alignment, we must
-        // shift the value to obtain the correct bit.
-        const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
-        const shift_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
-            .{ .imm32 = ptr_info.packed_offset.bit_offset }
-        else if (ptr_info.packed_offset.host_size <= 8)
-            .{ .imm64 = ptr_info.packed_offset.bit_offset }
-        else
-            return cg.fail("TODO: airLoad where ptr to bitfield exceeds 64 bits", .{});
-
-        const stack_loaded = try cg.load(operand, int_elem_ty, 0);
-        const shifted = try cg.binOp(stack_loaded, shift_val, int_elem_ty, .shr);
-        break :result try cg.trunc(shifted, ty, int_elem_ty);
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
@@ -3857,15 +3892,12 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
                 const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
-                const wasm_bits = toWasmBits(backing_ty.intInfo(zcu).bits) orelse {
-                    return cg.fail("TODO: airStructFieldVal for packed structs larger than 128 bits", .{});
-                };
-                const const_wvalue: WValue = if (wasm_bits == 32)
-                    .{ .imm32 = offset }
-                else if (wasm_bits == 64)
+                const host_bits = backing_ty.intInfo(zcu).bits;
+
+                const const_wvalue: WValue = if (33 <= host_bits and host_bits <= 64)
                     .{ .imm64 = offset }
                 else
-                    return cg.fail("TODO: airStructFieldVal for packed structs larger than 64 bits", .{});
+                    .{ .imm32 = offset };
 
                 // for first field we don't require any shifting
                 const shifted_value = if (offset == 0)
@@ -4043,7 +4075,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
     if (use_br_table) {
         const width = width_maybe.?;
 
-        const br_value_original = try cg.binOp(target, try cg.resolveInst(Air.internedToRef(min.?.toIntern())), target_ty, .sub);
+        const br_value_original = try cg.binOp(target, try cg.resolveValue(min.?), target_ty, .sub);
         _ = try cg.intcast(br_value_original, target_ty, Type.u32);
 
         const jump_table: Mir.JumpTable = .{ .length = width + 1 };
@@ -5232,7 +5264,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         }
                     }
                     if (sentinel) |s| {
-                        const val = try cg.resolveInst(Air.internedToRef(s.toIntern()));
+                        const val = try cg.resolveValue(s);
                         try cg.store(offset, val, elem_ty, 0);
                     }
                 } else {
@@ -5243,7 +5275,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         offset += elem_size;
                     }
                     if (sentinel) |s| {
-                        const val = try cg.resolveInst(Air.internedToRef(s.toIntern()));
+                        const val = try cg.resolveValue(s);
                         try cg.store(result, val, elem_ty, offset);
                     }
                 }
