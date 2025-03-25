@@ -3500,6 +3500,14 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) SetPgidError!void {
     }
 }
 
+pub fn getuid() uid_t {
+    return system.getuid();
+}
+
+pub fn geteuid() uid_t {
+    return system.geteuid();
+}
+
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
     if (native_os == .windows) {

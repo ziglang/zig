@@ -10547,6 +10547,8 @@ pub extern "c" fn setregid(rgid: gid_t, egid: gid_t) c_int;
 pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
 pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
+pub extern "c" fn getuid() uid_t;
+pub extern "c" fn geteuid() uid_t;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
 pub extern "c" fn calloc(usize, usize) ?*anyopaque;
