@@ -7,6 +7,7 @@ mutex: std.Thread.Mutex = .{},
 cond: std.Thread.Condition = .{},
 run_queue: RunQueue = .{},
 is_running: bool = true,
+/// Must be a thread-safe allocator.
 allocator: std.mem.Allocator,
 threads: if (builtin.single_threaded) [0]std.Thread else []std.Thread,
 ids: if (builtin.single_threaded) struct {
@@ -16,12 +17,12 @@ ids: if (builtin.single_threaded) struct {
     }
 } else std.AutoArrayHashMapUnmanaged(std.Thread.Id, void),
 
-const RunQueue = std.SinglyLinkedList(Runnable);
-const Runnable = struct {
+pub const RunQueue = std.SinglyLinkedList(Runnable);
+pub const Runnable = struct {
     runFn: RunProto,
 };
 
-const RunProto = *const fn (*Runnable, id: ?usize) void;
+pub const RunProto = *const fn (*Runnable, id: ?usize) void;
 
 pub const Options = struct {
     allocator: std.mem.Allocator,
@@ -118,12 +119,6 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
             closure.wait_group.finish();
-
-            // The thread pool's allocator is protected by the mutex.
-            const mutex = &closure.pool.mutex;
-            mutex.lock();
-            defer mutex.unlock();
-
             closure.pool.allocator.destroy(closure);
         }
     };
@@ -181,12 +176,6 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, .{id.?} ++ closure.arguments);
             closure.wait_group.finish();
-
-            // The thread pool's allocator is protected by the mutex.
-            const mutex = &closure.pool.mutex;
-            mutex.lock();
-            defer mutex.unlock();
-
             closure.pool.allocator.destroy(closure);
         }
     };
@@ -231,12 +220,6 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
-
-            // The thread pool's allocator is protected by the mutex.
-            const mutex = &closure.pool.mutex;
-            mutex.lock();
-            defer mutex.unlock();
-
             closure.pool.allocator.destroy(closure);
         }
     };
