@@ -5284,15 +5284,14 @@ test addWrap {
 
 inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
     @setRuntimeSafety(false);
-    switch (@typeInfo(Scalar(Type))) {
+    return switch (@typeInfo(Scalar(Type))) {
         else => @compileError(@typeName(Type)),
         .int => |int| switch (int.signedness) {
-            .signed => {},
-            .unsigned => return @as(AddOneBit(Type), @max(lhs, rhs)) - @min(lhs, rhs),
+            .signed => @as(AddOneBit(Type), lhs) - rhs,
+            .unsigned => @as(AddOneBit(Type), @max(lhs, rhs)) - @min(lhs, rhs),
         },
-        .float => {},
-    }
-    return @as(AddOneBit(Type), lhs) - rhs;
+        .float => lhs - rhs,
+    };
 }
 test subUnsafe {
     const test_sub_unsafe = binary(subUnsafe, .{});
@@ -5300,6 +5299,24 @@ test subUnsafe {
     try test_sub_unsafe.testIntVectors();
     try test_sub_unsafe.testFloats();
     try test_sub_unsafe.testFloatVectors();
+}
+
+inline fn subSafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
+    @setRuntimeSafety(true);
+    return switch (@typeInfo(Scalar(Type))) {
+        else => @compileError(@typeName(Type)),
+        .int => |int| switch (int.signedness) {
+            .signed => @as(AddOneBit(Type), lhs) - rhs,
+            .unsigned => @as(AddOneBit(Type), @max(lhs, rhs)) - @min(lhs, rhs),
+        },
+        .float => lhs - rhs,
+    };
+}
+test subSafe {
+    const test_sub_safe = binary(subSafe, .{});
+    try test_sub_safe.testInts();
+    try test_sub_safe.testFloats();
+    try test_sub_safe.testFloatVectors();
 }
 
 inline fn subWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
@@ -5433,6 +5450,14 @@ inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Ty
 test addWithOverflow {
     const test_add_with_overflow = binary(addWithOverflow, .{});
     try test_add_with_overflow.testInts();
+}
+
+inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+    return @subWithOverflow(lhs, rhs);
+}
+test subWithOverflow {
+    const test_sub_with_overflow = binary(subWithOverflow, .{});
+    try test_sub_with_overflow.testInts();
 }
 
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
