@@ -5262,6 +5262,17 @@ test addUnsafe {
     try test_add_unsafe.testFloatVectors();
 }
 
+inline fn addSafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
+    @setRuntimeSafety(true);
+    return @as(AddOneBit(Type), lhs) + rhs;
+}
+test addSafe {
+    const test_add_safe = binary(addSafe, .{});
+    try test_add_safe.testInts();
+    try test_add_safe.testFloats();
+    try test_add_safe.testFloatVectors();
+}
+
 inline fn addWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs +% rhs;
 }
@@ -5416,6 +5427,14 @@ test min {
     try test_min.testFloatVectors();
 }
 
+inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+    return @addWithOverflow(lhs, rhs);
+}
+test addWithOverflow {
+    const test_add_with_overflow = binary(addWithOverflow, .{});
+    try test_add_with_overflow.testInts();
+}
+
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
     return lhs == rhs;
 }
@@ -5519,15 +5538,16 @@ test shl {
     try test_shl.testInts();
 }
 
-inline fn shlExact(comptime Type: type, lhs: Type, rhs: Type) Type {
+inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
+    @setRuntimeSafety(false);
     const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
     return @shlExact(lhs << final_rhs >> final_rhs, final_rhs);
 }
-test shlExact {
-    const test_shl_exact = binary(shlExact, .{});
-    try test_shl_exact.testInts();
+test shlExactUnsafe {
+    const test_shl_exact_unsafe = binary(shlExactUnsafe, .{});
+    try test_shl_exact_unsafe.testInts();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
