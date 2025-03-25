@@ -1162,6 +1162,34 @@ test "subWrap returns normalized result" {
     try testing.expect(r.isPositive() and r.len() == 1 and r.limbs[0] == 0);
 }
 
+test "addWrap returns normalized result" {
+    var x = try Managed.initSet(testing.allocator, 0);
+    defer x.deinit();
+    var y = try Managed.initSet(testing.allocator, 0);
+    defer y.deinit();
+
+    // make them both non normalized "-0"
+    x.setMetadata(false, 1);
+    y.setMetadata(false, 1);
+
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try testing.expect(!(try r.addWrap(&x, &y, .unsigned, 64)));
+    try testing.expect(r.isPositive() and r.len() == 1 and r.limbs[0] == 0);
+}
+
+test "subWrap returns normalized result" {
+    var x = try Managed.initSet(testing.allocator, 0);
+    defer x.deinit();
+    var y = try Managed.initSet(testing.allocator, 0);
+    defer y.deinit();
+
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try testing.expect(!(try r.subWrap(&x, &y, .unsigned, 64)));
+    try testing.expect(r.isPositive() and r.len() == 1 and r.limbs[0] == 0);
+}
+
 test "addSat single-single, unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(u17) - 5);
     defer a.deinit();
