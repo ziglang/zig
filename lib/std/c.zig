@@ -9331,9 +9331,11 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub const arc4random_buf = switch (native_os) {
     .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
+    .linux => if (builtin.abi.isAndroid()) private.arc4random_buf else {},
     else => {},
 };
 pub const getentropy = switch (native_os) {
+    .linux => if (builtin.abi.isAndroid() and versionCheck(.{ .major = 28, .minor = 0, .patch = 0 })) private.getentropy else {},
     .emscripten => private.getentropy,
     else => {},
 };
