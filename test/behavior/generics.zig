@@ -631,3 +631,18 @@ test "instantiate coerced generic function" {
     var x: u8 = 20;
     try coerced(u8, &x);
 }
+
+test "generic struct captures slice of another struct" {
+    const S = struct {
+        const Foo = struct { x: u32 };
+        const foo_array: [2]Foo = undefined;
+
+        fn Bar(foo_slice: []const Foo) type {
+            return struct {
+                const foo_ptr: [*]const Foo = foo_slice.ptr;
+            };
+        }
+    };
+    const T = S.Bar(&S.foo_array);
+    comptime std.debug.assert(T.foo_ptr == &S.foo_array);
+}
