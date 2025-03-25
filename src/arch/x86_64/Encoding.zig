@@ -1030,8 +1030,8 @@ const mnemonic_to_encodings_map = init: {
         storage_i += value.len;
     }
     var mnemonic_i: [mnemonic_count]usize = @splat(0);
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
+    const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
+    const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
     for (encodings) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{

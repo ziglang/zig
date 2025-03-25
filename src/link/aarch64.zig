@@ -5,9 +5,9 @@ pub inline fn isArithmeticOp(inst: *const [4]u8) bool {
 
 pub fn writeAddImmInst(value: u12, code: *[4]u8) void {
     var inst = Instruction{
-        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+        .add_subtract_immediate = mem.bytesToValue(@FieldType(
             Instruction,
-            Instruction.add_subtract_immediate,
+            @tagName(Instruction.add_subtract_immediate),
         ), code),
     };
     inst.add_subtract_immediate.imm12 = value;
@@ -16,9 +16,9 @@ pub fn writeAddImmInst(value: u12, code: *[4]u8) void {
 
 pub fn writeLoadStoreRegInst(value: u12, code: *[4]u8) void {
     var inst: Instruction = .{
-        .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+        .load_store_register = mem.bytesToValue(@FieldType(
             Instruction,
-            Instruction.load_store_register,
+            @tagName(Instruction.load_store_register),
         ), code),
     };
     inst.load_store_register.offset = value;
@@ -34,9 +34,9 @@ pub fn calcNumberOfPages(saddr: i64, taddr: i64) error{Overflow}!i21 {
 
 pub fn writeAdrpInst(pages: u21, code: *[4]u8) void {
     var inst = Instruction{
-        .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
+        .pc_relative_address = mem.bytesToValue(@FieldType(
             Instruction,
-            Instruction.pc_relative_address,
+            @tagName(Instruction.pc_relative_address),
         ), code),
     };
     inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
@@ -46,9 +46,9 @@ pub fn writeAdrpInst(pages: u21, code: *[4]u8) void {
 
 pub fn writeBranchImm(disp: i28, code: *[4]u8) void {
     var inst = Instruction{
-        .unconditional_branch_immediate = mem.bytesToValue(std.meta.TagPayload(
+        .unconditional_branch_immediate = mem.bytesToValue(@FieldType(
             Instruction,
-            Instruction.unconditional_branch_immediate,
+            @tagName(Instruction.unconditional_branch_immediate),
         ), code),
     };
     inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(disp >> 2))));
