@@ -140,6 +140,8 @@ test {
 
 // This bug only repros in the root file
 test "deference @embedFile() of a file full of zero bytes" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const contents = @embedFile("behavior/zero.bin").*;
     try @import("std").testing.expect(contents.len == 456);
     for (contents) |byte| try @import("std").testing.expect(byte == 0);

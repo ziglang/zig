@@ -287,8 +287,6 @@ test "@ptrCast undefined value at comptime" {
 }
 
 test "comptime @ptrCast with packed struct leaves value unmodified" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = packed struct { three: u3 };
     const st: S = .{ .three = 6 };
     try expect(st.three == 6);

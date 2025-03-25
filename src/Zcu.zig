@@ -1716,9 +1716,25 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
-                    .assign => {
-                        return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]);
-                    },
+                    .assign,
+                    .assign_mul,
+                    .assign_div,
+                    .assign_mod,
+                    .assign_add,
+                    .assign_sub,
+                    .assign_shl,
+                    .assign_shl_sat,
+                    .assign_shr,
+                    .assign_bit_and,
+                    .assign_bit_xor,
+                    .assign_bit_or,
+                    .assign_mul_wrap,
+                    .assign_add_wrap,
+                    .assign_sub_wrap,
+                    .assign_mul_sat,
+                    .assign_add_sat,
+                    .assign_sub_sat,
+                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]),
                     else => return tree.nodeToSpan(node),
                 }
             },
@@ -1727,9 +1743,25 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
-                    .assign => {
-                        return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
-                    },
+                    .assign,
+                    .assign_mul,
+                    .assign_div,
+                    .assign_mod,
+                    .assign_add,
+                    .assign_sub,
+                    .assign_shl,
+                    .assign_shl_sat,
+                    .assign_shr,
+                    .assign_bit_and,
+                    .assign_bit_xor,
+                    .assign_bit_or,
+                    .assign_mul_wrap,
+                    .assign_add_wrap,
+                    .assign_sub_wrap,
+                    .assign_mul_sat,
+                    .assign_add_sat,
+                    .assign_sub_sat,
+                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]),
                     else => return tree.nodeToSpan(node),
                 }
             },
@@ -2209,9 +2241,9 @@ pub const LazySrcLoc = struct {
         node_offset_field_default: Ast.Node.Offset,
         /// The source location points to the type of an array or struct initializer.
         node_offset_init_ty: Ast.Node.Offset,
-        /// The source location points to the LHS of an assignment.
+        /// The source location points to the LHS of an assignment (or assign-op, e.g. `+=`).
         node_offset_store_ptr: Ast.Node.Offset,
-        /// The source location points to the RHS of an assignment.
+        /// The source location points to the RHS of an assignment (or assign-op, e.g. `+=`).
         node_offset_store_operand: Ast.Node.Offset,
         /// The source location points to the operand of a `return` statement, or
         /// the `return` itself if there is no explicit operand.

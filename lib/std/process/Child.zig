@@ -269,7 +269,7 @@ pub fn killWindows(self: *ChildProcess, exit_code: windows.UINT) !Term {
     }
 
     windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
-        error.PermissionDenied => {
+        error.AccessDenied => {
             // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
             // indicates that the process has already exited, but there may be
             // some rare edge cases where our process handle no longer has the

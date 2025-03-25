@@ -1380,13 +1380,8 @@ test fmtDuration {
 }
 
 fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    if (ns < 0) {
-        const data = FormatDurationData{ .ns = @as(u64, @intCast(-ns)), .negative = true };
-        try formatDuration(data, fmt, options, writer);
-    } else {
-        const data = FormatDurationData{ .ns = @as(u64, @intCast(ns)) };
-        try formatDuration(data, fmt, options, writer);
-    }
+    const data = FormatDurationData{ .ns = @abs(ns), .negative = ns < 0 };
+    try formatDuration(data, fmt, options, writer);
 }
 
 /// Return a Formatter for number of nanoseconds according to its signed magnitude:
@@ -1457,6 +1452,7 @@ test fmtDurationSigned {
         .{ .s = "-1y1m999ns", .d = -(365 * std.time.ns_per_day + std.time.ns_per_min + 999) },
         .{ .s = "292y24w3d23h47m16.854s", .d = math.maxInt(i64) },
         .{ .s = "-292y24w3d23h47m16.854s", .d = math.minInt(i64) + 1 },
+        .{ .s = "-292y24w3d23h47m16.854s", .d = math.minInt(i64) },
     }) |tc| {
         const slice = try bufPrint(&buf, "{}", .{fmtDurationSigned(tc.d)});
         try std.testing.expectEqualStrings(tc.s, slice);

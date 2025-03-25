@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const expectEqual = std.testing.expectEqual;
 
 test "casting integer address to function pointer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     addressToFunction();
     comptime addressToFunction();
 }

@@ -383,7 +383,7 @@ test "openDirAbsolute" {
 
 test "openDir cwd parent '..'" {
     var dir = fs.cwd().openDir("..", .{}) catch |err| {
-        if (native_os == .wasi and err == error.AccessDenied) {
+        if (native_os == .wasi and err == error.PermissionDenied) {
             return; // This is okay. WASI disallows escaping from the fs sandbox
         }
         return err;
