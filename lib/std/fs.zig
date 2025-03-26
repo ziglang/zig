@@ -52,7 +52,7 @@ pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes"
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .serenity => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
@@ -73,7 +73,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const max_name_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos, .serenity => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
     // Each WTF-16LE character may be expanded to 3 WTF-8 bytes.
@@ -160,7 +160,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return posix.mkdirW(absolute_path_w, Dir.default_mode);
+    return posix.mkdirW(mem.span(absolute_path_w), Dir.default_mode);
 }
 
 /// Same as `Dir.deleteDir` except the path is absolute.
@@ -181,7 +181,7 @@ pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
 /// Same as `deleteDirAbsolute` except the path parameter is WTF-16 and target OS is assumed Windows.
 pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(dir_path));
-    return posix.rmdirW(dir_path);
+    return posix.rmdirW(mem.span(dir_path));
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
@@ -221,7 +221,7 @@ pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_su
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
-    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
+    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.
@@ -338,7 +338,7 @@ pub fn createFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.CreateFla
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().createFileW(absolute_path_w, flags);
+    return cwd().createFileW(mem.span(absolute_path_w), flags);
 }
 
 /// Delete a file name and possibly the file it refers to, based on an absolute path.
@@ -362,7 +362,7 @@ pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!v
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().deleteFileW(absolute_path_w);
+    return cwd().deleteFileW(mem.span(absolute_path_w));
 }
 
 /// Removes a symlink, file, or directory.
@@ -400,7 +400,7 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8
 /// encoded.
 pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteWindowsW(pathname_w));
-    return posix.readlinkW(pathname_w, buffer);
+    return posix.readlinkW(mem.span(pathname_w), buffer);
 }
 
 /// Same as `readLink`, except the path parameter is null-terminated.
@@ -437,13 +437,13 @@ pub fn symLinkAbsolute(
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
 pub fn symLinkAbsoluteW(
-    target_path_w: []const u16,
-    sym_link_path_w: []const u16,
+    target_path_w: [*:0]const u16,
+    sym_link_path_w: [*:0]const u16,
     flags: Dir.SymLinkFlags,
 ) !void {
-    assert(path.isAbsoluteWindowsWTF16(target_path_w));
-    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
-    return windows.CreateSymbolicLink(null, sym_link_path_w, target_path_w, flags.is_directory);
+    assert(path.isAbsoluteWindowsW(target_path_w));
+    assert(path.isAbsoluteWindowsW(sym_link_path_w));
+    return windows.CreateSymbolicLink(null, mem.span(sym_link_path_w), mem.span(target_path_w), flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
@@ -466,7 +466,7 @@ pub fn symLinkAbsoluteZ(
 pub const OpenSelfExeError = posix.OpenError || SelfExePathError || posix.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
-    if (native_os == .linux) {
+    if (native_os == .linux or native_os == .serenity) {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (native_os == .windows) {
@@ -572,7 +572,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         return result;
     }
     switch (native_os) {
-        .linux => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
+        .linux, .serenity => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
             error.InvalidUtf8 => unreachable, // WASI-only
             error.InvalidWtf8 => unreachable, // Windows-only
             error.UnsupportedReparsePointType => unreachable, // Windows-only

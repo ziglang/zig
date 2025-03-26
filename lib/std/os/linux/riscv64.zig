@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -95,7 +96,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         a0,   a1,    a2,    a3,  a4,   a5,  a6
     //
@@ -120,7 +121,16 @@ pub fn clone() callconv(.Naked) usize {
         \\    ret
         \\
         \\    # Child
-        \\1:  ld a1, 0(sp)
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\    .cfi_undefined ra
+    );
+    asm volatile (
+        \\    mv fp, zero
+        \\    mv ra, zero
+        \\
+        \\    ld a1, 0(sp)
         \\    ld a0, 8(sp)
         \\    jalr a1
         \\
@@ -132,7 +142,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ ecall
         :

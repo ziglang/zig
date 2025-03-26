@@ -1,5 +1,5 @@
 /* Checking macros for stdio functions.
-   Copyright (C) 2004-2024 Free Software Foundation, Inc.
+   Copyright (C) 2004-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -308,14 +308,14 @@ fgets (__fortify_clang_overload_arg (char *, __restrict, __s), int __n,
 			      "fgets called with bigger size than length of "
 			      "destination buffer")
 {
-  size_t sz = __glibc_objsize (__s);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+  size_t __sz = __glibc_objsize (__s);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (char), __sz))
     return __fgets_alias (__s, __n, __stream);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (char), sz))
-    return __fgets_chk_warn (__s, sz, __n, __stream);
+  if (__glibc_unsafe_len (__n, sizeof (char), __sz))
+    return __fgets_chk_warn (__s, __sz, __n, __stream);
 #endif
-  return __fgets_chk (__s, sz, __n, __stream);
+  return __fgets_chk (__s, __sz, __n, __stream);
 }
 
 __fortify_function __wur __nonnull ((4)) __attribute_overloadable__ size_t
@@ -326,14 +326,14 @@ fread (__fortify_clang_overload_arg (void *, __restrict, __ptr),
 			      "fread called with bigger size * n than length "
 			      "of destination buffer")
 {
-  size_t sz = __glibc_objsize0 (__ptr);
-  if (__glibc_safe_or_unknown_len (__n, __size, sz))
+  size_t __sz = __glibc_objsize0 (__ptr);
+  if (__glibc_safe_or_unknown_len (__n, __size, __sz))
     return __fread_alias (__ptr, __size, __n, __stream);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, __size, sz))
-    return __fread_chk_warn (__ptr, sz, __size, __n, __stream);
+  if (__glibc_unsafe_len (__n, __size, __sz))
+    return __fread_chk_warn (__ptr, __sz, __size, __n, __stream);
 #endif
-  return __fread_chk (__ptr, sz, __size, __n, __stream);
+  return __fread_chk (__ptr, __sz, __size, __n, __stream);
 }
 
 #ifdef __USE_GNU
@@ -345,14 +345,14 @@ fgets_unlocked (__fortify_clang_overload_arg (char *, __restrict, __s),
 			      "fgets called with bigger size than length of "
 			      "destination buffer")
 {
-  size_t sz = __glibc_objsize (__s);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+  size_t __sz = __glibc_objsize (__s);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (char), __sz))
     return __fgets_unlocked_alias (__s, __n, __stream);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (char), sz))
-    return __fgets_unlocked_chk_warn (__s, sz, __n, __stream);
+  if (__glibc_unsafe_len (__n, sizeof (char), __sz))
+    return __fgets_unlocked_chk_warn (__s, __sz, __n, __stream);
 #endif
-  return __fgets_unlocked_chk (__s, sz, __n, __stream);
+  return __fgets_unlocked_chk (__s, __sz, __n, __stream);
 }
 #endif
 
@@ -366,8 +366,8 @@ fread_unlocked (__fortify_clang_overload_arg0 (void *, __restrict, __ptr),
 			      "fread_unlocked called with bigger size * n than "
 			      "length of destination buffer")
 {
-  size_t sz = __glibc_objsize0 (__ptr);
-  if (__glibc_safe_or_unknown_len (__n, __size, sz))
+  size_t __sz = __glibc_objsize0 (__ptr);
+  if (__glibc_safe_or_unknown_len (__n, __size, __sz))
     {
 # ifdef __USE_EXTERN_INLINES
       if (__builtin_constant_p (__size)
@@ -393,10 +393,10 @@ fread_unlocked (__fortify_clang_overload_arg0 (void *, __restrict, __ptr),
       return __fread_unlocked_alias (__ptr, __size, __n, __stream);
     }
 # if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, __size, sz))
-    return __fread_unlocked_chk_warn (__ptr, sz, __size, __n, __stream);
+  if (__glibc_unsafe_len (__n, __size, __sz))
+    return __fread_unlocked_chk_warn (__ptr, __sz, __size, __n, __stream);
 # endif
-  return __fread_unlocked_chk (__ptr, sz, __size, __n, __stream);
+  return __fread_unlocked_chk (__ptr, __sz, __size, __n, __stream);
 
 }
 #endif

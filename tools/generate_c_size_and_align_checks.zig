@@ -25,7 +25,7 @@ fn cName(ty: std.Target.CType) []const u8 {
     };
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
 pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();
@@ -43,7 +43,7 @@ pub fn main() !void {
     const target = try std.zig.system.resolveTargetQuery(query);
 
     const stdout = std.io.getStdOut().writer();
-    inline for (@typeInfo(std.Target.CType).Enum.fields) |field| {
+    inline for (@typeInfo(std.Target.CType).@"enum".fields) |field| {
         const c_type: std.Target.CType = @enumFromInt(field.value);
         try stdout.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
             cName(c_type),

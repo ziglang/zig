@@ -11,23 +11,23 @@ const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 comptime {
-    @export(__cosh, .{ .name = "__cosh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cosf, .{ .name = "cosf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cos, .{ .name = "cos", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cosh, .{ .name = "__cosh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosf, .{ .name = "cosf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cos, .{ .name = "cos", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cosx, .{ .name = "__cosx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(cosq, .{ .name = "cosf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&cosq, .{ .name = "cosf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(cosq, .{ .name = "cosq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cosl, .{ .name = "cosl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosq, .{ .name = "cosq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosl, .{ .name = "cosl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __cosh(a: f16) callconv(.C) f16 {
+pub fn __cosh(a: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(cosf(a));
 }
 
-pub fn cosf(x: f32) callconv(.C) f32 {
+pub fn cosf(x: f32) callconv(.c) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const c1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const c2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -84,7 +84,7 @@ pub fn cosf(x: f32) callconv(.C) f32 {
     };
 }
 
-pub fn cos(x: f64) callconv(.C) f64 {
+pub fn cos(x: f64) callconv(.c) f64 {
     var ix = @as(u64, @bitCast(x)) >> 32;
     ix &= 0x7fffffff;
 
@@ -113,18 +113,18 @@ pub fn cos(x: f64) callconv(.C) f64 {
     };
 }
 
-pub fn __cosx(a: f80) callconv(.C) f80 {
+pub fn __cosx(a: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(cosq(a));
 }
 
-pub fn cosq(a: f128) callconv(.C) f128 {
+pub fn cosq(a: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return cos(@floatCast(a));
 }
 
-pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __cosh(x),
         32 => return cosf(x),
         64 => return cos(x),

@@ -18,13 +18,13 @@ const gcc_word = usize;
 pub const panic = common.panic;
 
 comptime {
-    if (builtin.link_libc and (builtin.abi == .android or builtin.os.tag == .openbsd)) {
-        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
+    if (builtin.link_libc and (builtin.abi.isAndroid() or builtin.os.tag == .openbsd)) {
+        @export(&__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
 /// public entrypoint for generated code using EmulatedTLS
-pub fn __emutls_get_address(control: *emutls_control) callconv(.C) *anyopaque {
+pub fn __emutls_get_address(control: *emutls_control) callconv(.c) *anyopaque {
     return control.getPointer();
 }
 
@@ -191,7 +191,7 @@ const current_thread_storage = struct {
     }
 
     /// Invoked by pthread specific destructor. the passed argument is the ObjectArray pointer.
-    fn deinit(arrayPtr: *anyopaque) callconv(.C) void {
+    fn deinit(arrayPtr: *anyopaque) callconv(.c) void {
         var array: *ObjectArray = @ptrCast(@alignCast(arrayPtr));
         array.deinit();
     }

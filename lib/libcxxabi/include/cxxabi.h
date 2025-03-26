@@ -48,13 +48,17 @@ extern _LIBCXXABI_FUNC_VIS void
 __cxa_free_exception(void *thrown_exception) throw();
 // This function is an LLVM extension, which mirrors the same extension in libsupc++ and libcxxrt
 extern _LIBCXXABI_FUNC_VIS __cxa_exception*
+#ifdef __wasm__
+// In Wasm, a destructor returns its argument
+__cxa_init_primary_exception(void* object, std::type_info* tinfo, void*(_LIBCXXABI_DTOR_FUNC* dest)(void*)) throw();
+#else
 __cxa_init_primary_exception(void* object, std::type_info* tinfo, void(_LIBCXXABI_DTOR_FUNC* dest)(void*)) throw();
+#endif
 
 // 2.4.3 Throwing the Exception Object
 extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void
 __cxa_throw(void *thrown_exception, std::type_info *tinfo,
-#ifdef __USING_WASM_EXCEPTIONS__
-            // In Wasm, a destructor returns its argument
+#ifdef __wasm__
             void *(_LIBCXXABI_DTOR_FUNC *dest)(void *));
 #else
             void (_LIBCXXABI_DTOR_FUNC *dest)(void *));
@@ -72,6 +76,11 @@ __cxa_begin_cleanup(void *exceptionObject) throw();
 extern _LIBCXXABI_FUNC_VIS void __cxa_end_cleanup();
 #endif
 extern _LIBCXXABI_FUNC_VIS std::type_info *__cxa_current_exception_type();
+
+// GNU extension
+// Calls `terminate` with the current exception being caught. This function is used by GCC when a `noexcept` function
+// throws an exception inside a try/catch block and doesn't catch it.
+extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_call_terminate(void*) throw();
 
 // 2.5.4 Rethrowing Exceptions
 extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_rethrow();

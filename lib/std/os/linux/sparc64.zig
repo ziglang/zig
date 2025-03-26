@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
@@ -178,7 +179,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         i0,   i1,    i2,    i3,  i4,   i5,  sp
     //
@@ -190,7 +191,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i0, %%g2
         \\ mov %%i3, %%g3
         \\ # Shuffle the arguments
-        \\ mov 217, %%g1 # SYS_clone
+        \\ mov 217, %%g1 // SYS_clone
         \\ mov %%i2, %%o0
         \\ # Add some extra space for the initial frame
         \\ sub %%i1, 176 + 2047, %%o1
@@ -198,29 +199,38 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i5, %%o3
         \\ ldx [%%fp + 0x8af], %%o4
         \\ t 0x6d
-        \\ bcs,pn %%xcc, 2f
+        \\ bcs,pn %%xcc, 1f
         \\ nop
         \\ # The child pid is returned in o0 while o1 tells if this
         \\ # process is # the child (=1) or the parent (=0).
-        \\ brnz %%o1, 1f
+        \\ brnz %%o1, 2f
         \\ nop
         \\ # Parent process, return the child pid
         \\ mov %%o0, %%i0
         \\ ret
         \\ restore
         \\1:
-        \\ # Child process, call func(arg)
-        \\ mov %%g0, %%fp
-        \\ call %%g2
-        \\ mov %%g3, %%o0
-        \\ # Exit
-        \\ mov 1, %%g1 # SYS_exit
-        \\ t 0x6d
-        \\2:
         \\ # The syscall failed
         \\ sub %%g0, %%o0, %%i0
         \\ ret
         \\ restore
+        \\2:
+        \\ # Child process
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined %%i7
+    );
+    asm volatile (
+        \\ mov %%g0, %%fp
+        \\ mov %%g0, %%i7
+        \\
+        \\ # call func(arg)
+        \\ mov %%g0, %%fp
+        \\ call %%g2
+        \\ mov %%g3, %%o0
+        \\ # Exit
+        \\ mov 1, %%g1 // SYS_exit
+        \\ t 0x6d
     );
 }
 
@@ -228,7 +238,7 @@ pub const restore = restore_rt;
 
 // Need to use C ABI here instead of naked
 // to prevent an infinite loop when calling rt_sigreturn.
-pub fn restore_rt() callconv(.C) void {
+pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),

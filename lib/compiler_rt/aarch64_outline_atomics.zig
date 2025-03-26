@@ -10,7 +10,7 @@ const always_has_lse = std.Target.aarch64.featureSetHas(builtin.cpu.features, .l
 /// which ARM is concerned would have too much overhead.
 var __aarch64_have_lse_atomics: u8 = @intFromBool(always_has_lse);
 
-fn __aarch64_cas1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_cas1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -32,7 +32,7 @@ fn __aarch64_cas1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_swp1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -52,7 +52,7 @@ fn __aarch64_swp1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -73,7 +73,7 @@ fn __aarch64_ldadd1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -94,7 +94,7 @@ fn __aarch64_ldclr1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -115,7 +115,7 @@ fn __aarch64_ldeor1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset1_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldset1_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -136,7 +136,7 @@ fn __aarch64_ldset1_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_cas1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -158,7 +158,7 @@ fn __aarch64_cas1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_swp1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -178,7 +178,7 @@ fn __aarch64_swp1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -199,7 +199,7 @@ fn __aarch64_ldadd1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -220,7 +220,7 @@ fn __aarch64_ldclr1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -241,7 +241,7 @@ fn __aarch64_ldeor1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset1_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldset1_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -262,7 +262,7 @@ fn __aarch64_ldset1_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -284,7 +284,7 @@ fn __aarch64_cas1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -304,7 +304,7 @@ fn __aarch64_swp1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -325,7 +325,7 @@ fn __aarch64_ldadd1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -346,7 +346,7 @@ fn __aarch64_ldclr1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -367,7 +367,7 @@ fn __aarch64_ldeor1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset1_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset1_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -388,7 +388,7 @@ fn __aarch64_ldset1_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -410,7 +410,7 @@ fn __aarch64_cas1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -430,7 +430,7 @@ fn __aarch64_swp1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -451,7 +451,7 @@ fn __aarch64_ldadd1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -472,7 +472,7 @@ fn __aarch64_ldclr1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -493,7 +493,7 @@ fn __aarch64_ldeor1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset1_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset1_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -514,7 +514,7 @@ fn __aarch64_ldset1_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_cas2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -536,7 +536,7 @@ fn __aarch64_cas2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_swp2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -556,7 +556,7 @@ fn __aarch64_swp2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -577,7 +577,7 @@ fn __aarch64_ldadd2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -598,7 +598,7 @@ fn __aarch64_ldclr2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -619,7 +619,7 @@ fn __aarch64_ldeor2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset2_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldset2_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -640,7 +640,7 @@ fn __aarch64_ldset2_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_cas2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -662,7 +662,7 @@ fn __aarch64_cas2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_swp2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -682,7 +682,7 @@ fn __aarch64_swp2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -703,7 +703,7 @@ fn __aarch64_ldadd2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -724,7 +724,7 @@ fn __aarch64_ldclr2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -745,7 +745,7 @@ fn __aarch64_ldeor2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset2_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldset2_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -766,7 +766,7 @@ fn __aarch64_ldset2_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -788,7 +788,7 @@ fn __aarch64_cas2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -808,7 +808,7 @@ fn __aarch64_swp2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -829,7 +829,7 @@ fn __aarch64_ldadd2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -850,7 +850,7 @@ fn __aarch64_ldclr2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -871,7 +871,7 @@ fn __aarch64_ldeor2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset2_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset2_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -892,7 +892,7 @@ fn __aarch64_ldset2_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -914,7 +914,7 @@ fn __aarch64_cas2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -934,7 +934,7 @@ fn __aarch64_swp2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -955,7 +955,7 @@ fn __aarch64_ldadd2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -976,7 +976,7 @@ fn __aarch64_ldclr2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -997,7 +997,7 @@ fn __aarch64_ldeor2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset2_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset2_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1018,7 +1018,7 @@ fn __aarch64_ldset2_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_cas4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1040,7 +1040,7 @@ fn __aarch64_cas4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_swp4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1060,7 +1060,7 @@ fn __aarch64_swp4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1081,7 +1081,7 @@ fn __aarch64_ldadd4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1102,7 +1102,7 @@ fn __aarch64_ldclr4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1123,7 +1123,7 @@ fn __aarch64_ldeor4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset4_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldset4_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1144,7 +1144,7 @@ fn __aarch64_ldset4_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_cas4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1166,7 +1166,7 @@ fn __aarch64_cas4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_swp4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1186,7 +1186,7 @@ fn __aarch64_swp4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1207,7 +1207,7 @@ fn __aarch64_ldadd4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1228,7 +1228,7 @@ fn __aarch64_ldclr4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1249,7 +1249,7 @@ fn __aarch64_ldeor4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset4_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldset4_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1270,7 +1270,7 @@ fn __aarch64_ldset4_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1292,7 +1292,7 @@ fn __aarch64_cas4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1312,7 +1312,7 @@ fn __aarch64_swp4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1333,7 +1333,7 @@ fn __aarch64_ldadd4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1354,7 +1354,7 @@ fn __aarch64_ldclr4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1375,7 +1375,7 @@ fn __aarch64_ldeor4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset4_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset4_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1396,7 +1396,7 @@ fn __aarch64_ldset4_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1418,7 +1418,7 @@ fn __aarch64_cas4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1438,7 +1438,7 @@ fn __aarch64_swp4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1459,7 +1459,7 @@ fn __aarch64_ldadd4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1480,7 +1480,7 @@ fn __aarch64_ldclr4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1501,7 +1501,7 @@ fn __aarch64_ldeor4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset4_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset4_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1522,7 +1522,7 @@ fn __aarch64_ldset4_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_cas8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1544,7 +1544,7 @@ fn __aarch64_cas8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_swp8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1564,7 +1564,7 @@ fn __aarch64_swp8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1585,7 +1585,7 @@ fn __aarch64_ldadd8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1606,7 +1606,7 @@ fn __aarch64_ldclr8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1627,7 +1627,7 @@ fn __aarch64_ldeor8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset8_relax() align(16) callconv(.Naked) void {
+fn __aarch64_ldset8_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1648,7 +1648,7 @@ fn __aarch64_ldset8_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_cas8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1670,7 +1670,7 @@ fn __aarch64_cas8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_swp8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1690,7 +1690,7 @@ fn __aarch64_swp8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1711,7 +1711,7 @@ fn __aarch64_ldadd8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1732,7 +1732,7 @@ fn __aarch64_ldclr8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1753,7 +1753,7 @@ fn __aarch64_ldeor8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset8_acq() align(16) callconv(.Naked) void {
+fn __aarch64_ldset8_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1774,7 +1774,7 @@ fn __aarch64_ldset8_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1796,7 +1796,7 @@ fn __aarch64_cas8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1816,7 +1816,7 @@ fn __aarch64_swp8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1837,7 +1837,7 @@ fn __aarch64_ldadd8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1858,7 +1858,7 @@ fn __aarch64_ldclr8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1879,7 +1879,7 @@ fn __aarch64_ldeor8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset8_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset8_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1900,7 +1900,7 @@ fn __aarch64_ldset8_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1922,7 +1922,7 @@ fn __aarch64_cas8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_swp8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_swp8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1942,7 +1942,7 @@ fn __aarch64_swp8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldadd8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldadd8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1963,7 +1963,7 @@ fn __aarch64_ldadd8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldclr8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldclr8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -1984,7 +1984,7 @@ fn __aarch64_ldclr8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldeor8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldeor8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2005,7 +2005,7 @@ fn __aarch64_ldeor8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_ldset8_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_ldset8_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2026,7 +2026,7 @@ fn __aarch64_ldset8_acq_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas16_relax() align(16) callconv(.Naked) void {
+fn __aarch64_cas16_relax() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2050,7 +2050,7 @@ fn __aarch64_cas16_relax() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas16_acq() align(16) callconv(.Naked) void {
+fn __aarch64_cas16_acq() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2074,7 +2074,7 @@ fn __aarch64_cas16_acq() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas16_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas16_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2098,7 +2098,7 @@ fn __aarch64_cas16_rel() align(16) callconv(.Naked) void {
     );
     unreachable;
 }
-fn __aarch64_cas16_acq_rel() align(16) callconv(.Naked) void {
+fn __aarch64_cas16_acq_rel() align(16) callconv(.naked) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\        cbz     w16, 8f
@@ -2124,104 +2124,104 @@ fn __aarch64_cas16_acq_rel() align(16) callconv(.Naked) void {
 }
 
 comptime {
-    @export(__aarch64_cas1_relax, .{ .name = "__aarch64_cas1_relax", .linkage = linkage });
-    @export(__aarch64_swp1_relax, .{ .name = "__aarch64_swp1_relax", .linkage = linkage });
-    @export(__aarch64_ldadd1_relax, .{ .name = "__aarch64_ldadd1_relax", .linkage = linkage });
-    @export(__aarch64_ldclr1_relax, .{ .name = "__aarch64_ldclr1_relax", .linkage = linkage });
-    @export(__aarch64_ldeor1_relax, .{ .name = "__aarch64_ldeor1_relax", .linkage = linkage });
-    @export(__aarch64_ldset1_relax, .{ .name = "__aarch64_ldset1_relax", .linkage = linkage });
-    @export(__aarch64_cas1_acq, .{ .name = "__aarch64_cas1_acq", .linkage = linkage });
-    @export(__aarch64_swp1_acq, .{ .name = "__aarch64_swp1_acq", .linkage = linkage });
-    @export(__aarch64_ldadd1_acq, .{ .name = "__aarch64_ldadd1_acq", .linkage = linkage });
-    @export(__aarch64_ldclr1_acq, .{ .name = "__aarch64_ldclr1_acq", .linkage = linkage });
-    @export(__aarch64_ldeor1_acq, .{ .name = "__aarch64_ldeor1_acq", .linkage = linkage });
-    @export(__aarch64_ldset1_acq, .{ .name = "__aarch64_ldset1_acq", .linkage = linkage });
-    @export(__aarch64_cas1_rel, .{ .name = "__aarch64_cas1_rel", .linkage = linkage });
-    @export(__aarch64_swp1_rel, .{ .name = "__aarch64_swp1_rel", .linkage = linkage });
-    @export(__aarch64_ldadd1_rel, .{ .name = "__aarch64_ldadd1_rel", .linkage = linkage });
-    @export(__aarch64_ldclr1_rel, .{ .name = "__aarch64_ldclr1_rel", .linkage = linkage });
-    @export(__aarch64_ldeor1_rel, .{ .name = "__aarch64_ldeor1_rel", .linkage = linkage });
-    @export(__aarch64_ldset1_rel, .{ .name = "__aarch64_ldset1_rel", .linkage = linkage });
-    @export(__aarch64_cas1_acq_rel, .{ .name = "__aarch64_cas1_acq_rel", .linkage = linkage });
-    @export(__aarch64_swp1_acq_rel, .{ .name = "__aarch64_swp1_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldadd1_acq_rel, .{ .name = "__aarch64_ldadd1_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldclr1_acq_rel, .{ .name = "__aarch64_ldclr1_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldeor1_acq_rel, .{ .name = "__aarch64_ldeor1_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldset1_acq_rel, .{ .name = "__aarch64_ldset1_acq_rel", .linkage = linkage });
-    @export(__aarch64_cas2_relax, .{ .name = "__aarch64_cas2_relax", .linkage = linkage });
-    @export(__aarch64_swp2_relax, .{ .name = "__aarch64_swp2_relax", .linkage = linkage });
-    @export(__aarch64_ldadd2_relax, .{ .name = "__aarch64_ldadd2_relax", .linkage = linkage });
-    @export(__aarch64_ldclr2_relax, .{ .name = "__aarch64_ldclr2_relax", .linkage = linkage });
-    @export(__aarch64_ldeor2_relax, .{ .name = "__aarch64_ldeor2_relax", .linkage = linkage });
-    @export(__aarch64_ldset2_relax, .{ .name = "__aarch64_ldset2_relax", .linkage = linkage });
-    @export(__aarch64_cas2_acq, .{ .name = "__aarch64_cas2_acq", .linkage = linkage });
-    @export(__aarch64_swp2_acq, .{ .name = "__aarch64_swp2_acq", .linkage = linkage });
-    @export(__aarch64_ldadd2_acq, .{ .name = "__aarch64_ldadd2_acq", .linkage = linkage });
-    @export(__aarch64_ldclr2_acq, .{ .name = "__aarch64_ldclr2_acq", .linkage = linkage });
-    @export(__aarch64_ldeor2_acq, .{ .name = "__aarch64_ldeor2_acq", .linkage = linkage });
-    @export(__aarch64_ldset2_acq, .{ .name = "__aarch64_ldset2_acq", .linkage = linkage });
-    @export(__aarch64_cas2_rel, .{ .name = "__aarch64_cas2_rel", .linkage = linkage });
-    @export(__aarch64_swp2_rel, .{ .name = "__aarch64_swp2_rel", .linkage = linkage });
-    @export(__aarch64_ldadd2_rel, .{ .name = "__aarch64_ldadd2_rel", .linkage = linkage });
-    @export(__aarch64_ldclr2_rel, .{ .name = "__aarch64_ldclr2_rel", .linkage = linkage });
-    @export(__aarch64_ldeor2_rel, .{ .name = "__aarch64_ldeor2_rel", .linkage = linkage });
-    @export(__aarch64_ldset2_rel, .{ .name = "__aarch64_ldset2_rel", .linkage = linkage });
-    @export(__aarch64_cas2_acq_rel, .{ .name = "__aarch64_cas2_acq_rel", .linkage = linkage });
-    @export(__aarch64_swp2_acq_rel, .{ .name = "__aarch64_swp2_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldadd2_acq_rel, .{ .name = "__aarch64_ldadd2_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldclr2_acq_rel, .{ .name = "__aarch64_ldclr2_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldeor2_acq_rel, .{ .name = "__aarch64_ldeor2_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldset2_acq_rel, .{ .name = "__aarch64_ldset2_acq_rel", .linkage = linkage });
-    @export(__aarch64_cas4_relax, .{ .name = "__aarch64_cas4_relax", .linkage = linkage });
-    @export(__aarch64_swp4_relax, .{ .name = "__aarch64_swp4_relax", .linkage = linkage });
-    @export(__aarch64_ldadd4_relax, .{ .name = "__aarch64_ldadd4_relax", .linkage = linkage });
-    @export(__aarch64_ldclr4_relax, .{ .name = "__aarch64_ldclr4_relax", .linkage = linkage });
-    @export(__aarch64_ldeor4_relax, .{ .name = "__aarch64_ldeor4_relax", .linkage = linkage });
-    @export(__aarch64_ldset4_relax, .{ .name = "__aarch64_ldset4_relax", .linkage = linkage });
-    @export(__aarch64_cas4_acq, .{ .name = "__aarch64_cas4_acq", .linkage = linkage });
-    @export(__aarch64_swp4_acq, .{ .name = "__aarch64_swp4_acq", .linkage = linkage });
-    @export(__aarch64_ldadd4_acq, .{ .name = "__aarch64_ldadd4_acq", .linkage = linkage });
-    @export(__aarch64_ldclr4_acq, .{ .name = "__aarch64_ldclr4_acq", .linkage = linkage });
-    @export(__aarch64_ldeor4_acq, .{ .name = "__aarch64_ldeor4_acq", .linkage = linkage });
-    @export(__aarch64_ldset4_acq, .{ .name = "__aarch64_ldset4_acq", .linkage = linkage });
-    @export(__aarch64_cas4_rel, .{ .name = "__aarch64_cas4_rel", .linkage = linkage });
-    @export(__aarch64_swp4_rel, .{ .name = "__aarch64_swp4_rel", .linkage = linkage });
-    @export(__aarch64_ldadd4_rel, .{ .name = "__aarch64_ldadd4_rel", .linkage = linkage });
-    @export(__aarch64_ldclr4_rel, .{ .name = "__aarch64_ldclr4_rel", .linkage = linkage });
-    @export(__aarch64_ldeor4_rel, .{ .name = "__aarch64_ldeor4_rel", .linkage = linkage });
-    @export(__aarch64_ldset4_rel, .{ .name = "__aarch64_ldset4_rel", .linkage = linkage });
-    @export(__aarch64_cas4_acq_rel, .{ .name = "__aarch64_cas4_acq_rel", .linkage = linkage });
-    @export(__aarch64_swp4_acq_rel, .{ .name = "__aarch64_swp4_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldadd4_acq_rel, .{ .name = "__aarch64_ldadd4_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldclr4_acq_rel, .{ .name = "__aarch64_ldclr4_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldeor4_acq_rel, .{ .name = "__aarch64_ldeor4_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldset4_acq_rel, .{ .name = "__aarch64_ldset4_acq_rel", .linkage = linkage });
-    @export(__aarch64_cas8_relax, .{ .name = "__aarch64_cas8_relax", .linkage = linkage });
-    @export(__aarch64_swp8_relax, .{ .name = "__aarch64_swp8_relax", .linkage = linkage });
-    @export(__aarch64_ldadd8_relax, .{ .name = "__aarch64_ldadd8_relax", .linkage = linkage });
-    @export(__aarch64_ldclr8_relax, .{ .name = "__aarch64_ldclr8_relax", .linkage = linkage });
-    @export(__aarch64_ldeor8_relax, .{ .name = "__aarch64_ldeor8_relax", .linkage = linkage });
-    @export(__aarch64_ldset8_relax, .{ .name = "__aarch64_ldset8_relax", .linkage = linkage });
-    @export(__aarch64_cas8_acq, .{ .name = "__aarch64_cas8_acq", .linkage = linkage });
-    @export(__aarch64_swp8_acq, .{ .name = "__aarch64_swp8_acq", .linkage = linkage });
-    @export(__aarch64_ldadd8_acq, .{ .name = "__aarch64_ldadd8_acq", .linkage = linkage });
-    @export(__aarch64_ldclr8_acq, .{ .name = "__aarch64_ldclr8_acq", .linkage = linkage });
-    @export(__aarch64_ldeor8_acq, .{ .name = "__aarch64_ldeor8_acq", .linkage = linkage });
-    @export(__aarch64_ldset8_acq, .{ .name = "__aarch64_ldset8_acq", .linkage = linkage });
-    @export(__aarch64_cas8_rel, .{ .name = "__aarch64_cas8_rel", .linkage = linkage });
-    @export(__aarch64_swp8_rel, .{ .name = "__aarch64_swp8_rel", .linkage = linkage });
-    @export(__aarch64_ldadd8_rel, .{ .name = "__aarch64_ldadd8_rel", .linkage = linkage });
-    @export(__aarch64_ldclr8_rel, .{ .name = "__aarch64_ldclr8_rel", .linkage = linkage });
-    @export(__aarch64_ldeor8_rel, .{ .name = "__aarch64_ldeor8_rel", .linkage = linkage });
-    @export(__aarch64_ldset8_rel, .{ .name = "__aarch64_ldset8_rel", .linkage = linkage });
-    @export(__aarch64_cas8_acq_rel, .{ .name = "__aarch64_cas8_acq_rel", .linkage = linkage });
-    @export(__aarch64_swp8_acq_rel, .{ .name = "__aarch64_swp8_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldadd8_acq_rel, .{ .name = "__aarch64_ldadd8_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldclr8_acq_rel, .{ .name = "__aarch64_ldclr8_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldeor8_acq_rel, .{ .name = "__aarch64_ldeor8_acq_rel", .linkage = linkage });
-    @export(__aarch64_ldset8_acq_rel, .{ .name = "__aarch64_ldset8_acq_rel", .linkage = linkage });
-    @export(__aarch64_cas16_relax, .{ .name = "__aarch64_cas16_relax", .linkage = linkage });
-    @export(__aarch64_cas16_acq, .{ .name = "__aarch64_cas16_acq", .linkage = linkage });
-    @export(__aarch64_cas16_rel, .{ .name = "__aarch64_cas16_rel", .linkage = linkage });
-    @export(__aarch64_cas16_acq_rel, .{ .name = "__aarch64_cas16_acq_rel", .linkage = linkage });
+    @export(&__aarch64_cas1_relax, .{ .name = "__aarch64_cas1_relax", .linkage = linkage });
+    @export(&__aarch64_swp1_relax, .{ .name = "__aarch64_swp1_relax", .linkage = linkage });
+    @export(&__aarch64_ldadd1_relax, .{ .name = "__aarch64_ldadd1_relax", .linkage = linkage });
+    @export(&__aarch64_ldclr1_relax, .{ .name = "__aarch64_ldclr1_relax", .linkage = linkage });
+    @export(&__aarch64_ldeor1_relax, .{ .name = "__aarch64_ldeor1_relax", .linkage = linkage });
+    @export(&__aarch64_ldset1_relax, .{ .name = "__aarch64_ldset1_relax", .linkage = linkage });
+    @export(&__aarch64_cas1_acq, .{ .name = "__aarch64_cas1_acq", .linkage = linkage });
+    @export(&__aarch64_swp1_acq, .{ .name = "__aarch64_swp1_acq", .linkage = linkage });
+    @export(&__aarch64_ldadd1_acq, .{ .name = "__aarch64_ldadd1_acq", .linkage = linkage });
+    @export(&__aarch64_ldclr1_acq, .{ .name = "__aarch64_ldclr1_acq", .linkage = linkage });
+    @export(&__aarch64_ldeor1_acq, .{ .name = "__aarch64_ldeor1_acq", .linkage = linkage });
+    @export(&__aarch64_ldset1_acq, .{ .name = "__aarch64_ldset1_acq", .linkage = linkage });
+    @export(&__aarch64_cas1_rel, .{ .name = "__aarch64_cas1_rel", .linkage = linkage });
+    @export(&__aarch64_swp1_rel, .{ .name = "__aarch64_swp1_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd1_rel, .{ .name = "__aarch64_ldadd1_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr1_rel, .{ .name = "__aarch64_ldclr1_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor1_rel, .{ .name = "__aarch64_ldeor1_rel", .linkage = linkage });
+    @export(&__aarch64_ldset1_rel, .{ .name = "__aarch64_ldset1_rel", .linkage = linkage });
+    @export(&__aarch64_cas1_acq_rel, .{ .name = "__aarch64_cas1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_swp1_acq_rel, .{ .name = "__aarch64_swp1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd1_acq_rel, .{ .name = "__aarch64_ldadd1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr1_acq_rel, .{ .name = "__aarch64_ldclr1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor1_acq_rel, .{ .name = "__aarch64_ldeor1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldset1_acq_rel, .{ .name = "__aarch64_ldset1_acq_rel", .linkage = linkage });
+    @export(&__aarch64_cas2_relax, .{ .name = "__aarch64_cas2_relax", .linkage = linkage });
+    @export(&__aarch64_swp2_relax, .{ .name = "__aarch64_swp2_relax", .linkage = linkage });
+    @export(&__aarch64_ldadd2_relax, .{ .name = "__aarch64_ldadd2_relax", .linkage = linkage });
+    @export(&__aarch64_ldclr2_relax, .{ .name = "__aarch64_ldclr2_relax", .linkage = linkage });
+    @export(&__aarch64_ldeor2_relax, .{ .name = "__aarch64_ldeor2_relax", .linkage = linkage });
+    @export(&__aarch64_ldset2_relax, .{ .name = "__aarch64_ldset2_relax", .linkage = linkage });
+    @export(&__aarch64_cas2_acq, .{ .name = "__aarch64_cas2_acq", .linkage = linkage });
+    @export(&__aarch64_swp2_acq, .{ .name = "__aarch64_swp2_acq", .linkage = linkage });
+    @export(&__aarch64_ldadd2_acq, .{ .name = "__aarch64_ldadd2_acq", .linkage = linkage });
+    @export(&__aarch64_ldclr2_acq, .{ .name = "__aarch64_ldclr2_acq", .linkage = linkage });
+    @export(&__aarch64_ldeor2_acq, .{ .name = "__aarch64_ldeor2_acq", .linkage = linkage });
+    @export(&__aarch64_ldset2_acq, .{ .name = "__aarch64_ldset2_acq", .linkage = linkage });
+    @export(&__aarch64_cas2_rel, .{ .name = "__aarch64_cas2_rel", .linkage = linkage });
+    @export(&__aarch64_swp2_rel, .{ .name = "__aarch64_swp2_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd2_rel, .{ .name = "__aarch64_ldadd2_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr2_rel, .{ .name = "__aarch64_ldclr2_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor2_rel, .{ .name = "__aarch64_ldeor2_rel", .linkage = linkage });
+    @export(&__aarch64_ldset2_rel, .{ .name = "__aarch64_ldset2_rel", .linkage = linkage });
+    @export(&__aarch64_cas2_acq_rel, .{ .name = "__aarch64_cas2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_swp2_acq_rel, .{ .name = "__aarch64_swp2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd2_acq_rel, .{ .name = "__aarch64_ldadd2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr2_acq_rel, .{ .name = "__aarch64_ldclr2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor2_acq_rel, .{ .name = "__aarch64_ldeor2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldset2_acq_rel, .{ .name = "__aarch64_ldset2_acq_rel", .linkage = linkage });
+    @export(&__aarch64_cas4_relax, .{ .name = "__aarch64_cas4_relax", .linkage = linkage });
+    @export(&__aarch64_swp4_relax, .{ .name = "__aarch64_swp4_relax", .linkage = linkage });
+    @export(&__aarch64_ldadd4_relax, .{ .name = "__aarch64_ldadd4_relax", .linkage = linkage });
+    @export(&__aarch64_ldclr4_relax, .{ .name = "__aarch64_ldclr4_relax", .linkage = linkage });
+    @export(&__aarch64_ldeor4_relax, .{ .name = "__aarch64_ldeor4_relax", .linkage = linkage });
+    @export(&__aarch64_ldset4_relax, .{ .name = "__aarch64_ldset4_relax", .linkage = linkage });
+    @export(&__aarch64_cas4_acq, .{ .name = "__aarch64_cas4_acq", .linkage = linkage });
+    @export(&__aarch64_swp4_acq, .{ .name = "__aarch64_swp4_acq", .linkage = linkage });
+    @export(&__aarch64_ldadd4_acq, .{ .name = "__aarch64_ldadd4_acq", .linkage = linkage });
+    @export(&__aarch64_ldclr4_acq, .{ .name = "__aarch64_ldclr4_acq", .linkage = linkage });
+    @export(&__aarch64_ldeor4_acq, .{ .name = "__aarch64_ldeor4_acq", .linkage = linkage });
+    @export(&__aarch64_ldset4_acq, .{ .name = "__aarch64_ldset4_acq", .linkage = linkage });
+    @export(&__aarch64_cas4_rel, .{ .name = "__aarch64_cas4_rel", .linkage = linkage });
+    @export(&__aarch64_swp4_rel, .{ .name = "__aarch64_swp4_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd4_rel, .{ .name = "__aarch64_ldadd4_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr4_rel, .{ .name = "__aarch64_ldclr4_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor4_rel, .{ .name = "__aarch64_ldeor4_rel", .linkage = linkage });
+    @export(&__aarch64_ldset4_rel, .{ .name = "__aarch64_ldset4_rel", .linkage = linkage });
+    @export(&__aarch64_cas4_acq_rel, .{ .name = "__aarch64_cas4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_swp4_acq_rel, .{ .name = "__aarch64_swp4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd4_acq_rel, .{ .name = "__aarch64_ldadd4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr4_acq_rel, .{ .name = "__aarch64_ldclr4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor4_acq_rel, .{ .name = "__aarch64_ldeor4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldset4_acq_rel, .{ .name = "__aarch64_ldset4_acq_rel", .linkage = linkage });
+    @export(&__aarch64_cas8_relax, .{ .name = "__aarch64_cas8_relax", .linkage = linkage });
+    @export(&__aarch64_swp8_relax, .{ .name = "__aarch64_swp8_relax", .linkage = linkage });
+    @export(&__aarch64_ldadd8_relax, .{ .name = "__aarch64_ldadd8_relax", .linkage = linkage });
+    @export(&__aarch64_ldclr8_relax, .{ .name = "__aarch64_ldclr8_relax", .linkage = linkage });
+    @export(&__aarch64_ldeor8_relax, .{ .name = "__aarch64_ldeor8_relax", .linkage = linkage });
+    @export(&__aarch64_ldset8_relax, .{ .name = "__aarch64_ldset8_relax", .linkage = linkage });
+    @export(&__aarch64_cas8_acq, .{ .name = "__aarch64_cas8_acq", .linkage = linkage });
+    @export(&__aarch64_swp8_acq, .{ .name = "__aarch64_swp8_acq", .linkage = linkage });
+    @export(&__aarch64_ldadd8_acq, .{ .name = "__aarch64_ldadd8_acq", .linkage = linkage });
+    @export(&__aarch64_ldclr8_acq, .{ .name = "__aarch64_ldclr8_acq", .linkage = linkage });
+    @export(&__aarch64_ldeor8_acq, .{ .name = "__aarch64_ldeor8_acq", .linkage = linkage });
+    @export(&__aarch64_ldset8_acq, .{ .name = "__aarch64_ldset8_acq", .linkage = linkage });
+    @export(&__aarch64_cas8_rel, .{ .name = "__aarch64_cas8_rel", .linkage = linkage });
+    @export(&__aarch64_swp8_rel, .{ .name = "__aarch64_swp8_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd8_rel, .{ .name = "__aarch64_ldadd8_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr8_rel, .{ .name = "__aarch64_ldclr8_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor8_rel, .{ .name = "__aarch64_ldeor8_rel", .linkage = linkage });
+    @export(&__aarch64_ldset8_rel, .{ .name = "__aarch64_ldset8_rel", .linkage = linkage });
+    @export(&__aarch64_cas8_acq_rel, .{ .name = "__aarch64_cas8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_swp8_acq_rel, .{ .name = "__aarch64_swp8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldadd8_acq_rel, .{ .name = "__aarch64_ldadd8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldclr8_acq_rel, .{ .name = "__aarch64_ldclr8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldeor8_acq_rel, .{ .name = "__aarch64_ldeor8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_ldset8_acq_rel, .{ .name = "__aarch64_ldset8_acq_rel", .linkage = linkage });
+    @export(&__aarch64_cas16_relax, .{ .name = "__aarch64_cas16_relax", .linkage = linkage });
+    @export(&__aarch64_cas16_acq, .{ .name = "__aarch64_cas16_acq", .linkage = linkage });
+    @export(&__aarch64_cas16_rel, .{ .name = "__aarch64_cas16_rel", .linkage = linkage });
+    @export(&__aarch64_cas16_acq_rel, .{ .name = "__aarch64_cas16_acq_rel", .linkage = linkage });
 }

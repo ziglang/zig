@@ -104,7 +104,7 @@ typedef __uint64_t      rlim_t;
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 #define PRIO_DARWIN_THREAD      3               /* Second argument is always 0 (current thread) */
 #define PRIO_DARWIN_PROCESS     4               /* Second argument is a PID */
-
+/* Additional private parameters to getpriority()/setpriority() are in resource_private.h */
 
 /*
  * Range limitations for the value of the third parameter to setpriority().
@@ -409,7 +409,12 @@ struct rusage_info_v6 {
 	uint64_t ri_pcycles;
 	uint64_t ri_energy_nj;
 	uint64_t ri_penergy_nj;
-	uint64_t ri_reserved[14];
+	uint64_t ri_secure_time_in_system;
+	uint64_t ri_secure_ptime_in_system;
+	uint64_t ri_neural_footprint;
+	uint64_t ri_lifetime_max_neural_footprint;
+	uint64_t ri_interval_max_neural_footprint;
+	uint64_t ri_reserved[9];
 };
 
 typedef struct rusage_info_v6 rusage_info_current;
@@ -496,7 +501,7 @@ struct proc_rlimit_control_wakeupmon {
 	int32_t wm_rate;
 };
 
-
+/* Additional private I/O policies are in resource_private.h */
 
 /* I/O type */
 #define IOPOL_TYPE_DISK 0
@@ -526,7 +531,6 @@ struct proc_rlimit_control_wakeupmon {
 /* compatibility with older names */
 #define IOPOL_APPLICATION       IOPOL_STANDARD
 #define IOPOL_NORMAL            IOPOL_IMPORTANT
-
 
 #define IOPOL_ATIME_UPDATES_DEFAULT     0
 #define IOPOL_ATIME_UPDATES_OFF         1
@@ -575,5 +579,7 @@ int     setiopolicy_np(int, int, int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPH
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 int     setrlimit(int, const struct rlimit *) __DARWIN_ALIAS(setrlimit);
 __END_DECLS
+
+
 
 #endif  /* !_SYS_RESOURCE_H_ */

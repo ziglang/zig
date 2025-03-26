@@ -48,7 +48,7 @@ pub fn main() !void {
                     @tagName(op), n.toBytes(), @tagName(order),
                 });
                 try writeFunction(arena, w, name, op, n, order);
-                try footer.writer().print("    @export({s}, .{{ .name = \"{s}\", .linkage = linkage }});\n", .{
+                try footer.writer().print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = linkage }});\n", .{
                     name, name,
                 });
             }
@@ -78,7 +78,7 @@ fn writeFunction(
     };
     const fn_sig = try std.fmt.allocPrint(
         arena,
-        "fn {[name]s}() align(16) callconv(.Naked) void {{",
+        "fn {[name]s}() align(16) callconv(.naked) void {{",
         .{ .name = name },
     );
     try w.writeAll(fn_sig);

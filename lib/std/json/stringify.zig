@@ -483,6 +483,7 @@ pub fn WriteStream(
         ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
         ///  * Zig `enum` -> JSON string naming the active tag.
         ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+        ///      * If the enum is non-exhaustive, unnamed values are rendered as integers.
         ///  * Zig untyped enum literal -> JSON string naming the active tag.
         ///  * Zig error -> JSON string naming the error.
         ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
@@ -493,7 +494,7 @@ pub fn WriteStream(
             if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => {
+                .int => {
                     try self.valueStart();
                     if (self.options.emit_nonportable_numbers_as_strings and
                         (value <= -(1 << 53) or value >= (1 << 53)))
@@ -505,10 +506,10 @@ pub fn WriteStream(
                     self.valueDone();
                     return;
                 },
-                .ComptimeInt => {
+                .comptime_int => {
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .Float, .ComptimeFloat => {
+                .float, .comptime_float => {
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
                         try self.stream.print("{}", .{@as(f64, @floatCast(value))});
@@ -521,38 +522,51 @@ pub fn WriteStream(
                     return;
                 },
 
-                .Bool => {
+                .bool => {
                     try self.valueStart();
                     try self.stream.writeAll(if (value) "true" else "false");
                     self.valueDone();
                     return;
                 },
-                .Null => {
+                .null => {
                     try self.valueStart();
                     try self.stream.writeAll("null");
                     self.valueDone();
                     return;
                 },
-                .Optional => {
+                .optional => {
                     if (value) |payload| {
                         return try self.write(payload);
                     } else {
                         return try self.write(null);
                     }
                 },
-                .Enum, .EnumLiteral => {
+                .@"enum" => |enum_info| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
+                    }
+
+                    if (!enum_info.is_exhaustive) {
+                        inline for (enum_info.fields) |field| {
+                            if (value == @field(T, field.name)) {
+                                break;
+                            }
+                        } else {
+                            return self.write(@intFromEnum(value));
+                        }
                     }
 
                     return self.stringValue(@tagName(value));
                 },
-                .Union => {
+                .enum_literal => {
+                    return self.stringValue(@tagName(value));
+                },
+                .@"union" => {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
-                    const info = @typeInfo(T).Union;
+                    const info = @typeInfo(T).@"union";
                     if (info.tag_type) |UnionTagType| {
                         try self.beginObject();
                         inline for (info.fields) |u_field| {
@@ -576,7 +590,7 @@ pub fn WriteStream(
                         @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
                     }
                 },
-                .Struct => |S| {
+                .@"struct" => |S| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
@@ -593,7 +607,7 @@ pub fn WriteStream(
                         var emit_field = true;
 
                         // don't include optional fields that are null when emit_null_optional_fields is set to false
-                        if (@typeInfo(Field.type) == .Optional) {
+                        if (@typeInfo(Field.type) == .optional) {
                             if (self.options.emit_null_optional_fields == false) {
                                 if (@field(value, Field.name) == null) {
                                     emit_field = false;
@@ -615,10 +629,10 @@ pub fn WriteStream(
                     }
                     return;
                 },
-                .ErrorSet => return self.stringValue(@errorName(value)),
-                .Pointer => |ptr_info| switch (ptr_info.size) {
-                    .One => switch (@typeInfo(ptr_info.child)) {
-                        .Array => {
+                .error_set => return self.stringValue(@errorName(value)),
+                .pointer => |ptr_info| switch (ptr_info.size) {
+                    .one => switch (@typeInfo(ptr_info.child)) {
+                        .array => {
                             // Coerce `*[N]T` to `[]const T`.
                             const Slice = []const std.meta.Elem(ptr_info.child);
                             return self.write(@as(Slice, value));
@@ -627,10 +641,10 @@ pub fn WriteStream(
                             return self.write(value.*);
                         },
                     },
-                    .Many, .Slice => {
-                        if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                    .many, .slice => {
+                        if (ptr_info.size == .many and ptr_info.sentinel() == null)
                             @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
-                        const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
+                        const slice = if (ptr_info.size == .many) std.mem.span(value) else value;
 
                         if (ptr_info.child == u8) {
                             // This is a []const u8, or some similar Zig string.
@@ -648,11 +662,11 @@ pub fn WriteStream(
                     },
                     else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
                 },
-                .Array => {
+                .array => {
                     // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
                     return self.write(&value);
                 },
-                .Vector => |info| {
+                .vector => |info| {
                     const array: [info.len]info.child = value;
                     return self.write(&array);
                 },

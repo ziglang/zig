@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___STOP_TOKEN_STOP_SOURCE_H
 #define _LIBCPP___STOP_TOKEN_STOP_SOURCE_H
 
-#include <__availability>
 #include <__config>
 #include <__stop_token/intrusive_shared_ptr.h>
 #include <__stop_token/stop_state.h>

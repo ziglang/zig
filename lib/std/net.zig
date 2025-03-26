@@ -248,7 +248,7 @@ pub const Address = extern union {
                 posix.SO.REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
             );
-            if (@hasDecl(posix.SO, "REUSEPORT")) {
+            if (@hasDecl(posix.SO, "REUSEPORT") and address.any.family != posix.AF.UNIX) {
                 try posix.setsockopt(
                     sockfd,
                     posix.SOL.SOCKET,
@@ -683,16 +683,49 @@ pub const Ip6Address = extern struct {
                 break :blk buf;
             },
         };
+
+        // Find the longest zero run
+        var longest_start: usize = 8;
+        var longest_len: usize = 0;
+        var current_start: usize = 0;
+        var current_len: usize = 0;
+
+        for (native_endian_parts, 0..) |part, i| {
+            if (part == 0) {
+                if (current_len == 0) {
+                    current_start = i;
+                }
+                current_len += 1;
+                if (current_len > longest_len) {
+                    longest_start = current_start;
+                    longest_len = current_len;
+                }
+            } else {
+                current_len = 0;
+            }
+        }
+
+        // Only compress if the longest zero run is 2 or more
+        if (longest_len < 2) {
+            longest_start = 8;
+            longest_len = 0;
+        }
+
         try out_stream.writeAll("[");
         var i: usize = 0;
         var abbrv = false;
         while (i < native_endian_parts.len) : (i += 1) {
-            if (native_endian_parts[i] == 0) {
+            if (i == longest_start) {
+                // Emit "::" for the longest zero run
                 if (!abbrv) {
                     try out_stream.writeAll(if (i == 0) "::" else ":");
                     abbrv = true;
                 }
+                i += longest_len - 1; // Skip the compressed range
                 continue;
+            }
+            if (abbrv) {
+                abbrv = false;
             }
             try std.fmt.format(out_stream, "{x}", .{native_endian_parts[i]});
             if (i != native_endian_parts.len - 1) {
@@ -923,7 +956,6 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
         defer allocator.free(port_c);
 
-        const sys = if (native_os == .windows) windows.ws2_32 else posix.system;
         const hints: posix.addrinfo = .{
             .flags = .{ .NUMERICSERV = true },
             .family = posix.AF.UNSPEC,
@@ -935,8 +967,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
             .next = null,
         };
         var res: ?*posix.addrinfo = null;
-        switch (sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
-            @as(sys.EAI, @enumFromInt(0)) => {},
+        switch (posix.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+            @as(posix.system.EAI, @enumFromInt(0)) => {},
             .ADDRFAMILY => return error.HostLacksNetworkAddresses,
             .AGAIN => return error.TemporaryNameServerFailure,
             .BADFLAGS => unreachable, // Invalid hints
@@ -952,7 +984,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
             },
             else => unreachable,
         }
-        defer if (res) |some| sys.freeaddrinfo(some);
+        defer if (res) |some| posix.system.freeaddrinfo(some);
 
         const addr_count = blk: {
             var count: usize = 0;

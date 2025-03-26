@@ -10,6 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_IS_REFERENCE_WRAPPER_H
 
 #include <__config>
+#include <__fwd/functional.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/remove_cv.h>
 
@@ -18,9 +19,6 @@
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS reference_wrapper;
 
 template <class _Tp>
 struct __is_reference_wrapper_impl : public false_type {};

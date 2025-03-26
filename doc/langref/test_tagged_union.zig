@@ -15,8 +15,8 @@ test "switch on tagged union" {
     try expect(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
 
     switch (c) {
-        ComplexTypeTag.ok => |value| try expect(value == 42),
-        ComplexTypeTag.not_ok => unreachable,
+        .ok => |value| try expect(value == 42),
+        .not_ok => unreachable,
     }
 }
 

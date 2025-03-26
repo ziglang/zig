@@ -11,42 +11,38 @@ const native_os = builtin.os.tag;
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .strong;
+
 const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
-const is_msvc = switch (native_abi) {
-    .msvc => true,
-    else => false,
-};
 const is_freestanding = switch (native_os) {
-    .freestanding => true,
+    .freestanding, .other => true,
     else => false,
 };
 
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export(wasm_start, .{ .name = "_start", .linkage = .strong });
+        @export(&wasm_start, .{ .name = "_start", .linkage = .strong });
     }
 
     if (builtin.link_libc) {
-        @export(strcmp, .{ .name = "strcmp", .linkage = .strong });
-        @export(strncmp, .{ .name = "strncmp", .linkage = .strong });
-        @export(strerror, .{ .name = "strerror", .linkage = .strong });
-        @export(strlen, .{ .name = "strlen", .linkage = .strong });
-        @export(strcpy, .{ .name = "strcpy", .linkage = .strong });
-        @export(strncpy, .{ .name = "strncpy", .linkage = .strong });
-        @export(strcat, .{ .name = "strcat", .linkage = .strong });
-        @export(strncat, .{ .name = "strncat", .linkage = .strong });
-    } else if (is_msvc) {
-        @export(_fltused, .{ .name = "_fltused", .linkage = .strong });
+        @export(&strcmp, .{ .name = "strcmp", .linkage = linkage });
+        @export(&strncmp, .{ .name = "strncmp", .linkage = linkage });
+        @export(&strerror, .{ .name = "strerror", .linkage = linkage });
+        @export(&strlen, .{ .name = "strlen", .linkage = linkage });
+        @export(&strcpy, .{ .name = "strcpy", .linkage = linkage });
+        @export(&strncpy, .{ .name = "strncpy", .linkage = linkage });
+        @export(&strcat, .{ .name = "strcat", .linkage = linkage });
+        @export(&strncat, .{ .name = "strncat", .linkage = linkage });
     }
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     _ = error_return_trace;
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});
@@ -58,13 +54,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 }
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
-fn wasm_start() callconv(.C) void {
+fn wasm_start() callconv(.c) void {
     _ = main(0, undefined);
 }
 
-var _fltused: c_int = 1;
-
-fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.c) [*:0]u8 {
     var i: usize = 0;
     while (src[i] != 0) : (i += 1) {
         dest[i] = src[i];
@@ -82,7 +76,7 @@ test "strcpy" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8 {
+fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.c) [*:0]u8 {
     var i: usize = 0;
     while (i < n and src[i] != 0) : (i += 1) {
         dest[i] = src[i];
@@ -102,7 +96,7 @@ test "strncpy" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.c) [*:0]u8 {
     var dest_end: usize = 0;
     while (dest[dest_end] != 0) : (dest_end += 1) {}
 
@@ -125,7 +119,7 @@ test "strcat" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.C) [*:0]u8 {
+fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.c) [*:0]u8 {
     var dest_end: usize = 0;
     while (dest[dest_end] != 0) : (dest_end += 1) {}
 
@@ -148,7 +142,7 @@ test "strncat" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
+fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     return switch (std.mem.orderZ(u8, s1, s2)) {
         .lt => -1,
         .eq => 0,
@@ -156,11 +150,11 @@ fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
     };
 }
 
-fn strlen(s: [*:0]const u8) callconv(.C) usize {
+fn strlen(s: [*:0]const u8) callconv(.c) usize {
     return std.mem.len(s);
 }
 
-fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
+fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.c) c_int {
     if (_n == 0) return 0;
     var l = _l;
     var r = _r;
@@ -173,7 +167,7 @@ fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
     return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
+fn strerror(errnum: c_int) callconv(.c) [*:0]const u8 {
     _ = errnum;
     return "TODO strerror implementation";
 }

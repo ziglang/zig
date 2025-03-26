@@ -459,7 +459,7 @@ pub const Insn = packed struct {
     };
 
     fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
-        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .EnumLiteral)
+        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .enum_literal)
             ImmOrReg{ .reg = @as(Reg, src) }
         else
             ImmOrReg{ .imm = src };
@@ -1548,7 +1548,7 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
         .SUCCESS => return @as(fd_t, @intCast(rc)),
         .INVAL => return error.MapTypeOrAttrInvalid,
         .NOMEM => return error.SystemResources,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1574,7 +1574,7 @@ pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
         .FAULT => unreachable,
         .INVAL => return error.FieldInAttrNeedsZeroing,
         .NOENT => return error.NotFound,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1597,7 +1597,7 @@ pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64)
         .FAULT => unreachable,
         .INVAL => return error.FieldInAttrNeedsZeroing,
         .NOMEM => return error.SystemResources,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1617,7 +1617,7 @@ pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
         .FAULT => unreachable,
         .INVAL => return error.FieldInAttrNeedsZeroing,
         .NOENT => return error.NotFound,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1638,7 +1638,7 @@ pub fn map_get_next_key(fd: fd_t, key: []const u8, next_key: []u8) !bool {
         .FAULT => unreachable,
         .INVAL => return error.FieldInAttrNeedsZeroing,
         .NOENT => return false,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1712,7 +1712,7 @@ pub fn prog_load(
         .ACCES => error.UnsafeProgram,
         .FAULT => unreachable,
         .INVAL => error.InvalidProgram,
-        .PERM => error.AccessDenied,
+        .PERM => error.PermissionDenied,
         else => |err| unexpectedErrno(err),
     };
 }

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FILESYSTEM_FILE_TIME_TYPE_H
 #define _LIBCPP___FILESYSTEM_FILE_TIME_TYPE_H
 
-#include <__availability>
 #include <__chrono/file_clock.h>
 #include <__chrono/time_point.h>
 #include <__config>

@@ -435,8 +435,13 @@ fn testEnsureStackCapacity(do_ensure: bool) !void {
     var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
     const failing_allocator = fail_alloc.allocator();
 
-    const nestings = 999; // intentionally not a power of 2.
-    var scanner = JsonScanner.initCompleteInput(failing_allocator, "[" ** nestings ++ "]" ** nestings);
+    const nestings = 2049; // intentionally not a power of 2.
+    var input_string: std.ArrayListUnmanaged(u8) = .empty;
+    try input_string.appendNTimes(std.testing.allocator, '[', nestings);
+    try input_string.appendNTimes(std.testing.allocator, ']', nestings);
+    defer input_string.deinit(std.testing.allocator);
+
+    var scanner = JsonScanner.initCompleteInput(failing_allocator, input_string.items);
     defer scanner.deinit();
 
     if (do_ensure) {

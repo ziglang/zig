@@ -145,6 +145,10 @@ dispatch_workloop_set_autorelease_frequency(dispatch_workloop_t workloop,
   * The worker thread will be a member of the specified os_workgroup_t while executing
   * work items submitted to the workloop.
   *
+  * Using both dispatch_workloop_set_scheduler_priority() and
+  * dispatch_workloop_set_os_workgroup() will prefer scheduling policies
+  * from the workgroup, if they exist.
+  *
   * @param workloop
   * The dispatch workloop to modify.
   *

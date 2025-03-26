@@ -42,20 +42,22 @@ sections: SectionArray = null_section_array,
 is_macho: bool,
 
 /// Filled later by the initializer
-abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .{},
+abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .empty,
 /// Filled later by the initializer
-compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
+compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
 /// Filled later by the initializer
-func_list: std.ArrayListUnmanaged(Func) = .{},
+func_list: std.ArrayListUnmanaged(Func) = .empty,
 
+/// Starts out non-`null` if the `.eh_frame_hdr` section is present. May become `null` later if we
+/// find that `.eh_frame_hdr` is incomplete.
 eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
-cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .{},
+cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
 /// Sorted by start_pc
-fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
+fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .empty,
 
 /// Populated by `populateRanges`.
-ranges: std.ArrayListUnmanaged(Range) = .{},
+ranges: std.ArrayListUnmanaged(Range) = .empty,
 
 pub const Range = struct {
     start: u64,
@@ -182,7 +184,7 @@ pub const CompileUnit = struct {
         pub fn findSource(slc: *const SrcLocCache, address: u64) !LineEntry {
             const index = std.sort.upperBound(u64, slc.line_table.keys(), address, struct {
                 fn order(context: u64, item: u64) std.math.Order {
-                    return std.math.order(item, context);
+                    return std.math.order(context, item);
                 }
             }.order);
             if (index == 0) return missing();
@@ -279,10 +281,11 @@ pub const Die = struct {
         };
     }
 
-    fn getAttrRef(self: *const Die, id: u64) !u64 {
+    fn getAttrRef(self: *const Die, id: u64, unit_offset: u64, unit_len: u64) !u64 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
-            .ref => |value| value,
+            .ref => |offset| if (offset < unit_len) unit_offset + offset else bad(),
+            .ref_addr => |addr| addr,
             else => bad(),
         };
     }
@@ -428,14 +431,14 @@ pub const ExceptionFrameHeader = struct {
         };
 
         const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (!self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        if (fde_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
         if (fde_entry_header.type != .fde) return bad();
 
         // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_fbr.seekTo(cie_offset);
         const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (!self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        if (cie_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
         if (cie_entry_header.type != .cie) return bad();
 
         cie.* = try CommonInformationEntry.parse(
@@ -942,13 +945,12 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
                                 defer fbr.pos = after_die_offset;
 
                                 // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(AT.abstract_origin);
-                                if (ref_offset > next_offset) return bad();
-                                try fbr.seekTo(this_unit_offset + ref_offset);
+                                const ref_offset = try this_die_obj.getAttrRef(AT.abstract_origin, this_unit_offset, next_offset);
+                                try fbr.seekTo(ref_offset);
                                 this_die_obj = (try parseDie(
                                     &fbr,
                                     attrs_bufs[2],
-                                    abbrev_table,
+                                    abbrev_table, // wrong abbrev table for different cu
                                     unit_header.format,
                                 )) orelse return bad();
                             } else if (this_die_obj.getAttr(AT.specification)) |_| {
@@ -956,13 +958,12 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
                                 defer fbr.pos = after_die_offset;
 
                                 // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(AT.specification);
-                                if (ref_offset > next_offset) return bad();
-                                try fbr.seekTo(this_unit_offset + ref_offset);
+                                const ref_offset = try this_die_obj.getAttrRef(AT.specification, this_unit_offset, next_offset);
+                                try fbr.seekTo(ref_offset);
                                 this_die_obj = (try parseDie(
                                     &fbr,
                                     attrs_bufs[2],
-                                    abbrev_table,
+                                    abbrev_table, // wrong abbrev table for different cu
                                     unit_header.format,
                                 )) orelse return bad();
                             } else {
@@ -1465,9 +1466,9 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var directories: std.ArrayListUnmanaged(FileEntry) = .{};
+    var directories: std.ArrayListUnmanaged(FileEntry) = .empty;
     defer directories.deinit(gpa);
-    var file_entries: std.ArrayListUnmanaged(FileEntry) = .{};
+    var file_entries: std.ArrayListUnmanaged(FileEntry) = .empty;
     defer file_entries.deinit(gpa);
 
     if (version < 5) {
@@ -1494,7 +1495,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
         }
     } else {
         const FileEntFmt = struct {
-            content_type_code: u8,
+            content_type_code: u16,
             form_code: u16,
         };
         {
@@ -1539,7 +1540,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
         if (file_name_entry_format_count > file_ent_fmt_buf.len) return bad();
         for (file_ent_fmt_buf[0..file_name_entry_format_count]) |*ent_fmt| {
             ent_fmt.* = .{
-                .content_type_code = try fbr.readUleb128(u8),
+                .content_type_code = try fbr.readUleb128(u16),
                 .form_code = try fbr.readUleb128(u16),
             };
         }
@@ -1755,10 +1756,12 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     };
 }
 
-/// If .eh_frame_hdr is present, then only the header needs to be parsed.
+/// If `.eh_frame_hdr` is present, then only the header needs to be parsed. Otherwise, `.eh_frame`
+/// and `.debug_frame` are scanned and a sorted list of FDEs is built for binary searching during
+/// unwinding. Even if `.eh_frame_hdr` is used, we may find during unwinding that it's incomplete,
+/// in which case we build the sorted list of FDEs at that point.
 ///
-/// Otherwise, .eh_frame and .debug_frame are scanned and a sorted list
-/// of FDEs is built for binary searching during unwinding.
+/// See also `scanCieFdeInfo`.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
         var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
@@ -1798,6 +1801,12 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
         return;
     }
 
+    try di.scanCieFdeInfo(allocator, base_address);
+}
+
+/// Scan `.eh_frame` and `.debug_frame` and build a sorted list of FDEs for binary searching during
+/// unwinding.
+pub fn scanCieFdeInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
@@ -2111,8 +2120,8 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
 pub const ElfModule = struct {
     base_address: usize,
     dwarf: Dwarf,
-    mapped_memory: []align(std.mem.page_size) const u8,
-    external_mapped_memory: ?[]align(std.mem.page_size) const u8,
+    mapped_memory: []align(std.heap.page_size_min) const u8,
+    external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.dwarf.deinit(allocator);
@@ -2126,7 +2135,7 @@ pub const ElfModule = struct {
         return self.dwarf.getSymbol(allocator, relocated_address);
     }
 
-    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
         _ = allocator;
         _ = address;
         return &self.dwarf;
@@ -2158,11 +2167,11 @@ pub const ElfModule = struct {
     /// sections from an external file.
     pub fn load(
         gpa: Allocator,
-        mapped_mem: []align(std.mem.page_size) const u8,
+        mapped_mem: []align(std.heap.page_size_min) const u8,
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!Dwarf.ElfModule {
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
@@ -2216,7 +2225,7 @@ pub const ElfModule = struct {
             }
 
             var section_index: ?usize = null;
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |sect, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |sect, i| {
                 if (mem.eql(u8, "." ++ sect.name, name)) section_index = i;
             }
             if (section_index == null) continue;
@@ -2414,7 +2423,7 @@ pub const ElfModule = struct {
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
     ) LoadError!Dwarf.ElfModule {
         const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return missing(),
@@ -2425,14 +2434,17 @@ pub const ElfModule = struct {
         const end_pos = elf_file.getEndPos() catch return bad();
         const file_len = cast(usize, end_pos) orelse return error.Overflow;
 
-        const mapped_mem = try std.posix.mmap(
+        const mapped_mem = std.posix.mmap(
             null,
             file_len,
             std.posix.PROT.READ,
             .{ .TYPE = .SHARED },
             elf_file.handle,
             0,
-        );
+        ) catch |err| switch (err) {
+            error.MappingAlreadyExists => unreachable,
+            else => |e| return e,
+        };
         errdefer std.posix.munmap(mapped_mem);
 
         return load(

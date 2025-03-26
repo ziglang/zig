@@ -69,7 +69,7 @@ pub fn detect(
     // On windows, instead of the native (mingw) abi, we want to check
     // for the MSVC abi as a fallback.
     const use_system_abi = if (builtin.os.tag == .windows)
-        target.abi == .msvc
+        target.abi == .msvc or target.abi == .itanium
     else
         is_native_abi;
 
@@ -127,7 +127,7 @@ fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibC
 
     var sysroot: ?[]const u8 = null;
 
-    if (target.isDarwin()) d: {
+    if (target.os.tag.isDarwin()) d: {
         const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
         const down2 = std.fs.path.dirname(down1) orelse break :d;
         try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
@@ -150,7 +150,7 @@ pub fn detectFromBuilding(
 ) !LibCDirs {
     const s = std.fs.path.sep_str;
 
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         const list = try arena.alloc([]const u8, 1);
         list[0] = try std.fmt.allocPrint(
             arena,
@@ -167,21 +167,16 @@ pub fn detectFromBuilding(
     }
 
     const generic_name = libCGenericName(target);
-    // Some architectures are handled by the same set of headers.
+    // Some architecture families are handled by the same set of headers.
     const arch_name = if (target.abi.isMusl())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
-    else if (target.cpu.arch.isThumb())
-        // ARM headers are valid for Thumb too.
-        switch (target.cpu.arch) {
-            .thumb => "arm",
-            .thumbeb => "armeb",
-            else => unreachable,
-        }
     else
         @tagName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
-    // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-    const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+    const abi_name = if (target.abi.isMusl())
+        std.zig.target.muslAbiNameHeaders(target.abi)
+    else
+        @tagName(target.abi);
     const arch_include_dir = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
@@ -192,7 +187,7 @@ pub fn detectFromBuilding(
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
         .{ zig_lib_dir, generic_name },
     );
-    const generic_arch_name = target.osArchName();
+    const generic_arch_name = std.zig.target.osArchName(target);
     const arch_os_include_dir = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
@@ -237,39 +232,26 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuilp32,
         => return "glibc",
         .musl,
+        .muslabin32,
+        .muslabi64,
         .musleabi,
         .musleabihf,
         .muslx32,
         .none,
         .ohos,
+        .ohoseabi,
         => return "musl",
         .code16,
         .eabi,
         .eabihf,
         .ilp32,
         .android,
+        .androideabi,
         .msvc,
         .itanium,
         .cygnus,
         .simulator,
         .macabi,
-        => unreachable,
-
-        .pixel,
-        .vertex,
-        .geometry,
-        .hull,
-        .domain,
-        .compute,
-        .library,
-        .raygeneration,
-        .intersection,
-        .anyhit,
-        .closesthit,
-        .miss,
-        .callable,
-        .mesh,
-        .amplification,
         => unreachable,
     }
 }

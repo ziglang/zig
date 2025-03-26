@@ -7,10 +7,23 @@ pub const timing_safe = @import("crypto/timing_safe.zig");
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
-        pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
-        pub const Aegis128L_256 = @import("crypto/aegis.zig").Aegis128L_256;
-        pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
-        pub const Aegis256_256 = @import("crypto/aegis.zig").Aegis256_256;
+        const variants = @import("crypto/aegis.zig");
+
+        pub const Aegis128X4 = variants.Aegis128X4;
+        pub const Aegis128X2 = variants.Aegis128X2;
+        pub const Aegis128L = variants.Aegis128L;
+
+        pub const Aegis256X4 = variants.Aegis256X4;
+        pub const Aegis256X2 = variants.Aegis256X2;
+        pub const Aegis256 = variants.Aegis256;
+
+        pub const Aegis128X4_256 = variants.Aegis128X4_256;
+        pub const Aegis128X2_256 = variants.Aegis128X2_256;
+        pub const Aegis128L_256 = variants.Aegis128L_256;
+
+        pub const Aegis256X4_256 = variants.Aegis256X4_256;
+        pub const Aegis256X2_256 = variants.Aegis256X2_256;
+        pub const Aegis256_256 = variants.Aegis256_256;
     };
 
     pub const aes_gcm = struct {
@@ -44,10 +57,22 @@ pub const auth = struct {
     pub const hmac = @import("crypto/hmac.zig");
     pub const siphash = @import("crypto/siphash.zig");
     pub const aegis = struct {
-        pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
-        pub const Aegis128LMac_128 = @import("crypto/aegis.zig").Aegis128LMac_128;
-        pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
-        pub const Aegis256Mac_128 = @import("crypto/aegis.zig").Aegis256Mac_128;
+        const variants = @import("crypto/aegis.zig");
+        pub const Aegis128X4Mac = variants.Aegis128X4Mac;
+        pub const Aegis128X2Mac = variants.Aegis128X2Mac;
+        pub const Aegis128LMac = variants.Aegis128LMac;
+
+        pub const Aegis256X4Mac = variants.Aegis256X4Mac;
+        pub const Aegis256X2Mac = variants.Aegis256X2Mac;
+        pub const Aegis256Mac = variants.Aegis256Mac;
+
+        pub const Aegis128X4Mac_128 = variants.Aegis128X4Mac_128;
+        pub const Aegis128X2Mac_128 = variants.Aegis128X2Mac_128;
+        pub const Aegis128LMac_128 = variants.Aegis128LMac_128;
+
+        pub const Aegis256X4Mac_128 = variants.Aegis256X4Mac_128;
+        pub const Aegis256X2Mac_128 = variants.Aegis256X2Mac_128;
+        pub const Aegis256Mac_128 = variants.Aegis256Mac_128;
     };
     pub const cmac = @import("crypto/cmac.zig");
 };
@@ -195,6 +220,7 @@ pub const errors = @import("crypto/errors.zig");
 
 pub const tls = @import("crypto/tls.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
+pub const asn1 = @import("crypto/asn1.zig");
 
 /// Side-channels mitigations.
 pub const SideChannelsMitigations = enum {
@@ -309,6 +335,7 @@ test {
     _ = errors;
     _ = tls;
     _ = Certificate;
+    _ = asn1;
 }
 
 test "CSPRNG" {

@@ -27,7 +27,7 @@ pub const writer = @import("tar/writer.zig").writer;
 /// the errors in diagnostics to know whether the operation succeeded or failed.
 pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: std.ArrayListUnmanaged(Error) = .empty,
 
     entries: usize = 0,
     root_dir: []const u8 = "",
@@ -848,6 +848,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = @import("tar/writer.zig");
     _ = Diagnostics;
 }
 

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___THREAD_POLL_WITH_BACKOFF_H
 #define _LIBCPP___THREAD_POLL_WITH_BACKOFF_H
 
-#include <__availability>
 #include <__chrono/duration.h>
 #include <__chrono/high_resolution_clock.h>
 #include <__config>
@@ -26,21 +25,21 @@ static _LIBCPP_CONSTEXPR const int __libcpp_polling_count = 64;
 // Polls a thread for a condition given by a predicate, and backs off based on a backoff policy
 // before polling again.
 //
-// - __f is the "test function" that should return true if polling succeeded, and false if it failed.
+// - __poll is the "test function" that should return true if polling succeeded, and false if it failed.
 //
-// - __bf is the "backoff policy", which is called with the duration since we started polling. It should
+// - __backoff is the "backoff policy", which is called with the duration since we started polling. It should
 //   return false in order to resume polling, and true if polling should stop entirely for some reason.
 //   In general, backoff policies sleep for some time before returning control to the polling loop.
 //
 // - __max_elapsed is the maximum duration to try polling for. If the maximum duration is exceeded,
 //   the polling loop will return false to report a timeout.
-template <class _Fn, class _BFn>
+template <class _Poll, class _Backoff>
 _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_poll_with_backoff(
-    _Fn&& __f, _BFn&& __bf, chrono::nanoseconds __max_elapsed = chrono::nanoseconds::zero()) {
+    _Poll&& __poll, _Backoff&& __backoff, chrono::nanoseconds __max_elapsed = chrono::nanoseconds::zero()) {
   auto const __start = chrono::high_resolution_clock::now();
   for (int __count = 0;;) {
-    if (__f())
-      return true; // _Fn completion means success
+    if (__poll())
+      return true; // __poll completion means success
     if (__count < __libcpp_polling_count) {
       __count += 1;
       continue;
@@ -48,8 +47,8 @@ _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_poll_with_b
     chrono::nanoseconds const __elapsed = chrono::high_resolution_clock::now() - __start;
     if (__max_elapsed != chrono::nanoseconds::zero() && __max_elapsed < __elapsed)
       return false; // timeout failure
-    if (__bf(__elapsed))
-      return false; // _BFn completion means failure
+    if (__backoff(__elapsed))
+      return false; // __backoff completion means failure
   }
 }
 

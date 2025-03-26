@@ -184,6 +184,14 @@ pub fn IntegerBitSet(comptime size: u16) type {
             return @ctz(mask);
         }
 
+        /// Finds the index of the last set bit.
+        /// If no bits are set, returns null.
+        pub fn findLastSet(self: Self) ?usize {
+            const mask = self.mask;
+            if (mask == 0) return null;
+            return bit_length - @clz(mask) - 1;
+        }
+
         /// Finds the index of the first set bit, and unsets it.
         /// If no bits are set, returns null.
         pub fn toggleFirstSet(self: *Self) ?usize {
@@ -319,10 +327,10 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     const mask_info: std.builtin.Type = @typeInfo(MaskIntType);
 
     // Make sure the mask int is indeed an int
-    if (mask_info != .Int) @compileError("ArrayBitSet can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
+    if (mask_info != .int) @compileError("ArrayBitSet can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
 
     // It must also be unsigned.
-    if (mask_info.Int.signedness != .unsigned) @compileError("ArrayBitSet requires an unsigned integer mask type, but was passed " ++ @typeName(MaskIntType));
+    if (mask_info.int.signedness != .unsigned) @compileError("ArrayBitSet requires an unsigned integer mask type, but was passed " ++ @typeName(MaskIntType));
 
     // And it must not be empty.
     if (MaskIntType == u0)
@@ -540,6 +548,24 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
                 offset += @bitSizeOf(MaskInt);
             } else return null;
             return offset + @ctz(mask);
+        }
+
+        /// Finds the index of the last set bit.
+        /// If no bits are set, returns null.
+        pub fn findLastSet(self: Self) ?usize {
+            if (bit_length == 0) return null;
+            const bs = @bitSizeOf(MaskInt);
+            var len = bit_length / bs;
+            if (bit_length % bs != 0) len += 1;
+            var offset: usize = len * bs;
+            var idx: usize = len - 1;
+            while (self.masks[idx] == 0) : (idx -= 1) {
+                offset -= bs;
+                if (idx == 0) return null;
+            }
+            offset -= @clz(self.masks[idx]);
+            offset -= 1;
+            return offset;
         }
 
         /// Finds the index of the first set bit, and unsets it.
@@ -941,6 +967,24 @@ pub const DynamicBitSetUnmanaged = struct {
         return offset + @ctz(mask[0]);
     }
 
+    /// Finds the index of the last set bit.
+    /// If no bits are set, returns null.
+    pub fn findLastSet(self: Self) ?usize {
+        if (self.bit_length == 0) return null;
+        const bs = @bitSizeOf(MaskInt);
+        var len = self.bit_length / bs;
+        if (self.bit_length % bs != 0) len += 1;
+        var offset: usize = len * bs;
+        var idx: usize = len - 1;
+        while (self.masks[idx] == 0) : (idx -= 1) {
+            offset -= bs;
+            if (idx == 0) return null;
+        }
+        offset -= @clz(self.masks[idx]);
+        offset -= 1;
+        return offset;
+    }
+
     /// Finds the index of the first set bit, and unsets it.
     /// If no bits are set, returns null.
     pub fn toggleFirstSet(self: *Self) ?usize {
@@ -1043,10 +1087,7 @@ pub const DynamicBitSet = struct {
     /// The integer type used to shift a mask in this bit set
     pub const ShiftInt = std.math.Log2Int(MaskInt);
 
-    /// The allocator used by this bit set
     allocator: Allocator,
-
-    /// The number of valid items in this bit set
     unmanaged: DynamicBitSetUnmanaged = .{},
 
     /// Creates a bit set with no elements present.
@@ -1161,6 +1202,12 @@ pub const DynamicBitSet = struct {
     /// If no bits are set, returns null.
     pub fn findFirstSet(self: Self) ?usize {
         return self.unmanaged.findFirstSet();
+    }
+
+    /// Finds the index of the last set bit.
+    /// If no bits are set, returns null.
+    pub fn findLastSet(self: Self) ?usize {
+        return self.unmanaged.findLastSet();
     }
 
     /// Finds the index of the first set bit, and unsets it.
@@ -1517,8 +1564,10 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
         }
     }
     try testing.expectEqual(@as(?usize, null), a.findFirstSet());
+    try testing.expectEqual(@as(?usize, null), a.findLastSet());
     try testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
     try testing.expectEqual(@as(?usize, null), a.findFirstSet());
+    try testing.expectEqual(@as(?usize, null), a.findLastSet());
     try testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
     try testing.expectEqual(@as(usize, 0), a.count());
 

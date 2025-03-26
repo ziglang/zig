@@ -5,9 +5,9 @@ const common = @import("./common.zig");
 pub const panic = @import("common.zig").panic;
 
 comptime {
-    @export(__addosi4, .{ .name = "__addosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__addodi4, .{ .name = "__addodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__addoti4, .{ .name = "__addoti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addosi4, .{ .name = "__addosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addodi4, .{ .name = "__addodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addoti4, .{ .name = "__addoti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // addo - add overflow
@@ -31,13 +31,13 @@ inline fn addoXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST 
     return sum;
 }
 
-pub fn __addosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
+pub fn __addosi4(a: i32, b: i32, overflow: *c_int) callconv(.c) i32 {
     return addoXi4_generic(i32, a, b, overflow);
 }
-pub fn __addodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
+pub fn __addodi4(a: i64, b: i64, overflow: *c_int) callconv(.c) i64 {
     return addoXi4_generic(i64, a, b, overflow);
 }
-pub fn __addoti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+pub fn __addoti4(a: i128, b: i128, overflow: *c_int) callconv(.c) i128 {
     return addoXi4_generic(i128, a, b, overflow);
 }
 

@@ -25,7 +25,6 @@ const PackedUnion = packed union {
 
 test "packed struct, enum, union parameters in extern function" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     testPackedStuff(&(PackedStruct{
         .a = 1,
@@ -38,4 +37,20 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {
         a;
         b;
     }
+}
+
+test "export function alias" {
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    _ = struct {
+        fn foo_internal() callconv(.c) u32 {
+            return 123;
+        }
+        export const foo_exported = foo_internal;
+    };
+    const Import = struct {
+        extern fn foo_exported() u32;
+    };
+    try expect(Import.foo_exported() == 123);
 }

@@ -8,7 +8,7 @@ test "variable alignment" {
     try expect(@TypeOf(&x) == *i32);
     try expect(*i32 == *align(align_of_i32) i32);
     if (builtin.target.cpu.arch == .x86_64) {
-        try expect(@typeInfo(*i32).Pointer.alignment == 4);
+        try expect(@typeInfo(*i32).pointer.alignment == 4);
     }
 }
 

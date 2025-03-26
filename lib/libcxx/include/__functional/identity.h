@@ -11,7 +11,7 @@
 #define _LIBCPP___FUNCTIONAL_IDENTITY_H
 
 #include <__config>
-#include <__functional/reference_wrapper.h>
+#include <__fwd/functional.h>
 #include <__type_traits/integral_constant.h>
 #include <__utility/forward.h>
 
@@ -44,7 +44,7 @@ struct __is_identity<reference_wrapper<const __identity> > : true_type {};
 
 struct identity {
   template <class _Tp>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp&& operator()(_Tp&& __t) const noexcept {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp&& operator()(_Tp&& __t) const noexcept {
     return std::forward<_Tp>(__t);
   }
 

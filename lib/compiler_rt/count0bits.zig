@@ -6,15 +6,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // clz - count leading zeroes
@@ -52,7 +52,7 @@ inline fn clzXi2(comptime T: type, a: T) i32 {
     return @intCast(n - @as(T, @bitCast(x)));
 }
 
-fn __clzsi2_thumb1() callconv(.Naked) void {
+fn __clzsi2_thumb1() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     // Similar to the generic version with the last two rounds replaced by a LUT
@@ -73,20 +73,20 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
         \\ subs r1, #4
         \\ movs r0, r2
         \\ 1:
-        \\ ldr r3, =LUT
+        \\ adr r3, .lut
         \\ ldrb r0, [r3, r0]
         \\ subs r0, r1, r0
         \\ bx lr
         \\ .p2align 2
         \\ // Number of bits set in the 0-15 range
-        \\ LUT:
+        \\ .lut:
         \\ .byte 0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4
     );
 
     unreachable;
 }
 
-fn __clzsi2_arm32() callconv(.Naked) void {
+fn __clzsi2_arm32() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -135,7 +135,7 @@ fn __clzsi2_arm32() callconv(.Naked) void {
     unreachable;
 }
 
-fn clzsi2_generic(a: i32) callconv(.C) i32 {
+fn clzsi2_generic(a: i32) callconv(.c) i32 {
     return clzXi2(i32, a);
 }
 
@@ -143,7 +143,7 @@ pub const __clzsi2 = switch (builtin.cpu.arch) {
     .arm, .armeb, .thumb, .thumbeb => impl: {
         const use_thumb1 =
             (builtin.cpu.arch.isThumb() or
-            std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
+                std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
             !std.Target.arm.featureSetHas(builtin.cpu.features, .thumb2);
 
         if (use_thumb1) {
@@ -159,11 +159,11 @@ pub const __clzsi2 = switch (builtin.cpu.arch) {
     else => clzsi2_generic,
 };
 
-pub fn __clzdi2(a: i64) callconv(.C) i32 {
+pub fn __clzdi2(a: i64) callconv(.c) i32 {
     return clzXi2(i64, a);
 }
 
-pub fn __clzti2(a: i128) callconv(.C) i32 {
+pub fn __clzti2(a: i128) callconv(.c) i32 {
     return clzXi2(i128, a);
 }
 
@@ -190,20 +190,20 @@ inline fn ctzXi2(comptime T: type, a: T) i32 {
     return @intCast(n - @as(T, @bitCast((x & 1))));
 }
 
-pub fn __ctzsi2(a: i32) callconv(.C) i32 {
+pub fn __ctzsi2(a: i32) callconv(.c) i32 {
     return ctzXi2(i32, a);
 }
 
-pub fn __ctzdi2(a: i64) callconv(.C) i32 {
+pub fn __ctzdi2(a: i64) callconv(.c) i32 {
     return ctzXi2(i64, a);
 }
 
-pub fn __ctzti2(a: i128) callconv(.C) i32 {
+pub fn __ctzti2(a: i128) callconv(.c) i32 {
     return ctzXi2(i128, a);
 }
 
 inline fn ffsXi2(comptime T: type, a: T) i32 {
-    var x: std.meta.Int(.unsigned, @typeInfo(T).Int.bits) = @bitCast(a);
+    var x: std.meta.Int(.unsigned, @typeInfo(T).int.bits) = @bitCast(a);
     var n: T = 1;
     // adapted from Number of trailing zeroes (see ctzXi2)
     var mask: @TypeOf(x) = std.math.maxInt(@TypeOf(x));
@@ -222,15 +222,15 @@ inline fn ffsXi2(comptime T: type, a: T) i32 {
     return @as(i32, @intCast(n - @as(T, @bitCast((x & 1))))) + 1;
 }
 
-pub fn __ffssi2(a: i32) callconv(.C) i32 {
+pub fn __ffssi2(a: i32) callconv(.c) i32 {
     return ffsXi2(i32, a);
 }
 
-pub fn __ffsdi2(a: i64) callconv(.C) i32 {
+pub fn __ffsdi2(a: i64) callconv(.c) i32 {
     return ffsXi2(i64, a);
 }
 
-pub fn __ffsti2(a: i128) callconv(.C) i32 {
+pub fn __ffsti2(a: i128) callconv(.c) i32 {
     return ffsXi2(i128, a);
 }
 

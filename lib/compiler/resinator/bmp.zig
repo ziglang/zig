@@ -60,9 +60,16 @@ pub const BitmapInfo = struct {
     }
 
     pub fn getBitmasksByteLen(self: *const BitmapInfo) u8 {
-        return switch (self.compression) {
-            .BI_BITFIELDS => 12,
-            .BI_ALPHABITFIELDS => 16,
+        // Only BITMAPINFOHEADER (3.1) has trailing bytes for the BITFIELDS
+        // The 2.0 format doesn't have a compression field and 4.0+ has dedicated
+        // fields for the masks in the header.
+        const dib_version = BitmapHeader.Version.get(self.dib_header_size);
+        return switch (dib_version) {
+            .@"nt3.1" => switch (self.compression) {
+                .BI_BITFIELDS => 12,
+                .BI_ALPHABITFIELDS => 16,
+                else => 0,
+            },
             else => 0,
         };
     }
@@ -224,7 +231,7 @@ pub const Compression = enum(u32) {
 };
 
 fn structFieldsLittleToNative(comptime T: type, x: *T) void {
-    inline for (@typeInfo(T).Struct.fields) |field| {
+    inline for (@typeInfo(T).@"struct".fields) |field| {
         @field(x, field.name) = std.mem.littleToNative(field.type, @field(x, field.name));
     }
 }

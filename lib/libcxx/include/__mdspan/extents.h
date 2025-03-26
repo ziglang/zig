@@ -137,9 +137,9 @@ private:
   // static mapping of indices to the position in the dynamic values array
   using _DynamicIdxMap = __static_partial_sums<static_cast<size_t>(_Values == _DynTag)...>;
 
-  template <size_t... Indices>
-  _LIBCPP_HIDE_FROM_ABI static constexpr _DynamicValues __zeros(index_sequence<Indices...>) noexcept {
-    return _DynamicValues{((void)Indices, 0)...};
+  template <size_t... _Indices>
+  _LIBCPP_HIDE_FROM_ABI static constexpr _DynamicValues __zeros(index_sequence<_Indices...>) noexcept {
+    return _DynamicValues{((void)_Indices, 0)...};
   }
 
 public:
@@ -165,7 +165,7 @@ public:
   template <class... _DynVals>
     requires(sizeof...(_DynVals) != __size_dynamic_)
   _LIBCPP_HIDE_FROM_ABI constexpr __maybe_static_array(_DynVals... __vals) {
-    static_assert((sizeof...(_DynVals) == __size_), "Invalid number of values.");
+    static_assert(sizeof...(_DynVals) == __size_, "Invalid number of values.");
     _TDynamic __values[__size_] = {static_cast<_TDynamic>(__vals)...};
     for (size_t __i = 0; __i < __size_; __i++) {
       _TStatic __static_val = _StaticValues::__get(__i);
@@ -185,7 +185,7 @@ public:
   template <class _Tp, size_t _Size>
     requires(_Size != __size_dynamic_)
   _LIBCPP_HIDE_FROM_ABI constexpr __maybe_static_array(const span<_Tp, _Size>& __vals) {
-    static_assert((_Size == __size_) || (__size_ == dynamic_extent));
+    static_assert(_Size == __size_ || __size_ == dynamic_extent);
     for (size_t __i = 0; __i < __size_; __i++) {
       _TStatic __static_val = _StaticValues::__get(__i);
       if (__static_val == _DynTag) {
@@ -454,9 +454,22 @@ struct __make_dextents< _IndexType, 0, extents<_IndexType, _ExtentsPack...>> {
 template <class _IndexType, size_t _Rank>
 using dextents = typename __mdspan_detail::__make_dextents<_IndexType, _Rank>::type;
 
+#  if _LIBCPP_STD_VER >= 26
+// [mdspan.extents.dims], alias template `dims`
+template <size_t _Rank, class _IndexType = size_t>
+using dims = dextents<_IndexType, _Rank>;
+#  endif
+
 // Deduction guide for extents
+#  if _LIBCPP_STD_VER >= 26
 template <class... _IndexTypes>
-extents(_IndexTypes...) -> extents<size_t, size_t(((void)sizeof(_IndexTypes), dynamic_extent))...>;
+  requires(is_convertible_v<_IndexTypes, size_t> && ...)
+explicit extents(_IndexTypes...) -> extents<size_t, __maybe_static_ext<_IndexTypes>...>;
+#  else
+template <class... _IndexTypes>
+  requires(is_convertible_v<_IndexTypes, size_t> && ...)
+explicit extents(_IndexTypes...) -> extents<size_t, size_t(((void)sizeof(_IndexTypes), dynamic_extent))...>;
+#  endif
 
 namespace __mdspan_detail {
 

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FILESYSTEM_FILE_STATUS_H
 #define _LIBCPP___FILESYSTEM_FILE_STATUS_H
 
-#include <__availability>
 #include <__config>
 #include <__filesystem/file_type.h>
 #include <__filesystem/perms.h>

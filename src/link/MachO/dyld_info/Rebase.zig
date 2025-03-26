@@ -1,5 +1,5 @@
-entries: std.ArrayListUnmanaged(Entry) = .{},
-buffer: std.ArrayListUnmanaged(u8) = .{},
+entries: std.ArrayListUnmanaged(Entry) = .empty,
+buffer: std.ArrayListUnmanaged(u8) = .empty,
 
 pub const Entry = struct {
     offset: u64,
@@ -281,7 +281,7 @@ test "rebase - no entries" {
     defer rebase.deinit(gpa);
 
     try rebase.finalize(gpa);
-    try testing.expectEqual(@as(u64, 0), rebase.size());
+    try testing.expectEqual(0, rebase.buffer.items.len);
 }
 
 test "rebase - single entry" {

@@ -26,8 +26,31 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 
+#if defined(__has_feature) && __has_feature(modules)
+#define USE_CLANG_STDDEF 1
+#else
+#define USE_CLANG_STDDEF 0
+#endif
+
+#if USE_CLANG_STDDEF
+
+#ifndef __PTRDIFF_T
+#define __PTRDIFF_T
+
+#define __need_ptrdiff_t
+#include <stddef.h>
+#undef __need_ptrdiff_t
+
+#endif /* __PTRDIFF_T */
+
+#else
+
 #ifndef _PTRDIFF_T
 #define _PTRDIFF_T
 #include <machine/types.h> /* __darwin_ptrdiff_t */
 typedef __darwin_ptrdiff_t ptrdiff_t;
 #endif /* _PTRDIFF_T */
+
+#endif
+
+#undef USE_CLANG_STDDEF

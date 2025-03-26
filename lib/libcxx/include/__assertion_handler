@@ -23,8 +23,17 @@
 
 #else
 
-// TODO(hardening): use `__builtin_verbose_trap(message)` once that becomes available.
-#  define _LIBCPP_ASSERTION_HANDLER(message) ((void)message, __builtin_trap())
+#  if __has_builtin(__builtin_verbose_trap)
+// AppleClang shipped a slightly different version of __builtin_verbose_trap from the upstream
+// version before upstream Clang actually got the builtin.
+#    if defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER < 17000
+#      define _LIBCPP_ASSERTION_HANDLER(message) __builtin_verbose_trap(message)
+#    else
+#      define _LIBCPP_ASSERTION_HANDLER(message) __builtin_verbose_trap("libc++", message)
+#    endif
+#  else
+#    define _LIBCPP_ASSERTION_HANDLER(message) ((void)message, __builtin_trap())
+#  endif
 
 #endif // _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG
 

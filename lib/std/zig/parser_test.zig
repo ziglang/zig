@@ -107,15 +107,15 @@ test "zig fmt: respect line breaks before functions" {
     );
 }
 
-test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
+test "zig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
     try testTransform(
-        \\fn foo() callconv(.Inline) void {}
-        \\const bar = .Inline;
+        \\fn foo() callconv(.@"inline") void {}
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     ,
         \\inline fn foo() void {}
-        \\const bar = .Inline;
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     );
@@ -552,7 +552,7 @@ test "zig fmt: trailing comma in fn parameter list" {
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) callconv(.C) i32 {}
+        \\) callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
@@ -560,15 +560,15 @@ test "zig fmt: trailing comma in fn parameter list" {
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) align(8) callconv(.C) i32 {}
+        \\) align(8) callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) align(8) linksection(".text") callconv(.C) i32 {}
+        \\) align(8) linksection(".text") callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) linksection(".text") callconv(.C) i32 {}
+        \\) linksection(".text") callconv(.c) i32 {}
         \\
     );
 }
@@ -1096,10 +1096,10 @@ test "zig fmt: block in slice expression" {
 test "zig fmt: async function" {
     try testCanonical(
         \\pub const Server = struct {
-        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
+        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.@"async") void,
         \\};
         \\test "hi" {
-        \\    var ptr: fn (i32) callconv(.Async) void = @ptrCast(other);
+        \\    var ptr: fn (i32) callconv(.@"async") void = @ptrCast(other);
         \\}
         \\
     );
@@ -1259,7 +1259,7 @@ test "zig fmt: threadlocal" {
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
-        \\export fn _start() linksection(".text.boot") callconv(.Naked) noreturn {}
+        \\export fn _start() linksection(".text.boot") callconv(.naked) noreturn {}
         \\
     );
 }
@@ -1776,7 +1776,7 @@ test "zig fmt: if nested" {
         \\            GE_EQUAL
         \\        else
         \\            GE_GREATER
-        \\        // comment
+        \\            // comment
         \\    else if (aInt > bInt)
         \\        GE_LESS
         \\    else if (aInt == bInt)
@@ -2548,7 +2548,7 @@ test "zig fmt: same-line comment after non-block if expression" {
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
-        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
+        \\    comptime assert(@typeInfo(T) == .int); // must pass an integer to absInt
         \\}
         \\
     );
@@ -3062,7 +3062,7 @@ test "zig fmt: functions" {
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
-        \\pub fn callInlineFn(func: fn () callconv(.Inline) void) void {
+        \\pub fn callInlineFn(func: fn () callconv(.@"inline") void) void {
         \\    func();
         \\}
         \\
@@ -3083,6 +3083,22 @@ test "zig fmt: multiline string" {
         \\        \\three
         \\    ;
         \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string with CRLF line endings" {
+    try testTransform("" ++
+        "const s =\r\n" ++
+        "    \\\\one\r\n" ++
+        "    \\\\two)\r\n" ++
+        "    \\\\three\r\n" ++
+        ";\r\n",
+        \\const s =
+        \\    \\one
+        \\    \\two)
+        \\    \\three
+        \\;
         \\
     );
 }
@@ -3910,7 +3926,7 @@ test "zig fmt: fn type" {
         \\}
         \\
         \\const a: fn (u8) u8 = undefined;
-        \\const b: fn (u8) callconv(.Naked) u8 = undefined;
+        \\const b: fn (u8) callconv(.naked) u8 = undefined;
         \\const ap: fn (u8) u8 = a;
         \\
     );
@@ -4404,6 +4420,28 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
     });
 }
 
+test "zig fmt: comments with CRLF line endings" {
+    try testTransform("" ++
+        "//! Top-level doc comment\r\n" ++
+        "//! Continuing to another line\r\n" ++
+        "\r\n" ++
+        "/// Regular doc comment\r\n" ++
+        "const S = struct {\r\n" ++
+        "    // Regular comment\r\n" ++
+        "    // More content\r\n" ++
+        "};\r\n",
+        \\//! Top-level doc comment
+        \\//! Continuing to another line
+        \\
+        \\/// Regular doc comment
+        \\const S = struct {
+        \\    // Regular comment
+        \\    // More content
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: else comptime expr" {
     try testCanonical(
         \\comptime {
@@ -4632,7 +4670,7 @@ test "zig fmt: test comments in field access chain" {
         \\        .more() //
         \\        .more().more() //
         \\        .more() //
-        \\    // .more() //
+        \\        // .more() //
         \\        .more() //
         \\        .more();
         \\    data: Data,
@@ -4641,9 +4679,9 @@ test "zig fmt: test comments in field access chain" {
         \\pub const str = struct {
         \\    pub const Thing = more.more //
         \\        .more() //
-        \\    // .more() //
-        \\    // .more() //
-        \\    // .more() //
+        \\        // .more() //
+        \\        // .more() //
+        \\        // .more() //
         \\        .more() //
         \\        .more();
         \\    data: Data,
@@ -4668,7 +4706,7 @@ test "zig fmt: allow line break before field access" {
         \\    const x = foo
         \\        .bar()
         \\        . // comment
-        \\    // comment
+        \\        // comment
         \\        swooop().zippy(zag)
         \\        .iguessthisisok();
         \\
@@ -4678,7 +4716,7 @@ test "zig fmt: allow line break before field access" {
         \\        .input_manager //
         \\        .default_seat
         \\        . // comment
-        \\    // another comment
+        \\        // another comment
         \\        wlr_seat.name;
         \\}
         \\
@@ -4917,19 +4955,19 @@ test "zig fmt: use of comments and multiline string literals may force the param
         \\
         \\// This looks like garbage don't do this
         \\const rparen = tree.prevToken(
-        \\// the first token for the annotation expressions is the left
-        \\// parenthesis, hence the need for two prevToken
-        \\if (fn_proto.getAlignExpr()) |align_expr|
-        \\    tree.prevToken(tree.prevToken(align_expr.firstToken()))
-        \\else if (fn_proto.getSectionExpr()) |section_expr|
-        \\    tree.prevToken(tree.prevToken(section_expr.firstToken()))
-        \\else if (fn_proto.getCallconvExpr()) |callconv_expr|
-        \\    tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
-        \\else switch (fn_proto.return_type) {
-        \\    .Explicit => |node| node.firstToken(),
-        \\    .InferErrorSet => |node| tree.prevToken(node.firstToken()),
-        \\    .Invalid => unreachable,
-        \\});
+        \\    // the first token for the annotation expressions is the left
+        \\    // parenthesis, hence the need for two prevToken
+        \\    if (fn_proto.getAlignExpr()) |align_expr|
+        \\        tree.prevToken(tree.prevToken(align_expr.firstToken()))
+        \\    else if (fn_proto.getSectionExpr()) |section_expr|
+        \\        tree.prevToken(tree.prevToken(section_expr.firstToken()))
+        \\    else if (fn_proto.getCallconvExpr()) |callconv_expr|
+        \\        tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
+        \\    else switch (fn_proto.return_type) {
+        \\        .Explicit => |node| node.firstToken(),
+        \\        .InferErrorSet => |node| tree.prevToken(node.firstToken()),
+        \\        .Invalid => unreachable,
+        \\    });
         \\
     );
 }
@@ -5919,6 +5957,151 @@ test "zig fmt: pointer type syntax to index" {
     try testCanonical(
         \\test {
         \\    _ = .{}[*0];
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: binop indentation in if statement" {
+    try testCanonical(
+        \\test {
+        \\    if (first_param_type.isGenericPoison() or
+        \\        (first_param_type.zigTypeTag(zcu) == .pointer and
+        \\            (first_param_type.ptrSize(zcu) == .One or
+        \\                first_param_type.ptrSize(zcu) == .C) and
+        \\            first_param_type.childType(zcu).eql(concrete_ty, zcu)))
+        \\    {
+        \\        f(x);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: test indentation after equals sign" {
+    try testCanonical(
+        \\test {
+        \\    const foo =
+        \\        if (1 == 2)
+        \\            1
+        \\        else if (3 > 4)
+        \\            2
+        \\        else
+        \\            0;
+        \\
+        \\    const foo, const bar =
+        \\        if (1 == 2)
+        \\            .{ 0, 0 }
+        \\        else if (3 > 4)
+        \\            .{ 1, 1 }
+        \\        else
+        \\            .{ 2, 2 };
+        \\
+        \\    while (foo) if (bar)
+        \\        f(x);
+        \\
+        \\    foobar =
+        \\        if (true)
+        \\            1
+        \\        else
+        \\            0;
+        \\
+        \\    const foo = if (1 == 2)
+        \\        1
+        \\    else if (3 > 4)
+        \\        2
+        \\    else
+        \\        0;
+        \\
+        \\    const foo, const bar = if (1 == 2)
+        \\        .{ 0, 0 }
+        \\    else if (3 > 4)
+        \\        .{ 1, 1 }
+        \\    else
+        \\        .{ 2, 2 };
+        \\
+        \\    foobar = if (true)
+        \\        1
+        \\    else
+        \\        0;
+        \\
+        \\    const is_alphanum =
+        \\        (ch >= 'a' and ch <= 'z') or
+        \\        (ch >= 'A' and ch <= 'Z') or
+        \\        (ch >= '0' and ch <= '9');
+        \\
+        \\    const bar = 100 + calculate(
+        \\        200,
+        \\        300,
+        \\    );
+        \\
+        \\    const gcc_pragma = std.meta.stringToEnum(Directive, pp.expandedSlice(directive_tok)) orelse
+        \\        return pp.comp.addDiagnostic(.{
+        \\            .tag = .unknown_gcc_pragma,
+        \\            .loc = directive_tok.loc,
+        \\        }, pp.expansionSlice(start_idx + 1));
+        \\
+        \\    const vec4s =
+        \\        [_][4]i32{
+        \\            [_]i32{ 0, 1, 0, 0 },
+        \\            [_]i32{ 0, -1, 0, 0 },
+        \\            [_]i32{ 2, 1, 2, 0 },
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: test indentation of if expressions" {
+    try testCanonical(
+        \\test {
+        \\    const foo = 1 +
+        \\        if (1 == 2)
+        \\            2
+        \\        else
+        \\            0;
+        \\
+        \\    const foo = 1 + if (1 == 2)
+        \\        2
+        \\    else
+        \\        0;
+        \\
+        \\    errval catch |e|
+        \\        if (e == error.Meow)
+        \\            return 0x1F408
+        \\        else
+        \\            unreachable;
+        \\
+        \\    errval catch |e| if (e == error.Meow)
+        \\        return 0x1F408
+        \\    else
+        \\        unreachable;
+        \\
+        \\    return if (1 == 2)
+        \\        1
+        \\    else if (3 > 4)
+        \\        2
+        \\    else
+        \\        0;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: indentation of comments within catch, else, orelse" {
+    try testCanonical(
+        \\comptime {
+        \\    _ = foo() catch
+        \\        //
+        \\        bar();
+        \\
+        \\    _ = if (foo) bar() else
+        \\        //
+        \\        qux();
+        \\
+        \\    _ = foo() orelse
+        \\        //
+        \\        qux();
         \\}
         \\
     );

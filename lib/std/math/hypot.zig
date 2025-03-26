@@ -23,8 +23,8 @@ const floatMax = math.floatMax;
 pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
     const T = @TypeOf(x, y);
     switch (@typeInfo(T)) {
-        .Float => {},
-        .ComptimeFloat => return @sqrt(x * x + y * y),
+        .float => {},
+        .comptime_float => return @sqrt(x * x + y * y),
         else => @compileError("hypot not implemented for " ++ @typeName(T)),
     }
     const lower = @sqrt(floatMin(T));

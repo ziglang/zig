@@ -31,6 +31,10 @@ struct __sanitizer_struct_mallinfo {
   int v[10];
 };
 
+struct __sanitizer_struct_mallinfo2 {
+  uptr v[10];
+};
+
 #endif
 
 }  // namespace __sanitizer

@@ -15,8 +15,10 @@
 #ifndef __INTRIN_H
 #define __INTRIN_H
 
+#include <intrin0.h>
+
 /* First include the standard intrinsics. */
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
 #include <x86intrin.h>
 #endif
 
@@ -24,7 +26,7 @@
 #include <armintr.h>
 #endif
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
 #include <arm64intr.h>
 #endif
 
@@ -131,8 +133,6 @@ void __writefsqword(unsigned long, unsigned __int64);
 void __writefsword(unsigned long, unsigned short);
 void __writemsr(unsigned long, unsigned __int64);
 void *_AddressOfReturnAddress(void);
-unsigned char _BitScanForward(unsigned long *_Index, unsigned long _Mask);
-unsigned char _BitScanReverse(unsigned long *_Index, unsigned long _Mask);
 unsigned char _bittest(long const *, long);
 unsigned char _bittestandcomplement(long *, long);
 unsigned char _bittestandreset(long *, long);
@@ -151,7 +151,6 @@ long _InterlockedExchangeAdd_HLERelease(long volatile *, long);
 __int64 _InterlockedExchangeAdd64_HLEAcquire(__int64 volatile *, __int64);
 __int64 _InterlockedExchangeAdd64_HLERelease(__int64 volatile *, __int64);
 void _ReadBarrier(void);
-void _ReadWriteBarrier(void);
 unsigned int _rorx_u32(unsigned int, const unsigned int);
 int _sarx_i32(int, unsigned int);
 #if __STDC_HOSTED__
@@ -167,7 +166,7 @@ unsigned __int32 xbegin(void);
 void _xend(void);
 
 /* These additional intrinsics are turned on in x64/amd64/x86_64 mode. */
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(__arm64ec__)
 void __addgsbyte(unsigned long, unsigned char);
 void __addgsdword(unsigned long, unsigned long);
 void __addgsqword(unsigned long, unsigned __int64);
@@ -182,12 +181,6 @@ unsigned char __readgsbyte(unsigned long);
 unsigned long __readgsdword(unsigned long);
 unsigned __int64 __readgsqword(unsigned long);
 unsigned short __readgsword(unsigned long);
-unsigned __int64 __shiftleft128(unsigned __int64 _LowPart,
-                                unsigned __int64 _HighPart,
-                                unsigned char _Shift);
-unsigned __int64 __shiftright128(unsigned __int64 _LowPart,
-                                 unsigned __int64 _HighPart,
-                                 unsigned char _Shift);
 void __stosq(unsigned __int64 *, unsigned __int64, size_t);
 unsigned char __vmx_on(unsigned __int64 *);
 unsigned char __vmx_vmclear(unsigned __int64 *);
@@ -236,216 +229,15 @@ unsigned __int64 _shlx_u64(unsigned __int64, unsigned int);
 unsigned __int64 _shrx_u64(unsigned __int64, unsigned int);
 __int64 __mulh(__int64, __int64);
 unsigned __int64 __umulh(unsigned __int64, unsigned __int64);
-__int64 _mul128(__int64, __int64, __int64*);
-unsigned __int64 _umul128(unsigned __int64,
-                          unsigned __int64,
-                          unsigned __int64*);
+__int64 _mul128(__int64, __int64, __int64 *);
 
 #endif /* __x86_64__ */
-
-#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
-
-unsigned char _BitScanForward64(unsigned long *_Index, unsigned __int64 _Mask);
-unsigned char _BitScanReverse64(unsigned long *_Index, unsigned __int64 _Mask);
-
-#endif
-
-#if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
-__int64 _InterlockedDecrement64(__int64 volatile *_Addend);
-__int64 _InterlockedExchange64(__int64 volatile *_Target, __int64 _Value);
-__int64 _InterlockedExchangeAdd64(__int64 volatile *_Addend, __int64 _Value);
-__int64 _InterlockedExchangeSub64(__int64 volatile *_Subend, __int64 _Value);
-__int64 _InterlockedIncrement64(__int64 volatile *_Addend);
-__int64 _InterlockedOr64(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedXor64(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedAnd64(__int64 volatile *_Value, __int64 _Mask);
-
-#endif
-
-/*----------------------------------------------------------------------------*\
-|* Interlocked Exchange Add
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedExchangeAdd8_acq(char volatile *_Addend, char _Value);
-char _InterlockedExchangeAdd8_nf(char volatile *_Addend, char _Value);
-char _InterlockedExchangeAdd8_rel(char volatile *_Addend, char _Value);
-short _InterlockedExchangeAdd16_acq(short volatile *_Addend, short _Value);
-short _InterlockedExchangeAdd16_nf(short volatile *_Addend, short _Value);
-short _InterlockedExchangeAdd16_rel(short volatile *_Addend, short _Value);
-long _InterlockedExchangeAdd_acq(long volatile *_Addend, long _Value);
-long _InterlockedExchangeAdd_nf(long volatile *_Addend, long _Value);
-long _InterlockedExchangeAdd_rel(long volatile *_Addend, long _Value);
-__int64 _InterlockedExchangeAdd64_acq(__int64 volatile *_Addend, __int64 _Value);
-__int64 _InterlockedExchangeAdd64_nf(__int64 volatile *_Addend, __int64 _Value);
-__int64 _InterlockedExchangeAdd64_rel(__int64 volatile *_Addend, __int64 _Value);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Increment
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-short _InterlockedIncrement16_acq(short volatile *_Value);
-short _InterlockedIncrement16_nf(short volatile *_Value);
-short _InterlockedIncrement16_rel(short volatile *_Value);
-long _InterlockedIncrement_acq(long volatile *_Value);
-long _InterlockedIncrement_nf(long volatile *_Value);
-long _InterlockedIncrement_rel(long volatile *_Value);
-__int64 _InterlockedIncrement64_acq(__int64 volatile *_Value);
-__int64 _InterlockedIncrement64_nf(__int64 volatile *_Value);
-__int64 _InterlockedIncrement64_rel(__int64 volatile *_Value);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Decrement
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-short _InterlockedDecrement16_acq(short volatile *_Value);
-short _InterlockedDecrement16_nf(short volatile *_Value);
-short _InterlockedDecrement16_rel(short volatile *_Value);
-long _InterlockedDecrement_acq(long volatile *_Value);
-long _InterlockedDecrement_nf(long volatile *_Value);
-long _InterlockedDecrement_rel(long volatile *_Value);
-__int64 _InterlockedDecrement64_acq(__int64 volatile *_Value);
-__int64 _InterlockedDecrement64_nf(__int64 volatile *_Value);
-__int64 _InterlockedDecrement64_rel(__int64 volatile *_Value);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked And
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedAnd8_acq(char volatile *_Value, char _Mask);
-char _InterlockedAnd8_nf(char volatile *_Value, char _Mask);
-char _InterlockedAnd8_rel(char volatile *_Value, char _Mask);
-short _InterlockedAnd16_acq(short volatile *_Value, short _Mask);
-short _InterlockedAnd16_nf(short volatile *_Value, short _Mask);
-short _InterlockedAnd16_rel(short volatile *_Value, short _Mask);
-long _InterlockedAnd_acq(long volatile *_Value, long _Mask);
-long _InterlockedAnd_nf(long volatile *_Value, long _Mask);
-long _InterlockedAnd_rel(long volatile *_Value, long _Mask);
-__int64 _InterlockedAnd64_acq(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedAnd64_nf(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedAnd64_rel(__int64 volatile *_Value, __int64 _Mask);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Bit Counting and Testing
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-unsigned char _interlockedbittestandset_acq(long volatile *_BitBase,
-                                            long _BitPos);
-unsigned char _interlockedbittestandset_nf(long volatile *_BitBase,
-                                           long _BitPos);
-unsigned char _interlockedbittestandset_rel(long volatile *_BitBase,
-                                            long _BitPos);
-unsigned char _interlockedbittestandreset_acq(long volatile *_BitBase,
-                                              long _BitPos);
-unsigned char _interlockedbittestandreset_nf(long volatile *_BitBase,
-                                             long _BitPos);
-unsigned char _interlockedbittestandreset_rel(long volatile *_BitBase,
-                                              long _BitPos);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Or
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedOr8_acq(char volatile *_Value, char _Mask);
-char _InterlockedOr8_nf(char volatile *_Value, char _Mask);
-char _InterlockedOr8_rel(char volatile *_Value, char _Mask);
-short _InterlockedOr16_acq(short volatile *_Value, short _Mask);
-short _InterlockedOr16_nf(short volatile *_Value, short _Mask);
-short _InterlockedOr16_rel(short volatile *_Value, short _Mask);
-long _InterlockedOr_acq(long volatile *_Value, long _Mask);
-long _InterlockedOr_nf(long volatile *_Value, long _Mask);
-long _InterlockedOr_rel(long volatile *_Value, long _Mask);
-__int64 _InterlockedOr64_acq(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedOr64_nf(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedOr64_rel(__int64 volatile *_Value, __int64 _Mask);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Xor
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedXor8_acq(char volatile *_Value, char _Mask);
-char _InterlockedXor8_nf(char volatile *_Value, char _Mask);
-char _InterlockedXor8_rel(char volatile *_Value, char _Mask);
-short _InterlockedXor16_acq(short volatile *_Value, short _Mask);
-short _InterlockedXor16_nf(short volatile *_Value, short _Mask);
-short _InterlockedXor16_rel(short volatile *_Value, short _Mask);
-long _InterlockedXor_acq(long volatile *_Value, long _Mask);
-long _InterlockedXor_nf(long volatile *_Value, long _Mask);
-long _InterlockedXor_rel(long volatile *_Value, long _Mask);
-__int64 _InterlockedXor64_acq(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedXor64_nf(__int64 volatile *_Value, __int64 _Mask);
-__int64 _InterlockedXor64_rel(__int64 volatile *_Value, __int64 _Mask);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Exchange
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedExchange8_acq(char volatile *_Target, char _Value);
-char _InterlockedExchange8_nf(char volatile *_Target, char _Value);
-char _InterlockedExchange8_rel(char volatile *_Target, char _Value);
-short _InterlockedExchange16_acq(short volatile *_Target, short _Value);
-short _InterlockedExchange16_nf(short volatile *_Target, short _Value);
-short _InterlockedExchange16_rel(short volatile *_Target, short _Value);
-long _InterlockedExchange_acq(long volatile *_Target, long _Value);
-long _InterlockedExchange_nf(long volatile *_Target, long _Value);
-long _InterlockedExchange_rel(long volatile *_Target, long _Value);
-__int64 _InterlockedExchange64_acq(__int64 volatile *_Target, __int64 _Value);
-__int64 _InterlockedExchange64_nf(__int64 volatile *_Target, __int64 _Value);
-__int64 _InterlockedExchange64_rel(__int64 volatile *_Target, __int64 _Value);
-#endif
-/*----------------------------------------------------------------------------*\
-|* Interlocked Compare Exchange
-\*----------------------------------------------------------------------------*/
-#if defined(__arm__) || defined(__aarch64__)
-char _InterlockedCompareExchange8_acq(char volatile *_Destination,
-                             char _Exchange, char _Comparand);
-char _InterlockedCompareExchange8_nf(char volatile *_Destination,
-                             char _Exchange, char _Comparand);
-char _InterlockedCompareExchange8_rel(char volatile *_Destination,
-                             char _Exchange, char _Comparand);
-short _InterlockedCompareExchange16_acq(short volatile *_Destination,
-                              short _Exchange, short _Comparand);
-short _InterlockedCompareExchange16_nf(short volatile *_Destination,
-                              short _Exchange, short _Comparand);
-short _InterlockedCompareExchange16_rel(short volatile *_Destination,
-                              short _Exchange, short _Comparand);
-long _InterlockedCompareExchange_acq(long volatile *_Destination,
-                              long _Exchange, long _Comparand);
-long _InterlockedCompareExchange_nf(long volatile *_Destination,
-                              long _Exchange, long _Comparand);
-long _InterlockedCompareExchange_rel(long volatile *_Destination,
-                              long _Exchange, long _Comparand);
-__int64 _InterlockedCompareExchange64_acq(__int64 volatile *_Destination,
-                              __int64 _Exchange, __int64 _Comparand);
-__int64 _InterlockedCompareExchange64_nf(__int64 volatile *_Destination,
-                              __int64 _Exchange, __int64 _Comparand);
-__int64 _InterlockedCompareExchange64_rel(__int64 volatile *_Destination,
-                              __int64 _Exchange, __int64 _Comparand);
-#endif
-#if defined(__x86_64__) || defined(__aarch64__)
-unsigned char _InterlockedCompareExchange128(__int64 volatile *_Destination,
-                                             __int64 _ExchangeHigh,
-                                             __int64 _ExchangeLow,
-                                             __int64 *_ComparandResult);
-#endif
-#if defined(__aarch64__)
-unsigned char _InterlockedCompareExchange128_acq(__int64 volatile *_Destination,
-                                                 __int64 _ExchangeHigh,
-                                                 __int64 _ExchangeLow,
-                                                 __int64 *_ComparandResult);
-unsigned char _InterlockedCompareExchange128_nf(__int64 volatile *_Destination,
-                                                __int64 _ExchangeHigh,
-                                                __int64 _ExchangeLow,
-                                                __int64 *_ComparandResult);
-unsigned char _InterlockedCompareExchange128_rel(__int64 volatile *_Destination,
-                                                 __int64 _ExchangeHigh,
-                                                 __int64 _ExchangeLow,
-                                                 __int64 *_ComparandResult);
-#endif
 
 /*----------------------------------------------------------------------------*\
 |* movs, stos
 \*----------------------------------------------------------------------------*/
-#if defined(__i386__) || defined(__x86_64__)
+
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
 static __inline__ void __DEFAULT_FN_ATTRS __movsb(unsigned char *__dst,
                                                   unsigned char const *__src,
                                                   size_t __n) {
@@ -514,7 +306,7 @@ static __inline__ void __DEFAULT_FN_ATTRS __stosw(unsigned short *__dst,
                        : "memory");
 }
 #endif
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(__arm64ec__)
 static __inline__ void __DEFAULT_FN_ATTRS __movsq(
     unsigned long long *__dst, unsigned long long const *__src, size_t __n) {
   __asm__ __volatile__("rep movsq"
@@ -533,9 +325,39 @@ static __inline__ void __DEFAULT_FN_ATTRS __stosq(unsigned __int64 *__dst,
 /*----------------------------------------------------------------------------*\
 |* Misc
 \*----------------------------------------------------------------------------*/
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
 static __inline__ void __DEFAULT_FN_ATTRS __halt(void) {
   __asm__ volatile("hlt");
+}
+
+static inline unsigned char __inbyte(unsigned short port) {
+  unsigned char ret;
+  __asm__ __volatile__("inb %w1, %b0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static inline unsigned short __inword(unsigned short port) {
+  unsigned short ret;
+  __asm__ __volatile__("inw %w1, %w0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static inline unsigned long __indword(unsigned short port) {
+  unsigned long ret;
+  __asm__ __volatile__("inl %w1, %k0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static inline void __outbyte(unsigned short port, unsigned char data) {
+  __asm__ __volatile__("outb %b0, %w1" : : "a"(data), "Nd"(port));
+}
+
+static inline void __outword(unsigned short port, unsigned short data) {
+  __asm__ __volatile__("outw %w0, %w1" : : "a"(data), "Nd"(port));
+}
+
+static inline void __outdword(unsigned short port, unsigned long data) {
+  __asm__ __volatile__("outl %k0, %w1" : : "a"(data), "Nd"(port));
 }
 #endif
 
@@ -548,9 +370,10 @@ static __inline__ void __DEFAULT_FN_ATTRS __nop(void) {
 /*----------------------------------------------------------------------------*\
 |* MS AArch64 specific
 \*----------------------------------------------------------------------------*/
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
 unsigned __int64 __getReg(int);
 long _InterlockedAdd(long volatile *Addend, long Value);
+__int64 _InterlockedAdd64(__int64 volatile *Addend, __int64 Value);
 __int64 _ReadStatusReg(int);
 void _WriteStatusReg(int, __int64);
 
@@ -582,18 +405,19 @@ unsigned int _CountLeadingOnes(unsigned long);
 unsigned int _CountLeadingOnes64(unsigned __int64);
 unsigned int _CountLeadingSigns(long);
 unsigned int _CountLeadingSigns64(__int64);
-unsigned int _CountLeadingZeros(unsigned long);
-unsigned int _CountLeadingZeros64(unsigned _int64);
 unsigned int _CountOneBits(unsigned long);
 unsigned int _CountOneBits64(unsigned __int64);
 
-void __cdecl __prefetch(void *);
+unsigned int __hlt(unsigned int, ...);
+
+void __cdecl __prefetch(const void *);
+
 #endif
 
 /*----------------------------------------------------------------------------*\
 |* Privileged intrinsics
 \*----------------------------------------------------------------------------*/
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
 static __inline__ unsigned __int64 __DEFAULT_FN_ATTRS
 __readmsr(unsigned long __register) {
   // Loads the contents of a 64-bit model specific register (MSR) specified in
@@ -607,7 +431,6 @@ __readmsr(unsigned long __register) {
   __asm__ ("rdmsr" : "=d"(__edx), "=a"(__eax) : "c"(__register));
   return (((unsigned __int64)__edx) << 32) | (unsigned __int64)__eax;
 }
-#endif
 
 static __inline__ unsigned __LPTRINT_TYPE__ __DEFAULT_FN_ATTRS __readcr3(void) {
   unsigned __LPTRINT_TYPE__ __cr3_val;
@@ -623,6 +446,7 @@ static __inline__ void __DEFAULT_FN_ATTRS
 __writecr3(unsigned __INTPTR_TYPE__ __cr3_val) {
   __asm__ ("mov {%0, %%cr3|cr3, %0}" : : "r"(__cr3_val) : "memory");
 }
+#endif
 
 #ifdef __cplusplus
 }

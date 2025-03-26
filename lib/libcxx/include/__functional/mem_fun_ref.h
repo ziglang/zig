@@ -89,8 +89,8 @@ public:
 };
 
 template <class _Sp, class _Tp, class _Ap>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun1_t
-    : public __binary_function<const _Tp*, _Ap, _Sp> {
+class _LIBCPP_TEMPLATE_VIS
+_LIBCPP_DEPRECATED_IN_CXX11 const_mem_fun1_t : public __binary_function<const _Tp*, _Ap, _Sp> {
   _Sp (_Tp::*__p_)(_Ap) const;
 
 public:

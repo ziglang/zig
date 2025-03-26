@@ -11,14 +11,46 @@
 
 #include <__config>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_same.h>
-#include <__utility/declval.h>
+#include <__type_traits/is_arithmetic.h>
+
+#if defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER == 1700
+#  include <__type_traits/is_same.h>
+#  include <__utility/declval.h>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+// TODO(LLVM-20): Remove this workaround
+#if !defined(_LIBCPP_CLANG_VER) || _LIBCPP_CLANG_VER != 1700
+
+template <class... _Args>
+class __promote {
+  static_assert((is_arithmetic<_Args>::value && ...));
+
+  static float __test(float);
+  static double __test(char);
+  static double __test(int);
+  static double __test(unsigned);
+  static double __test(long);
+  static double __test(unsigned long);
+  static double __test(long long);
+  static double __test(unsigned long long);
+#  ifndef _LIBCPP_HAS_NO_INT128
+  static double __test(__int128_t);
+  static double __test(__uint128_t);
+#  endif
+  static double __test(double);
+  static long double __test(long double);
+
+public:
+  using type = decltype((__test(_Args()) + ...));
+};
+
+#else
 
 template <class _Tp>
 struct __numeric_type {
@@ -31,10 +63,10 @@ struct __numeric_type {
   static double __test(unsigned long);
   static double __test(long long);
   static double __test(unsigned long long);
-#ifndef _LIBCPP_HAS_NO_INT128
+#  ifndef _LIBCPP_HAS_NO_INT128
   static double __test(__int128_t);
   static double __test(__uint128_t);
-#endif
+#  endif
   static double __test(double);
   static long double __test(long double);
 
@@ -88,6 +120,8 @@ public:
 
 template <class _A1, class _A2 = void, class _A3 = void>
 class __promote : public __promote_imp<_A1, _A2, _A3> {};
+
+#endif // !defined(_LIBCPP_CLANG_VER) || _LIBCPP_CLANG_VER >= 1700
 
 _LIBCPP_END_NAMESPACE_STD
 

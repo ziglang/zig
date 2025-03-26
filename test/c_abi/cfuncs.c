@@ -2657,7 +2657,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined(__mips__) && !defined(ZIG_PPC32)
+#if !defined(ZIG_PPC32)
     {
         struct Struct_u64_u64 s = zig_ret_struct_u64_u64();
         assert_or_panic(s.a == 1);
@@ -2708,7 +2708,7 @@ void run_c_tests(void) {
 #endif
 
 #if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
-    !defined __mips__ && !defined __powerpc__ && !defined ZIG_RISCV64
+    !defined __powerpc__ && !defined ZIG_RISCV64
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -2716,7 +2716,7 @@ void run_c_tests(void) {
 #endif
 
 #if !defined __arm__ && !defined __aarch64__ && \
-    !defined __mips__ && !defined __powerpc__ && !defined ZIG_RISCV64
+    !defined __powerpc__ && !defined ZIG_RISCV64
     {
         struct MedStructInts s = {1, 2, 3};
         zig_med_struct_ints(s);
@@ -2741,7 +2741,7 @@ void run_c_tests(void) {
         zig_small_packed_struct(s);
     }
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+#if !defined __i386__ && !defined __arm__ && \
     !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructInts s = {1234, 100, 1337};
@@ -2756,7 +2756,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
+#if !defined __i386__ && !defined __arm__ && \
     !defined ZIG_PPC32 && !defined _ARCH_PPC64
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
@@ -2764,7 +2764,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined ZIG_PPC32
+#if !defined ZIG_PPC32
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -2784,7 +2784,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined ZIG_PPC32
+#if !defined ZIG_PPC32
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};

@@ -8,19 +8,19 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divti3, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divti3, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn __divti3(a: i128, b: i128) callconv(.C) i128 {
+pub fn __divti3(a: i128, b: i128) callconv(.c) i128 {
     return div(a, b);
 }
 
 const v128 = @Vector(2, u64);
 
-fn __divti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
+fn __divti3_windows_x86_64(a: v128, b: v128) callconv(.c) v128 {
     return @bitCast(div(@bitCast(a), @bitCast(b)));
 }
 

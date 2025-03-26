@@ -10,18 +10,18 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__subosi4, .{ .name = "__subosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__subodi4, .{ .name = "__subodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__suboti4, .{ .name = "__suboti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__subosi4, .{ .name = "__subosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__subodi4, .{ .name = "__subodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__suboti4, .{ .name = "__suboti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __subosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
+pub fn __subosi4(a: i32, b: i32, overflow: *c_int) callconv(.c) i32 {
     return suboXi4_generic(i32, a, b, overflow);
 }
-pub fn __subodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
+pub fn __subodi4(a: i64, b: i64, overflow: *c_int) callconv(.c) i64 {
     return suboXi4_generic(i64, a, b, overflow);
 }
-pub fn __suboti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+pub fn __suboti4(a: i128, b: i128, overflow: *c_int) callconv(.c) i128 {
     return suboXi4_generic(i128, a, b, overflow);
 }
 

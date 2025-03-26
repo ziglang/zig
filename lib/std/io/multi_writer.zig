@@ -4,7 +4,7 @@ const io = std.io;
 /// Takes a tuple of streams, and constructs a new stream that writes to all of them
 pub fn MultiWriter(comptime Writers: type) type {
     comptime var ErrSet = error{};
-    inline for (@typeInfo(Writers).Struct.fields) |field| {
+    inline for (@typeInfo(Writers).@"struct".fields) |field| {
         const StreamType = field.type;
         ErrSet = ErrSet || StreamType.Error;
     }

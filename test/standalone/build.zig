@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) void {
     const tools_target = b.resolveTargetQuery(.{});
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
+        "../../tools/fetch_them_macos_headers.zig",
+        "../../tools/gen_macos_headers_c.zig",
         "../../tools/gen_outline_atomics.zig",
         "../../tools/gen_spirv_spec.zig",
         "../../tools/gen_stubs.zig",
@@ -41,13 +43,14 @@ pub fn build(b: *std.Build) void {
         "../../tools/update_clang_options.zig",
         "../../tools/update_cpu_features.zig",
         "../../tools/update_glibc.zig",
-        "../../tools/update_spirv_features.zig",
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
-            .root_source_file = b.path(tool_src_path),
-            .optimize = .Debug,
-            .target = tools_target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .optimize = .Debug,
+                .target = tools_target,
+            }),
         });
         const run = b.addRunArtifact(tool);
         tools_tests_step.dependOn(&run.step);
@@ -60,7 +63,7 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, dep_name, "simple")) continue;
 
         const all_pkgs = @import("root").dependencies.packages;
-        inline for (@typeInfo(all_pkgs).Struct.decls) |decl| {
+        inline for (@typeInfo(all_pkgs).@"struct".decls) |decl| {
             const pkg_hash = decl.name;
             if (std.mem.eql(u8, dep_hash, pkg_hash)) {
                 const pkg = @field(all_pkgs, pkg_hash);

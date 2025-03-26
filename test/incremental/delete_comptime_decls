@@ -1,4 +1,7 @@
-#target=x86_64-linux
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
 #update=initial version
 #file=main.zig
 pub fn main() void {}
@@ -23,7 +26,10 @@ comptime {
     const slice = array[3..2];
     _ = slice;
 }
-#expect_error=ignored
+#expect_error=main.zig:5:32: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
+#expect_error=main.zig:10:28: error: end index 6 out of bounds for array of length 4 +1 (sentinel)
+#expect_error=main.zig:15:28: error: end index 5 out of bounds for array of length 4
+#expect_error=main.zig:20:25: error: start index 3 is larger than end index 2
 
 #update=delete and modify comptime decls
 #file=main.zig
@@ -35,4 +41,4 @@ comptime {
     const y = x[0..runtime_len];
     _ = y;
 }
-#expect_error=ignored
+#expect_error=main.zig:6:16: error: slice of null pointer

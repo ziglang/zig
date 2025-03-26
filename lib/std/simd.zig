@@ -18,7 +18,7 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
             if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .mmx, .@"3dnow" })) break :blk 64;
-        } else if (cpu.arch.isArmOrThumb()) {
+        } else if (cpu.arch.isArm()) {
             if (std.Target.arm.featureSetHas(cpu.features, .neon)) break :blk 128;
         } else if (cpu.arch.isAARCH64()) {
             // SVE allows up to 2048 bits in the specification, as of 2022 the most powerful machine has implemented 512-bit
@@ -90,7 +90,7 @@ pub fn suggestVectorLength(comptime T: type) ?comptime_int {
 }
 
 test "suggestVectorLengthForCpu works with signed and unsigned values" {
-    comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
+    comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64, builtin.os);
     comptime cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.avx512f));
     comptime cpu.features.populateDependencies(&std.Target.x86.all_features);
     const expected_len: usize = switch (builtin.zig_backend) {
@@ -105,8 +105,8 @@ test "suggestVectorLengthForCpu works with signed and unsigned values" {
 
 fn vectorLength(comptime VectorType: type) comptime_int {
     return switch (@typeInfo(VectorType)) {
-        .Vector => |info| info.len,
-        .Array => |info| info.len,
+        .vector => |info| info.len,
+        .array => |info| info.len,
         else => @compileError("Invalid type " ++ @typeName(VectorType)),
     };
 }
@@ -128,8 +128,8 @@ pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
         var out: [len]T = undefined;
         for (&out, 0..) |*element, i| {
             element.* = switch (@typeInfo(T)) {
-                .Int => @as(T, @intCast(i)),
-                .Float => @as(T, @floatFromInt(i)),
+                .int => @as(T, @intCast(i)),
+                .float => @as(T, @floatFromInt(i)),
                 else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
             };
         }
@@ -163,7 +163,7 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
     //  The indices are correct. The problem seems to be with the @shuffle builtin.
     //  On MIPS, the test that interlaces small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
     //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
-    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why interlace() doesn't work on MIPS");
+    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why interlace() doesn't work on MIPS");
 
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
@@ -248,7 +248,7 @@ test "vector patterns" {
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
 
-    if (comptime !builtin.cpu.arch.isMIPS()) {
+    if (!builtin.cpu.arch.isMIPS()) {
         try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, interlace(.{ base, other_base }));
 
         const small_braid = interlace(small_bases);
@@ -390,7 +390,7 @@ pub fn prefixScanWithFunc(
     comptime identity: std.meta.Child(@TypeOf(vec)),
 ) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec) {
     // I haven't debugged this, but it might be a cousin of sorts to what's going on with interlace.
-    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
+    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
 
     const len = vectorLength(@TypeOf(vec));
 
@@ -417,18 +417,18 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
     const Child = std.meta.Child(VecType);
 
     const identity = comptime switch (@typeInfo(Child)) {
-        .Bool => switch (op) {
+        .bool => switch (op) {
             .Or, .Xor => false,
             .And => true,
             else => @compileError("Invalid prefixScan operation " ++ @tagName(op) ++ " for vector of booleans."),
         },
-        .Int => switch (op) {
+        .int => switch (op) {
             .Max => std.math.minInt(Child),
             .Add, .Or, .Xor => 0,
             .Mul => 1,
             .And, .Min => std.math.maxInt(Child),
         },
-        .Float => switch (op) {
+        .float => switch (op) {
             .Max => -std.math.inf(Child),
             .Add => 0,
             .Mul => 1,
@@ -462,10 +462,10 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 
 test "vector prefix scan" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
+    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21893
 
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        return error.SkipZigTest;
-    }
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
 
     const int_base = @Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };

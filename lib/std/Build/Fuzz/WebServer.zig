@@ -33,16 +33,20 @@ coverage_mutex: std.Thread.Mutex,
 /// Signaled when `coverage_files` changes.
 coverage_condition: std.Thread.Condition,
 
+/// Time at initialization of WebServer.
+base_timestamp: i128,
+
 const fuzzer_bin_name = "fuzzer";
 const fuzzer_arch_os_abi = "wasm32-freestanding";
 const fuzzer_cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
 
 const CoverageMap = struct {
-    mapped_memory: []align(std.mem.page_size) const u8,
+    mapped_memory: []align(std.heap.page_size_min) const u8,
     coverage: Coverage,
     source_locations: []Coverage.SourceLocation,
     /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
     entry_points: std.ArrayListUnmanaged(u32),
+    start_timestamp: i64,
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
         std.posix.munmap(cm.mapped_memory);
@@ -87,6 +91,10 @@ pub fn run(ws: *WebServer) void {
     }
 }
 
+fn now(s: *const WebServer) i64 {
+    return @intCast(std.time.nanoTimestamp() - s.base_timestamp);
+}
+
 fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
@@ -128,11 +136,11 @@ fn serveRequest(ws: *WebServer, request: *std.http.Server.Request) !void {
         std.mem.eql(u8, request.head.target, "/debug") or
         std.mem.eql(u8, request.head.target, "/debug/"))
     {
-        try serveFile(ws, request, "fuzzer/index.html", "text/html");
+        try serveFile(ws, request, "fuzzer/web/index.html", "text/html");
     } else if (std.mem.eql(u8, request.head.target, "/main.js") or
         std.mem.eql(u8, request.head.target, "/debug/main.js"))
     {
-        try serveFile(ws, request, "fuzzer/main.js", "application/javascript");
+        try serveFile(ws, request, "fuzzer/web/main.js", "application/javascript");
     } else if (std.mem.eql(u8, request.head.target, "/main.wasm")) {
         try serveWasm(ws, request, .ReleaseFast);
     } else if (std.mem.eql(u8, request.head.target, "/debug/main.wasm")) {
@@ -217,7 +225,7 @@ fn buildWasmBinary(
 
     const main_src_path: Build.Cache.Path = .{
         .root_dir = ws.zig_lib_directory,
-        .sub_path = "fuzzer/wasm/main.zig",
+        .sub_path = "fuzzer/web/main.zig",
     };
     const walk_src_path: Build.Cache.Path = .{
         .root_dir = ws.zig_lib_directory,
@@ -228,7 +236,7 @@ fn buildWasmBinary(
         .sub_path = "docs/wasm/html_render.zig",
     };
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
         ws.zig_exe_path, "build-exe", //
@@ -381,6 +389,13 @@ fn serveWebSocket(ws: *WebServer, web_socket: *std.http.WebSocket) !void {
     ws.coverage_mutex.lock();
     defer ws.coverage_mutex.unlock();
 
+    // On first connection, the client needs to know what time the server
+    // thinks it is to rebase timestamps.
+    {
+        const timestamp_message: abi.CurrentTime = .{ .base = ws.now() };
+        try web_socket.writeMessage(std.mem.asBytes(&timestamp_message), .binary);
+    }
+
     // On first connection, the client needs all the coverage information
     // so that subsequent updates can contain only the updated bits.
     var prev_unique_runs: usize = 0;
@@ -406,7 +421,6 @@ fn sendCoverageContext(
     const seen_pcs = cov_header.seenBits();
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
-    const lowest_stack = @atomicLoad(usize, &cov_header.lowest_stack, .monotonic);
     if (prev_unique_runs.* != unique_runs) {
         // There has been an update.
         if (prev_unique_runs.* == 0) {
@@ -417,6 +431,7 @@ fn sendCoverageContext(
                 .files_len = @intCast(coverage_map.coverage.files.entries.len),
                 .source_locations_len = @intCast(coverage_map.source_locations.len),
                 .string_bytes_len = @intCast(coverage_map.coverage.string_bytes.items.len),
+                .start_timestamp = coverage_map.start_timestamp,
             };
             const iovecs: [5]std.posix.iovec_const = .{
                 makeIov(std.mem.asBytes(&header)),
@@ -431,7 +446,6 @@ fn sendCoverageContext(
         const header: abi.CoverageUpdateHeader = .{
             .n_runs = n_runs,
             .unique_runs = unique_runs,
-            .lowest_stack = lowest_stack,
         };
         const iovecs: [2]std.posix.iovec_const = .{
             makeIov(std.mem.asBytes(&header)),
@@ -584,6 +598,7 @@ fn prepareTables(
         .mapped_memory = undefined, // populated below
         .source_locations = undefined, // populated below
         .entry_points = .{},
+        .start_timestamp = ws.now(),
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
@@ -664,11 +679,16 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     const coverage_map = ws.coverage_files.getPtr(coverage_id).?;
     const header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
     const pcs = header.pcAddrs();
-    const index = std.sort.upperBound(usize, pcs, addr, struct {
-        fn order(context: usize, item: usize) std.math.Order {
-            return std.math.order(item, context);
+    // Since this pcs list is unsorted, we must linear scan for the best index.
+    const index = i: {
+        var best: usize = 0;
+        for (pcs[1..], 1..) |elem_addr, i| {
+            if (elem_addr == addr) break :i i;
+            if (elem_addr > addr) continue;
+            if (elem_addr > pcs[best]) best = i;
         }
-    }.order);
+        break :i best;
+    };
     if (index >= pcs.len) {
         log.err("unable to find unit test entry address 0x{x} in source locations (range: 0x{x} to 0x{x})", .{
             addr, pcs[0], pcs[pcs.len - 1],
@@ -678,8 +698,8 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     if (false) {
         const sl = coverage_map.source_locations[index];
         const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
-        log.debug("server found entry point for 0x{x} at {s}:{d}:{d}", .{
-            addr, file_name, sl.line, sl.column,
+        log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index {d} between {x} and {x}", .{
+            addr, file_name, sl.line, sl.column, index, pcs[index - 1], pcs[index + 1],
         });
     }
     const gpa = ws.gpa;

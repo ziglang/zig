@@ -1,6 +1,6 @@
 /// List of all unwind records gathered from all objects and sorted
 /// by allocated relative function address within the section.
-records: std.ArrayListUnmanaged(Record.Ref) = .{},
+records: std.ArrayListUnmanaged(Record.Ref) = .empty,
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
@@ -12,11 +12,11 @@ common_encodings: [max_common_encodings]Encoding = undefined,
 common_encodings_count: u7 = 0,
 
 /// List of record indexes containing an LSDA pointer.
-lsdas: std.ArrayListUnmanaged(u32) = .{},
-lsdas_lookup: std.ArrayListUnmanaged(u32) = .{},
+lsdas: std.ArrayListUnmanaged(u32) = .empty,
+lsdas_lookup: std.ArrayListUnmanaged(u32) = .empty,
 
 /// List of second level pages.
-pages: std.ArrayListUnmanaged(Page) = .{},
+pages: std.ArrayListUnmanaged(Page) = .empty,
 
 pub fn deinit(info: *UnwindInfo, allocator: Allocator) void {
     info.records.deinit(allocator);
@@ -68,7 +68,18 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         if (rec.getFde(macho_file)) |fde| {
-            rec.enc.setDwarfSectionOffset(@intCast(fde.out_offset));
+            // The unwinder will look for the DWARF entry starting at the hint,
+            // assuming the hint points to a valid CFI record start. If it
+            // fails to find the record, it proceeds in a linear search through
+            // the contiguous CFI records from the hint until the end of the
+            // section. Ideally, in the case where the offset is too large to
+            // be encoded, we would instead encode the largest possible offset
+            // to a valid CFI record, but since we don't keep track of that,
+            // just encode zero -- the start of the section is always the start
+            // of a CFI record.
+            const hint = std.math.cast(u24, fde.out_offset) orelse 0;
+            rec.enc.setDwarfSectionOffset(hint);
+
             if (fde.getLsdaAtom(macho_file)) |lsda| {
                 rec.lsda = lsda.atom_index;
                 rec.lsda_offset = fde.lsda_offset;

@@ -6,9 +6,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__muloti4, .{ .name = "__muloti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__muloti4, .{ .name = "__muloti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // mulo - multiplication overflow
@@ -48,7 +48,7 @@ inline fn muloXi4_genericFast(comptime ST: type, a: ST, b: ST, overflow: *c_int)
     return @as(ST, @truncate(res));
 }
 
-pub fn __mulosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
+pub fn __mulosi4(a: i32, b: i32, overflow: *c_int) callconv(.c) i32 {
     if (2 * @bitSizeOf(i32) <= @bitSizeOf(usize)) {
         return muloXi4_genericFast(i32, a, b, overflow);
     } else {
@@ -56,7 +56,7 @@ pub fn __mulosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
     }
 }
 
-pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
+pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.c) i64 {
     if (2 * @bitSizeOf(i64) <= @bitSizeOf(usize)) {
         return muloXi4_genericFast(i64, a, b, overflow);
     } else {
@@ -64,7 +64,7 @@ pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
     }
 }
 
-pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.c) i128 {
     if (2 * @bitSizeOf(i128) <= @bitSizeOf(usize)) {
         return muloXi4_genericFast(i128, a, b, overflow);
     } else {

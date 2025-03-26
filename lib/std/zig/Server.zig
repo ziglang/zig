@@ -124,9 +124,9 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
         const buf = fifo.readableSlice(0);
         assert(fifo.readableLength() == buf.len);
         if (buf.len >= @sizeOf(Header)) {
-            // workaround for https://github.com/ziglang/zig/issues/14904
-            const bytes_len = bswap_and_workaround_u32(buf[4..][0..4]);
-            const tag = bswap_and_workaround_tag(buf[0..][0..4]);
+            const header: *align(1) const Header = @ptrCast(buf[0..@sizeOf(Header)]);
+            const bytes_len = bswap(header.bytes_len);
+            const tag = bswap(header.tag);
 
             if (buf.len - @sizeOf(Header) >= bytes_len) {
                 fifo.discard(@sizeOf(Header));
@@ -282,9 +282,9 @@ fn bswap(x: anytype) @TypeOf(x) {
 
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .Enum => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
-        .Int => return @byteSwap(x),
-        .Struct => |info| switch (info.layout) {
+        .@"enum" => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
+        .int => return @byteSwap(x),
+        .@"struct" => |info| switch (info.layout) {
             .@"extern" => {
                 var result: T = undefined;
                 inline for (info.fields) |field| {
@@ -305,17 +305,6 @@ fn bswap(x: anytype) @TypeOf(x) {
 fn bswap_u32_array(slice: []u32) void {
     comptime assert(need_bswap);
     for (slice) |*elem| elem.* = @byteSwap(elem.*);
-}
-
-/// workaround for https://github.com/ziglang/zig/issues/14904
-fn bswap_and_workaround_u32(bytes_ptr: *const [4]u8) u32 {
-    return std.mem.readInt(u32, bytes_ptr, .little);
-}
-
-/// workaround for https://github.com/ziglang/zig/issues/14904
-fn bswap_and_workaround_tag(bytes_ptr: *const [4]u8) InMessage.Tag {
-    const int = std.mem.readInt(u32, bytes_ptr, .little);
-    return @as(InMessage.Tag, @enumFromInt(int));
 }
 
 const OutMessage = std.zig.Server.Message;

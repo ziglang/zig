@@ -1,5 +1,6 @@
 const std = @import("std");
 const Step = std.Build.Step;
+const LazyPath = std.Build.LazyPath;
 const fs = std.fs;
 const mem = std.mem;
 
@@ -9,7 +10,7 @@ pub const base_id: Step.Id = .translate_c;
 
 step: Step,
 source: std.Build.LazyPath,
-include_dirs: std.ArrayList([]const u8),
+include_dirs: std.ArrayList(std.Build.Module.IncludeDir),
 c_macros: std.ArrayList([]const u8),
 out_basename: []const u8,
 target: std.Build.ResolvedTarget,
@@ -37,7 +38,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
             .makeFn = make,
         }),
         .source = source,
-        .include_dirs = std.ArrayList([]const u8).init(owner.allocator),
+        .include_dirs = std.ArrayList(std.Build.Module.IncludeDir).init(owner.allocator),
         .c_macros = std.ArrayList([]const u8).init(owner.allocator),
         .out_basename = undefined,
         .target = options.target,
@@ -62,6 +63,7 @@ pub fn getOutput(translate_c: *TranslateC) std.Build.LazyPath {
     return .{ .generated = .{ .file = &translate_c.output_file } };
 }
 
+/// Deprecated: use `createModule` or `addModule` with `std.Build.addExecutable` instead.
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(translate_c: *TranslateC, options: AddExecutableOptions) *Step.Compile {
     return translate_c.step.owner.addExecutable(.{
@@ -80,6 +82,9 @@ pub fn addExecutable(translate_c: *TranslateC, options: AddExecutableOptions) *S
 pub fn addModule(translate_c: *TranslateC, name: []const u8) *std.Build.Module {
     return translate_c.step.owner.addModule(name, .{
         .root_source_file = translate_c.getOutput(),
+        .target = translate_c.target,
+        .optimize = translate_c.optimize,
+        .link_libc = translate_c.link_libc,
     });
 }
 
@@ -95,8 +100,45 @@ pub fn createModule(translate_c: *TranslateC) *std.Build.Module {
     });
 }
 
-pub fn addIncludeDir(translate_c: *TranslateC, include_dir: []const u8) void {
-    translate_c.include_dirs.append(translate_c.step.owner.dupePath(include_dir)) catch @panic("OOM");
+pub fn addAfterIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
+    const b = translate_c.step.owner;
+    translate_c.include_dirs.append(.{ .path_after = lazy_path.dupe(b) }) catch
+        @panic("OOM");
+    lazy_path.addStepDependencies(&translate_c.step);
+}
+
+pub fn addSystemIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
+    const b = translate_c.step.owner;
+    translate_c.include_dirs.append(.{ .path_system = lazy_path.dupe(b) }) catch
+        @panic("OOM");
+    lazy_path.addStepDependencies(&translate_c.step);
+}
+
+pub fn addIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
+    const b = translate_c.step.owner;
+    translate_c.include_dirs.append(.{ .path = lazy_path.dupe(b) }) catch
+        @panic("OOM");
+    lazy_path.addStepDependencies(&translate_c.step);
+}
+
+pub fn addConfigHeader(translate_c: *TranslateC, config_header: *Step.ConfigHeader) void {
+    translate_c.include_dirs.append(.{ .config_header_step = config_header }) catch
+        @panic("OOM");
+    translate_c.step.dependOn(&config_header.step);
+}
+
+pub fn addSystemFrameworkPath(translate_c: *TranslateC, directory_path: LazyPath) void {
+    const b = translate_c.step.owner;
+    translate_c.include_dirs.append(.{ .framework_path_system = directory_path.dupe(b) }) catch
+        @panic("OOM");
+    directory_path.addStepDependencies(&translate_c.step);
+}
+
+pub fn addFrameworkPath(translate_c: *TranslateC, directory_path: LazyPath) void {
+    const b = translate_c.step.owner;
+    translate_c.include_dirs.append(.{ .framework_path = directory_path.dupe(b) }) catch
+        @panic("OOM");
+    directory_path.addStepDependencies(&translate_c.step);
 }
 
 pub fn addCheckFile(translate_c: *TranslateC, expected_matches: []const []const u8) *Step.CheckFile {
@@ -147,8 +189,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     for (translate_c.include_dirs.items) |include_dir| {
-        try argv_list.append("-I");
-        try argv_list.append(include_dir);
+        try include_dir.appendZigProcessFlags(b, &argv_list, step);
     }
 
     for (translate_c.c_macros.items) |c_macro| {

@@ -39,6 +39,7 @@ HRESULT WINAPI HcsWaitForOperationResult (HCS_OPERATION operation, DWORD timeout
 HRESULT WINAPI HcsWaitForOperationResultAndProcessInfo (HCS_OPERATION operation, DWORD timeoutMs, HCS_PROCESS_INFORMATION *processInformation, PWSTR *resultDocument);
 HRESULT WINAPI HcsSetOperationCallback (HCS_OPERATION operation, const void *context, HCS_OPERATION_COMPLETION callback);
 HRESULT WINAPI HcsCancelOperation (HCS_OPERATION operation);
+HRESULT WINAPI HcsGetOperationProperties (HCS_OPERATION operation, PCWSTR options, PWSTR *resultDocument);
 HRESULT WINAPI HcsCreateComputeSystem (PCWSTR id, PCWSTR configuration, HCS_OPERATION operation, const SECURITY_DESCRIPTOR *securityDescriptor, HCS_SYSTEM *computeSystem);
 HRESULT WINAPI HcsCreateComputeSystemInNamespace (PCWSTR idNamespace, PCWSTR id, PCWSTR configuration, HCS_OPERATION operation, const HCS_CREATE_OPTIONS *options, HCS_SYSTEM *computeSystem);
 HRESULT WINAPI HcsOpenComputeSystem (PCWSTR id, DWORD requestedAccess, HCS_SYSTEM *computeSystem);
@@ -55,6 +56,10 @@ HRESULT WINAPI HcsGetComputeSystemProperties (HCS_SYSTEM computeSystem, HCS_OPER
 HRESULT WINAPI HcsModifyComputeSystem (HCS_SYSTEM computeSystem, HCS_OPERATION operation, PCWSTR configuration, HANDLE identity);
 HRESULT WINAPI HcsWaitForComputeSystemExit (HCS_SYSTEM computeSystem, DWORD timeoutMs, PWSTR *result);
 HRESULT WINAPI HcsSetComputeSystemCallback (HCS_SYSTEM computeSystem, HCS_EVENT_OPTIONS callbackOptions, const void *context, HCS_EVENT_CALLBACK callback);
+HRESULT WINAPI HcsInitializeLiveMigrationOnSource (HCS_SYSTEM computeSystem, HCS_OPERATION operation, PCWSTR options);
+HRESULT WINAPI HcsStartLiveMigrationOnSource (HCS_SYSTEM computeSystem, HCS_OPERATION operation, PCWSTR options);
+HRESULT WINAPI HcsStartLiveMigrationTransfer (HCS_SYSTEM computeSystem, HCS_OPERATION operation, PCWSTR options);
+HRESULT WINAPI HcsFinalizeLiveMigration (HCS_SYSTEM computeSystem, HCS_OPERATION operation, PCWSTR options);
 HRESULT WINAPI HcsCreateProcess (HCS_SYSTEM computeSystem, PCWSTR processParameters, HCS_OPERATION operation, const SECURITY_DESCRIPTOR *securityDescriptor, HCS_PROCESS *process);
 HRESULT WINAPI HcsOpenProcess (HCS_SYSTEM computeSystem, DWORD processId, DWORD requestedAccess, HCS_PROCESS *process);
 void WINAPI HcsCloseProcess (HCS_PROCESS process);

@@ -15,7 +15,7 @@ pub export fn entry() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :9:48: error: caught unexpected error 'InvalidVersion'

@@ -16,28 +16,28 @@ const std = @import("std");
 const common = @import("./common.zig");
 const builtin = @import("builtin");
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8;
-extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
-extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
+extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.c) ?[*]u8;
+extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8;
+extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8;
 
 comptime {
-    @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strncpy_chk, .{ .name = "__strncpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strcat_chk, .{ .name = "__strcat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strncat_chk, .{ .name = "__strncat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memcpy_chk, .{ .name = "__memcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memmove_chk, .{ .name = "__memmove_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memset_chk, .{ .name = "__memset_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strncpy_chk, .{ .name = "__strncpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strcat_chk, .{ .name = "__strcat_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strncat_chk, .{ .name = "__strncat_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memcpy_chk, .{ .name = "__memcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memmove_chk, .{ .name = "__memmove_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memset_chk, .{ .name = "__memset_chk", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __stack_chk_fail() callconv(.C) noreturn {
+fn __stack_chk_fail() callconv(.c) noreturn {
     @panic("stack smashing detected");
 }
 
-fn __chk_fail() callconv(.C) noreturn {
+fn __chk_fail() callconv(.c) noreturn {
     @panic("buffer overflow detected");
 }
 
@@ -49,7 +49,7 @@ var __stack_chk_guard: usize = blk: {
     break :blk @as(usize, @bitCast(buf));
 };
 
-fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [*:0]u8 {
+fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.c) [*:0]u8 {
     @setRuntimeSafety(false);
 
     var i: usize = 0;
@@ -64,7 +64,7 @@ fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [
     return dest;
 }
 
-fn __strncpy_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) callconv(.C) [*:0]u8 {
+fn __strncpy_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) callconv(.c) [*:0]u8 {
     @setRuntimeSafety(false);
     if (dest_n < n) __chk_fail();
     var i: usize = 0;
@@ -77,7 +77,7 @@ fn __strncpy_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) cal
     return dest;
 }
 
-fn __strcat_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [*:0]u8 {
+fn __strcat_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.c) [*:0]u8 {
     @setRuntimeSafety(false);
 
     var avail = dest_n;
@@ -102,7 +102,7 @@ fn __strcat_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [
     return dest;
 }
 
-fn __strncat_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) callconv(.C) [*:0]u8 {
+fn __strncat_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) callconv(.c) [*:0]u8 {
     @setRuntimeSafety(false);
 
     var avail = dest_n;
@@ -127,17 +127,17 @@ fn __strncat_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) cal
     return dest;
 }
 
-fn __memcpy_chk(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memcpy_chk(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize, dest_n: usize) callconv(.c) ?[*]u8 {
     if (dest_n < n) __chk_fail();
     return memcpy(dest, src, n);
 }
 
-fn __memmove_chk(dest: ?[*]u8, src: ?[*]const u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memmove_chk(dest: ?[*]u8, src: ?[*]const u8, n: usize, dest_n: usize) callconv(.c) ?[*]u8 {
     if (dest_n < n) __chk_fail();
     return memmove(dest, src, n);
 }
 
-fn __memset_chk(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memset_chk(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.c) ?[*]u8 {
     if (dest_n < n) __chk_fail();
     return memset(dest, c, n);
 }

@@ -11,5 +11,5 @@ pub fn main() !void {
     unreachable;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

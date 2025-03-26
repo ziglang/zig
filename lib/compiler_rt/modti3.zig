@@ -11,19 +11,19 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__modti3, .{ .name = "__modti3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__modti3, .{ .name = "__modti3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn __modti3(a: i128, b: i128) callconv(.C) i128 {
+pub fn __modti3(a: i128, b: i128) callconv(.c) i128 {
     return mod(a, b);
 }
 
 const v2u64 = @Vector(2, u64);
 
-fn __modti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+fn __modti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.c) v2u64 {
     return @bitCast(mod(@as(i128, @bitCast(a)), @as(i128, @bitCast(b))));
 }
 

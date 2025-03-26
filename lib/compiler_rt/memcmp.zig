@@ -2,10 +2,10 @@ const std = @import("std");
 const common = @import("./common.zig");
 
 comptime {
-    @export(memcmp, .{ .name = "memcmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&memcmp, .{ .name = "memcmp", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn memcmp(vl: [*]const u8, vr: [*]const u8, n: usize) callconv(.C) c_int {
+pub fn memcmp(vl: [*]const u8, vr: [*]const u8, n: usize) callconv(.c) c_int {
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const compared = @as(c_int, vl[i]) -% @as(c_int, vr[i]);

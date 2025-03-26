@@ -13,11 +13,17 @@ const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
 const Decl = Zcu.Decl;
+const dev = @import("dev.zig");
 
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const panic = if (build_options.enable_debug_extensions) compilerPanic else std.builtin.default_panic;
+pub const panic = if (build_options.enable_debug_extensions)
+    std.debug.FullPanic(compilerPanic)
+else if (dev.env == .bootstrap)
+    std.debug.simple_panic
+else
+    std.debug.FullPanic(std.debug.defaultPanic);
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
@@ -152,12 +158,12 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+pub fn compilerPanic(msg: []const u8, maybe_ret_addr: ?usize) noreturn {
+    @branchHint(.cold);
     PanicSwitch.preDispatch();
-    @setCold(true);
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
-    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
+    PanicSwitch.dispatch(@errorReturnTrace(), stack_ctx, msg);
 }
 
 /// Attaches a global SIGSEGV handler
@@ -178,7 +184,7 @@ pub fn attachSegfaultHandler() void {
     debug.updateSegfaultHandler(&act);
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 
@@ -217,7 +223,7 @@ const WindowsSegfaultMessage = union(enum) {
     illegal_instruction: void,
 };
 
-fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
     switch (info.ExceptionRecord.ExceptionCode) {
         windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, .{ .literal = "Unaligned Memory Access" }),
         windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, .segfault),
@@ -317,9 +323,6 @@ const PanicSwitch = struct {
     /// until all panicking threads have dumped their traces.
     var panicking = std.atomic.Value(u8).init(0);
 
-    // Locked to avoid interleaving panic messages from multiple threads.
-    var panic_mutex = std.Thread.Mutex{};
-
     /// Tracks the state of the current panic.  If the code within the
     /// panic triggers a secondary panic, this allows us to recover.
     threadlocal var panic_state_raw: PanicState = .{};
@@ -387,7 +390,7 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_ref_count;
 
-        panic_mutex.lock();
+        std.debug.lockStdErr();
 
         state.recover_stage = .release_mutex;
 
@@ -447,7 +450,7 @@ const PanicSwitch = struct {
     noinline fn releaseMutex(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        panic_mutex.unlock();
+        std.debug.unlockStdErr();
 
         goTo(releaseRefCount, .{state});
     }

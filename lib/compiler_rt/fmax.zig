@@ -7,39 +7,39 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmaxh, .{ .name = "__fmaxh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmaxf, .{ .name = "fmaxf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmax, .{ .name = "fmax", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmaxx, .{ .name = "__fmaxx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmaxh, .{ .name = "__fmaxh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaxf, .{ .name = "fmaxf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmax, .{ .name = "fmax", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmaxx, .{ .name = "__fmaxx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmaxq, .{ .name = "fmaxf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmaxq, .{ .name = "fmaxf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmaxq, .{ .name = "fmaxq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmaxl, .{ .name = "fmaxl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaxq, .{ .name = "fmaxq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaxl, .{ .name = "fmaxl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fmaxh(x: f16, y: f16) callconv(.C) f16 {
+pub fn __fmaxh(x: f16, y: f16) callconv(.c) f16 {
     return generic_fmax(f16, x, y);
 }
 
-pub fn fmaxf(x: f32, y: f32) callconv(.C) f32 {
+pub fn fmaxf(x: f32, y: f32) callconv(.c) f32 {
     return generic_fmax(f32, x, y);
 }
 
-pub fn fmax(x: f64, y: f64) callconv(.C) f64 {
+pub fn fmax(x: f64, y: f64) callconv(.c) f64 {
     return generic_fmax(f64, x, y);
 }
 
-pub fn __fmaxx(x: f80, y: f80) callconv(.C) f80 {
+pub fn __fmaxx(x: f80, y: f80) callconv(.c) f80 {
     return generic_fmax(f80, x, y);
 }
 
-pub fn fmaxq(x: f128, y: f128) callconv(.C) f128 {
+pub fn fmaxq(x: f128, y: f128) callconv(.c) f128 {
     return generic_fmax(f128, x, y);
 }
 
-pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fmaxh(x, y),
         32 => return fmaxf(x, y),
         64 => return fmax(x, y),

@@ -61,7 +61,7 @@ pub const Environment = struct {
         var env: Environment = .{};
         errdefer env.deinit(allocator);
 
-        inline for (@typeInfo(@TypeOf(env)).Struct.fields) |field| {
+        inline for (@typeInfo(@TypeOf(env)).@"struct".fields) |field| {
             std.debug.assert(@field(env, field.name) == null);
 
             var env_var_buf: [field.name.len]u8 = undefined;
@@ -78,7 +78,7 @@ pub const Environment = struct {
 
     /// Use this only if environment slices were allocated with `allocator` (such as via `loadAll`)
     pub fn deinit(self: *Environment, allocator: std.mem.Allocator) void {
-        inline for (@typeInfo(@TypeOf(self.*)).Struct.fields) |field| {
+        inline for (@typeInfo(@TypeOf(self.*)).@"struct".fields) |field| {
             if (@field(self, field.name)) |slice| {
                 allocator.free(slice);
             }
@@ -93,13 +93,13 @@ gpa: Allocator,
 diagnostics: Diagnostics,
 
 environment: Environment = .{},
-sources: std.StringArrayHashMapUnmanaged(Source) = .{},
-include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
-system_include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
+sources: std.StringArrayHashMapUnmanaged(Source) = .empty,
+include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+system_include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
 target: std.Target = @import("builtin").target,
-pragma_handlers: std.StringArrayHashMapUnmanaged(*Pragma) = .{},
+pragma_handlers: std.StringArrayHashMapUnmanaged(*Pragma) = .empty,
 langopts: LangOpts = .{},
-generated_buf: std.ArrayListUnmanaged(u8) = .{},
+generated_buf: std.ArrayListUnmanaged(u8) = .empty,
 builtins: Builtins = .{},
 types: struct {
     wchar: Type = undefined,
@@ -127,22 +127,27 @@ types: struct {
 } = .{},
 string_interner: StrInt = .{},
 interner: Interner = .{},
+/// If this is not null, the directory containing the specified Source will be searched for includes
+/// Used by MS extensions which allow searching for includes relative to the directory of the main source file.
 ms_cwd_source_id: ?Source.Id = null,
+cwd: std.fs.Dir,
 
-pub fn init(gpa: Allocator) Compilation {
+pub fn init(gpa: Allocator, cwd: std.fs.Dir) Compilation {
     return .{
         .gpa = gpa,
         .diagnostics = Diagnostics.init(gpa),
+        .cwd = cwd,
     };
 }
 
 /// Initialize Compilation with default environment,
 /// pragma handlers and emulation mode set to target.
-pub fn initDefault(gpa: Allocator) !Compilation {
+pub fn initDefault(gpa: Allocator, cwd: std.fs.Dir) !Compilation {
     var comp: Compilation = .{
         .gpa = gpa,
         .environment = try Environment.loadAll(gpa),
         .diagnostics = Diagnostics.init(gpa),
+        .cwd = cwd,
     };
     errdefer comp.deinit();
     try comp.addDefaultPragmaHandlers();
@@ -303,7 +308,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
         ),
         else => {},
     }
-    if (comp.target.abi == .android) {
+    if (comp.target.abi.isAndroid()) {
         try w.writeAll("#define __ANDROID__ 1\n");
     }
 
@@ -534,7 +539,7 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
     if (system_defines_mode == .include_system_defines) {
         try buf.appendSlice(
             \\#define __VERSION__ "Aro
-        ++ @import("../backend.zig").version_str ++ "\"\n" ++
+        ++ " " ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
             \\
         );
@@ -550,6 +555,9 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
         \\#define __STDC_NO_VLA__ 1
         \\#define __STDC_UTF_16__ 1
         \\#define __STDC_UTF_32__ 1
+        \\#define __STDC_EMBED_NOT_FOUND__ 0
+        \\#define __STDC_EMBED_FOUND__ 1
+        \\#define __STDC_EMBED_EMPTY__ 2
         \\
     );
     if (comp.langopts.standard.StdCVersionMacro()) |stdc_version| {
@@ -719,9 +727,14 @@ fn generateBuiltinTypes(comp: *Compilation) !void {
     try comp.generateNsConstantStringType();
 }
 
+pub fn float80Type(comp: *const Compilation) ?Type {
+    if (comp.langopts.emulate != .gcc) return null;
+    return target_util.float80Type(comp.target);
+}
+
 /// Smallest integer type with at least N bits
-fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Signedness) Type {
-    if (bits == 64 and (comp.target.isDarwin() or comp.target.isWasm())) {
+pub fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Signedness) Type {
+    if (bits == 64 and (comp.target.os.tag.isDarwin() or comp.target.cpu.arch.isWasm())) {
         // WebAssembly and Darwin use `long long` for `int_least64_t` and `int_fast64_t`.
         return .{ .specifier = if (signedness == .signed) .long_long else .ulong_long };
     }
@@ -903,7 +916,7 @@ fn generateNsConstantStringType(comp: *Compilation) !void {
     comp.types.ns_constant_string.fields[2] = .{ .name = try StrInt.intern(comp, "str"), .ty = const_char_ptr };
     comp.types.ns_constant_string.fields[3] = .{ .name = try StrInt.intern(comp, "length"), .ty = .{ .specifier = .long } };
     comp.types.ns_constant_string.ty = .{ .specifier = .@"struct", .data = .{ .record = &comp.types.ns_constant_string.record } };
-    record_layout.compute(&comp.types.ns_constant_string.record, comp.types.ns_constant_string.ty, comp, null);
+    record_layout.compute(&comp.types.ns_constant_string.record, comp.types.ns_constant_string.ty, comp, null) catch unreachable;
 }
 
 fn generateVaListType(comp: *Compilation) !Type {
@@ -911,12 +924,12 @@ fn generateVaListType(comp: *Compilation) !Type {
     const kind: Kind = switch (comp.target.cpu.arch) {
         .aarch64 => switch (comp.target.os.tag) {
             .windows => @as(Kind, .char_ptr),
-            .ios, .macos, .tvos, .watchos, .visionos => .char_ptr,
+            .ios, .macos, .tvos, .watchos => .char_ptr,
             else => .aarch64_va_list,
         },
         .sparc, .wasm32, .wasm64, .bpfel, .bpfeb, .riscv32, .riscv64, .avr, .spirv32, .spirv64 => .void_ptr,
         .powerpc => switch (comp.target.os.tag) {
-            .ios, .macos, .tvos, .watchos, .visionos, .aix => @as(Kind, .char_ptr),
+            .ios, .macos, .tvos, .watchos, .aix => @as(Kind, .char_ptr),
             else => return Type{ .specifier = .void }, // unknown
         },
         .x86, .msp430 => .char_ptr,
@@ -951,7 +964,7 @@ fn generateVaListType(comp: *Compilation) !Type {
             record_ty.fields[3] = .{ .name = try StrInt.intern(comp, "__gr_offs"), .ty = .{ .specifier = .int } };
             record_ty.fields[4] = .{ .name = try StrInt.intern(comp, "__vr_offs"), .ty = .{ .specifier = .int } };
             ty = .{ .specifier = .@"struct", .data = .{ .record = record_ty } };
-            record_layout.compute(record_ty, ty, comp, null);
+            record_layout.compute(record_ty, ty, comp, null) catch unreachable;
         },
         .x86_64_va_list => {
             const record_ty = try arena.create(Type.Record);
@@ -969,7 +982,7 @@ fn generateVaListType(comp: *Compilation) !Type {
             record_ty.fields[2] = .{ .name = try StrInt.intern(comp, "overflow_arg_area"), .ty = void_ptr };
             record_ty.fields[3] = .{ .name = try StrInt.intern(comp, "reg_save_area"), .ty = void_ptr };
             ty = .{ .specifier = .@"struct", .data = .{ .record = record_ty } };
-            record_layout.compute(record_ty, ty, comp, null);
+            record_layout.compute(record_ty, ty, comp, null) catch unreachable;
         },
     }
     if (kind == .char_ptr or kind == .void_ptr) {
@@ -988,11 +1001,26 @@ fn generateVaListType(comp: *Compilation) !Type {
 fn generateIntMax(comp: *const Compilation, w: anytype, name: []const u8, ty: Type) !void {
     const bit_count: u8 = @intCast(ty.sizeof(comp).? * 8);
     const unsigned = ty.isUnsignedInt(comp);
-    const max = if (bit_count == 128)
-        @as(u128, if (unsigned) std.math.maxInt(u128) else std.math.maxInt(u128))
-    else
-        ty.maxInt(comp);
+    const max: u128 = switch (bit_count) {
+        8 => if (unsigned) std.math.maxInt(u8) else std.math.maxInt(i8),
+        16 => if (unsigned) std.math.maxInt(u16) else std.math.maxInt(i16),
+        32 => if (unsigned) std.math.maxInt(u32) else std.math.maxInt(i32),
+        64 => if (unsigned) std.math.maxInt(u64) else std.math.maxInt(i64),
+        128 => if (unsigned) std.math.maxInt(u128) else std.math.maxInt(i128),
+        else => unreachable,
+    };
     try w.print("#define __{s}_MAX__ {d}{s}\n", .{ name, max, ty.intValueSuffix(comp) });
+}
+
+/// Largest value that can be stored in wchar_t
+pub fn wcharMax(comp: *const Compilation) u32 {
+    const unsigned = comp.types.wchar.isUnsignedInt(comp);
+    return switch (comp.types.wchar.bitSizeof(comp).?) {
+        8 => if (unsigned) std.math.maxInt(u8) else std.math.maxInt(i8),
+        16 => if (unsigned) std.math.maxInt(u16) else std.math.maxInt(i16),
+        32 => if (unsigned) std.math.maxInt(u32) else std.math.maxInt(i32),
+        else => unreachable,
+    };
 }
 
 fn generateExactWidthIntMax(comp: *const Compilation, w: anytype, specifier: Type.Specifier) !void {
@@ -1039,6 +1067,12 @@ pub fn nextLargestIntSameSign(comp: *const Compilation, ty: Type) ?Type {
     return null;
 }
 
+/// Maximum size of an array, in bytes
+pub fn maxArrayBytes(comp: *const Compilation) u64 {
+    const max_bits = @min(61, comp.target.ptrBitWidth());
+    return (@as(u64, 1) << @truncate(max_bits)) - 1;
+}
+
 /// If `enum E { ... }` syntax has a fixed underlying integer type regardless of the presence of
 /// __attribute__((packed)) or the range of values of the corresponding enumerator constants,
 /// specify it here.
@@ -1060,7 +1094,7 @@ pub fn getCharSignedness(comp: *const Compilation) std.builtin.Signedness {
 pub fn addBuiltinIncludeDir(comp: *Compilation, aro_dir: []const u8) !void {
     var search_path = aro_dir;
     while (std.fs.path.dirname(search_path)) |dirname| : (search_path = dirname) {
-        var base_dir = std.fs.cwd().openDir(dirname, .{}) catch continue;
+        var base_dir = comp.cwd.openDir(dirname, .{}) catch continue;
         defer base_dir.close();
 
         base_dir.access("include/stddef.h", .{}) catch continue;
@@ -1266,7 +1300,7 @@ fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kin
         return error.FileNotFound;
     }
 
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try comp.cwd.openFile(path, .{});
     defer file.close();
 
     const contents = file.readToEndAlloc(comp.gpa, std.math.maxInt(u32)) catch |err| switch (err) {
@@ -1349,10 +1383,9 @@ pub fn hasInclude(
         return false;
     }
 
-    const cwd = std.fs.cwd();
     if (std.fs.path.isAbsolute(filename)) {
         if (which == .next) return false;
-        return !std.meta.isError(cwd.access(filename, .{}));
+        return !std.meta.isError(comp.cwd.access(filename, .{}));
     }
 
     const cwd_source_id = switch (include_type) {
@@ -1372,7 +1405,7 @@ pub fn hasInclude(
 
     while (try it.nextWithFile(filename, sf_allocator)) |found| {
         defer sf_allocator.free(found.path);
-        if (!std.meta.isError(cwd.access(found.path, .{}))) return true;
+        if (!std.meta.isError(comp.cwd.access(found.path, .{}))) return true;
     }
     return false;
 }
@@ -1392,7 +1425,7 @@ fn getFileContents(comp: *Compilation, path: []const u8, limit: ?u32) ![]const u
         return error.FileNotFound;
     }
 
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try comp.cwd.openFile(path, .{});
     defer file.close();
 
     var buf = std.ArrayList(u8).init(comp.gpa);
@@ -1571,6 +1604,17 @@ pub fn hasBuiltinFunction(comp: *const Compilation, builtin: Builtin) bool {
     }
 }
 
+pub fn locSlice(comp: *const Compilation, loc: Source.Location) []const u8 {
+    var tmp_tokenizer = Tokenizer{
+        .buf = comp.getSource(loc.id).buf,
+        .langopts = comp.langopts,
+        .index = loc.byte_offset,
+        .source = .generated,
+    };
+    const tok = tmp_tokenizer.next();
+    return tmp_tokenizer.buf[tok.start..tok.end];
+}
+
 pub const CharUnitSize = enum(u32) {
     @"1" = 1,
     @"2" = 2,
@@ -1590,7 +1634,7 @@ pub const addDiagnostic = Diagnostics.add;
 test "addSourceFromReader" {
     const Test = struct {
         fn addSourceFromReader(str: []const u8, expected: []const u8, warning_count: u32, splices: []const u32) !void {
-            var comp = Compilation.init(std.testing.allocator);
+            var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
             var buf_reader = std.io.fixedBufferStream(str);
@@ -1602,7 +1646,7 @@ test "addSourceFromReader" {
         }
 
         fn withAllocationFailures(allocator: std.mem.Allocator) !void {
-            var comp = Compilation.init(allocator);
+            var comp = Compilation.init(allocator, std.fs.cwd());
             defer comp.deinit();
 
             _ = try comp.addSourceFromBuffer("path", "spliced\\\nbuffer\n");
@@ -1644,7 +1688,7 @@ test "addSourceFromReader - exhaustive check for carriage return elimination" {
     const alen = alphabet.len;
     var buf: [alphabet.len]u8 = [1]u8{alphabet[0]} ** alen;
 
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
 
     var source_count: u32 = 0;
@@ -1672,7 +1716,7 @@ test "ignore BOM at beginning of file" {
 
     const Test = struct {
         fn run(buf: []const u8) !void {
-            var comp = Compilation.init(std.testing.allocator);
+            var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
             var buf_reader = std.io.fixedBufferStream(buf);

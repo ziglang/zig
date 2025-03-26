@@ -32,6 +32,7 @@ struct AddressInfo;
 struct BufferedStackTrace;
 struct SignalContext;
 struct StackTrace;
+struct SymbolizedStack;
 
 // Constants.
 const uptr kWordSize = SANITIZER_WORDSIZE / 8;
@@ -59,14 +60,10 @@ inline int Verbosity() {
   return atomic_load(&current_verbosity, memory_order_relaxed);
 }
 
-#if SANITIZER_ANDROID
-inline uptr GetPageSize() {
-// Android post-M sysconf(_SC_PAGESIZE) crashes if called from .preinit_array.
-  return 4096;
-}
-inline uptr GetPageSizeCached() {
-  return 4096;
-}
+#if SANITIZER_ANDROID && !defined(__aarch64__)
+// 32-bit Android only has 4k pages.
+inline uptr GetPageSize() { return 4096; }
+inline uptr GetPageSizeCached() { return 4096; }
 #else
 uptr GetPageSize();
 extern uptr PageSizeCached;
@@ -76,6 +73,7 @@ inline uptr GetPageSizeCached() {
   return PageSizeCached;
 }
 #endif
+
 uptr GetMmapGranularity();
 uptr GetMaxVirtualAddress();
 uptr GetMaxUserVirtualAddress();
@@ -90,10 +88,11 @@ void GetThreadStackAndTls(bool main, uptr *stk_addr, uptr *stk_size,
 
 // Memory management
 void *MmapOrDie(uptr size, const char *mem_type, bool raw_report = false);
+
 inline void *MmapOrDieQuietly(uptr size, const char *mem_type) {
   return MmapOrDie(size, mem_type, /*raw_report*/ true);
 }
-void UnmapOrDie(void *addr, uptr size);
+void UnmapOrDie(void *addr, uptr size, bool raw_report = false);
 // Behaves just like MmapOrDie, but tolerates out of memory condition, in that
 // case returns nullptr.
 void *MmapOrDieOnFatalError(uptr size, const char *mem_type);
@@ -138,7 +137,8 @@ void UnmapFromTo(uptr from, uptr to);
 // shadow_size_bytes bytes on the right, which on linux is mapped no access.
 // The high_mem_end may be updated if the original shadow size doesn't fit.
 uptr MapDynamicShadow(uptr shadow_size_bytes, uptr shadow_scale,
-                      uptr min_shadow_base_alignment, uptr &high_mem_end);
+                      uptr min_shadow_base_alignment, uptr &high_mem_end,
+                      uptr granularity);
 
 // Let S = max(shadow_size, num_aliases * alias_size, ring_buffer_size).
 // Reserves 2*S bytes of address space to the right of the returned address and
@@ -177,7 +177,7 @@ bool DontDumpShadowMemory(uptr addr, uptr length);
 // Check if the built VMA size matches the runtime one.
 void CheckVMASize();
 void RunMallocHooks(void *ptr, uptr size);
-void RunFreeHooks(void *ptr);
+int RunFreeHooks(void *ptr);
 
 class ReservedAddressRange {
  public:
@@ -208,6 +208,11 @@ void ParseUnixMemoryProfile(fill_profile_f cb, uptr *stats, char *smaps,
 // Simple low-level (mmap-based) allocator for internal use. Doesn't have
 // constructor, so all instances of LowLevelAllocator should be
 // linker initialized.
+//
+// NOTE: Users should instead use the singleton provided via
+// `GetGlobalLowLevelAllocator()` rather than create a new one. This way, the
+// number of mmap fragments can be reduced and use the same contiguous mmap
+// provided by this singleton.
 class LowLevelAllocator {
  public:
   // Requires an external lock.
@@ -223,6 +228,8 @@ typedef void (*LowLevelAllocateCallback)(uptr ptr, uptr size);
 // Allows to register tool-specific callbacks for LowLevelAllocator.
 // Passing NULL removes the callback.
 void SetLowLevelAllocateCallback(LowLevelAllocateCallback callback);
+
+LowLevelAllocator &GetGlobalLowLevelAllocator();
 
 // IO
 void CatastrophicErrorWrite(const char *buffer, uptr length);
@@ -386,6 +393,8 @@ void ReportErrorSummary(const char *error_type, const AddressInfo &info,
 // Same as above, but obtains AddressInfo by symbolizing top stack trace frame.
 void ReportErrorSummary(const char *error_type, const StackTrace *trace,
                         const char *alt_tool_name = nullptr);
+// Skips frames which we consider internal and not usefull to the users.
+const SymbolizedStack *SkipInternalFrames(const SymbolizedStack *frames);
 
 void ReportMmapWriteExec(int prot, int mflags);
 
@@ -500,7 +509,7 @@ inline int ToLower(int c) {
 // A low-level vector based on mmap. May incur a significant memory overhead for
 // small vectors.
 // WARNING: The current implementation supports only POD types.
-template<typename T>
+template <typename T, bool raw_report = false>
 class InternalMmapVectorNoCtor {
  public:
   using value_type = T;
@@ -510,7 +519,7 @@ class InternalMmapVectorNoCtor {
     data_ = 0;
     reserve(initial_capacity);
   }
-  void Destroy() { UnmapOrDie(data_, capacity_bytes_); }
+  void Destroy() { UnmapOrDie(data_, capacity_bytes_, raw_report); }
   T &operator[](uptr i) {
     CHECK_LT(i, size_);
     return data_[i];
@@ -586,9 +595,10 @@ class InternalMmapVectorNoCtor {
     CHECK_LE(size_, new_capacity);
     uptr new_capacity_bytes =
         RoundUpTo(new_capacity * sizeof(T), GetPageSizeCached());
-    T *new_data = (T *)MmapOrDie(new_capacity_bytes, "InternalMmapVector");
+    T *new_data =
+        (T *)MmapOrDie(new_capacity_bytes, "InternalMmapVector", raw_report);
     internal_memcpy(new_data, data_, size_ * sizeof(T));
-    UnmapOrDie(data_, capacity_bytes_);
+    UnmapOrDie(data_, capacity_bytes_, raw_report);
     data_ = new_data;
     capacity_bytes_ = new_capacity_bytes;
   }
@@ -636,7 +646,8 @@ class InternalScopedString {
     buffer_.resize(1);
     buffer_[0] = '\0';
   }
-  void append(const char *format, ...) FORMAT(2, 3);
+  void Append(const char *str);
+  void AppendF(const char *format, ...) FORMAT(2, 3);
   const char *data() const { return buffer_.data(); }
   char *data() { return buffer_.data(); }
 
@@ -1086,7 +1097,7 @@ inline u32 GetNumberOfCPUsCached() {
 
 }  // namespace __sanitizer
 
-inline void *operator new(__sanitizer::operator_new_size_type size,
+inline void *operator new(__sanitizer::usize size,
                           __sanitizer::LowLevelAllocator &alloc) {
   return alloc.Allocate(size);
 }

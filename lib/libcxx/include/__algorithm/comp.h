@@ -10,8 +10,7 @@
 #define _LIBCPP___ALGORITHM_COMP_H
 
 #include <__config>
-#include <__type_traits/integral_constant.h>
-#include <__type_traits/operation_traits.h>
+#include <__type_traits/desugars_to.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -27,7 +26,7 @@ struct __equal_to {
 };
 
 template <class _Tp, class _Up>
-struct __desugars_to<__equal_tag, __equal_to, _Tp, _Up> : true_type {};
+inline const bool __desugars_to_v<__equal_tag, __equal_to, _Tp, _Up> = true;
 
 // The definition is required because __less is part of the ABI, but it's empty
 // because all comparisons should be transparent.
@@ -41,6 +40,9 @@ struct __less<void, void> {
     return __lhs < __rhs;
   }
 };
+
+template <class _Tp>
+inline const bool __desugars_to_v<__less_tag, __less<>, _Tp, _Tp> = true;
 
 _LIBCPP_END_NAMESPACE_STD
 

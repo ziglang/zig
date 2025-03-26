@@ -152,7 +152,7 @@ void WriteMemoryProfile(char *buf, uptr buf_size, u64 uptime_ns) {
 #if !SANITIZER_GO
 // Mark shadow for .rodata sections with the special Shadow::kRodata marker.
 // Accesses to .rodata can't race, so this saves time, memory and trace space.
-static void MapRodata() {
+static NOINLINE void MapRodata(char* buffer, uptr size) {
   // First create temp file.
   const char *tmpdir = GetEnv("TMPDIR");
   if (tmpdir == 0)
@@ -163,13 +163,12 @@ static void MapRodata() {
 #endif
   if (tmpdir == 0)
     return;
-  char name[256];
-  internal_snprintf(name, sizeof(name), "%s/tsan.rodata.%d",
+  internal_snprintf(buffer, size, "%s/tsan.rodata.%d",
                     tmpdir, (int)internal_getpid());
-  uptr openrv = internal_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+  uptr openrv = internal_open(buffer, O_RDWR | O_CREAT | O_EXCL, 0600);
   if (internal_iserror(openrv))
     return;
-  internal_unlink(name);  // Unlink it now, so that we can reuse the buffer.
+  internal_unlink(buffer);  // Unlink it now, so that we can reuse the buffer.
   fd_t fd = openrv;
   // Fill the file with Shadow::kRodata.
   const uptr kMarkerSize = 512 * 1024 / sizeof(RawShadow);
@@ -188,8 +187,8 @@ static void MapRodata() {
   }
   // Map the file into shadow of .rodata sections.
   MemoryMappingLayout proc_maps(/*cache_enabled*/true);
-  // Reusing the buffer 'name'.
-  MemoryMappedSegment segment(name, ARRAY_SIZE(name));
+  // Reusing the buffer 'buffer'.
+  MemoryMappedSegment segment(buffer, size);
   while (proc_maps.Next(&segment)) {
     if (segment.filename[0] != 0 && segment.filename[0] != '[' &&
         segment.IsReadable() && segment.IsExecutable() &&
@@ -209,10 +208,102 @@ static void MapRodata() {
 }
 
 void InitializeShadowMemoryPlatform() {
-  MapRodata();
+  char buffer[256];  // Keep in a different frame.
+  MapRodata(buffer, sizeof(buffer));
 }
 
 #endif  // #if !SANITIZER_GO
+
+#  if !SANITIZER_GO
+static void ReExecIfNeeded(bool ignore_heap) {
+  // Go maps shadow memory lazily and works fine with limited address space.
+  // Unlimited stack is not a problem as well, because the executable
+  // is not compiled with -pie.
+  bool reexec = false;
+  // TSan doesn't play well with unlimited stack size (as stack
+  // overlaps with shadow memory). If we detect unlimited stack size,
+  // we re-exec the program with limited stack size as a best effort.
+  if (StackSizeIsUnlimited()) {
+    const uptr kMaxStackSize = 32 * 1024 * 1024;
+    VReport(1,
+            "Program is run with unlimited stack size, which wouldn't "
+            "work with ThreadSanitizer.\n"
+            "Re-execing with stack size limited to %zd bytes.\n",
+            kMaxStackSize);
+    SetStackSizeLimitInBytes(kMaxStackSize);
+    reexec = true;
+  }
+
+  if (!AddressSpaceIsUnlimited()) {
+    Report(
+        "WARNING: Program is run with limited virtual address space,"
+        " which wouldn't work with ThreadSanitizer.\n");
+    Report("Re-execing with unlimited virtual address space.\n");
+    SetAddressSpaceUnlimited();
+    reexec = true;
+  }
+
+#    if SANITIZER_LINUX
+#      if SANITIZER_ANDROID && (defined(__aarch64__) || defined(__x86_64__))
+  // ASLR personality check.
+  int old_personality = personality(0xffffffff);
+  bool aslr_on =
+      (old_personality != -1) && ((old_personality & ADDR_NO_RANDOMIZE) == 0);
+
+  // After patch "arm64: mm: support ARCH_MMAP_RND_BITS." is introduced in
+  // linux kernel, the random gap between stack and mapped area is increased
+  // from 128M to 36G on 39-bit aarch64. As it is almost impossible to cover
+  // this big range, we should disable randomized virtual space on aarch64.
+  if (aslr_on) {
+    VReport(1,
+            "WARNING: Program is run with randomized virtual address "
+            "space, which wouldn't work with ThreadSanitizer on Android.\n"
+            "Re-execing with fixed virtual address space.\n");
+    CHECK_NE(personality(old_personality | ADDR_NO_RANDOMIZE), -1);
+    reexec = true;
+  }
+#      endif
+
+  if (reexec) {
+    // Don't check the address space since we're going to re-exec anyway.
+  } else if (!CheckAndProtect(false, ignore_heap, false)) {
+    // ASLR personality check.
+    // N.B. 'personality' is sometimes forbidden by sandboxes, so we only call
+    // this as a last resort (when the memory mapping is incompatible and TSan
+    // would fail anyway).
+    int old_personality = personality(0xffffffff);
+    bool aslr_on =
+        (old_personality != -1) && ((old_personality & ADDR_NO_RANDOMIZE) == 0);
+
+    if (aslr_on) {
+      // Disable ASLR if the memory layout was incompatible.
+      // Alternatively, we could just keep re-execing until we get lucky
+      // with a compatible randomized layout, but the risk is that if it's
+      // not an ASLR-related issue, we will be stuck in an infinite loop of
+      // re-execing (unless we change ReExec to pass a parameter of the
+      // number of retries allowed.)
+      VReport(1,
+              "WARNING: ThreadSanitizer: memory layout is incompatible, "
+              "possibly due to high-entropy ASLR.\n"
+              "Re-execing with fixed virtual address space.\n"
+              "N.B. reducing ASLR entropy is preferable.\n");
+      CHECK_NE(personality(old_personality | ADDR_NO_RANDOMIZE), -1);
+      reexec = true;
+    } else {
+      Printf(
+          "FATAL: ThreadSanitizer: memory layout is incompatible, "
+          "even though ASLR is disabled.\n"
+          "Please file a bug.\n");
+      DumpProcessMap();
+      Die();
+    }
+  }
+#    endif  // SANITIZER_LINUX
+
+  if (reexec)
+    ReExec();
+}
+#  endif
 
 void InitializePlatformEarly() {
   vmaSize =
@@ -238,7 +329,13 @@ void InitializePlatformEarly() {
     Printf("FATAL: Found %zd - Supported 47\n", vmaSize);
     Die();
   }
-# endif
+#    else
+  if (vmaSize != 47) {
+    Printf("FATAL: ThreadSanitizer: unsupported VMA range\n");
+    Printf("FATAL: Found %zd - Supported 47\n", vmaSize);
+    Die();
+  }
+#    endif
 #elif defined(__powerpc64__)
 # if !SANITIZER_GO
   if (vmaSize != 44 && vmaSize != 46 && vmaSize != 47) {
@@ -267,7 +364,22 @@ void InitializePlatformEarly() {
     Die();
   }
 # endif
-#endif
+#  elif SANITIZER_RISCV64
+  // the bottom half of vma is allocated for userspace
+  vmaSize = vmaSize + 1;
+#    if !SANITIZER_GO
+  if (vmaSize != 39 && vmaSize != 48) {
+    Printf("FATAL: ThreadSanitizer: unsupported VMA range\n");
+    Printf("FATAL: Found %zd - Supported 39 and 48\n", vmaSize);
+    Die();
+  }
+#    endif
+#  endif
+
+#  if !SANITIZER_GO
+  // Heap has not been allocated yet
+  ReExecIfNeeded(false);
+#  endif
 }
 
 void InitializePlatform() {
@@ -278,52 +390,34 @@ void InitializePlatform() {
   // is not compiled with -pie.
 #if !SANITIZER_GO
   {
-    bool reexec = false;
-    // TSan doesn't play well with unlimited stack size (as stack
-    // overlaps with shadow memory). If we detect unlimited stack size,
-    // we re-exec the program with limited stack size as a best effort.
-    if (StackSizeIsUnlimited()) {
-      const uptr kMaxStackSize = 32 * 1024 * 1024;
-      VReport(1, "Program is run with unlimited stack size, which wouldn't "
-                 "work with ThreadSanitizer.\n"
-                 "Re-execing with stack size limited to %zd bytes.\n",
-              kMaxStackSize);
-      SetStackSizeLimitInBytes(kMaxStackSize);
-      reexec = true;
-    }
-
-    if (!AddressSpaceIsUnlimited()) {
-      Report("WARNING: Program is run with limited virtual address space,"
-             " which wouldn't work with ThreadSanitizer.\n");
-      Report("Re-execing with unlimited virtual address space.\n");
-      SetAddressSpaceUnlimited();
-      reexec = true;
-    }
-#if SANITIZER_ANDROID && (defined(__aarch64__) || defined(__x86_64__))
-    // After patch "arm64: mm: support ARCH_MMAP_RND_BITS." is introduced in
-    // linux kernel, the random gap between stack and mapped area is increased
-    // from 128M to 36G on 39-bit aarch64. As it is almost impossible to cover
-    // this big range, we should disable randomized virtual space on aarch64.
-    // ASLR personality check.
-    int old_personality = personality(0xffffffff);
-    if (old_personality != -1 && (old_personality & ADDR_NO_RANDOMIZE) == 0) {
-      VReport(1, "WARNING: Program is run with randomized virtual address "
-              "space, which wouldn't work with ThreadSanitizer.\n"
-              "Re-execing with fixed virtual address space.\n");
-      CHECK_NE(personality(old_personality | ADDR_NO_RANDOMIZE), -1);
-      reexec = true;
-    }
-
-#endif
-#if SANITIZER_LINUX && (defined(__aarch64__) || defined(__loongarch_lp64))
+#    if SANITIZER_LINUX && (defined(__aarch64__) || defined(__loongarch_lp64))
     // Initialize the xor key used in {sig}{set,long}jump.
     InitializeLongjmpXorKey();
-#endif
-    if (reexec)
-      ReExec();
+#    endif
   }
 
-  CheckAndProtect();
+  // We called ReExecIfNeeded() in InitializePlatformEarly(), but there are
+  // intervening allocations that result in an edge case:
+  // 1) InitializePlatformEarly(): memory layout is compatible
+  // 2) Intervening allocations happen
+  // 3) InitializePlatform(): memory layout is incompatible and fails
+  //    CheckAndProtect()
+#    if !SANITIZER_GO
+  // Heap has already been allocated
+  ReExecIfNeeded(true);
+#    endif
+
+  // Earlier initialization steps already re-exec'ed until we got a compatible
+  // memory layout, so we don't expect any more issues here.
+  if (!CheckAndProtect(true, true, true)) {
+    Printf(
+        "FATAL: ThreadSanitizer: unexpectedly found incompatible memory "
+        "layout.\n");
+    Printf("FATAL: Please file a bug.\n");
+    DumpProcessMap();
+    Die();
+  }
+
   InitTlsSize();
 #endif  // !SANITIZER_GO
 }
@@ -399,13 +493,15 @@ static uptr UnmangleLongJmpSp(uptr mangled_sp) {
   return mangled_sp ^ xor_key;
 #elif defined(__mips__)
   return mangled_sp;
-#elif defined(__s390x__)
+#    elif SANITIZER_RISCV64
+  return mangled_sp;
+#    elif defined(__s390x__)
   // tcbhead_t.stack_guard
   uptr xor_key = ((uptr *)__builtin_thread_pointer())[5];
   return mangled_sp ^ xor_key;
-#else
-  #error "Unknown platform"
-#endif
+#    else
+#      error "Unknown platform"
+#    endif
 }
 
 #if SANITIZER_NETBSD
@@ -429,11 +525,13 @@ static uptr UnmangleLongJmpSp(uptr mangled_sp) {
 #  define LONG_JMP_SP_ENV_SLOT 1
 # elif defined(__mips64)
 #  define LONG_JMP_SP_ENV_SLOT 1
-# elif defined(__s390x__)
-#  define LONG_JMP_SP_ENV_SLOT 9
-# else
-#  define LONG_JMP_SP_ENV_SLOT 6
-# endif
+#      elif SANITIZER_RISCV64
+#        define LONG_JMP_SP_ENV_SLOT 13
+#      elif defined(__s390x__)
+#        define LONG_JMP_SP_ENV_SLOT 9
+#      else
+#        define LONG_JMP_SP_ENV_SLOT 6
+#      endif
 #endif
 
 uptr ExtractLongJmpSp(uptr *env) {

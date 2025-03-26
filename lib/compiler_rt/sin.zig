@@ -19,23 +19,23 @@ const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 pub const panic = common.panic;
 
 comptime {
-    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __sinh(x: f16) callconv(.C) f16 {
+pub fn __sinh(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(sinf(x));
 }
 
-pub fn sinf(x: f32) callconv(.C) f32 {
+pub fn sinf(x: f32) callconv(.c) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const s1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const s2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -90,7 +90,7 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     };
 }
 
-pub fn sin(x: f64) callconv(.C) f64 {
+pub fn sin(x: f64) callconv(.c) f64 {
     var ix = @as(u64, @bitCast(x)) >> 32;
     ix &= 0x7fffffff;
 
@@ -119,18 +119,18 @@ pub fn sin(x: f64) callconv(.C) f64 {
     };
 }
 
-pub fn __sinx(x: f80) callconv(.C) f80 {
+pub fn __sinx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(sinq(x));
 }
 
-pub fn sinq(x: f128) callconv(.C) f128 {
+pub fn sinq(x: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return sin(@floatCast(x));
 }
 
-pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sinh(x),
         32 => return sinf(x),
         64 => return sin(x),

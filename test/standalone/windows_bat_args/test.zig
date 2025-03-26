@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer if (gpa.deinit() == .leak) @panic("found memory leaks");
     const allocator = gpa.allocator();
 
@@ -72,6 +72,31 @@ pub fn main() anyerror!void {
     try testExec(allocator, &.{"\"&echo hello&whoami.exe"}, null);
     try testExec(allocator, &.{ "\"hello^\"world\"", "hello &echo oh no >file.txt" }, null);
     try testExec(allocator, &.{"&whoami.exe"}, null);
+
+    // Ensure that trailing space and . characters can't lead to unexpected bat/cmd script execution.
+    // In many Windows APIs (including CreateProcess), trailing space and . characters are stripped
+    // from paths, so if a path with trailing . and space character(s) is passed directly to
+    // CreateProcess, then it could end up executing a batch/cmd script that naive extension detection
+    // would not flag as .bat/.cmd.
+    //
+    // Note that we expect an error here, though, which *is* a valid mitigation, but also an implementation detail.
+    // This error is caused by the use of a wildcard with NtQueryDirectoryFile to optimize PATHEXT searching. That is,
+    // the trailing characters in the app name will lead to a FileNotFound error as the wildcard-appended path will not
+    // match any real paths on the filesystem (e.g. `foo.bat .. *` will not match `foo.bat`; only `foo.bat*` will).
+    //
+    // This being an error matches the behavior of running a command via the command line of cmd.exe, too:
+    //
+    //     > "args1.bat .. "
+    //     '"args1.bat .. "' is not recognized as an internal or external command,
+    //     operable program or batch file.
+    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, "args1.bat .. ", &.{"abc"}, null));
+    const absolute_with_trailing = blk: {
+        const absolute_path = try std.fs.realpathAlloc(allocator, "args1.bat");
+        defer allocator.free(absolute_path);
+        break :blk try std.mem.concat(allocator, u8, &.{ absolute_path, " .. " });
+    };
+    defer allocator.free(absolute_with_trailing);
+    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, absolute_with_trailing, &.{"abc"}, null));
 
     var env = env: {
         var env = try std.process.getEnvMap(allocator);

@@ -848,7 +848,7 @@ const ct_protected = struct {
 
     // Multiplies two limbs and returns the result as a wide limb.
     fn mulWide(x: Limb, y: Limb) WideLimb {
-        const half_bits = @typeInfo(Limb).Int.bits / 2;
+        const half_bits = @typeInfo(Limb).int.bits / 2;
         const Half = meta.Int(.unsigned, half_bits);
         const x0 = @as(Half, @truncate(x));
         const x1 = @as(Half, @truncate(x >> half_bits));
@@ -901,7 +901,7 @@ const ct_unprotected = struct {
     fn mulWide(x: Limb, y: Limb) WideLimb {
         const wide = math.mulWide(Limb, x, y);
         return .{
-            .hi = @as(Limb, @truncate(wide >> @typeInfo(Limb).Int.bits)),
+            .hi = @as(Limb, @truncate(wide >> @typeInfo(Limb).int.bits)),
             .lo = @as(Limb, @truncate(wide)),
         };
     }

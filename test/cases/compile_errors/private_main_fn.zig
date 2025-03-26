@@ -1,7 +1,7 @@
 fn main() void {}
 
 // error
-// backend=llvm
+// backend=stage2
 // target=x86_64-linux
 // output_mode=Exe
 //

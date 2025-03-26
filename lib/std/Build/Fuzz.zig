@@ -30,7 +30,7 @@ pub fn start(
         defer rebuild_node.end();
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
-        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .{};
+        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .empty;
         defer fuzz_run_steps.deinit(gpa);
         for (all_steps) |step| {
             const run = step.cast(Step.Run) orelse continue;
@@ -66,6 +66,8 @@ pub fn start(
         .coverage_files = .{},
         .coverage_mutex = .{},
         .coverage_condition = .{},
+
+        .base_timestamp = std.time.nanoTimestamp(),
     };
 
     // For accepting HTTP connections.
@@ -125,7 +127,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, par
     if (show_error_msgs or show_compile_errors or show_stderr) {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        build_runner.printErrorMessages(gpa, &compile.step, ttyconf, stderr, false) catch {};
+        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -153,7 +155,7 @@ fn fuzzWorkerRun(
             const stderr = std.io.getStdErr();
             std.debug.lockStdErr();
             defer std.debug.unlockStdErr();
-            build_runner.printErrorMessages(gpa, &run.step, ttyconf, stderr, false) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
             return;
         },
         else => {

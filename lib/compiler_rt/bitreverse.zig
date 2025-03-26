@@ -5,9 +5,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__bitreversesi2, .{ .name = "__bitreversesi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bitreversedi2, .{ .name = "__bitreversedi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bitreverseti2, .{ .name = "__bitreverseti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreversesi2, .{ .name = "__bitreversesi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreversedi2, .{ .name = "__bitreversedi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreverseti2, .{ .name = "__bitreverseti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 inline fn bitreverseXi2(comptime T: type, a: T) T {
@@ -46,15 +46,15 @@ inline fn bitreverseXi2(comptime T: type, a: T) T {
     }
 }
 
-pub fn __bitreversesi2(a: u32) callconv(.C) u32 {
+pub fn __bitreversesi2(a: u32) callconv(.c) u32 {
     return bitreverseXi2(u32, a);
 }
 
-pub fn __bitreversedi2(a: u64) callconv(.C) u64 {
+pub fn __bitreversedi2(a: u64) callconv(.c) u64 {
     return bitreverseXi2(u64, a);
 }
 
-pub fn __bitreverseti2(a: u128) callconv(.C) u128 {
+pub fn __bitreverseti2(a: u128) callconv(.c) u128 {
     return bitreverseXi2(u128, a);
 }
 

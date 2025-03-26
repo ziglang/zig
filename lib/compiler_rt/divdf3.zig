@@ -15,17 +15,17 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divdf3, .{ .name = "__divdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divdf3, .{ .name = "__divdf3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
+pub fn __divdf3(a: f64, b: f64) callconv(.c) f64 {
     return div(a, b);
 }
 
-fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
+fn __aeabi_ddiv(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) f64 {
     return div(a, b);
 }
 

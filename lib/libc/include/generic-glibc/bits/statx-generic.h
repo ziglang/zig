@@ -1,5 +1,5 @@
 /* Generic statx-related definitions and declarations.
-   Copyright (C) 2018-2024 Free Software Foundation, Inc.
+   Copyright (C) 2018-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,6 +25,9 @@
 #include <bits/types/struct_statx_timestamp.h>
 #include <bits/types/struct_statx.h>
 
+// zig patch: check target glibc version
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2
+
 #ifndef STATX_TYPE
 # define STATX_TYPE 0x0001U
 # define STATX_MODE 0x0002U
@@ -43,6 +46,8 @@
 # define STATX_MNT_ID 0x1000U
 # define STATX_DIOALIGN 0x2000U
 # define STATX_MNT_ID_UNIQUE 0x4000U
+# define STATX_SUBVOL 0x8000U
+# define STATX_WRITE_ATOMIC 0x00010000U
 # define STATX__RESERVED 0x80000000U
 
 # define STATX_ATTR_COMPRESSED 0x0004
@@ -54,6 +59,7 @@
 # define STATX_ATTR_MOUNT_ROOT 0x2000
 # define STATX_ATTR_VERITY 0x100000
 # define STATX_ATTR_DAX 0x200000
+# define STATX_ATTR_WRITE_ATOMIC 0x00400000
 #endif /* !STATX_TYPE */
 
 __BEGIN_DECLS
@@ -61,6 +67,8 @@ __BEGIN_DECLS
 /* Fill *BUF with information about PATH in DIRFD.  */
 int statx (int __dirfd, const char *__restrict __path, int __flags,
            unsigned int __mask, struct statx *__restrict __buf)
-  __THROW __nonnull ((2, 5));
+  __THROW __nonnull ((5));
 
 __END_DECLS
+
+#endif /* (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2 */

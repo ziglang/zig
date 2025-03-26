@@ -7,39 +7,39 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fminh, .{ .name = "__fminh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fminf, .{ .name = "fminf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmin, .{ .name = "fmin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fminx, .{ .name = "__fminx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fminh, .{ .name = "__fminh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fminf, .{ .name = "fminf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmin, .{ .name = "fmin", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fminx, .{ .name = "__fminx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fminq, .{ .name = "fminf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fminq, .{ .name = "fminf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fminq, .{ .name = "fminq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fminl, .{ .name = "fminl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fminq, .{ .name = "fminq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fminl, .{ .name = "fminl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fminh(x: f16, y: f16) callconv(.C) f16 {
+pub fn __fminh(x: f16, y: f16) callconv(.c) f16 {
     return generic_fmin(f16, x, y);
 }
 
-pub fn fminf(x: f32, y: f32) callconv(.C) f32 {
+pub fn fminf(x: f32, y: f32) callconv(.c) f32 {
     return generic_fmin(f32, x, y);
 }
 
-pub fn fmin(x: f64, y: f64) callconv(.C) f64 {
+pub fn fmin(x: f64, y: f64) callconv(.c) f64 {
     return generic_fmin(f64, x, y);
 }
 
-pub fn __fminx(x: f80, y: f80) callconv(.C) f80 {
+pub fn __fminx(x: f80, y: f80) callconv(.c) f80 {
     return generic_fmin(f80, x, y);
 }
 
-pub fn fminq(x: f128, y: f128) callconv(.C) f128 {
+pub fn fminq(x: f128, y: f128) callconv(.c) f128 {
     return generic_fmin(f128, x, y);
 }
 
-pub fn fminl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn fminl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fminh(x, y),
         32 => return fminf(x, y),
         64 => return fmin(x, y),

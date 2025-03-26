@@ -13,8 +13,8 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:25: error: unable to resolve comptime value
-// :7:25: note: initializer of comptime only struct must be comptime-known
+// :7:25: note: initializer of comptime-only struct 'tmp.S.foo__anon_465.C' must be comptime-known
+// :4:16: note: struct requires comptime because of this field
+// :4:16: note: types are not available at runtime

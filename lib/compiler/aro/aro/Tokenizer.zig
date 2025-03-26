@@ -178,6 +178,8 @@ pub const Token = struct {
         keyword_return,
         keyword_short,
         keyword_signed,
+        keyword_signed1,
+        keyword_signed2,
         keyword_sizeof,
         keyword_static,
         keyword_struct,
@@ -258,7 +260,6 @@ pub const Token = struct {
         keyword_asm,
         keyword_asm1,
         keyword_asm2,
-        keyword_float80,
         /// _Float128
         keyword_float128_1,
         /// __float128
@@ -369,6 +370,8 @@ pub const Token = struct {
                 .keyword_return,
                 .keyword_short,
                 .keyword_signed,
+                .keyword_signed1,
+                .keyword_signed2,
                 .keyword_sizeof,
                 .keyword_static,
                 .keyword_struct,
@@ -417,7 +420,6 @@ pub const Token = struct {
                 .keyword_asm,
                 .keyword_asm1,
                 .keyword_asm2,
-                .keyword_float80,
                 .keyword_float128_1,
                 .keyword_float128_2,
                 .keyword_int128,
@@ -627,6 +629,8 @@ pub const Token = struct {
                 .keyword_return => "return",
                 .keyword_short => "short",
                 .keyword_signed => "signed",
+                .keyword_signed1 => "__signed",
+                .keyword_signed2 => "__signed__",
                 .keyword_sizeof => "sizeof",
                 .keyword_static => "static",
                 .keyword_struct => "struct",
@@ -702,7 +706,6 @@ pub const Token = struct {
                 .keyword_asm => "asm",
                 .keyword_asm1 => "__asm",
                 .keyword_asm2 => "__asm__",
-                .keyword_float80 => "__float80",
                 .keyword_float128_1 => "_Float128",
                 .keyword_float128_2 => "__float128",
                 .keyword_int128 => "__int128",
@@ -732,7 +735,8 @@ pub const Token = struct {
 
         pub fn symbol(id: Id) []const u8 {
             return switch (id) {
-                .macro_string, .invalid => unreachable,
+                .macro_string => unreachable,
+                .invalid => "invalid bytes",
                 .identifier,
                 .extended_identifier,
                 .macro_func,
@@ -873,10 +877,7 @@ pub const Token = struct {
     }
 
     const all_kws = std.StaticStringMap(Id).initComptime(.{
-        .{ "auto", auto: {
-            @setEvalBranchQuota(3000);
-            break :auto .keyword_auto;
-        } },
+        .{ "auto", .keyword_auto },
         .{ "break", .keyword_break },
         .{ "case", .keyword_case },
         .{ "char", .keyword_char },
@@ -898,6 +899,8 @@ pub const Token = struct {
         .{ "return", .keyword_return },
         .{ "short", .keyword_short },
         .{ "signed", .keyword_signed },
+        .{ "__signed", .keyword_signed1 },
+        .{ "__signed__", .keyword_signed2 },
         .{ "sizeof", .keyword_sizeof },
         .{ "static", .keyword_static },
         .{ "struct", .keyword_struct },
@@ -982,7 +985,6 @@ pub const Token = struct {
         .{ "asm", .keyword_asm },
         .{ "__asm", .keyword_asm1 },
         .{ "__asm__", .keyword_asm2 },
-        .{ "__float80", .keyword_float80 },
         .{ "_Float128", .keyword_float128_1 },
         .{ "__float128", .keyword_float128_2 },
         .{ "__int128", .keyword_int128 },
@@ -1300,11 +1302,17 @@ pub fn next(self: *Tokenizer) Token {
                 else => {},
             },
             .char_escape_sequence => switch (c) {
-                '\r', '\n' => unreachable, // removed by line splicing
+                '\r', '\n' => {
+                    id = .unterminated_char_literal;
+                    break;
+                },
                 else => state = .char_literal,
             },
             .string_escape_sequence => switch (c) {
-                '\r', '\n' => unreachable, // removed by line splicing
+                '\r', '\n' => {
+                    id = .unterminated_string_literal;
+                    break;
+                },
                 else => state = .string_literal,
             },
             .identifier, .extended_identifier => switch (c) {
@@ -1792,7 +1800,7 @@ pub fn nextNoWSComments(self: *Tokenizer) Token {
 /// Try to tokenize a '::' even if not supported by the current language standard.
 pub fn colonColon(self: *Tokenizer) Token {
     var tok = self.nextNoWS();
-    if (tok.id == .colon and self.buf[self.index] == ':') {
+    if (tok.id == .colon and self.index < self.buf.len and self.buf[self.index] == ':') {
         self.index += 1;
         tok.id = .colon_colon;
     }
@@ -2142,8 +2150,30 @@ test "C23 keywords" {
     }, .c23);
 }
 
+test "Tokenizer fuzz test" {
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
+    defer comp.deinit();
+
+    const input_bytes = std.testing.fuzzInput(.{});
+    if (input_bytes.len == 0) return;
+
+    const source = try comp.addSourceFromBuffer("fuzz.c", input_bytes);
+
+    var tokenizer: Tokenizer = .{
+        .buf = source.buf,
+        .source = source.id,
+        .langopts = comp.langopts,
+    };
+    while (true) {
+        const prev_index = tokenizer.index;
+        const tok = tokenizer.next();
+        if (tok.id == .eof) break;
+        try std.testing.expect(prev_index < tokenizer.index); // ensure that the tokenizer always makes progress
+    }
+}
+
 fn expectTokensExtra(contents: []const u8, expected_tokens: []const Token.Id, standard: ?LangOpts.Standard) !void {
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
     if (standard) |provided| {
         comp.langopts.standard = provided;

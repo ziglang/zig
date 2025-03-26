@@ -1,10 +1,12 @@
-//! Base64 encoding/decoding.
+//! Base64 encoding/decoding as specified by
+//! [RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648).
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
+const window = mem.window;
 
 pub const Error = error{
     InvalidCharacter,
@@ -23,12 +25,15 @@ pub const Codecs = struct {
     Decoder: Base64Decoder,
 };
 
+/// The Base64 alphabet defined in
+/// [RFC 4648 section 4](https://datatracker.ietf.org/doc/html/rfc4648#section-4).
 pub const standard_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".*;
 fn standardBase64DecoderWithIgnore(ignore: []const u8) Base64DecoderWithIgnore {
     return Base64DecoderWithIgnore.init(standard_alphabet_chars, '=', ignore);
 }
 
-/// Standard Base64 codecs, with padding
+/// Standard Base64 codecs, with padding, as defined in
+/// [RFC 4648 section 4](https://datatracker.ietf.org/doc/html/rfc4648#section-4).
 pub const standard = Codecs{
     .alphabet_chars = standard_alphabet_chars,
     .pad_char = '=',
@@ -37,7 +42,8 @@ pub const standard = Codecs{
     .Decoder = Base64Decoder.init(standard_alphabet_chars, '='),
 };
 
-/// Standard Base64 codecs, without padding
+/// Standard Base64 codecs, without padding, as defined in
+/// [RFC 4648 section 3.2](https://datatracker.ietf.org/doc/html/rfc4648#section-3.2).
 pub const standard_no_pad = Codecs{
     .alphabet_chars = standard_alphabet_chars,
     .pad_char = null,
@@ -46,12 +52,15 @@ pub const standard_no_pad = Codecs{
     .Decoder = Base64Decoder.init(standard_alphabet_chars, null),
 };
 
+/// The URL-safe Base64 alphabet defined in
+/// [RFC 4648 section 5](https://datatracker.ietf.org/doc/html/rfc4648#section-5).
 pub const url_safe_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 fn urlSafeBase64DecoderWithIgnore(ignore: []const u8) Base64DecoderWithIgnore {
     return Base64DecoderWithIgnore.init(url_safe_alphabet_chars, null, ignore);
 }
 
-/// URL-safe Base64 codecs, with padding
+/// URL-safe Base64 codecs, with padding, as defined in
+/// [RFC 4648 section 5](https://datatracker.ietf.org/doc/html/rfc4648#section-5).
 pub const url_safe = Codecs{
     .alphabet_chars = url_safe_alphabet_chars,
     .pad_char = '=',
@@ -60,7 +69,8 @@ pub const url_safe = Codecs{
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, '='),
 };
 
-/// URL-safe Base64 codecs, without padding
+/// URL-safe Base64 codecs, without padding, as defined in
+/// [RFC 4648 section 3.2](https://datatracker.ietf.org/doc/html/rfc4648#section-3.2).
 pub const url_safe_no_pad = Codecs{
     .alphabet_chars = url_safe_alphabet_chars,
     .pad_char = null,
@@ -95,6 +105,32 @@ pub const Base64Encoder = struct {
         } else {
             const leftover = source_len % 3;
             return @divTrunc(source_len, 3) * 4 + @divTrunc(leftover * 4 + 2, 3);
+        }
+    }
+
+    // dest must be compatible with std.io.Writer's writeAll interface
+    pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
+        var chunker = window(u8, source, 3, 3);
+        while (chunker.next()) |chunk| {
+            var temp: [5]u8 = undefined;
+            const s = encoder.encode(&temp, chunk);
+            try dest.writeAll(s);
+        }
+    }
+
+    // destWriter must be compatible with std.io.Writer's writeAll interface
+    // sourceReader must be compatible with std.io.Reader's read interface
+    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
+        while (true) {
+            var tempSource: [3]u8 = undefined;
+            const bytesRead = try sourceReader.read(&tempSource);
+            if (bytesRead == 0) {
+                break;
+            }
+
+            var temp: [5]u8 = undefined;
+            const s = encoder.encode(&temp, tempSource[0..bytesRead]);
+            try destWriter.writeAll(s);
         }
     }
 
@@ -477,9 +513,21 @@ fn testBase64UrlSafeNoPad() !void {
 fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: []const u8) !void {
     // Base64Encoder
     {
+        // raw encode
         var buffer: [0x100]u8 = undefined;
         const encoded = codecs.Encoder.encode(&buffer, expected_decoded);
         try testing.expectEqualSlices(u8, expected_encoded, encoded);
+
+        // stream encode
+        var list = try std.BoundedArray(u8, 0x100).init(0);
+        try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
+        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+
+        // reader to writer encode
+        var stream = std.io.fixedBufferStream(expected_decoded);
+        list = try std.BoundedArray(u8, 0x100).init(0);
+        try codecs.Encoder.encodeFromReaderToWriter(list.writer(), stream.reader());
+        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
     }
 
     // Base64Decoder

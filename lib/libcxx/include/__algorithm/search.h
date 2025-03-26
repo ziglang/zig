@@ -117,17 +117,18 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __searc
   }
 }
 
-template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Pred, class _Proj1, class _Proj2>
+template <class _Iter1,
+          class _Sent1,
+          class _Iter2,
+          class _Sent2,
+          class _Pred,
+          class _Proj1,
+          class _Proj2,
+          __enable_if_t<__has_random_access_iterator_category<_Iter1>::value &&
+                            __has_random_access_iterator_category<_Iter2>::value,
+                        int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __search_impl(
-    _Iter1 __first1,
-    _Sent1 __last1,
-    _Iter2 __first2,
-    _Sent2 __last2,
-    _Pred& __pred,
-    _Proj1& __proj1,
-    _Proj2& __proj2,
-    __enable_if_t<__has_random_access_iterator_category<_Iter1>::value &&
-                  __has_random_access_iterator_category<_Iter2>::value>* = nullptr) {
+    _Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2, _Pred& __pred, _Proj1& __proj1, _Proj2& __proj2) {
   auto __size2 = __last2 - __first2;
   if (__size2 == 0)
     return std::make_pair(__first1, __first1);
@@ -141,23 +142,25 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __searc
       __first1, __last1, __first2, __last2, __pred, __proj1, __proj2, __size1, __size2);
 }
 
-template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Pred, class _Proj1, class _Proj2>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __search_impl(
-    _Iter1 __first1,
-    _Sent1 __last1,
-    _Iter2 __first2,
-    _Sent2 __last2,
-    _Pred& __pred,
-    _Proj1& __proj1,
-    _Proj2& __proj2,
+template <
+    class _Iter1,
+    class _Sent1,
+    class _Iter2,
+    class _Sent2,
+    class _Pred,
+    class _Proj1,
+    class _Proj2,
     __enable_if_t<__has_forward_iterator_category<_Iter1>::value && __has_forward_iterator_category<_Iter2>::value &&
-                  !(__has_random_access_iterator_category<_Iter1>::value &&
-                    __has_random_access_iterator_category<_Iter2>::value)>* = nullptr) {
+                      !(__has_random_access_iterator_category<_Iter1>::value &&
+                        __has_random_access_iterator_category<_Iter2>::value),
+                  int> = 0>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __search_impl(
+    _Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2, _Pred& __pred, _Proj1& __proj1, _Proj2& __proj2) {
   return std::__search_forward_impl<_ClassicAlgPolicy>(__first1, __last1, __first2, __last2, __pred, __proj1, __proj2);
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
 search(_ForwardIterator1 __first1,
        _ForwardIterator1 __last1,
        _ForwardIterator2 __first2,
@@ -170,14 +173,14 @@ search(_ForwardIterator1 __first1,
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
 search(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
   return std::search(__first1, __last1, __first2, __last2, __equal_to());
 }
 
 #if _LIBCPP_STD_VER >= 17
 template <class _ForwardIterator, class _Searcher>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 search(_ForwardIterator __f, _ForwardIterator __l, const _Searcher& __s) {
   return __s(__f, __l).first;
 }

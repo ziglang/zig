@@ -15,23 +15,23 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __exph(a: f16) callconv(.C) f16 {
+pub fn __exph(a: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(expf(a));
 }
 
-pub fn expf(x_: f32) callconv(.C) f32 {
+pub fn expf(x_: f32) callconv(.c) f32 {
     const half = [_]f32{ 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
@@ -106,7 +106,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     }
 }
 
-pub fn exp(x_: f64) callconv(.C) f64 {
+pub fn exp(x_: f64) callconv(.c) f64 {
     const half = [_]f64{ 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;
@@ -190,18 +190,18 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     }
 }
 
-pub fn __expx(a: f80) callconv(.C) f80 {
+pub fn __expx(a: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(expq(a));
 }
 
-pub fn expq(a: f128) callconv(.C) f128 {
+pub fn expq(a: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return exp(@floatCast(a));
 }
 
-pub fn expl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn expl(x: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __exph(x),
         32 => return expf(x),
         64 => return exp(x),

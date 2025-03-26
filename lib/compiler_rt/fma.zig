@@ -13,23 +13,23 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {
+pub fn __fmah(x: f16, y: f16, z: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(fmaf(x, y, z));
 }
 
-pub fn fmaf(x: f32, y: f32, z: f32) callconv(.C) f32 {
+pub fn fmaf(x: f32, y: f32, z: f32) callconv(.c) f32 {
     const xy = @as(f64, x) * y;
     const xy_z = xy + z;
     const u = @as(u64, @bitCast(xy_z));
@@ -44,7 +44,7 @@ pub fn fmaf(x: f32, y: f32, z: f32) callconv(.C) f32 {
 }
 
 /// NOTE: Upstream fma.c has been rewritten completely to raise fp exceptions more accurately.
-pub fn fma(x: f64, y: f64, z: f64) callconv(.C) f64 {
+pub fn fma(x: f64, y: f64, z: f64) callconv(.c) f64 {
     if (!math.isFinite(x) or !math.isFinite(y)) {
         return x * y + z;
     }
@@ -91,7 +91,7 @@ pub fn fma(x: f64, y: f64, z: f64) callconv(.C) f64 {
     }
 }
 
-pub fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
+pub fn __fmax(a: f80, b: f80, c: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(fmaq(a, b, c));
 }
@@ -103,7 +103,7 @@ pub fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
 ///
 ///      Dekker, T.  A Floating-Point Technique for Extending the
 ///      Available Precision.  Numer. Math. 18, 224-242 (1971).
-pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
+pub fn fmaq(x: f128, y: f128, z: f128) callconv(.c) f128 {
     if (!math.isFinite(x) or !math.isFinite(y)) {
         return x * y + z;
     }
@@ -150,8 +150,8 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
     }
 }
 
-pub fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fmah(x, y, z),
         32 => return fmaf(x, y, z),
         64 => return fma(x, y, z),

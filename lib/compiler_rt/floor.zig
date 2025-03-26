@@ -15,18 +15,18 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__floorh, .{ .name = "__floorh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floorf, .{ .name = "floorf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floor, .{ .name = "floor", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__floorh, .{ .name = "__floorh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorf, .{ .name = "floorf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floor, .{ .name = "floor", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__floorx, .{ .name = "__floorx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(floorq, .{ .name = "floorf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&floorq, .{ .name = "floorf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(floorq, .{ .name = "floorq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floorl, .{ .name = "floorl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorq, .{ .name = "floorq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorl, .{ .name = "floorl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __floorh(x: f16) callconv(.C) f16 {
+pub fn __floorh(x: f16) callconv(.c) f16 {
     var u: u16 = @bitCast(x);
     const e = @as(i16, @intCast((u >> 10) & 31)) - 15;
     var m: u16 = undefined;
@@ -60,7 +60,7 @@ pub fn __floorh(x: f16) callconv(.C) f16 {
     }
 }
 
-pub fn floorf(x: f32) callconv(.C) f32 {
+pub fn floorf(x: f32) callconv(.c) f32 {
     var u: u32 = @bitCast(x);
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
@@ -94,7 +94,7 @@ pub fn floorf(x: f32) callconv(.C) f32 {
     }
 }
 
-pub fn floor(x: f64) callconv(.C) f64 {
+pub fn floor(x: f64) callconv(.c) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
     const u: u64 = @bitCast(x);
@@ -125,12 +125,12 @@ pub fn floor(x: f64) callconv(.C) f64 {
     }
 }
 
-pub fn __floorx(x: f80) callconv(.C) f80 {
+pub fn __floorx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(floorq(x));
 }
 
-pub fn floorq(x: f128) callconv(.C) f128 {
+pub fn floorq(x: f128) callconv(.c) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
     const u: u128 = @bitCast(x);
@@ -159,8 +159,8 @@ pub fn floorq(x: f128) callconv(.C) f128 {
     }
 }
 
-pub fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn floorl(x: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __floorh(x),
         32 => return floorf(x),
         64 => return floor(x),

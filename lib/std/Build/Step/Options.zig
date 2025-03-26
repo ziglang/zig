@@ -151,7 +151,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
     }
 
     switch (@typeInfo(T)) {
-        .Array => {
+        .array => {
             if (name) |some| {
                 try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
@@ -171,8 +171,8 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .Pointer => |p| {
-            if (p.size != .Slice) {
+        .pointer => |p| {
+            if (p.size != .slice) {
                 @compileError("Non-slice pointers are not yet supported in build options");
             }
 
@@ -195,7 +195,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .Optional => {
+        .optional => {
             if (name) |some| {
                 try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
@@ -216,12 +216,12 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .Void,
-        .Bool,
-        .Int,
-        .ComptimeInt,
-        .Float,
-        .Null,
+        .void,
+        .bool,
+        .int,
+        .comptime_int,
+        .float,
+        .null,
         => {
             if (name) |some| {
                 try out.print("pub const {}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
@@ -230,7 +230,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .Enum => |info| {
+        .@"enum" => |info| {
             try printEnum(options, out, T, info, indent);
 
             if (name) |some| {
@@ -242,7 +242,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             try printStruct(options, out, T, info, indent);
 
             if (name) |some| {
@@ -260,10 +260,10 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
 
 fn printUserDefinedType(options: *Options, out: anytype, comptime T: type, indent: u8) !void {
     switch (@typeInfo(T)) {
-        .Enum => |info| {
+        .@"enum" => |info| {
             return try printEnum(options, out, T, info, indent);
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             return try printStruct(options, out, T, info, indent);
         },
         else => {},
@@ -318,13 +318,11 @@ fn printStruct(options: *Options, out: anytype, comptime T: type, comptime val: 
             try out.print("    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
         }
 
-        if (field.default_value != null) {
-            const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
-
+        if (field.defaultValue()) |default_value| {
             try out.writeAll(" = ");
             switch (@typeInfo(@TypeOf(default_value))) {
-                .Enum => try out.print(".{s},\n", .{@tagName(default_value)}),
-                .Struct => |info| {
+                .@"enum" => try out.print(".{s},\n", .{@tagName(default_value)}),
+                .@"struct" => |info| {
                     try printStructValue(options, out, info, default_value, indent + 4);
                 },
                 else => try printType(options, out, @TypeOf(default_value), default_value, indent, null),
@@ -359,8 +357,8 @@ fn printStructValue(options: *Options, out: anytype, comptime struct_val: std.bu
 
             const field_name = @field(val, field.name);
             switch (@typeInfo(@TypeOf(field_name))) {
-                .Enum => try out.print(".{s},\n", .{@tagName(field_name)}),
-                .Struct => |struct_info| {
+                .@"enum" => try out.print(".{s},\n", .{@tagName(field_name)}),
+                .@"struct" => |struct_info| {
                     try printStructValue(options, out, struct_info, field_name, indent + 4);
                 },
                 else => try printType(options, out, @TypeOf(field_name), field_name, indent, null),
@@ -390,19 +388,11 @@ pub fn addOptionPath(
     path.addStepDependencies(&options.step);
 }
 
-/// Deprecated: use `addOptionPath(options, name, artifact.getEmittedBin())` instead.
-pub fn addOptionArtifact(options: *Options, name: []const u8, artifact: *Step.Compile) void {
-    return addOptionPath(options, name, artifact.getEmittedBin());
-}
-
 pub fn createModule(options: *Options) *std.Build.Module {
     return options.step.owner.createModule(.{
         .root_source_file = options.getOutput(),
     });
 }
-
-/// deprecated: use `getOutput`
-pub const getSource = getOutput;
 
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.

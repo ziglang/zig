@@ -23,7 +23,7 @@ noinline fn frame3(expected: *[5]usize, unwound: *[5]usize) void {
     frame4(expected, unwound);
 }
 
-fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.C) void {
+fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.c) void {
     expected[2] = @returnAddress();
     frame3(expected, unwound);
 }
@@ -31,12 +31,13 @@ fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.C) void {
 extern fn frame0(
     expected: *[5]usize,
     unwound: *[5]usize,
-    frame_2: *const fn (expected: *[5]usize, unwound: *[5]usize) callconv(.C) void,
+    frame_2: *const fn (expected: *[5]usize, unwound: *[5]usize) callconv(.c) void,
 ) void;
 
 pub fn main() !void {
     // Disabled until the DWARF unwinder bugs on .aarch64 are solved
-    if (builtin.omit_frame_pointer and comptime builtin.target.isDarwin() and builtin.cpu.arch == .aarch64) return;
+    if (builtin.omit_frame_pointer and comptime builtin.target.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) return;
+    if (builtin.target.os.tag.isDarwin() and builtin.cpu.arch == .x86_64) return; // https://github.com/ziglang/zig/issues/21337
 
     if (!std.debug.have_ucontext or !std.debug.have_getcontext) return;
 

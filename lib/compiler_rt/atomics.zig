@@ -42,7 +42,7 @@ const largest_atomic_size = switch (arch) {
 // Objects smaller than this threshold are implemented in terms of compare-exchange
 // of a larger value.
 const smallest_atomic_fetch_exch_size = switch (arch) {
-    // On AMDGPU, there are no instructions for atomic operations other than load and store
+    // On AMDGCN, there are no instructions for atomic operations other than load and store
     // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
     .amdgcn => @sizeOf(u32),
     else => @sizeOf(u8),
@@ -117,21 +117,21 @@ var spinlocks: SpinlockTable = SpinlockTable{};
 // Generic version of GCC atomic builtin functions.
 // Those work on any object no matter the pointer alignment nor its size.
 
-fn __atomic_load(size: u32, src: [*]u8, dest: [*]u8, model: i32) callconv(.C) void {
+fn __atomic_load(size: u32, src: [*]u8, dest: [*]u8, model: i32) callconv(.c) void {
     _ = model;
     var sl = spinlocks.get(@intFromPtr(src));
     defer sl.release();
     @memcpy(dest[0..size], src);
 }
 
-fn __atomic_store(size: u32, dest: [*]u8, src: [*]u8, model: i32) callconv(.C) void {
+fn __atomic_store(size: u32, dest: [*]u8, src: [*]u8, model: i32) callconv(.c) void {
     _ = model;
     var sl = spinlocks.get(@intFromPtr(dest));
     defer sl.release();
     @memcpy(dest[0..size], src);
 }
 
-fn __atomic_exchange(size: u32, ptr: [*]u8, val: [*]u8, old: [*]u8, model: i32) callconv(.C) void {
+fn __atomic_exchange(size: u32, ptr: [*]u8, val: [*]u8, old: [*]u8, model: i32) callconv(.c) void {
     _ = model;
     var sl = spinlocks.get(@intFromPtr(ptr));
     defer sl.release();
@@ -146,7 +146,7 @@ fn __atomic_compare_exchange(
     desired: [*]u8,
     success: i32,
     failure: i32,
-) callconv(.C) i32 {
+) callconv(.c) i32 {
     _ = success;
     _ = failure;
     var sl = spinlocks.get(@intFromPtr(ptr));
@@ -176,23 +176,23 @@ inline fn atomic_load_N(comptime T: type, src: *T, model: i32) T {
     }
 }
 
-fn __atomic_load_1(src: *u8, model: i32) callconv(.C) u8 {
+fn __atomic_load_1(src: *u8, model: i32) callconv(.c) u8 {
     return atomic_load_N(u8, src, model);
 }
 
-fn __atomic_load_2(src: *u16, model: i32) callconv(.C) u16 {
+fn __atomic_load_2(src: *u16, model: i32) callconv(.c) u16 {
     return atomic_load_N(u16, src, model);
 }
 
-fn __atomic_load_4(src: *u32, model: i32) callconv(.C) u32 {
+fn __atomic_load_4(src: *u32, model: i32) callconv(.c) u32 {
     return atomic_load_N(u32, src, model);
 }
 
-fn __atomic_load_8(src: *u64, model: i32) callconv(.C) u64 {
+fn __atomic_load_8(src: *u64, model: i32) callconv(.c) u64 {
     return atomic_load_N(u64, src, model);
 }
 
-fn __atomic_load_16(src: *u128, model: i32) callconv(.C) u128 {
+fn __atomic_load_16(src: *u128, model: i32) callconv(.c) u128 {
     return atomic_load_N(u128, src, model);
 }
 
@@ -207,23 +207,23 @@ inline fn atomic_store_N(comptime T: type, dst: *T, value: T, model: i32) void {
     }
 }
 
-fn __atomic_store_1(dst: *u8, value: u8, model: i32) callconv(.C) void {
+fn __atomic_store_1(dst: *u8, value: u8, model: i32) callconv(.c) void {
     return atomic_store_N(u8, dst, value, model);
 }
 
-fn __atomic_store_2(dst: *u16, value: u16, model: i32) callconv(.C) void {
+fn __atomic_store_2(dst: *u16, value: u16, model: i32) callconv(.c) void {
     return atomic_store_N(u16, dst, value, model);
 }
 
-fn __atomic_store_4(dst: *u32, value: u32, model: i32) callconv(.C) void {
+fn __atomic_store_4(dst: *u32, value: u32, model: i32) callconv(.c) void {
     return atomic_store_N(u32, dst, value, model);
 }
 
-fn __atomic_store_8(dst: *u64, value: u64, model: i32) callconv(.C) void {
+fn __atomic_store_8(dst: *u64, value: u64, model: i32) callconv(.c) void {
     return atomic_store_N(u64, dst, value, model);
 }
 
-fn __atomic_store_16(dst: *u128, value: u128, model: i32) callconv(.C) void {
+fn __atomic_store_16(dst: *u128, value: u128, model: i32) callconv(.c) void {
     return atomic_store_N(u128, dst, value, model);
 }
 
@@ -274,23 +274,23 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
     }
 }
 
-fn __atomic_exchange_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_exchange_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return atomic_exchange_N(u8, ptr, val, model);
 }
 
-fn __atomic_exchange_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_exchange_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return atomic_exchange_N(u16, ptr, val, model);
 }
 
-fn __atomic_exchange_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_exchange_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return atomic_exchange_N(u32, ptr, val, model);
 }
 
-fn __atomic_exchange_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_exchange_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return atomic_exchange_N(u64, ptr, val, model);
 }
 
-fn __atomic_exchange_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_exchange_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return atomic_exchange_N(u128, ptr, val, model);
 }
 
@@ -323,23 +323,23 @@ inline fn atomic_compare_exchange_N(
     }
 }
 
-fn __atomic_compare_exchange_1(ptr: *u8, expected: *u8, desired: u8, success: i32, failure: i32) callconv(.C) i32 {
+fn __atomic_compare_exchange_1(ptr: *u8, expected: *u8, desired: u8, success: i32, failure: i32) callconv(.c) i32 {
     return atomic_compare_exchange_N(u8, ptr, expected, desired, success, failure);
 }
 
-fn __atomic_compare_exchange_2(ptr: *u16, expected: *u16, desired: u16, success: i32, failure: i32) callconv(.C) i32 {
+fn __atomic_compare_exchange_2(ptr: *u16, expected: *u16, desired: u16, success: i32, failure: i32) callconv(.c) i32 {
     return atomic_compare_exchange_N(u16, ptr, expected, desired, success, failure);
 }
 
-fn __atomic_compare_exchange_4(ptr: *u32, expected: *u32, desired: u32, success: i32, failure: i32) callconv(.C) i32 {
+fn __atomic_compare_exchange_4(ptr: *u32, expected: *u32, desired: u32, success: i32, failure: i32) callconv(.c) i32 {
     return atomic_compare_exchange_N(u32, ptr, expected, desired, success, failure);
 }
 
-fn __atomic_compare_exchange_8(ptr: *u64, expected: *u64, desired: u64, success: i32, failure: i32) callconv(.C) i32 {
+fn __atomic_compare_exchange_8(ptr: *u64, expected: *u64, desired: u64, success: i32, failure: i32) callconv(.c) i32 {
     return atomic_compare_exchange_N(u64, ptr, expected, desired, success, failure);
 }
 
-fn __atomic_compare_exchange_16(ptr: *u128, expected: *u128, desired: u128, success: i32, failure: i32) callconv(.C) i32 {
+fn __atomic_compare_exchange_16(ptr: *u128, expected: *u128, desired: u128, success: i32, failure: i32) callconv(.c) i32 {
     return atomic_compare_exchange_N(u128, ptr, expected, desired, success, failure);
 }
 
@@ -376,243 +376,243 @@ inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr
     return @atomicRmw(T, ptr, op, val, .seq_cst);
 }
 
-fn __atomic_fetch_add_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_add_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Add, ptr, val, model);
 }
 
-fn __atomic_fetch_add_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_add_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Add, ptr, val, model);
 }
 
-fn __atomic_fetch_add_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_add_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Add, ptr, val, model);
 }
 
-fn __atomic_fetch_add_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_add_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Add, ptr, val, model);
 }
 
-fn __atomic_fetch_add_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_add_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Add, ptr, val, model);
 }
 
-fn __atomic_fetch_sub_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_sub_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Sub, ptr, val, model);
 }
 
-fn __atomic_fetch_sub_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_sub_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Sub, ptr, val, model);
 }
 
-fn __atomic_fetch_sub_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_sub_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Sub, ptr, val, model);
 }
 
-fn __atomic_fetch_sub_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_sub_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Sub, ptr, val, model);
 }
 
-fn __atomic_fetch_sub_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_sub_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Sub, ptr, val, model);
 }
 
-fn __atomic_fetch_and_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_and_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .And, ptr, val, model);
 }
 
-fn __atomic_fetch_and_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_and_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .And, ptr, val, model);
 }
 
-fn __atomic_fetch_and_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_and_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .And, ptr, val, model);
 }
 
-fn __atomic_fetch_and_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_and_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .And, ptr, val, model);
 }
 
-fn __atomic_fetch_and_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_and_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .And, ptr, val, model);
 }
 
-fn __atomic_fetch_or_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_or_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Or, ptr, val, model);
 }
 
-fn __atomic_fetch_or_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_or_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Or, ptr, val, model);
 }
 
-fn __atomic_fetch_or_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_or_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Or, ptr, val, model);
 }
 
-fn __atomic_fetch_or_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_or_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Or, ptr, val, model);
 }
 
-fn __atomic_fetch_or_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_or_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Or, ptr, val, model);
 }
 
-fn __atomic_fetch_xor_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_xor_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Xor, ptr, val, model);
 }
 
-fn __atomic_fetch_xor_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_xor_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Xor, ptr, val, model);
 }
 
-fn __atomic_fetch_xor_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_xor_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Xor, ptr, val, model);
 }
 
-fn __atomic_fetch_xor_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_xor_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Xor, ptr, val, model);
 }
 
-fn __atomic_fetch_xor_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_xor_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Xor, ptr, val, model);
 }
 
-fn __atomic_fetch_nand_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_nand_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Nand, ptr, val, model);
 }
 
-fn __atomic_fetch_nand_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_nand_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Nand, ptr, val, model);
 }
 
-fn __atomic_fetch_nand_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_nand_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Nand, ptr, val, model);
 }
 
-fn __atomic_fetch_nand_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_nand_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Nand, ptr, val, model);
 }
 
-fn __atomic_fetch_nand_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_nand_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Nand, ptr, val, model);
 }
 
-fn __atomic_fetch_umax_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_umax_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Max, ptr, val, model);
 }
 
-fn __atomic_fetch_umax_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_umax_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Max, ptr, val, model);
 }
 
-fn __atomic_fetch_umax_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_umax_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Max, ptr, val, model);
 }
 
-fn __atomic_fetch_umax_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_umax_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Max, ptr, val, model);
 }
 
-fn __atomic_fetch_umax_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_umax_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Max, ptr, val, model);
 }
 
-fn __atomic_fetch_umin_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
+fn __atomic_fetch_umin_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {
     return fetch_op_N(u8, .Min, ptr, val, model);
 }
 
-fn __atomic_fetch_umin_2(ptr: *u16, val: u16, model: i32) callconv(.C) u16 {
+fn __atomic_fetch_umin_2(ptr: *u16, val: u16, model: i32) callconv(.c) u16 {
     return fetch_op_N(u16, .Min, ptr, val, model);
 }
 
-fn __atomic_fetch_umin_4(ptr: *u32, val: u32, model: i32) callconv(.C) u32 {
+fn __atomic_fetch_umin_4(ptr: *u32, val: u32, model: i32) callconv(.c) u32 {
     return fetch_op_N(u32, .Min, ptr, val, model);
 }
 
-fn __atomic_fetch_umin_8(ptr: *u64, val: u64, model: i32) callconv(.C) u64 {
+fn __atomic_fetch_umin_8(ptr: *u64, val: u64, model: i32) callconv(.c) u64 {
     return fetch_op_N(u64, .Min, ptr, val, model);
 }
 
-fn __atomic_fetch_umin_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
+fn __atomic_fetch_umin_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
     return fetch_op_N(u128, .Min, ptr, val, model);
 }
 
 comptime {
     if (supports_atomic_ops and builtin.object_format != .c) {
-        @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_16, .{ .name = "__atomic_fetch_add_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_16, .{ .name = "__atomic_fetch_add_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_16, .{ .name = "__atomic_fetch_sub_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_16, .{ .name = "__atomic_fetch_sub_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_16, .{ .name = "__atomic_fetch_and_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_16, .{ .name = "__atomic_fetch_and_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_16, .{ .name = "__atomic_fetch_or_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_16, .{ .name = "__atomic_fetch_or_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_16, .{ .name = "__atomic_fetch_xor_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_16, .{ .name = "__atomic_fetch_xor_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_16, .{ .name = "__atomic_fetch_nand_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_16, .{ .name = "__atomic_fetch_nand_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_umax_1, .{ .name = "__atomic_fetch_umax_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_2, .{ .name = "__atomic_fetch_umax_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_4, .{ .name = "__atomic_fetch_umax_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_8, .{ .name = "__atomic_fetch_umax_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_16, .{ .name = "__atomic_fetch_umax_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_1, .{ .name = "__atomic_fetch_umax_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_2, .{ .name = "__atomic_fetch_umax_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_4, .{ .name = "__atomic_fetch_umax_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_8, .{ .name = "__atomic_fetch_umax_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_16, .{ .name = "__atomic_fetch_umax_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_umin_1, .{ .name = "__atomic_fetch_umin_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_2, .{ .name = "__atomic_fetch_umin_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_4, .{ .name = "__atomic_fetch_umin_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_8, .{ .name = "__atomic_fetch_umin_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_16, .{ .name = "__atomic_fetch_umin_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_1, .{ .name = "__atomic_fetch_umin_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_2, .{ .name = "__atomic_fetch_umin_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_4, .{ .name = "__atomic_fetch_umin_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_8, .{ .name = "__atomic_fetch_umin_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_16, .{ .name = "__atomic_fetch_umin_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_16, .{ .name = "__atomic_load_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_16, .{ .name = "__atomic_load_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_16, .{ .name = "__atomic_store_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_16, .{ .name = "__atomic_store_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_16, .{ .name = "__atomic_exchange_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_16, .{ .name = "__atomic_exchange_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_16, .{ .name = "__atomic_compare_exchange_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_16, .{ .name = "__atomic_compare_exchange_16", .linkage = linkage, .visibility = visibility });
     }
 }

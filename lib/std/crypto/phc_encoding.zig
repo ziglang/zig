@@ -75,6 +75,10 @@ pub fn BinValue(comptime max_len: usize) type {
 ///
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
+    if (@hasField(HashResult, version_param_name)) {
+        @compileError("Field name '" ++ version_param_name ++ "'' is reserved for the algorithm version");
+    }
+
     var out = mem.zeroes(HashResult);
     var it = mem.splitScalar(u8, str, fields_delimiter_scalar);
     var set_fields: usize = 0;
@@ -91,7 +95,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
             if (mem.eql(u8, opt_version.key, version_param_name)) {
                 if (@hasField(HashResult, "alg_version")) {
                     const value_type_info = switch (@typeInfo(@TypeOf(out.alg_version))) {
-                        .Optional => |opt| comptime @typeInfo(opt.child),
+                        .optional => |opt| @typeInfo(opt.child),
                         else => |t| t,
                     };
                     out.alg_version = fmt.parseUnsigned(
@@ -114,16 +118,16 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
             inline for (comptime meta.fields(HashResult)) |p| {
                 if (mem.eql(u8, p.name, param.key)) {
                     switch (@typeInfo(p.type)) {
-                        .Int => @field(out, p.name) = fmt.parseUnsigned(
+                        .int => @field(out, p.name) = fmt.parseUnsigned(
                             p.type,
                             param.value,
                             10,
                         ) catch return Error.InvalidEncoding,
-                        .Pointer => |ptr| {
+                        .pointer => |ptr| {
                             if (!ptr.is_const) @compileError("Value slice must be constant");
                             @field(out, p.name) = param.value;
                         },
-                        .Struct => try @field(out, p.name).fromB64(param.value),
+                        .@"struct" => try @field(out, p.name).fromB64(param.value),
                         else => std.debug.panic(
                             "Value for [{s}] must be an integer, a constant slice or a BinValue",
                             .{p.name},
@@ -164,7 +168,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.type) != .Optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .optional and p.default_value_ptr == null) {
             expected_fields += 1;
         }
     }
@@ -198,11 +202,16 @@ pub fn calcSize(params: anytype) usize {
 
 fn serializeTo(params: anytype, out: anytype) !void {
     const HashResult = @TypeOf(params);
+
+    if (@hasField(HashResult, version_param_name)) {
+        @compileError("Field name '" ++ version_param_name ++ "'' is reserved for the algorithm version");
+    }
+
     try out.writeAll(fields_delimiter);
     try out.writeAll(params.alg_id);
 
     if (@hasField(HashResult, "alg_version")) {
-        if (@typeInfo(@TypeOf(params.alg_version)) == .Optional) {
+        if (@typeInfo(@TypeOf(params.alg_version)) == .optional) {
             if (params.alg_version) |alg_version| {
                 try out.print(
                     "{s}{s}{s}{}",
@@ -226,12 +235,12 @@ fn serializeTo(params: anytype, out: anytype) !void {
         {
             const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
-            if (@typeInfo(p.type) == .Struct) {
+            if (@typeInfo(p.type) == .@"struct") {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
                 try out.print(
-                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{}",
+                    if (@typeInfo(@TypeOf(value)) == .pointer) "{s}{s}{s}" else "{s}{s}{}",
                     .{ p.name, kv_delimiter, value },
                 );
             }
@@ -258,8 +267,7 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
     var it = mem.splitScalar(u8, str, kv_delimiter_scalar);
     const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
-    const ret = .{ .key = key, .value = value };
-    return ret;
+    return .{ .key = key, .value = value };
 }
 
 test "phc format - encoding/decoding" {

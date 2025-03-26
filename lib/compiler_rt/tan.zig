@@ -21,23 +21,23 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __tanh(x: f16) callconv(.C) f16 {
+pub fn __tanh(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(tanf(x));
 }
 
-pub fn tanf(x: f32) callconv(.C) f32 {
+pub fn tanf(x: f32) callconv(.c) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const t1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const t2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -81,7 +81,7 @@ pub fn tanf(x: f32) callconv(.C) f32 {
     return kernel.__tandf(y, n & 1 != 0);
 }
 
-pub fn tan(x: f64) callconv(.C) f64 {
+pub fn tan(x: f64) callconv(.c) f64 {
     var ix = @as(u64, @bitCast(x)) >> 32;
     ix &= 0x7fffffff;
 
@@ -105,18 +105,18 @@ pub fn tan(x: f64) callconv(.C) f64 {
     return kernel.__tan(y[0], y[1], n & 1 != 0);
 }
 
-pub fn __tanx(x: f80) callconv(.C) f80 {
+pub fn __tanx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(tanq(x));
 }
 
-pub fn tanq(x: f128) callconv(.C) f128 {
+pub fn tanq(x: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return tan(@floatCast(x));
 }
 
-pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+pub fn tanl(x: c_longdouble) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __tanh(x),
         32 => return tanf(x),
         64 => return tan(x),

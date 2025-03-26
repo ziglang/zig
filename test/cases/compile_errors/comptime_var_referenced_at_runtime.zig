@@ -47,19 +47,48 @@ export fn qar() void {
     _ = y;
 }
 
+export fn bux() void {
+    comptime var x: [2]u32 = undefined;
+    x = .{ 1, 2 };
+
+    var rt: [2]u32 = undefined;
+    @memcpy(&rt, &x);
+}
+
+export fn far() void {
+    comptime var x: u32 = 123;
+
+    var rt: [2]*u32 = undefined;
+    const elem: *u32 = &x;
+    @memset(&rt, elem);
+}
+
 // error
 //
 // :5:19: error: runtime value contains reference to comptime var
 // :5:19: note: comptime var pointers are not available at runtime
+// :4:27: note: 'runtime_value' points to comptime var declared here
 // :12:40: error: runtime value contains reference to comptime var
 // :12:40: note: comptime var pointers are not available at runtime
+// :11:27: note: 'runtime_value' points to comptime var declared here
 // :19:50: error: runtime value contains reference to comptime var
 // :19:50: note: comptime var pointers are not available at runtime
+// :18:27: note: 'runtime_value' points to comptime var declared here
 // :28:9: error: runtime value contains reference to comptime var
 // :28:9: note: comptime var pointers are not available at runtime
+// :27:27: note: 'runtime_value' points to comptime var declared here
 // :36:9: error: runtime value contains reference to comptime var
 // :36:9: note: comptime var pointers are not available at runtime
+// :35:27: note: 'runtime_value' points to comptime var declared here
 // :41:12: error: runtime value contains reference to comptime var
 // :41:12: note: comptime var pointers are not available at runtime
+// :40:27: note: 'runtime_value' points to comptime var declared here
 // :46:39: error: runtime value contains reference to comptime var
 // :46:39: note: comptime var pointers are not available at runtime
+// :45:27: note: 'runtime_value' points to comptime var declared here
+// :55:18: error: runtime value contains reference to comptime var
+// :55:18: note: comptime var pointers are not available at runtime
+// :51:30: note: 'runtime_value' points to comptime var declared here
+// :63:18: error: runtime value contains reference to comptime var
+// :63:18: note: comptime var pointers are not available at runtime
+// :59:27: note: 'runtime_value' points to comptime var declared here

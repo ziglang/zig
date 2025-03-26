@@ -15,6 +15,11 @@
 #include "sanitizer_platform.h"
 #include "sanitizer_redefine_builtins.h"
 
+// GCC does not understand __has_feature.
+#if !defined(__has_feature)
+#define __has_feature(x) 0
+#endif
+
 #ifndef SANITIZER_DEBUG
 # define SANITIZER_DEBUG 0
 #endif
@@ -30,13 +35,20 @@
 # define SANITIZER_INTERFACE_ATTRIBUTE __declspec(dllexport)
 #endif
 # define SANITIZER_WEAK_ATTRIBUTE
+#  define SANITIZER_WEAK_IMPORT
 #elif SANITIZER_GO
 # define SANITIZER_INTERFACE_ATTRIBUTE
 # define SANITIZER_WEAK_ATTRIBUTE
+#  define SANITIZER_WEAK_IMPORT
 #else
 # define SANITIZER_INTERFACE_ATTRIBUTE __attribute__((visibility("default")))
 # define SANITIZER_WEAK_ATTRIBUTE  __attribute__((weak))
-#endif
+#  if SANITIZER_APPLE
+#    define SANITIZER_WEAK_IMPORT extern "C" __attribute((weak_import))
+#  else
+#    define SANITIZER_WEAK_IMPORT extern "C" SANITIZER_WEAK_ATTRIBUTE
+#  endif  // SANITIZER_APPLE
+#endif    // SANITIZER_WINDOWS
 
 //--------------------------- WEAK FUNCTIONS ---------------------------------//
 // When working with weak functions, to simplify the code and make it more
@@ -179,15 +191,19 @@ typedef uptr OFF_T;
 #endif
 typedef u64  OFF64_T;
 
-#if (SANITIZER_WORDSIZE == 64) || SANITIZER_APPLE
-typedef uptr operator_new_size_type;
+#ifdef __SIZE_TYPE__
+typedef __SIZE_TYPE__ usize;
 #else
-# if defined(__s390__) && !defined(__s390x__)
-// Special case: 31-bit s390 has unsigned long as size_t.
-typedef unsigned long operator_new_size_type;
-# else
-typedef u32 operator_new_size_type;
-# endif
+// Since we use this for operator new, usize must match the real size_t, but on
+// 32-bit Windows the definition of uptr does not actually match uintptr_t or
+// size_t because we are working around typedef mismatches for the (S)SIZE_T
+// types used in interception.h.
+// Until the definition of uptr has been fixed we have to special case Win32.
+#  if SANITIZER_WINDOWS && SANITIZER_WORDSIZE == 32
+typedef unsigned int usize;
+#  else
+typedef uptr usize;
+#  endif
 #endif
 
 typedef u64 tid_t;

@@ -31,11 +31,11 @@ const ExtraData = Document.ExtraData;
 const StringIndex = Document.StringIndex;
 
 nodes: Node.List = .{},
-extra: std.ArrayListUnmanaged(u32) = .{},
-scratch_extra: std.ArrayListUnmanaged(u32) = .{},
-string_bytes: std.ArrayListUnmanaged(u8) = .{},
-scratch_string: std.ArrayListUnmanaged(u8) = .{},
-pending_blocks: std.ArrayListUnmanaged(Block) = .{},
+extra: std.ArrayListUnmanaged(u32) = .empty,
+scratch_extra: std.ArrayListUnmanaged(u32) = .empty,
+string_bytes: std.ArrayListUnmanaged(u8) = .empty,
+scratch_string: std.ArrayListUnmanaged(u8) = .empty,
+pending_blocks: std.ArrayListUnmanaged(Block) = .empty,
 allocator: Allocator,
 
 const Parser = @This();
@@ -374,7 +374,7 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
         // or not of the same marker type.
         const should_close_list = last_pending_block.tag == .list and
             (block_start.tag != .list_item or
-            block_start.data.list_item.marker != last_pending_block.data.list.marker);
+                block_start.data.list_item.marker != last_pending_block.data.list.marker);
         // The last block should also be closed if the new block is not a table
         // row, which is the only allowed child of a table.
         const should_close_table = last_pending_block.tag == .table and
@@ -816,7 +816,7 @@ fn isThematicBreak(line: []const u8) bool {
 }
 
 fn closeLastBlock(p: *Parser) !void {
-    const b = p.pending_blocks.pop();
+    const b = p.pending_blocks.pop().?;
     const node = switch (b.tag) {
         .list => list: {
             assert(b.string_start == p.scratch_string.items.len);
@@ -928,8 +928,8 @@ const InlineParser = struct {
     parent: *Parser,
     content: []const u8,
     pos: usize = 0,
-    pending_inlines: std.ArrayListUnmanaged(PendingInline) = .{},
-    completed_inlines: std.ArrayListUnmanaged(CompletedInline) = .{},
+    pending_inlines: std.ArrayListUnmanaged(PendingInline) = .empty,
+    completed_inlines: std.ArrayListUnmanaged(CompletedInline) = .empty,
 
     const PendingInline = struct {
         tag: Tag,
@@ -1564,7 +1564,7 @@ fn parseInlines(p: *Parser, content: []const u8) !ExtraIndex {
 }
 
 pub fn extraData(p: Parser, comptime T: type, index: ExtraIndex) ExtraData(T) {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = @intFromEnum(index);
     var result: T = undefined;
     inline for (fields) |field| {

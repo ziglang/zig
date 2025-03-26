@@ -1,7 +1,7 @@
 //! NVidia PTX (Parallel Thread Execution)
 //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
 //! For this we rely on the nvptx backend of LLVM
-//! Kernel functions need to be marked both as "export" and "callconv(.Kernel)"
+//! Kernel functions need to be marked both as "export" and "callconv(.kernel)"
 
 const NvPtx = @This();
 
@@ -60,7 +60,6 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .llvm_object = llvm_object,
     };
@@ -83,11 +82,17 @@ pub fn deinit(self: *NvPtx) void {
     self.llvm_object.deinit();
 }
 
-pub fn updateFunc(self: *NvPtx, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *NvPtx,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     try self.llvm_object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateNav(self: *NvPtx, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *NvPtx, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     return self.llvm_object.updateNav(pt, nav);
 }
 
@@ -95,16 +100,12 @@ pub fn updateExports(
     self: *NvPtx,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .nvptx)
         @panic("Attempted to compile for object format that was disabled by build configuration");
 
     return self.llvm_object.updateExports(pt, exported, export_indices);
-}
-
-pub fn freeDecl(self: *NvPtx, decl_index: InternPool.DeclIndex) void {
-    return self.llvm_object.freeDecl(decl_index);
 }
 
 pub fn flush(self: *NvPtx, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {

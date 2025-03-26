@@ -71,8 +71,6 @@ inline namespace parallelism_v2 {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
@@ -80,6 +78,7 @@ inline namespace parallelism_v2 {
 #include <experimental/__config>
 #include <experimental/__simd/aligned_tag.h>
 #include <experimental/__simd/declaration.h>
+#include <experimental/__simd/reference.h>
 #include <experimental/__simd/scalar.h>
 #include <experimental/__simd/simd.h>
 #include <experimental/__simd/simd_mask.h>

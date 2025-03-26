@@ -916,7 +916,7 @@ test "parse at comptime" {
         uptime: u64,
     };
     const config = comptime x: {
-        var buf: [32]u8 = undefined;
+        var buf: [256]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const res = parseFromSliceLeaky(Config, fba.allocator(), doc, .{});
         // Assert no error can occur since we are
@@ -924,4 +924,20 @@ test "parse at comptime" {
         break :x res catch unreachable;
     };
     comptime testing.expectEqual(@as(u64, 9999), config.uptime) catch unreachable;
+}
+
+test "parse with zero-bit field" {
+    const str =
+        \\{
+        \\    "a": ["a", "a"],
+        \\    "b": "a"
+        \\}
+    ;
+    const ZeroSizedEnum = enum { a };
+    try testing.expectEqual(0, @sizeOf(ZeroSizedEnum));
+
+    const Inner = struct { a: []const ZeroSizedEnum, b: ZeroSizedEnum };
+    const expected: Inner = .{ .a = &.{ .a, .a }, .b = .a };
+
+    try testAllParseFunctions(Inner, expected, str);
 }

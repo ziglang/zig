@@ -291,7 +291,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
-        \\    var gpa = @import("std").heap.GeneralPurposeAllocator(.{}){};
+        \\    var gpa: @import("std").heap.GeneralPurposeAllocator(.{}) = .init;
         \\    defer _ = gpa.deinit();
         \\    var arena = @import("std").heap.ArenaAllocator.init(gpa.allocator());
         \\    defer arena.deinit();
@@ -361,7 +361,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const os = std.os;
             \\
             \\pub fn main() !void {
-            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
             \\    defer _ = gpa.deinit();
             \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
@@ -402,7 +402,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const os = std.os;
             \\
             \\pub fn main() !void {
-            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
             \\    defer _ = gpa.deinit();
             \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
@@ -440,7 +440,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.log per scope log level override",
         \\const std = @import("std");
         \\
-        \\pub const std_options = .{
+        \\pub const std_options: std.Options = .{
         \\    .log_level = .debug,
         \\    
         \\    .log_scope_levels = &.{
@@ -490,49 +490,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\error(a):
         \\error(b):
         \\error(c):
-        \\
-    );
-
-    // It is required to override the log function in order to print to stdout instead of stderr
-    cases.add("std.heap.LoggingAllocator logs to std.log",
-        \\const std = @import("std");
-        \\
-        \\pub const std_options = .{
-        \\    .log_level = .debug,
-        \\    .logFn = log,
-        \\};
-        \\
-        \\pub fn main() !void {
-        \\    var allocator_buf: [10]u8 = undefined;
-        \\    const fba = std.heap.FixedBufferAllocator.init(&allocator_buf);
-        \\    var fba_wrapped = std.mem.validationWrap(fba);
-        \\    var logging_allocator = std.heap.loggingAllocator(fba_wrapped.allocator());
-        \\    const allocator = logging_allocator.allocator();
-        \\
-        \\    var a = try allocator.alloc(u8, 10);
-        \\    try std.testing.expect(allocator.resize(a, 5));
-        \\    a = a[0..5];
-        \\    try std.testing.expect(a.len == 5);
-        \\    try std.testing.expect(!allocator.resize(a, 20));
-        \\    allocator.free(a);
-        \\}
-        \\
-        \\pub fn log(
-        \\    comptime level: std.log.Level,
-        \\    comptime scope: @TypeOf(.EnumLiteral),
-        \\    comptime format: []const u8,
-        \\    args: anytype,
-        \\) void {
-        \\    const level_txt = comptime level.asText();
-        \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-        \\    const stdout = std.io.getStdOut().writer();
-        \\    nosuspend stdout.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        \\}
-    ,
-        \\debug: alloc - success - len: 10, ptr_align: 0
-        \\debug: shrink - success - 10 to 5, buf_align: 0
-        \\error: expand - failure - 5 to 20, buf_align: 0
-        \\debug: free - len: 5
         \\
     );
 

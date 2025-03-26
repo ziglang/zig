@@ -95,8 +95,8 @@ pub const Node = struct {
         /// Not thread-safe.
         fn getIpcFd(s: Storage) ?posix.fd_t {
             return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(s.completed_count),
-                .Pointer => @ptrFromInt(s.completed_count),
+                .int => @bitCast(s.completed_count),
+                .pointer => @ptrFromInt(s.completed_count),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             } else null;
         }
@@ -104,8 +104,8 @@ pub const Node = struct {
         /// Thread-safe.
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
             const integer: u32 = switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(fd),
-                .Pointer => @intFromPtr(fd),
+                .int => @bitCast(fd),
+                .pointer => @intFromPtr(fd),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             };
             // `estimated_total_count` max int indicates the special state that
@@ -188,7 +188,8 @@ pub const Node = struct {
         var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
         while (opt_free_index.unwrap()) |free_index| {
             const freelist_ptr = freelistByIndex(free_index);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, freelist_ptr.*, .seq_cst, .seq_cst) orelse {
+            const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
+            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -249,7 +250,7 @@ pub const Node = struct {
             const freelist_head = &global_progress.node_freelist_first;
             var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
             while (true) {
-                freelistByIndex(index).* = first;
+                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
                 first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
             }
         } else {
@@ -276,8 +277,8 @@ pub const Node = struct {
         const storage = storageByIndex(index);
         const int = @atomicLoad(u32, &storage.completed_count, .monotonic);
         return switch (@typeInfo(posix.fd_t)) {
-            .Int => @bitCast(int),
-            .Pointer => @ptrFromInt(int),
+            .int => @bitCast(int),
+            .pointer => @ptrFromInt(int),
             else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
         };
     }
@@ -381,8 +382,8 @@ pub fn start(options: Options) Node {
     if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
         global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
             @as(posix.fd_t, switch (@typeInfo(posix.fd_t)) {
-                .Int => ipc_fd,
-                .Pointer => @ptrFromInt(ipc_fd),
+                .int => ipc_fd,
+                .pointer => @ptrFromInt(ipc_fd),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             }),
         }) catch |err| {
@@ -633,7 +634,7 @@ const TreeSymbol = enum {
 
     fn maxByteLen(symbol: TreeSymbol) usize {
         var max: usize = 0;
-        inline for (@typeInfo(Encoding).Enum.fields) |field| {
+        inline for (@typeInfo(Encoding).@"enum".fields) |field| {
             const len = symbol.bytes(@field(Encoding, field.name)).len;
             max = @max(max, len);
         }
@@ -1365,7 +1366,7 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
     assert(sig == posix.SIG.WINCH);

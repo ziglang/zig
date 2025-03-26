@@ -1,5 +1,5 @@
 const c = @cImport({
-    _ = 1 + foo;
+    if (foo == 0) {}
 });
 extern var foo: i32;
 export fn entry() void {
@@ -7,9 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=llvm
-// target=native
 //
-// :2:11: error: unable to evaluate comptime expression
-// :2:13: note: operation is runtime due to this operand
-// :1:11: note: expression is evaluated at comptime because it is inside a @cImport
+// :2:13: error: unable to evaluate comptime expression
+// :2:9: note: operation is runtime due to this operand
+// :1:11: note: operand to '@cImport' is evaluated at comptime

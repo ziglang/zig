@@ -71,10 +71,10 @@ pub const Udp6 = extern struct {
 
     pub const CompletionToken = extern struct {
         event: Event,
-        Status: usize,
+        status: usize,
         packet: extern union {
-            RxData: *ReceiveData,
-            TxData: *TransmitData,
+            rx_data: *ReceiveData,
+            tx_data: *TransmitData,
         },
     };
 

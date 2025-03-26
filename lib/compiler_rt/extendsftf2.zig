@@ -5,17 +5,17 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__extendsftf2, .{ .name = "__extendsfkf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__extendsftf2, .{ .name = "__extendsfkf2", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
-        @export(_Qp_stoq, .{ .name = "_Qp_stoq", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_Qp_stoq, .{ .name = "_Qp_stoq", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__extendsftf2, .{ .name = "__extendsftf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__extendsftf2, .{ .name = "__extendsftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __extendsftf2(a: f32) callconv(.C) f128 {
+pub fn __extendsftf2(a: f32) callconv(.c) f128 {
     return extendf(f128, f32, @as(u32, @bitCast(a)));
 }
 
-fn _Qp_stoq(c: *f128, a: f32) callconv(.C) void {
+fn _Qp_stoq(c: *f128, a: f32) callconv(.c) void {
     c.* = extendf(f128, f32, @as(u32, @bitCast(a)));
 }

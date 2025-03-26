@@ -37,7 +37,7 @@ modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModule) else v
 pub const OpenError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
-} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
+} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).@"fn".return_type.?).error_union.error_set;
 
 pub fn open(allocator: Allocator) OpenError!SelfInfo {
     nosuspend {
@@ -121,13 +121,13 @@ pub fn deinit(self: *SelfInfo) void {
 }
 
 pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
-    if (comptime builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleWin32(address);
     } else if (native_os == .haiku) {
         return self.lookupModuleHaiku(address);
-    } else if (comptime builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return self.lookupModuleWasm(address);
     } else {
         return self.lookupModuleDl(address);
@@ -138,13 +138,13 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
 // This can be called when getModuleForAddress fails, so implementations should provide
 // a path that doesn't rely on any side-effects of a prior successful module lookup.
 pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
-    if (comptime builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleNameDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleNameWin32(address);
     } else if (native_os == .haiku) {
         return null;
-    } else if (comptime builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return null;
     } else {
         return self.lookupModuleNameDl(address);
@@ -184,10 +184,12 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
                     }
 
                     for (cmd.getSections()) |sect| {
+                        const sect_addr: usize = @intCast(sect.addr);
+                        const sect_size: usize = @intCast(sect.size);
                         if (mem.eql(u8, "__unwind_info", sect.sectName())) {
-                            unwind_info = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            unwind_info = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         } else if (mem.eql(u8, "__eh_frame", sect.sectName())) {
-                            eh_frame = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            eh_frame = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         }
                     }
 
@@ -502,7 +504,7 @@ pub const Module = switch (native_os) {
     .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
-        mapped_memory: []align(mem.page_size) const u8,
+        mapped_memory: []align(std.heap.page_size_min) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -582,7 +584,7 @@ pub const Module = switch (native_os) {
                 if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
                 var section_index: ?usize = null;
-                inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+                inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
                 if (section_index == null) continue;
@@ -590,7 +592,7 @@ pub const Module = switch (native_os) {
                 const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
-                    .virtual_address = sect.addr,
+                    .virtual_address = @intCast(sect.addr),
                     .owned = false,
                 };
             }
@@ -687,15 +689,15 @@ pub const Module = switch (native_os) {
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return .{
-                        .relocated_address = relocated_address,
-                        .symbol = symbol,
-                    },
-                    else => return err,
-                });
+                        error.FileNotFound,
+                        error.MissingDebugInfo,
+                        error.InvalidDebugInfo,
+                        => return .{
+                            .relocated_address = relocated_address,
+                            .symbol = symbol,
+                        },
+                        else => return err,
+                    });
 
                 return .{
                     .relocated_address = relocated_address,
@@ -705,7 +707,7 @@ pub const Module = switch (native_os) {
             }
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
             return if ((try self.getOFileInfoForAddress(allocator, address)).o_file_info) |o_file_info| &o_file_info.di else null;
         }
     },
@@ -732,14 +734,14 @@ pub const Module = switch (native_os) {
         fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?std.debug.Symbol {
             var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.pdb.?.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff_section_headers.len) continue;
+                if (sect_contrib.section > self.coff_section_headers.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff_section_headers[sect_contrib.Section - 1];
+                coff_section = &self.coff_section_headers[sect_contrib.section - 1];
 
-                const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
-                const vaddr_end = vaddr_start + sect_contrib.Size;
+                const vaddr_start = coff_section.virtual_address + sect_contrib.offset;
+                const vaddr_end = vaddr_start + sect_contrib.size;
                 if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                    break sect_contrib.ModuleIndex;
+                    break sect_contrib.module_index;
                 }
             } else {
                 // we have no information to add to the address
@@ -782,7 +784,7 @@ pub const Module = switch (native_os) {
             return .{};
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
             _ = allocator;
             _ = address;
 
@@ -806,7 +808,7 @@ pub const Module = switch (native_os) {
             return .{};
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
             _ = self;
             _ = allocator;
             _ = address;
@@ -981,7 +983,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             var sections: Dwarf.SectionArray = Dwarf.null_section_array;
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                 sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
                         .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
@@ -1044,7 +1046,7 @@ pub fn readElfDebugInfo(
     build_id: ?[]const u8,
     expected_crc: ?u32,
     parent_sections: *Dwarf.SectionArray,
-    parent_mapped_mem: ?[]align(mem.page_size) const u8,
+    parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
 ) !Dwarf.ElfModule {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
@@ -1086,7 +1088,7 @@ const MachoSymbol = struct {
 
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
+fn mapWholeFile(file: File) ![]align(std.heap.page_size_min) const u8 {
     nosuspend {
         defer file.close();
 
@@ -1154,11 +1156,12 @@ test machoSearchSymbols {
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
 pub fn unwindFrameMachO(
+    allocator: Allocator,
+    base_address: usize,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
     unwind_info: []const u8,
     eh_frame: ?[]const u8,
-    module_base_address: usize,
 ) !usize {
     const header = std.mem.bytesAsValue(
         macho.unwind_info_section_header,
@@ -1170,7 +1173,7 @@ pub fn unwindFrameMachO(
     );
     if (indices.len == 0) return error.MissingUnwindInfo;
 
-    const mapped_pc = context.pc - module_base_address;
+    const mapped_pc = context.pc - base_address;
     const second_level_index = blk: {
         var left: usize = 0;
         var len: usize = indices.len;
@@ -1349,7 +1352,7 @@ pub fn unwindFrameMachO(
                 else stack_size: {
                     // In .STACK_IND, the stack size is inferred from the subq instruction at the beginning of the function.
                     const sub_offset_addr =
-                        module_base_address +
+                        base_address +
                         entry.function_offset +
                         encoding.value.x86_64.frameless.stack.indirect.sub_offset;
                     if (ma.load(usize, sub_offset_addr) == null) return error.InvalidUnwindInfo;
@@ -1414,10 +1417,10 @@ pub fn unwindFrameMachO(
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
-        .aarch64 => switch (encoding.mode.arm64) {
+        .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
             .OLD => return error.UnimplementedUnwindEncoding,
             .FRAMELESS => blk: {
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
@@ -1428,7 +1431,7 @@ pub fn unwindFrameMachO(
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
             },
             .FRAME => blk: {
                 const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
@@ -1443,7 +1446,7 @@ pub fn unwindFrameMachO(
                 if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
 
                 var reg_addr = fp - @sizeOf(usize);
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
                         (try regValueNative(context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
@@ -1452,7 +1455,7 @@ pub fn unwindFrameMachO(
                     }
                 }
 
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
                         // Only the lower half of the 128-bit V registers are restored during unwinding
                         @memcpy(
@@ -1533,7 +1536,7 @@ pub const UnwindContext = struct {
 /// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
 /// This function clears these signature bits to make the pointer usable.
 pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-    if (native_arch == .aarch64) {
+    if (native_arch.isAARCH64()) {
         // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
         // The save / restore is because `xpaclri` operates on x30 (LR)
         return asm (
@@ -1553,13 +1556,16 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
 
 /// Unwind a stack frame using DWARF unwinding info, updating the register context.
 ///
-/// If `.eh_frame_hdr` is available, it will be used to binary search for the FDE.
-/// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE.
+/// If `.eh_frame_hdr` is available and complete, it will be used to binary search for the FDE.
+/// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE. The latter
+/// may require lazily loading the data in those sections.
 ///
 /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
 /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
 pub fn unwindFrameDwarf(
-    di: *const Dwarf,
+    allocator: Allocator,
+    di: *Dwarf,
+    base_address: usize,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
     explicit_fde_offset: ?usize,
@@ -1568,10 +1574,7 @@ pub fn unwindFrameDwarf(
     if (context.pc == 0) return 0;
 
     // Find the FDE and CIE
-    var cie: Dwarf.CommonInformationEntry = undefined;
-    var fde: Dwarf.FrameDescriptionEntry = undefined;
-
-    if (explicit_fde_offset) |fde_offset| {
+    const cie, const fde = if (explicit_fde_offset) |fde_offset| blk: {
         const dwarf_section: Dwarf.Section.Id = .eh_frame;
         const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
         if (fde_offset >= frame_section.len) return error.MissingFDE;
@@ -1592,7 +1595,7 @@ pub fn unwindFrameDwarf(
         const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
         if (cie_entry_header.type != .cie) return Dwarf.bad();
 
-        cie = try Dwarf.CommonInformationEntry.parse(
+        const cie = try Dwarf.CommonInformationEntry.parse(
             cie_entry_header.entry_bytes,
             0,
             true,
@@ -1602,8 +1605,7 @@ pub fn unwindFrameDwarf(
             @sizeOf(usize),
             native_endian,
         );
-
-        fde = try Dwarf.FrameDescriptionEntry.parse(
+        const fde = try Dwarf.FrameDescriptionEntry.parse(
             fde_entry_header.entry_bytes,
             0,
             true,
@@ -1611,31 +1613,60 @@ pub fn unwindFrameDwarf(
             @sizeOf(usize),
             native_endian,
         );
-    } else if (di.eh_frame_hdr) |header| {
-        const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
-        try header.findEntry(
-            ma,
-            eh_frame_len,
-            @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
-            context.pc,
-            &cie,
-            &fde,
-        );
-    } else {
+
+        break :blk .{ cie, fde };
+    } else blk: {
+        // `.eh_frame_hdr` may be incomplete. We'll try it first, but if the lookup fails, we fall
+        // back to loading `.eh_frame`/`.debug_frame` and using those from that point on.
+
+        if (di.eh_frame_hdr) |header| hdr: {
+            const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
+
+            var cie: Dwarf.CommonInformationEntry = undefined;
+            var fde: Dwarf.FrameDescriptionEntry = undefined;
+
+            header.findEntry(
+                ma,
+                eh_frame_len,
+                @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
+                context.pc,
+                &cie,
+                &fde,
+            ) catch |err| switch (err) {
+                error.InvalidDebugInfo => {
+                    // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
+                    // and `fde_list`, and fall back to the binary search logic below.
+                    try di.scanCieFdeInfo(allocator, base_address);
+
+                    // Since `.eh_frame_hdr` is incomplete, we're very likely to get more lookup
+                    // failures using it, and we've just built a complete, sorted list of FDEs
+                    // anyway, so just stop using `.eh_frame_hdr` altogether.
+                    di.eh_frame_hdr = null;
+
+                    break :hdr;
+                },
+                else => return err,
+            };
+
+            break :blk .{ cie, fde };
+        }
+
         const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
             pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .gt;
+                if (pc < item.pc_begin) return .lt;
 
                 const range_end = item.pc_begin + item.pc_range;
                 if (pc < range_end) return .eq;
 
-                return .lt;
+                return .gt;
             }
         }.compareFn);
 
-        fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
-        cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
-    }
+        const fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
+        const cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
+
+        break :blk .{ cie, fde };
+    };
 
     var expression_context: Dwarf.expression.Context = .{
         .format = cie.format,
@@ -1785,11 +1816,11 @@ pub fn supportsUnwinding(target: std.Target) bool {
             .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
             else => false,
         },
-        .arm => switch (target.os.tag) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
             .linux => true,
             else => false,
         },
-        .aarch64 => switch (target.os.tag) {
+        .aarch64, .aarch64_be => switch (target.os.tag) {
             .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
@@ -1800,6 +1831,8 @@ pub fn supportsUnwinding(target: std.Target) bool {
 }
 
 fn unwindFrameMachODwarf(
+    allocator: Allocator,
+    base_address: usize,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
     eh_frame: []const u8,
@@ -1816,7 +1849,7 @@ fn unwindFrameMachODwarf(
         .owned = false,
     };
 
-    return unwindFrameDwarf(&di, context, ma, fde_offset);
+    return unwindFrameDwarf(allocator, &di, base_address, context, ma, fde_offset);
 }
 
 /// This is a virtual machine that runs DWARF call frame instructions.
@@ -1933,8 +1966,8 @@ pub const VirtualMachine = struct {
         len: u8 = 0,
     };
 
-    columns: std.ArrayListUnmanaged(Column) = .{},
-    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
+    columns: std.ArrayListUnmanaged(Column) = .empty,
+    stack: std.ArrayListUnmanaged(ColumnRange) = .empty,
     current_row: Row = .{},
 
     /// The result of executing the CIE's initial_instructions
@@ -2105,7 +2138,7 @@ pub const VirtualMachine = struct {
                 self.current_row.copy_on_write = true;
             },
             .restore_state => {
-                const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                const restored_columns = self.stack.pop() orelse return error.InvalidOperation;
                 self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
                 try self.columns.ensureUnusedCapacity(allocator, restored_columns.len);
 
@@ -2192,7 +2225,7 @@ pub const VirtualMachine = struct {
 /// the .undefined rule by default, but allows ABI authors to override that.
 fn getRegDefaultValue(reg_number: u8, context: *UnwindContext, out: []u8) !void {
     switch (builtin.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             // Callee-saved registers are initialized as if they had the .same_value rule
             if (reg_number >= 19 and reg_number <= 28) {
                 const src = try regBytes(context.thread_context, reg_number, context.reg_context);

@@ -95,13 +95,13 @@ const Small = enum {
     four,
 };
 test "std.meta.Tag" {
-    try expect(@typeInfo(Small).Enum.tag_type == u2);
+    try expect(@typeInfo(Small).@"enum".tag_type == u2);
 }
 
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
-    try expect(@typeInfo(Small).Enum.fields.len == 4);
-    try expect(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "two"));
+    try expect(@typeInfo(Small).@"enum".fields.len == 4);
+    try expect(mem.eql(u8, @typeInfo(Small).@"enum".fields[1].name, "two"));
 }
 
 // @tagName gives a [:0]const u8 representation of an enum value:

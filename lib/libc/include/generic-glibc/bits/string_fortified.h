@@ -1,4 +1,4 @@
-/* Copyright (C) 2004-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2004-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -150,6 +150,11 @@ __NTH (strncat (__fortify_clang_overload_arg (char *, __restrict, __dest),
 				  __glibc_objsize (__dest));
 }
 
+/*
+ * strlcpy and strlcat introduced in glibc 2.38
+ * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
+ */
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2
 #ifdef __USE_MISC
 extern size_t __strlcpy_chk (char *__dest, const char *__src, size_t __n,
 			     size_t __destlen) __THROW;
@@ -186,5 +191,6 @@ __NTH (strlcat (__fortify_clang_overload_arg (char *, __restrict, __dest),
   return __strlcat_alias (__dest, __src, __n);
 }
 #endif /* __USE_MISC */
+#endif /* glibc v2.38 and later */
 
 #endif /* bits/string_fortified.h */

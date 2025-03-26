@@ -4,7 +4,7 @@ const testing = @import("std").testing;
 
 fn test__clzsi2(a: u32, expected: i32) !void {
     const nakedClzsi2 = clz.__clzsi2;
-    const actualClzsi2 = @as(*const fn (a: i32) callconv(.C) i32, @ptrCast(&nakedClzsi2));
+    const actualClzsi2 = @as(*const fn (a: i32) callconv(.c) i32, @ptrCast(&nakedClzsi2));
     const x: i32 = @bitCast(a);
     const result = actualClzsi2(x);
     try testing.expectEqual(expected, result);
@@ -268,7 +268,7 @@ test "clzsi2" {
     try test__clzsi2(0xFE000000, 0);
     try test__clzsi2(0xFF000000, 0);
     // arm and thumb1 assume input a != 0
-    if (!builtin.cpu.arch.isArmOrThumb())
+    if (!builtin.cpu.arch.isArm())
         try test__clzsi2(0x00000000, 32);
     try test__clzsi2(0x00000001, 31);
     try test__clzsi2(0x00000002, 30);

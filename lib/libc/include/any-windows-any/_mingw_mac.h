@@ -7,11 +7,14 @@
 #ifndef _INC_CRTDEFS_MACRO
 #define _INC_CRTDEFS_MACRO
 
+#define __MINGW64_PASTE2(x, y) x ## y
+#define __MINGW64_PASTE(x, y) __MINGW64_PASTE2(x, y)
+
 #define __STRINGIFY(x) #x
 #define __MINGW64_STRINGIFY(x) \
   __STRINGIFY(x)
 
-#define __MINGW64_VERSION_MAJOR 12
+#define __MINGW64_VERSION_MAJOR 13
 #define __MINGW64_VERSION_MINOR 0
 #define __MINGW64_VERSION_BUGFIX 0
 
@@ -88,6 +91,13 @@
 #  endif
 #endif
 
+#if defined(__arm64ec__) && !defined(_M_ARM64EC)
+#  define _M_ARM64EC 1
+#  ifndef _ARM64EC_
+#    define _ARM64EC_ 1
+#  endif
+#endif
+
 #ifndef _X86_
    /* MS does not prefix symbols by underscores for 64-bit.  */
 #  ifndef __MINGW_USE_UNDERSCORE_PREFIX
@@ -116,14 +126,14 @@
 #endif /* ifndef _X86_ */
 
 #if __MINGW_USE_UNDERSCORE_PREFIX == 0
-#  define __MINGW_IMP_SYMBOL(sym) __imp_##sym
-#  define __MINGW_IMP_LSYMBOL(sym) __imp_##sym
+#  define __MINGW_IMP_SYMBOL(sym) __MINGW64_PASTE(__imp_,sym)
+#  define __MINGW_IMP_LSYMBOL(sym) __MINGW64_PASTE(__imp_,sym)
 #  define __MINGW_USYMBOL(sym) sym
-#  define __MINGW_LSYMBOL(sym) _##sym
+#  define __MINGW_LSYMBOL(sym) __MINGW64_PASTE(_,sym)
 #else /* ! if __MINGW_USE_UNDERSCORE_PREFIX == 0 */
-#  define __MINGW_IMP_SYMBOL(sym) _imp__##sym
-#  define __MINGW_IMP_LSYMBOL(sym) __imp__##sym
-#  define __MINGW_USYMBOL(sym) _##sym
+#  define __MINGW_IMP_SYMBOL(sym) __MINGW64_PASTE(_imp__,sym)
+#  define __MINGW_IMP_LSYMBOL(sym) __MINGW64_PASTE(__imp__,sym)
+#  define __MINGW_USYMBOL(sym) __MINGW64_PASTE(_,sym)
 #  define __MINGW_LSYMBOL(sym) sym
 #endif /* if __MINGW_USE_UNDERSCORE_PREFIX == 0 */
 
@@ -267,31 +277,41 @@
 #  define __MINGW_ATTRIB_DEPRECATED_SEC_WARN
 #endif
 
+#ifdef __clang__
 #define __MINGW_MS_PRINTF(__format,__args) \
-  __attribute__((__format__(ms_printf, __format,__args)))
+  __attribute__((__format__(__printf__, __format,__args)))
 
 #define __MINGW_MS_SCANF(__format,__args) \
-  __attribute__((__format__(ms_scanf,  __format,__args)))
+  __attribute__((__format__(__scanf__,  __format,__args)))
 
 #define __MINGW_GNU_PRINTF(__format,__args) \
-  __attribute__((__format__(gnu_printf,__format,__args)))
+  __attribute__((__format__(__printf__,__format,__args)))
 
 #define __MINGW_GNU_SCANF(__format,__args) \
-  __attribute__((__format__(gnu_scanf, __format,__args)))
+  __attribute__((__format__(__scanf__, __format,__args)))
+#else
+#define __MINGW_MS_PRINTF(__format,__args) \
+  __attribute__((__format__(__ms_printf__, __format,__args)))
+
+#define __MINGW_MS_SCANF(__format,__args) \
+  __attribute__((__format__(__ms_scanf__,  __format,__args)))
+
+#define __MINGW_GNU_PRINTF(__format,__args) \
+  __attribute__((__format__(__gnu_printf__,__format,__args)))
+
+#define __MINGW_GNU_SCANF(__format,__args) \
+  __attribute__((__format__(__gnu_scanf__, __format,__args)))
+#endif /* !__clang__ */
 
 #undef __mingw_ovr
-#undef __mingw_static_ovr
 
 #ifdef __cplusplus
 #  define __mingw_ovr  inline __cdecl
-#  define __mingw_static_ovr static __mingw_ovr
 #elif defined (__GNUC__)
 #  define __mingw_ovr static \
       __attribute__ ((__unused__)) __inline__ __cdecl
-#  define __mingw_static_ovr __mingw_ovr
 #else
 #  define __mingw_ovr static __cdecl
-#  define __mingw_static_ovr __mingw_ovr
 #endif /* __cplusplus */
 
 #if __MINGW_GNUC_PREREQ(4, 3) || defined(__clang__)
@@ -308,7 +328,8 @@
 #  define __has_builtin(x) 0
 #endif
 
-#if _FORTIFY_SOURCE > 0 && __OPTIMIZE__ > 0 && __MINGW_GNUC_PREREQ(4, 1)
+#if defined(__MINGW32__) && _FORTIFY_SOURCE > 0 && __OPTIMIZE__ > 0 \
+    && __MINGW_GNUC_PREREQ(4, 1)
 #  if _FORTIFY_SOURCE > 3
 #    warning Using _FORTIFY_SOURCE=3 (levels > 3 are not supported)
 #  endif

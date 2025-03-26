@@ -391,8 +391,8 @@ operator<=>(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Perio
 
 template <class _Rep1, class _Period1, class _Rep2, class _Period2>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-    typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
-    operator+(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
+typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
+operator+(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
   typedef typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type _Cd;
   return _Cd(_Cd(__lhs).count() + _Cd(__rhs).count());
 }
@@ -401,8 +401,8 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 
 template <class _Rep1, class _Period1, class _Rep2, class _Period2>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-    typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
-    operator-(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
+typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
+operator-(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
   typedef typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type _Cd;
   return _Cd(_Cd(__lhs).count() - _Cd(__rhs).count());
 }
@@ -412,7 +412,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 template <class _Rep1,
           class _Period,
           class _Rep2,
-          __enable_if_t<is_convertible<_Rep2, typename common_type<_Rep1, _Rep2>::type>::value, int> = 0>
+          __enable_if_t<is_convertible<const _Rep2&, typename common_type<_Rep1, _Rep2>::type>::value, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
 operator*(const duration<_Rep1, _Period>& __d, const _Rep2& __s) {
   typedef typename common_type<_Rep1, _Rep2>::type _Cr;
@@ -423,7 +423,7 @@ operator*(const duration<_Rep1, _Period>& __d, const _Rep2& __s) {
 template <class _Rep1,
           class _Period,
           class _Rep2,
-          __enable_if_t<is_convertible<_Rep1, typename common_type<_Rep1, _Rep2>::type>::value, int> = 0>
+          __enable_if_t<is_convertible<const _Rep1&, typename common_type<_Rep1, _Rep2>::type>::value, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
 operator*(const _Rep1& __s, const duration<_Rep2, _Period>& __d) {
   return __d * __s;
@@ -435,7 +435,7 @@ template <class _Rep1,
           class _Period,
           class _Rep2,
           __enable_if_t<!__is_duration<_Rep2>::value &&
-                            is_convertible<_Rep2, typename common_type<_Rep1, _Rep2>::type>::value,
+                            is_convertible<const _Rep2&, typename common_type<_Rep1, _Rep2>::type>::value,
                         int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
 operator/(const duration<_Rep1, _Period>& __d, const _Rep2& __s) {
@@ -457,7 +457,7 @@ template <class _Rep1,
           class _Period,
           class _Rep2,
           __enable_if_t<!__is_duration<_Rep2>::value &&
-                            is_convertible<_Rep2, typename common_type<_Rep1, _Rep2>::type>::value,
+                            is_convertible<const _Rep2&, typename common_type<_Rep1, _Rep2>::type>::value,
                         int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
 operator%(const duration<_Rep1, _Period>& __d, const _Rep2& __s) {
@@ -468,8 +468,8 @@ operator%(const duration<_Rep1, _Period>& __d, const _Rep2& __s) {
 
 template <class _Rep1, class _Period1, class _Rep2, class _Period2>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-    typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
-    operator%(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
+typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type
+operator%(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
   typedef typename common_type<_Rep1, _Rep2>::type _Cr;
   typedef typename common_type<duration<_Rep1, _Period1>, duration<_Rep2, _Period2> >::type _Cd;
   return _Cd(static_cast<_Cr>(_Cd(__lhs).count()) % static_cast<_Cr>(_Cd(__rhs).count()));
