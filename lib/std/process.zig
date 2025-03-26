@@ -1652,11 +1652,12 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 pub fn getBaseAddress() usize {
     switch (native_os) {
         .linux => {
-            const base = std.os.linux.getauxval(std.elf.AT_BASE);
+            const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
+            const base = getauxval(std.elf.AT_BASE);
             if (base != 0) {
                 return base;
             }
-            const phdr = std.os.linux.getauxval(std.elf.AT_PHDR);
+            const phdr = getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macos, .freebsd, .netbsd => {
