@@ -69,6 +69,27 @@ fn testMemcpyDestManyPtr() !void {
     try expect(buf[4] == 'o');
 }
 
+test "@memcpy C pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    try testMemcpyCPointer();
+    try comptime testMemcpyCPointer();
+}
+
+fn testMemcpyCPointer() !void {
+    const src = "hello";
+    var buf: [5]u8 = undefined;
+    @memcpy(@as([*c]u8, &buf), src);
+    try expect(buf[0] == 'h');
+    try expect(buf[1] == 'e');
+    try expect(buf[2] == 'l');
+    try expect(buf[3] == 'l');
+    try expect(buf[4] == 'o');
+}
+
 test "@memcpy slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
