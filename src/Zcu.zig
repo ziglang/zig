@@ -3872,9 +3872,11 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     .unnamed_test => true,
                     .@"test", .decltest => a: {
                         const fqn_slice = nav.fqn.toSlice(ip);
-                        for (comp.test_filters) |test_filter| {
-                            if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
-                        } else break :a false;
+                        if (comp.test_filters.len > 0) {
+                            for (comp.test_filters) |test_filter| {
+                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                            } else break :a false;
+                        }
                         break :a true;
                     },
                 };
@@ -3884,7 +3886,10 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         @intFromEnum(inst_info.inst),
                     });
                     try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
-                    try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                    // Non-fatal AstGen errors could mean this test decl failed
+                    if (nav.status == .fully_resolved) {
+                        try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                    }
                 }
             }
             for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {
