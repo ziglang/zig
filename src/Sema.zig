@@ -36508,7 +36508,7 @@ pub fn analyzeAsAddressSpace(
     const address_space = try sema.interpretBuiltinType(block, src, addrspace_val, std.builtin.AddressSpace);
     const target = pt.zcu.getTarget();
 
-    if (!target.cpu.supportsAddressSpace(address_space, ctx)) {
+    if (!target.supportsAddressSpace(address_space, ctx)) {
         // TODO error messages could be made more elaborate here
         const entity = switch (ctx) {
             .function => "functions",
