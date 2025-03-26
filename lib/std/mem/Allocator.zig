@@ -304,7 +304,7 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
     if (allocation.len == 0) {
         return false;
     }
-    const old_memory = mem.sliceAsBytes(allocation);
+    const old_memory: []u8 = @constCast(@ptrCast(mem.absorbSentinel(allocation)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -348,7 +348,7 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
         new_memory.len = new_len;
         return new_memory;
     }
-    const old_memory = mem.sliceAsBytes(allocation);
+    const old_memory: []u8 = @constCast(@ptrCast(mem.absorbSentinel(allocation)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -397,7 +397,7 @@ pub fn reallocAdvanced(
         return @as([*]align(Slice.alignment) T, @ptrFromInt(ptr))[0..0];
     }
 
-    const old_byte_slice = mem.sliceAsBytes(old_mem);
+    const old_byte_slice: []u8 = @constCast(@ptrCast(mem.absorbSentinel(old_mem)));
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     if (self.rawRemap(old_byte_slice, .fromByteUnits(Slice.alignment), byte_count, return_address)) |p| {
@@ -421,12 +421,10 @@ pub fn reallocAdvanced(
 /// To free a single item, see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).pointer;
-    const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
-    if (bytes_len == 0) return;
-    const non_const_ptr = @constCast(bytes.ptr);
-    @memset(non_const_ptr[0..bytes_len], undefined);
-    self.rawFree(non_const_ptr[0..bytes_len], .fromByteUnits(Slice.alignment), @returnAddress());
+    const bytes: []u8 = @constCast(@ptrCast(mem.absorbSentinel(memory)));
+    if (bytes.len == 0) return;
+    @memset(bytes, undefined);
+    self.rawFree(bytes, .fromByteUnits(Slice.alignment), @returnAddress());
 }
 
 /// Copies `m` to newly allocated memory. Caller owns the memory.
