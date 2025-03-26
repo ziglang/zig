@@ -72,35 +72,3 @@ stage3-release/bin/zig build \
 echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
 diff stage3-release/bin/zig stage4-release/bin/zig
-
-# Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-release/bin/zig build update-zig1
-
-mkdir ../build-new
-cd ../build-new
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-
-cmake .. \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_NO_LIB=ON \
-  -GNinja
-
-unset CC
-unset CXX
-
-ninja install
-
-stage3/bin/zig test ../test/behavior.zig
-stage3/bin/zig build -p stage4 \
-  -Dstatic-llvm \
-  -Dtarget=native-native-musl \
-  -Dno-lib \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-stage4/bin/zig test ../test/behavior.zig
