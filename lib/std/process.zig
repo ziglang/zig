@@ -1660,7 +1660,7 @@ pub fn getBaseAddress() usize {
             const phdr = getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        .macos, .freebsd, .netbsd => {
+        .macos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
