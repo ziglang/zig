@@ -5338,6 +5338,15 @@ test mulUnsafe {
     try test_mul_unsafe.testIntVectors();
 }
 
+inline fn mulSafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
+    @setRuntimeSafety(true);
+    return @as(DoubleBits(Type), lhs) * rhs;
+}
+test mulSafe {
+    const test_mul_safe = binary(mulSafe, .{});
+    try test_mul_safe.testInts();
+}
+
 inline fn mulWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs *% rhs;
 }
@@ -5458,6 +5467,14 @@ inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Ty
 test subWithOverflow {
     const test_sub_with_overflow = binary(subWithOverflow, .{});
     try test_sub_with_overflow.testInts();
+}
+
+inline fn mulWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+    return @mulWithOverflow(lhs, rhs);
+}
+test mulWithOverflow {
+    const test_mul_with_overflow = binary(mulWithOverflow, .{});
+    try test_mul_with_overflow.testInts();
 }
 
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
