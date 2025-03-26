@@ -456,8 +456,10 @@ test "nonportable numbers" {
 test "invalid JSON values" {
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.inf(f32), .{}));
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.inf(f64), .{}));
+    try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.inf(f128), .{}));
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.nan(f32), .{}));
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.nan(f64), .{}));
+    try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, std.math.nan(f128), .{}));
 
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, .{
         .a = std.math.inf(f32),
@@ -466,10 +468,16 @@ test "invalid JSON values" {
         .a = std.math.inf(f64),
     }, .{}));
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, .{
+        .a = std.math.inf(f128),
+    }, .{}));
+    try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, .{
         .a = std.math.nan(f32),
     }, .{}));
     try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, .{
         .a = std.math.nan(f64),
+    }, .{}));
+    try std.testing.expectError(error.InvalidInput, stringifyAlloc(std.testing.allocator, .{
+        .a = std.math.nan(f128),
     }, .{}));
 }
 
