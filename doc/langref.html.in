@@ -3679,7 +3679,7 @@ void do_a_thing(struct Foo *foo) {
           <tr>
             <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
             <td>{#syntax#}T{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}FieldType(T, "0"){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "0"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
