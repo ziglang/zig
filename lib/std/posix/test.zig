@@ -509,6 +509,12 @@ test "getcwd" {
     _ = posix.getcwd(&buf) catch undefined;
 }
 
+test "getuid" {
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    _ = posix.getuid();
+    _ = posix.geteuid();
+}
+
 test "sigaltstack" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
