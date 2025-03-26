@@ -511,7 +511,7 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
         // I observed a value of 5605064704 on the M2 CI.
-        .max_rss = 5605064704,
+        .max_rss = 6165571174,
     }));
 
     const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
