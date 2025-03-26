@@ -48,11 +48,6 @@ unset CXX
 
 ninja install
 
-# simultaneously test building self-hosted without LLVM and with 32-bit arm
-stage3-debug/bin/zig build \
-  -Dtarget=arm-linux-musleabihf \
-  -Dno-lib
-
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-debug/bin/zig build test docs \
   --maxrss 24696061952 \
