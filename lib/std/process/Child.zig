@@ -153,6 +153,10 @@ pub const ResourceUsageStatistics = struct {
 pub const Arg0Expand = posix.Arg0Expand;
 
 pub const SpawnError = error{
+    /// Only possible for libraries when libc is not linked and there is no alternate start up code
+    /// added to populate the process env.
+    EnvNotSet,
+
     OutOfMemory,
 
     /// POSIX-only. `StdIo.Ignore` was selected and opening `/dev/null` returned ENODEV.
@@ -598,15 +602,13 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             break :m (try process.createEnvironFromExisting(arena, std.c.environ, .{
                 .zig_progress_fd = prog_fd,
             })).ptr;
-        } else if (builtin.output_mode == .Exe) {
-            // Then we have Zig start code and this works.
+        } else if (std.os.environ) |environ| {
             // TODO type-safety for null-termination of `os.environ`.
-            break :m (try process.createEnvironFromExisting(arena, @ptrCast(std.os.environ.ptr), .{
+            break :m (try process.createEnvironFromExisting(arena, @ptrCast(environ.ptr), .{
                 .zig_progress_fd = prog_fd,
             })).ptr;
         } else {
-            // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            return error.EnvNotSet;
         }
     };
 

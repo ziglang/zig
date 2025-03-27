@@ -271,6 +271,9 @@ test EnvMap {
 }
 
 pub const GetEnvMapError = error{
+    /// Only possible for libraries when libc is not linked and there is no alternate start up code
+    /// added to populate the process env.
+    NotSet,
     OutOfMemory,
     /// WASI-only. `environ_sizes_get` or `environ_get`
     /// failed for an unexpected reason.
@@ -361,8 +364,8 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
             try result.put(key, value);
         }
         return result;
-    } else {
-        for (std.os.environ) |line| {
+    } else if (std.os.environ) |environ| {
+        for (environ) |line| {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const key = line[0..line_i];
@@ -374,6 +377,8 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
             try result.put(key, value);
         }
         return result;
+    } else {
+        return error.NotSet;
     }
 }
 
@@ -578,19 +583,22 @@ pub const ArgIteratorPosix = struct {
     index: usize,
     count: usize,
 
-    pub const InitError = error{};
+    pub const InitError = error{ArgvNotSet};
 
-    pub fn init() ArgIteratorPosix {
-        return ArgIteratorPosix{
-            .index = 0,
-            .count = std.os.argv.len,
-        };
+    pub fn init() InitError!ArgIteratorPosix {
+        if (std.os.argv) |argv| {
+            return ArgIteratorPosix{
+                .index = 0,
+                .count = argv.len,
+            };
+        }
+        return error.ArgvNotSet;
     }
 
     pub fn next(self: *ArgIteratorPosix) ?[:0]const u8 {
         if (self.index == self.count) return null;
 
-        const s = std.os.argv[self.index];
+        const s = std.os.argv.?[self.index];
         self.index += 1;
         return mem.sliceTo(s, 0);
     }
@@ -1189,7 +1197,7 @@ pub const ArgIterator = struct {
             return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w) };
         }
 
-        return ArgIterator{ .inner = InnerType.init() };
+        return ArgIterator{ .inner = try InnerType.init() };
     }
 
     /// Get the next argument. Returns 'null' if we are at the end.
@@ -1679,7 +1687,12 @@ pub const can_spawn = switch (native_os) {
     else => true,
 };
 
-pub const ExecvError = std.posix.ExecveError || error{OutOfMemory};
+pub const ExecvError = std.posix.ExecveError || error{
+    /// Only possible for libraries when libc is not linked and there is no alternate start up code
+    /// added to populate the process env.
+    EnvNotSet,
+    OutOfMemory,
+};
 
 /// Replaces the current process image with the executed process.
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
@@ -1721,13 +1734,11 @@ pub fn execve(
             break :m envp_buf.ptr;
         } else if (builtin.link_libc) {
             break :m std.c.environ;
-        } else if (builtin.output_mode == .Exe) {
+        } else if (std.os.environ) |environ| {
             // Then we have Zig start code and this works.
-            // TODO type-safety for null-termination of `os.environ`.
-            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
+            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(environ.ptr));
         } else {
-            // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
+            return error.EnvNotSet;
         }
     };
 
