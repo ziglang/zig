@@ -565,7 +565,7 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         fn FieldType(comptime field: Field) type {
-            return meta.fieldInfo(Elem, field).type;
+            return @FieldType(Elem, @tagName(field));
         }
 
         const Entry = entry: {
