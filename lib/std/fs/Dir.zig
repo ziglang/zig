@@ -1698,6 +1698,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
