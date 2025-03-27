@@ -50,7 +50,7 @@ pub fn findByMnemonic(
         else => {},
     } else false;
     const rex_extended = for (ops) |op| {
-        if (op.isBaseExtended() or op.isIndexExtended()) break true;
+        if (op.baseExtEnc() != 0b00 or op.indexExtEnc() != 0b00) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;

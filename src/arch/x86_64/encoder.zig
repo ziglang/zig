@@ -206,19 +206,22 @@ pub const Instruction = struct {
             };
         }
 
-        pub fn isBaseExtended(op: Operand) bool {
+        pub fn baseExtEnc(op: Operand) u2 {
             return switch (op) {
-                .none, .imm => false,
-                .reg => |reg| reg.isExtended(),
-                .mem => |mem| mem.base().isExtended(),
+                .none, .imm => 0b00,
+                .reg => |reg| @truncate(reg.enc() >> 3),
+                .mem => |mem| switch (mem.base()) {
+                    .none, .frame, .table, .reloc, .rip_inst => 0b00, // rsp, rbp, and rip are not extended
+                    .reg => |reg| @truncate(reg.enc() >> 3),
+                },
                 .bytes => unreachable,
             };
         }
 
-        pub fn isIndexExtended(op: Operand) bool {
+        pub fn indexExtEnc(op: Operand) u2 {
             return switch (op) {
-                .none, .reg, .imm => false,
-                .mem => |mem| if (mem.scaleIndex()) |si| si.index.isExtended() else false,
+                .none, .reg, .imm => 0b00,
+                .mem => |mem| if (mem.scaleIndex()) |si| @truncate(si.index.enc() >> 3) else 0b00,
                 .bytes => unreachable,
             };
         }
@@ -422,14 +425,14 @@ pub const Instruction = struct {
                 };
                 switch (mem_op) {
                     .reg => |reg| {
-                        const rm = switch (data.op_en) {
+                        const rm: u3 = switch (data.op_en) {
                             .ia, .m, .mi, .m1, .mc, .vm, .vmi => enc.modRmExt(),
-                            .mr, .mri, .mrc => inst.ops[1].reg.lowEnc(),
-                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0].reg.lowEnc(),
-                            .mvr => inst.ops[2].reg.lowEnc(),
+                            .mr, .mri, .mrc => @truncate(inst.ops[1].reg.enc()),
+                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => @truncate(inst.ops[0].reg.enc()),
+                            .mvr => @truncate(inst.ops[2].reg.enc()),
                             else => unreachable,
                         };
-                        try encoder.modRm_direct(rm, reg.lowEnc());
+                        try encoder.modRm_direct(rm, @truncate(reg.enc()));
                     },
                     .mem => |mem| {
                         const op = switch (data.op_en) {
@@ -448,7 +451,7 @@ pub const Instruction = struct {
                     .ia => try encodeImm(inst.ops[0].imm, data.ops[0], encoder),
                     .mi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
                     .rmi, .mri, .vmi => try encodeImm(inst.ops[2].imm, data.ops[2], encoder),
-                    .rvmr => try encoder.imm8(@as(u8, inst.ops[3].reg.enc()) << 4),
+                    .rvmr => try encoder.imm8(@as(u8, @as(u4, @intCast(inst.ops[3].reg.enc()))) << 4),
                     .rvmi => try encodeImm(inst.ops[3].imm, data.ops[3], encoder),
                     else => {},
                 }
@@ -462,8 +465,8 @@ pub const Instruction = struct {
         const final = opcode.len - 1;
         for (opcode[first..final]) |byte| try encoder.opcode_1byte(byte);
         switch (inst.encoding.data.op_en) {
-            .o, .oz, .oi => try encoder.opcode_withReg(opcode[final], inst.ops[0].reg.lowEnc()),
-            .zo => try encoder.opcode_withReg(opcode[final], inst.ops[1].reg.lowEnc()),
+            .o, .oz, .oi => try encoder.opcode_withReg(opcode[final], @truncate(inst.ops[0].reg.enc())),
+            .zo => try encoder.opcode_withReg(opcode[final], @truncate(inst.ops[1].reg.enc())),
             else => try encoder.opcode_1byte(opcode[final]),
         }
     }
@@ -533,23 +536,29 @@ pub const Instruction = struct {
 
         switch (op_en) {
             .z, .i, .zi, .ii, .ia, .fd, .td, .d => {},
-            .o, .oz, .oi => rex.b = inst.ops[0].reg.isExtended(),
-            .zo => rex.b = inst.ops[1].reg.isExtended(),
+            .o, .oz, .oi => rex.b = inst.ops[0].reg.enc() & 0b01000 != 0,
+            .zo => rex.b = inst.ops[1].reg.enc() & 0b01000 != 0,
             .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .rmv => {
                 const r_op = switch (op_en) {
                     .rm, .rmi, .rm0, .rmv => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
                     else => .none,
                 };
-                rex.r = r_op.isBaseExtended();
+                const r_op_base_ext_enc = r_op.baseExtEnc();
+                rex.r = r_op_base_ext_enc & 0b01 != 0;
+                assert(r_op_base_ext_enc & 0b10 == 0);
 
                 const b_x_op = switch (op_en) {
                     .rm, .rmi, .rm0 => inst.ops[1],
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
                     else => unreachable,
                 };
-                rex.b = b_x_op.isBaseExtended();
-                rex.x = b_x_op.isIndexExtended();
+                const b_x_op_base_ext_enc = b_x_op.baseExtEnc();
+                rex.b = b_x_op_base_ext_enc & 0b01 != 0;
+                assert(b_x_op_base_ext_enc & 0b10 == 0);
+                const b_x_op_index_ext_enc = b_x_op.indexExtEnc();
+                rex.x = b_x_op_index_ext_enc & 0b01 != 0;
+                assert(b_x_op_index_ext_enc & 0b10 == 0);
             },
             .vm, .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable,
         }
@@ -576,7 +585,9 @@ pub const Instruction = struct {
                     .m, .mi, .m1, .mc, .vm, .vmi => .none,
                     else => unreachable,
                 };
-                vex.r = r_op.isBaseExtended();
+                const r_op_base_ext_enc = r_op.baseExtEnc();
+                vex.r = r_op_base_ext_enc & 0b01 != 0;
+                assert(r_op_base_ext_enc & 0b10 == 0);
 
                 const b_x_op = switch (op_en) {
                     .rm, .rmi, .rm0, .vm, .vmi, .rmv => inst.ops[1],
@@ -584,8 +595,12 @@ pub const Instruction = struct {
                     .rvm, .rvmr, .rvmi => inst.ops[2],
                     else => unreachable,
                 };
-                vex.b = b_x_op.isBaseExtended();
-                vex.x = b_x_op.isIndexExtended();
+                const b_x_op_base_ext_enc = b_x_op.baseExtEnc();
+                vex.b = b_x_op_base_ext_enc & 0b01 != 0;
+                assert(b_x_op_base_ext_enc & 0b10 == 0);
+                const b_x_op_index_ext_enc = b_x_op.indexExtEnc();
+                vex.x = b_x_op_index_ext_enc & 0b01 != 0;
+                assert(b_x_op_index_ext_enc & 0b10 == 0);
             },
         }
 
@@ -622,8 +637,8 @@ pub const Instruction = struct {
     }
 
     fn encodeMemory(encoding: Encoding, mem: Memory, operand: Operand, encoder: anytype) !void {
-        const operand_enc = switch (operand) {
-            .reg => |reg| reg.lowEnc(),
+        const operand_enc: u3 = switch (operand) {
+            .reg => |reg| @truncate(reg.enc()),
             .none => encoding.modRmExt(),
             else => unreachable,
         };
@@ -635,7 +650,7 @@ pub const Instruction = struct {
                     try encoder.modRm_SIBDisp0(operand_enc);
                     if (mem.scaleIndex()) |si| {
                         const scale = math.log2_int(u4, si.scale);
-                        try encoder.sib_scaleIndexDisp32(scale, si.index.lowEnc());
+                        try encoder.sib_scaleIndexDisp32(scale, @truncate(si.index.enc()));
                     } else {
                         try encoder.sib_disp32();
                     }
@@ -647,21 +662,21 @@ pub const Instruction = struct {
                         try encoder.modRm_SIBDisp0(operand_enc);
                         if (mem.scaleIndex()) |si| {
                             const scale = math.log2_int(u4, si.scale);
-                            try encoder.sib_scaleIndexDisp32(scale, si.index.lowEnc());
+                            try encoder.sib_scaleIndexDisp32(scale, @truncate(si.index.enc()));
                         } else {
                             try encoder.sib_disp32();
                         }
                         try encoder.disp32(sib.disp);
                     },
                     .general_purpose => {
-                        const dst = base.lowEnc();
+                        const dst: u3 = @truncate(base.enc());
                         const src = operand_enc;
                         if (dst == 4 or mem.scaleIndex() != null) {
                             if (sib.disp == 0 and dst != 5) {
                                 try encoder.modRm_SIBDisp0(src);
                                 if (mem.scaleIndex()) |si| {
                                     const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBase(scale, si.index.lowEnc(), dst);
+                                    try encoder.sib_scaleIndexBase(scale, @truncate(si.index.enc()), dst);
                                 } else {
                                     try encoder.sib_base(dst);
                                 }
@@ -669,7 +684,7 @@ pub const Instruction = struct {
                                 try encoder.modRm_SIBDisp8(src);
                                 if (mem.scaleIndex()) |si| {
                                     const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBaseDisp8(scale, si.index.lowEnc(), dst);
+                                    try encoder.sib_scaleIndexBaseDisp8(scale, @truncate(si.index.enc()), dst);
                                 } else {
                                     try encoder.sib_baseDisp8(dst);
                                 }
@@ -678,7 +693,7 @@ pub const Instruction = struct {
                                 try encoder.modRm_SIBDisp32(src);
                                 if (mem.scaleIndex()) |si| {
                                     const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBaseDisp32(scale, si.index.lowEnc(), dst);
+                                    try encoder.sib_scaleIndexBaseDisp32(scale, @truncate(si.index.enc()), dst);
                                 } else {
                                     try encoder.sib_baseDisp32(dst);
                                 }
@@ -867,7 +882,7 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
 
                 try self.writer.writeByte(
                     @as(u8, @intFromBool(fields.w)) << 7 |
-                        @as(u8, ~fields.v.enc()) << 3 |
+                        @as(u8, ~@as(u4, @intCast(fields.v.enc()))) << 3 |
                         @as(u8, @intFromBool(fields.l)) << 2 |
                         @as(u8, @intFromEnum(fields.p)) << 0,
                 );
@@ -875,7 +890,7 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
                 try self.writer.writeByte(0b1100_0101);
                 try self.writer.writeByte(
                     @as(u8, ~@intFromBool(fields.r)) << 7 |
-                        @as(u8, ~fields.v.enc()) << 3 |
+                        @as(u8, ~@as(u4, @intCast(fields.v.enc()))) << 3 |
                         @as(u8, @intFromBool(fields.l)) << 2 |
                         @as(u8, @intFromEnum(fields.p)) << 0,
                 );
