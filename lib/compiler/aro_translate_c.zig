@@ -1620,7 +1620,11 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 .root => null,
                 .block => ret: {
                     const block = @as(*Block, @fieldParentPtr("base", scope));
-                    break :ret block.getLocalExternAlias(name);
+                    const alias_name = block.getLocalExternAlias(name);
+                    if (alias_name) |_alias_name| {
+                        break :ret _alias_name;
+                    }
+                    break :ret scope.parent.?.getLocalExternAlias(name);
                 },
                 .loop, .do_loop, .condition => scope.parent.?.getLocalExternAlias(name),
             };
