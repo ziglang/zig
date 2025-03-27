@@ -138,7 +138,7 @@ pub const Instruction = struct {
                 .moffs => true,
                 .rip => false,
                 .sib => |s| switch (s.base) {
-                    .none, .frame, .table, .reloc => false,
+                    .none, .frame, .table, .reloc, .rip_inst => false,
                     .reg => |reg| reg.class() == .segment,
                 },
             };
@@ -279,6 +279,7 @@ pub const Instruction = struct {
                             .frame => |frame_index| try writer.print("{}", .{frame_index}),
                             .table => try writer.print("Table", .{}),
                             .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
+                            .rip_inst => |inst_index| try writer.print("RipInst({d})", .{inst_index}),
                         }
                         if (mem.scaleIndex()) |si| {
                             if (any) try writer.writeAll(" + ");
@@ -705,6 +706,10 @@ pub const Instruction = struct {
                     try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
+                .rip_inst => {
+                    try encoder.modRm_RIPDisp32(operand_enc);
+                    try encoder.disp32(sib.disp);
+                },
             },
             .rip => |rip| {
                 try encoder.modRm_RIPDisp32(operand_enc);
