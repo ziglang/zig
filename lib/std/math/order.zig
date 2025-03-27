@@ -107,12 +107,10 @@ pub fn order(lhs: anytype, rhs: anytype) Order {
     const T = @TypeOf(lhs, rhs);
     switch (@typeInfo(T)) {
         .int, .comptime_int => {
-            const gt: i8 = @intFromBool(lhs > rhs);
-            const lt: i8 = @intFromBool(lhs < rhs);
-            return @enumFromInt(gt - lt);
+            return @enumFromInt(@as(i2, @intFromBool(lhs > rhs)) - @intFromBool(lhs < rhs));
         },
         .comptime_float => {
-            return order(@as(f128, lhs), @as(f128, rhs));
+            return comptime order(@as(f128, lhs), @as(f128, rhs));
         },
         .float => |float| {
             // Implementation of IEEE total ordering

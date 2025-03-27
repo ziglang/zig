@@ -572,12 +572,12 @@ pub const Mutable = struct {
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn subCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqlZero()) {
+        if (b.eqlZero()) {
+            r.copy(a);
+            return false;
+        } else if (a.eqlZero()) {
             r.copy(b);
             r.positive = !b.positive;
-            return false;
-        } else if (b.eqlZero()) {
-            r.copy(a);
             return false;
         } else if (a.positive != b.positive) {
             if (a.positive) {
