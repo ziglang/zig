@@ -4,6 +4,7 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const Mir = @import("Mir.zig");
 
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
@@ -678,12 +679,13 @@ pub const Memory = struct {
         frame: FrameIndex,
         table,
         reloc: u32,
+        rip_inst: Mir.Inst.Index,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {
-                .none, .frame, .table, .reloc => false, // rsp, rbp, and rip are not extended
+                .none, .frame, .table, .reloc, .rip_inst => false, // rsp, rbp, and rip are not extended
                 .reg => |reg| reg.isExtended(),
             };
         }
