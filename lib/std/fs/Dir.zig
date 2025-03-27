@@ -2007,6 +2007,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2081,6 +2082,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2385,6 +2387,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,
