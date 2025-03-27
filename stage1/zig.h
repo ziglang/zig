@@ -223,6 +223,12 @@
 #define zig_restrict
 #endif
 
+#if zig_has_attribute(no_builtin)
+#define zig_no_builtin __attribute__((no_builtin))
+#else
+#define zig_no_builtin
+#endif
+
 #if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif defined(zig_msvc)
