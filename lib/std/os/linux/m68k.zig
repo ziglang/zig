@@ -286,7 +286,7 @@ pub const Elf_Symndx = u32;
 
 // m68k has multiple minimum page sizes.
 // glibc sets MMAP2_PAGE_UNIT to -1 so it is queried at runtime.
-pub const MMAP2_UNIT = -1;
+pub const MMAP2_UNIT = null;
 
 // glibc 112a0ae18b831bf31f44d81b82666980312511d6
 pub const VDSO = void;
