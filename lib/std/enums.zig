@@ -690,7 +690,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         counts: EnumArray(E, CountSize),
 
         /// A multiset with a count of zero.
-        pub const empty: Self = Self.initWithCount(0);
+        pub const empty: Self = .initWithCount(0);
 
         /// Initializes the multiset using a struct of counts.
         pub fn init(init_counts: EnumFieldStruct(E, CountSize, 0)) Self {

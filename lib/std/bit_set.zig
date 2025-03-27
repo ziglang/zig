@@ -378,7 +378,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         pub const ShiftInt = std.math.Log2Int(MaskInt);
 
         /// A bit set with no elements present.
-        pub const empty: Self = .{ .masks = [_]MaskInt{0} ** num_masks };
+        pub const empty: Self = .{ .masks = @splat(0) };
 
         /// A bit set with all elements present.
         pub const full: Self = if (num_masks == 0)
