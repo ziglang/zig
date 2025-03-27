@@ -131,9 +131,9 @@ pub const SimpleNetwork = extern struct {
     };
 
     pub const State = enum(u32) {
-        Stopped,
-        Started,
-        Initialized,
+        stopped,
+        started,
+        initialized,
     };
 
     pub const Statistics = extern struct {

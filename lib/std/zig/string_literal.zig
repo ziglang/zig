@@ -39,39 +39,81 @@ pub const Error = union(enum) {
     /// `''`. Not returned for string literals.
     empty_char_literal,
 
-    /// Returns `func(first_args[0], ..., first_args[n], offset + bad_idx, format, args)`.
-    pub fn lower(
+    const FormatMessage = struct {
         err: Error,
         raw_string: []const u8,
-        offset: u32,
-        comptime func: anytype,
-        first_args: anytype,
-    ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
-        switch (err) {
-            inline else => |bad_index_or_void, tag| {
-                const bad_index: u32 = switch (@TypeOf(bad_index_or_void)) {
-                    void => 0,
-                    else => @intCast(bad_index_or_void),
-                };
-                const fmt_str: []const u8, const args = switch (tag) {
-                    .invalid_escape_character => .{ "invalid escape character: '{c}'", .{raw_string[bad_index]} },
-                    .expected_hex_digit => .{ "expected hex digit, found '{c}'", .{raw_string[bad_index]} },
-                    .empty_unicode_escape_sequence => .{ "empty unicode escape sequence", .{} },
-                    .expected_hex_digit_or_rbrace => .{ "expected hex digit or '}}', found '{c}'", .{raw_string[bad_index]} },
-                    .invalid_unicode_codepoint => .{ "unicode escape does not correspond to a valid unicode scalar value", .{} },
-                    .expected_lbrace => .{ "expected '{{', found '{c}'", .{raw_string[bad_index]} },
-                    .expected_rbrace => .{ "expected '}}', found '{c}'", .{raw_string[bad_index]} },
-                    .expected_single_quote => .{ "expected singel quote ('), found '{c}'", .{raw_string[bad_index]} },
-                    .invalid_character => .{ "invalid byte in string or character literal: '{c}'", .{raw_string[bad_index]} },
-                    .empty_char_literal => .{ "empty character literal", .{} },
-                };
-                return @call(.auto, func, first_args ++ .{
-                    offset + bad_index,
-                    fmt_str,
-                    args,
-                });
-            },
+    };
+
+    fn formatMessage(
+        self: FormatMessage,
+        comptime f: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = f;
+        _ = options;
+        switch (self.err) {
+            .invalid_escape_character => |bad_index| try writer.print(
+                "invalid escape character: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_hex_digit => |bad_index| try writer.print(
+                "expected hex digit, found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_unicode_escape_sequence => try writer.writeAll(
+                "empty unicode escape sequence",
+            ),
+            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
+                "expected hex digit or '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_unicode_codepoint => try writer.writeAll(
+                "unicode escape does not correspond to a valid unicode scalar value",
+            ),
+            .expected_lbrace => |bad_index| try writer.print(
+                "expected '{{', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_rbrace => |bad_index| try writer.print(
+                "expected '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_single_quote => |bad_index| try writer.print(
+                "expected single quote ('), found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_character => |bad_index| try writer.print(
+                "invalid byte in string or character literal: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_char_literal => try writer.writeAll(
+                "empty character literal",
+            ),
         }
+    }
+
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(formatMessage) {
+        return .{ .data = .{
+            .err = self,
+            .raw_string = raw_string,
+        } };
+    }
+
+    pub fn offset(err: Error) usize {
+        return switch (err) {
+            inline .invalid_escape_character,
+            .expected_hex_digit,
+            .empty_unicode_escape_sequence,
+            .expected_hex_digit_or_rbrace,
+            .invalid_unicode_codepoint,
+            .expected_lbrace,
+            .expected_rbrace,
+            .expected_single_quote,
+            .invalid_character,
+            => |n| n,
+            .empty_char_literal => 0,
+        };
     }
 };
 
@@ -335,7 +377,7 @@ test parseAlloc {
     const expectError = std.testing.expectError;
     const eql = std.mem.eql;
 
-    var fixed_buf_mem: [64]u8 = undefined;
+    var fixed_buf_mem: [512]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(&fixed_buf_mem);
     const alloc = fixed_buf_alloc.allocator();
 

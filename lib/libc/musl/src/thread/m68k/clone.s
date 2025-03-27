@@ -18,7 +18,7 @@ __clone:
 	beq 1f
 	movem.l (%sp)+,%d2-%d5
 	rts
-1:	suba.l %%fp,%%fp
+1:	suba.l %fp,%fp
 	move.l %a1,-(%sp)
 	jsr (%a0)
 	move.l #1,%d0

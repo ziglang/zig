@@ -462,6 +462,8 @@ pub const ET = enum(u16) {
     /// Core file
     CORE = 4,
 
+    _,
+
     /// Beginning of OS-specific codes
     pub const LOOS = 0xfe00;
 
@@ -532,17 +534,21 @@ pub const Header = struct {
         };
         const need_bswap = endian != native_endian;
 
+        // Converting integers to exhaustive enums using `@enumFromInt` could cause a panic.
+        comptime assert(!@typeInfo(OSABI).@"enum".is_exhaustive);
         const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
 
         // The meaning of this value depends on `os_abi` so just make it available as `u8`.
         const abi_version = hdr32.e_ident[EI_ABIVERSION];
 
         const @"type" = if (need_bswap) blk: {
+            comptime assert(!@typeInfo(ET).@"enum".is_exhaustive);
             const value = @intFromEnum(hdr32.e_type);
             break :blk @as(ET, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_type;
 
         const machine = if (need_bswap) blk: {
+            comptime assert(!@typeInfo(EM).@"enum".is_exhaustive);
             const value = @intFromEnum(hdr32.e_machine);
             break :blk @as(EM, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_machine;
@@ -1172,8 +1178,6 @@ pub const EM = enum(u16) {
     MIPS_RS3_LE = 10,
     /// Old version of Sparc v9, from before the ABI (deprecated)
     OLD_SPARCV9 = 11,
-    /// SPU Mark II
-    SPU_2 = 13,
     /// HPPA
     PARISC = 15,
     /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
@@ -2391,3 +2395,40 @@ pub const STRNAME = genSpecialMemberName("//");
 pub const SYM64NAME = genSpecialMemberName("/SYM64/");
 pub const SYMDEFNAME = genSpecialMemberName("__.SYMDEF");
 pub const SYMDEFSORTEDNAME = genSpecialMemberName("__.SYMDEF SORTED");
+
+pub const gnu_hash = struct {
+
+    // See https://flapenguin.me/elf-dt-gnu-hash
+
+    pub const Header = extern struct {
+        nbuckets: u32,
+        symoffset: u32,
+        bloom_size: u32,
+        bloom_shift: u32,
+    };
+
+    pub const ChainEntry = packed struct(u32) {
+        end_of_chain: bool,
+        /// Contains the top bits of the hash value.
+        hash: u31,
+    };
+
+    /// Calculate the hash value for a name
+    pub fn calculate(name: []const u8) u32 {
+        var hash: u32 = 5381;
+
+        for (name) |char| {
+            hash = (hash << 5) +% hash +% char;
+        }
+
+        return hash;
+    }
+
+    test calculate {
+        try std.testing.expectEqual(0x00001505, calculate(""));
+        try std.testing.expectEqual(0x156b2bb8, calculate("printf"));
+        try std.testing.expectEqual(0x7c967e3f, calculate("exit"));
+        try std.testing.expectEqual(0xbac212a0, calculate("syscall"));
+        try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
+    }
+};

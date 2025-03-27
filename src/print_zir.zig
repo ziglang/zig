@@ -22,9 +22,9 @@ pub fn renderAsTextToFile(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = 0,
-        .parent_decl_node = 0,
+        .parent_decl_node = .root,
         .recurse_decls = true,
         .recurse_blocks = true,
     };
@@ -36,18 +36,18 @@ pub fn renderAsTextToFile(
     try stream.print("%{d} ", .{@intFromEnum(main_struct_inst)});
     try writer.writeInstToStream(stream, main_struct_inst);
     try stream.writeAll("\n");
-    const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = scope_file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         try stream.writeAll("Imports:\n");
 
-        const extra = scope_file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = scope_file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var extra_index = extra.end;
 
         for (0..extra.data.imports_len) |_| {
-            const item = scope_file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = scope_file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = scope_file.zir.nullTerminatedString(item.data.name);
+            const import_path = scope_file.zir.?.nullTerminatedString(item.data.name);
             try stream.print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -75,7 +75,7 @@ pub fn renderInstructionContext(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = if (indent < 2) 2 else indent,
         .parent_decl_node = parent_decl_node,
         .recurse_decls = false,
@@ -107,7 +107,7 @@ pub fn renderSingleInstruction(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = indent,
         .parent_decl_node = parent_decl_node,
         .recurse_decls = false,
@@ -185,10 +185,6 @@ const Writer = struct {
         }
     } = .{},
 
-    fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
-        return @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node)));
-    }
-
     fn writeInstToStream(
         self: *Writer,
         stream: anytype,
@@ -208,6 +204,7 @@ const Writer = struct {
             .anyframe_type,
             .bit_not,
             .bool_not,
+            .slice_sentinel_ty,
             .negate,
             .negate_wrap,
             .load,
@@ -278,8 +275,6 @@ const Writer = struct {
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,
             .restore_err_ret_index_fn_entry,
-            .try_operand_ty,
-            .try_ref_operand_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -490,7 +485,6 @@ const Writer = struct {
             .enum_literal,
             .decl_ref,
             .decl_val,
-            .import,
             .ret_err_value,
             .ret_err_value_code,
             .param_anytype,
@@ -517,6 +511,8 @@ const Writer = struct {
             .declaration => try self.writeDeclaration(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
+
+            .import => try self.writeImport(stream, inst),
         }
     }
 
@@ -531,6 +527,7 @@ const Writer = struct {
             .frame_address,
             .breakpoint,
             .disable_instrumentation,
+            .disable_intrinsics,
             .c_va_start,
             .in_comptime,
             .value_placeholder,
@@ -594,7 +591,7 @@ const Writer = struct {
                 const prev_parent_decl_node = self.parent_decl_node;
                 self.parent_decl_node = inst_data.node;
                 defer self.parent_decl_node = prev_parent_decl_node;
-                try self.writeSrcNode(stream, 0);
+                try self.writeSrcNode(stream, .zero);
             },
 
             .builtin_extern,
@@ -630,7 +627,8 @@ const Writer = struct {
 
     fn writeExtNode(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         try stream.writeAll(")) ");
-        try self.writeSrcNode(stream, @bitCast(extended.operand));
+        const src_node: Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
+        try self.writeSrcNode(stream, src_node);
     }
 
     fn writeArrayInitElemType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -1578,7 +1576,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writeUnionDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -1658,7 +1656,7 @@ const Writer = struct {
 
         if (fields_len == 0) {
             try stream.writeAll("}) ");
-            try self.writeSrcNode(stream, 0);
+            try self.writeSrcNode(stream, .zero);
             return;
         }
         try stream.writeAll(", ");
@@ -1729,7 +1727,7 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writeEnumDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -1848,7 +1846,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writeOpaqueDecl(
@@ -1892,7 +1890,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writeTupleDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -2538,7 +2536,7 @@ const Writer = struct {
         ret_ty_body: []const Zir.Inst.Index,
         ret_ty_is_generic: bool,
         body: []const Zir.Inst.Index,
-        src_node: i32,
+        src_node: Ast.Node.Offset,
         src_locs: Zir.Inst.Func.SrcLocs,
         noalias_bits: u32,
     ) !void {
@@ -2646,18 +2644,20 @@ const Writer = struct {
         }
 
         try stream.writeAll(") ");
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         try stream.print("{d})) ", .{extended.small});
-        try self.writeSrcNode(stream, @bitCast(extended.operand));
+        const src_node: Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
+        try self.writeSrcNode(stream, src_node);
     }
 
     fn writeBuiltinValue(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
         try stream.print("{s})) ", .{@tagName(val)});
-        try self.writeSrcNode(stream, @bitCast(extended.operand));
+        const src_node: Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
+        try self.writeSrcNode(stream, src_node);
     }
 
     fn writeInplaceArithResultTy(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -2759,10 +2759,9 @@ const Writer = struct {
         try stream.writeAll(name);
     }
 
-    fn writeSrcNode(self: *Writer, stream: anytype, src_node: i32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const abs_node = self.relativeToNodeIndex(src_node);
+    fn writeSrcNode(self: *Writer, stream: anytype, src_node: Ast.Node.Offset) !void {
+        const tree = self.file.tree orelse return;
+        const abs_node = src_node.toAbsolute(self.parent_decl_node);
         const src_span = tree.nodeToSpan(abs_node);
         const start = self.line_col_cursor.find(tree.source, src_span.start);
         const end = self.line_col_cursor.find(tree.source, src_span.end);
@@ -2772,11 +2771,10 @@ const Writer = struct {
         });
     }
 
-    fn writeSrcTok(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const abs_tok = tree.firstToken(self.parent_decl_node) + src_tok;
-        const span_start = tree.tokens.items(.start)[abs_tok];
+    fn writeSrcTok(self: *Writer, stream: anytype, src_tok: Ast.TokenOffset) !void {
+        const tree = self.file.tree orelse return;
+        const abs_tok = src_tok.toAbsolute(tree.firstToken(self.parent_decl_node));
+        const span_start = tree.tokenStart(abs_tok);
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
         const start = self.line_col_cursor.find(tree.source, span_start);
         const end = self.line_col_cursor.find(tree.source, span_end);
@@ -2786,10 +2784,9 @@ const Writer = struct {
         });
     }
 
-    fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const span_start = tree.tokens.items(.start)[src_tok];
+    fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: Ast.TokenIndex) !void {
+        const tree = self.file.tree orelse return;
+        const span_start = tree.tokenStart(src_tok);
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
         const start = self.line_col_cursor.find(tree.source, span_start);
         const end = self.line_col_cursor.find(tree.source, span_end);
@@ -2843,5 +2840,14 @@ const Writer = struct {
             try self.writeInstToStream(stream, inst);
             try stream.writeByte('\n');
         }
+    }
+
+    fn writeImport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
+        const extra = self.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        const import_path = self.code.nullTerminatedString(extra.path);
+        try stream.print(", \"{}\") ", .{std.zig.fmtEscapes(import_path)});
+        try self.writeSrcTok(stream, inst_data.src_tok);
     }
 };

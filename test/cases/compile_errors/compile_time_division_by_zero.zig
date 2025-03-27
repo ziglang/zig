@@ -8,7 +8,7 @@ export fn entry() usize {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :3:16: error: division by zero here causes undefined behavior

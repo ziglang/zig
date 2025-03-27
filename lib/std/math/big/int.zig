@@ -57,8 +57,11 @@ pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
     return calcMulLimbsBufferLen(limb_count, limb_count, 2);
 }
 
+/// Assumes `string_len` doesn't account for minus signs if the number is negative.
 pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
-    return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
+    const base_f: f32 = @floatFromInt(base);
+    const string_len_f: f32 = @floatFromInt(string_len);
+    return 1 + @as(usize, @intFromFloat(@ceil(string_len_f * std.math.log2(base_f) / limb_bits)));
 }
 
 pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
@@ -73,9 +76,18 @@ pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
     return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
 }
 
-// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+pub fn calcNonZeroTwosCompLimbCount(bit_count: usize) usize {
+    assert(bit_count != 0);
+    return calcTwosCompLimbCount(bit_count);
+}
+
+/// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+///
+/// Special cases `bit_count == 0` to return 1. Zero-bit integers can only store the value zero
+/// and this big integer implementation stores zero using one limb.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
-    return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
+    return @max(std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable, 1);
 }
 
 /// a + b * c + *carry, sets carry to the overflow bits
@@ -185,8 +197,10 @@ pub const Mutable = struct {
         if (self.limbs.ptr != other.limbs.ptr) {
             @memcpy(self.limbs[0..other.limbs.len], other.limbs[0..other.limbs.len]);
         }
-        self.positive = other.positive;
-        self.len = other.limbs.len;
+        // Normalize before setting `positive` so the `eqlZero` doesn't need to iterate
+        // over the extra zero limbs.
+        self.normalize(other.limbs.len);
+        self.positive = other.positive or other.eqlZero();
     }
 
     /// Efficiently swap an Mutable with another. This swaps the limb pointers and a full copy is not
@@ -280,7 +294,7 @@ pub const Mutable = struct {
     ///
     /// Asserts there is enough memory for the value in `self.limbs`. An upper bound on number of limbs can
     /// be determined with `calcSetStringLimbCount`.
-    /// Asserts the base is in the range [2, 16].
+    /// Asserts the base is in the range [2, 36].
     ///
     /// Returns an error if the value has invalid digits for the requested base.
     ///
@@ -296,7 +310,8 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
         allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
-        assert(base >= 2 and base <= 16);
+        assert(base >= 2);
+        assert(base <= 36);
 
         var i: usize = 0;
         var positive = true;
@@ -1092,7 +1107,7 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len + (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftLeft(r: *Mutable, a: Const, shift: usize) void {
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits) + 1);
         r.positive = a.positive;
     }
@@ -1161,7 +1176,7 @@ pub const Mutable = struct {
 
         // This shift should not be able to overflow, so invoke llshl and normalize manually
         // to avoid the extra required limb.
-        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshl(r.limbs, a.limbs, shift);
         r.normalize(a.limbs.len + (shift / limb_bits));
         r.positive = a.positive;
     }
@@ -1198,17 +1213,11 @@ pub const Mutable = struct {
             break :nonzero a.limbs[full_limbs_shifted_out] << not_covered != 0;
         };
 
-        llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        llshr(r.limbs, a.limbs, shift);
 
         r.len = a.limbs.len - full_limbs_shifted_out;
         r.positive = a.positive;
-        if (nonzero_negative_shiftout) {
-            if (full_limbs_shifted_out > 0) {
-                r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
-                r.len += 1;
-            }
-            r.addScalar(r.toConst(), -1);
-        }
+        if (nonzero_negative_shiftout) r.addScalar(r.toConst(), -1);
         r.normalize(r.len);
     }
 
@@ -1751,126 +1760,60 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
-    /// If a is positive, this passes through to truncate.
-    /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
-    /// r may alias a.
-    ///
-    /// Asserts `r` has enough storage to store the result.
-    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
-    pub fn convertToTwosComplement(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
-        if (a.positive) {
-            r.truncate(a, signedness, bit_count);
-            return;
-        }
-
-        const req_limbs = calcTwosCompLimbCount(bit_count);
-        if (req_limbs == 0 or a.eqlZero()) {
-            r.set(0);
-            return;
-        }
-
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
-        const signmask = @as(Limb, 1) << bit;
-        const mask = (signmask << 1) -% 1;
-
-        r.addScalar(a.abs(), -1);
-        if (req_limbs > r.len) {
-            @memset(r.limbs[r.len..req_limbs], 0);
-        }
-
-        assert(r.limbs.len >= req_limbs);
-        r.len = req_limbs;
-
-        llnot(r.limbs[0..r.len]);
-        r.limbs[r.len - 1] &= mask;
-        r.normalize(r.len);
-    }
-
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
-    /// r may alias a.
+    /// `r` may alias `a`.
     ///
-    /// Asserts `r` has enough storage to store the result.
+    /// Asserts `r` has enough storage to compute the result.
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
     pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
-        const req_limbs = calcTwosCompLimbCount(bit_count);
-
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqlZero()) {
+        if (bit_count == 0) {
+            @branchHint(.unlikely);
             r.set(0);
             return;
         }
 
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
-        const signmask = @as(Limb, 1) << bit; // 0b0..010...0 where 1 is the sign bit.
-        const mask = (signmask << 1) -% 1; // 0b0..01..1 where the leftmost 1 is the sign bit.
+        const max_limbs = calcTwosCompLimbCount(bit_count);
+        const sign_bit = @as(Limb, 1) << @truncate(bit_count - 1);
+        const mask = @as(Limb, maxInt(Limb)) >> @truncate(-%bit_count);
 
-        if (!a.positive) {
-            // Convert the integer from sign-magnitude into twos-complement.
-            // -x = ~(x - 1)
-            // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
-            // target bit count.
+        // Guess whether the result will have the same sign as `a`.
+        //  * If the result will be signed zero, the guess is `true`.
+        //  * If the result will be the minimum signed integer, the guess is `false`.
+        //  * If the result will be unsigned zero, the guess is `a.positive`.
+        //  * Otherwise the guess is correct.
+        const same_sign_guess = switch (signedness) {
+            .signed => max_limbs > a.limbs.len or a.limbs[max_limbs - 1] & sign_bit == 0,
+            .unsigned => a.positive,
+        };
 
-            r.addScalar(a.abs(), -1);
-
-            // Zero-extend the result
-            if (req_limbs > r.len) {
-                @memset(r.limbs[r.len..req_limbs], 0);
-            }
-
-            // Truncate to required number of limbs.
-            assert(r.limbs.len >= req_limbs);
-            r.len = req_limbs;
-
-            // Without truncating, we can already peek at the sign bit of the result here.
-            // Note that it will be 0 if the result is negative, as we did not apply the flip here.
-            // If the result is negative, we have
-            // -(-x & mask)
-            // = ~(~(x - 1) & mask) + 1
-            // = ~(~((x - 1) | ~mask)) + 1
-            // = ((x - 1) | ~mask)) + 1
-            // Note, this is only valid for the target bits and not the upper bits
-            // of the most significant limb. Those still need to be cleared.
-            // Also note that `mask` is zero for all other bits, reducing to the identity.
-            // This means that we still need to use & mask to clear off the upper bits.
-
-            if (signedness == .signed and r.limbs[r.len - 1] & signmask == 0) {
-                // Re-add the one and negate to get the result.
-                r.limbs[r.len - 1] &= mask;
-                // Note, addition cannot require extra limbs here as we did a subtraction before.
-                r.addScalar(r.toConst(), 1);
-                r.normalize(r.len);
-                r.positive = false;
-            } else {
-                llnot(r.limbs[0..r.len]);
-                r.limbs[r.len - 1] &= mask;
-                r.normalize(r.len);
-            }
-        } else {
-            if (a.limbs.len < req_limbs) {
-                // Integer fits within target bits, no wrapping required.
-                r.copy(a);
-                return;
-            }
-
-            r.copy(.{
-                .positive = a.positive,
-                .limbs = a.limbs[0..req_limbs],
-            });
-            r.limbs[r.len - 1] &= mask;
+        const abs_trunc_a: Const = .{
+            .positive = true,
+            .limbs = a.limbs[0..llnormalize(a.limbs[0..@min(a.limbs.len, max_limbs)])],
+        };
+        if (same_sign_guess or abs_trunc_a.eqlZero()) {
+            // One of the following is true:
+            //  * The result is zero.
+            //  * The result is non-zero and has the same sign as `a`.
+            r.copy(abs_trunc_a);
+            if (max_limbs <= r.len) r.limbs[max_limbs - 1] &= mask;
             r.normalize(r.len);
-
-            if (signedness == .signed and r.limbs[r.len - 1] & signmask != 0) {
-                // Convert 2s-complement back to sign-magnitude.
-                // Sign-extend the upper bits so that they are inverted correctly.
-                r.limbs[r.len - 1] |= ~mask;
-                llnot(r.limbs[0..r.len]);
-
-                // Note, can only overflow if r holds 0xFFF...F which can only happen if
-                // a holds 0.
-                r.addScalar(r.toConst(), 1);
-
-                r.positive = false;
-            }
+            r.positive = a.positive or r.eqlZero();
+        } else {
+            // One of the following is true:
+            //  * The result is the minimum signed integer.
+            //  * The result is unsigned zero.
+            //  * The result is non-zero and has the opposite sign as `a`.
+            r.addScalar(abs_trunc_a, -1);
+            llnot(r.limbs[0..r.len]);
+            @memset(r.limbs[r.len..max_limbs], maxInt(Limb));
+            r.limbs[max_limbs - 1] &= mask;
+            r.normalize(max_limbs);
+            r.positive = switch (signedness) {
+                // The only value with the sign bit still set is the minimum signed integer.
+                .signed => !a.positive and r.limbs[max_limbs - 1] & sign_bit == 0,
+                .unsigned => !a.positive or r.eqlZero(),
+            };
         }
     }
 
@@ -2175,10 +2118,13 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Const, comptime T: type) ConvertError!T {
+    pub fn toInt(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .int => |info| {
                 // Make sure -0 is handled correctly.
@@ -2216,7 +2162,26 @@ pub const Const = struct {
                     }
                 }
             },
-            else => @compileError("cannot convert Const to type " ++ @typeName(T)),
+            else => @compileError("expected int type, found '" ++ @typeName(T) ++ "'"),
+        }
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Const, comptime T: type) T {
+        if (self.limbs.len == 0) return 0;
+
+        const base = std.math.maxInt(std.math.big.Limb) + 1;
+        var result: f128 = 0;
+        var i: usize = self.limbs.len;
+        while (i != 0) {
+            i -= 1;
+            const limb: f128 = @floatFromInt(self.limbs[i]);
+            result = @mulAdd(f128, base, result, limb);
+        }
+        if (self.positive) {
+            return @floatCast(result);
+        } else {
+            return @floatCast(-result);
         }
     }
 
@@ -2268,11 +2233,11 @@ pub const Const = struct {
 
     /// Converts self to a string in the requested base.
     /// Caller owns returned memory.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// See also `toString`, a lower level function than this.
     pub fn toStringAlloc(self: Const, allocator: Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
@@ -2287,7 +2252,7 @@ pub const Const = struct {
     }
 
     /// Converts self to a string in the requested base.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// `string` is a caller-provided slice of at least `sizeInBaseUpperBound` bytes,
     /// where the result is written to.
     /// Returns the length of the string.
@@ -2297,7 +2262,7 @@ pub const Const = struct {
     /// See also `toStringAlloc`, a higher level function than this.
     pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqlZero()) {
             string[0] = '0';
@@ -2529,8 +2494,7 @@ pub const Const = struct {
         const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
-            const limb = a.limbs[i];
-            const this_limb_lz = @clz(limb);
+            const this_limb_lz = @clz(a.limbs[i]);
             total_limb_lz += this_limb_lz;
             if (this_limb_lz != bits_per_limb) break;
         }
@@ -2542,6 +2506,7 @@ pub const Const = struct {
     pub fn ctz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order. Converting a negative number to twos-complement
         // flips all bits above the lowest set bit, which does not affect the trailing zero count.
+        if (a.eqlZero()) return bits;
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
@@ -2775,11 +2740,19 @@ pub const Managed = struct {
 
     pub const ConvertError = Const.ConvertError;
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Managed, comptime T: type) ConvertError!T {
-        return self.toConst().to(T);
+    pub fn toInt(self: Managed, comptime T: type) ConvertError!T {
+        return self.toConst().toInt(T);
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Managed, comptime T: type) T {
+        return self.toConst().toFloat(T);
     }
 
     /// Set self from the string representation `value`.
@@ -2793,7 +2766,7 @@ pub const Managed = struct {
     ///
     /// self's allocator is used for temporary storage to boost multiplication performance.
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
         const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
         defer self.allocator.free(limbs_buffer);
@@ -2820,7 +2793,7 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         return self.toConst().toStringAlloc(allocator, base, case);
     }
 

@@ -1,5 +1,6 @@
-const Int = @import("std").meta.Int;
-const math = @import("std").math;
+const std = @import("std");
+const Int = std.meta.Int;
+const math = std.math;
 
 pub fn floatFromInt(comptime T: type, x: anytype) T {
     if (x == 0) return 0;
@@ -18,7 +19,7 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     const max_exp = exp_bias;
 
     // Sign
-    const abs_val = if (@TypeOf(x) == comptime_int or @typeInfo(@TypeOf(x)).int.signedness == .signed) @abs(x) else x;
+    const abs_val = @abs(x);
     const sign_bit = if (x < 0) @as(uT, 1) << (float_bits - 1) else 0;
     var result: uT = sign_bit;
 
@@ -51,6 +52,54 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     if (T == f80) result |= 1 << fractional_bits;
 
     return @bitCast(sign_bit | result);
+}
+
+const endian = @import("builtin").cpu.arch.endian();
+inline fn limb(limbs: []const u32, index: usize) u32 {
+    return switch (endian) {
+        .little => limbs[index],
+        .big => limbs[limbs.len - 1 - index],
+    };
+}
+
+pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin.Signedness, x: []const u32) T {
+    switch (x.len) {
+        0 => return 0,
+        inline 1...4 => |limbs_len| return @floatFromInt(@as(
+            @Type(.{ .int = .{ .signedness = signedness, .bits = 32 * limbs_len } }),
+            @bitCast(x[0..limbs_len].*),
+        )),
+        else => {},
+    }
+
+    // sign implicit fraction round sticky
+    const I = comptime @Type(.{ .int = .{
+        .signedness = signedness,
+        .bits = @as(u16, @intFromBool(signedness == .signed)) + 1 + math.floatFractionalBits(T) + 1 + 1,
+    } });
+
+    const clrsb = clrsb: {
+        var clsb: usize = 0;
+        const sign_bits: u32 = switch (signedness) {
+            .signed => @bitCast(@as(i32, @bitCast(limb(x, x.len - 1))) >> 31),
+            .unsigned => 0,
+        };
+        for (0..x.len) |limb_index| {
+            const l = limb(x, x.len - 1 - limb_index) ^ sign_bits;
+            clsb += @clz(l);
+            if (l != 0) break;
+        }
+        break :clrsb clsb - @intFromBool(signedness == .signed);
+    };
+    const active_bits = 32 * x.len - clrsb;
+    const exponent = active_bits -| @bitSizeOf(I);
+    const exponent_limb = exponent / 32;
+    const sticky = for (0..exponent_limb) |limb_index| {
+        if (limb(x, limb_index) != 0) break true;
+    } else limb(x, exponent_limb) & ((@as(u32, 1) << @truncate(exponent)) - 1) != 0;
+    return math.ldexp(@as(T, @floatFromInt(
+        std.mem.readPackedIntNative(I, std.mem.sliceAsBytes(x), exponent) | @intFromBool(sticky),
+    )), @intCast(exponent));
 }
 
 test {

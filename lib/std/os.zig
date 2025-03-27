@@ -65,7 +65,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.PermissionDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }
@@ -82,6 +82,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .solaris,
         .illumos,
         .freebsd,
+        .serenity,
         => true,
 
         .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
@@ -127,7 +128,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse max_path_bytes;
             return out_buffer[0..len];
         },
-        .linux => {
+        .linux, .serenity => {
             var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}) catch unreachable;
 

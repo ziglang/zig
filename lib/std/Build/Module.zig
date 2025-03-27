@@ -78,22 +78,51 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
+pub const CSourceLanguage = enum {
+    c,
+    cpp,
+
+    objective_c,
+    objective_cpp,
+
+    /// Standard assembly
+    assembly,
+    /// Assembly with the C preprocessor
+    assembly_with_preprocessor,
+
+    pub fn internalIdentifier(self: CSourceLanguage) []const u8 {
+        return switch (self) {
+            .c => "c",
+            .cpp => "c++",
+            .objective_c => "objective-c",
+            .objective_cpp => "objective-c++",
+            .assembly => "assembler",
+            .assembly_with_preprocessor => "assembler-with-cpp",
+        };
+    }
+};
+
 pub const CSourceFiles = struct {
     root: LazyPath,
     /// `files` is relative to `root`, which is
     /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     flags: []const []const u8 = &.{},
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
             .flags = b.dupeStrings(file.flags),
+            .language = file.language,
         };
     }
 };
@@ -135,6 +164,7 @@ pub const IncludeDir = union(enum) {
     framework_path_system: LazyPath,
     other_step: *Step.Compile,
     config_header_step: *Step.ConfigHeader,
+    embed_path: LazyPath,
 
     pub fn appendZigProcessFlags(
         include_dir: IncludeDir,
@@ -170,6 +200,9 @@ pub const IncludeDir = union(enum) {
                 const full_file_path = config_header.output_file.getPath();
                 const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
                 try zig_args.appendSlice(&.{ "-I", header_dir_path });
+            },
+            .embed_path => |embed_path| {
+                try zig_args.append(try std.mem.concat(b.allocator, u8, &.{ "--embed-dir=", embed_path.getPath2(b, asking_step) }));
             },
         }
     }
@@ -378,9 +411,11 @@ pub const AddCSourceFilesOptions = struct {
     root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage = null,
 };
 
-/// Handy when you have many C/C++ source files and want them all to have the same flags.
+/// Handy when you have many non-Zig source files and want them all to have the same flags.
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const b = m.owner;
     const allocator = b.allocator;
@@ -399,6 +434,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
+        .language = options.language,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
 }
@@ -477,6 +513,11 @@ pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
     m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
         @panic("OOM");
+}
+
+pub fn addEmbedPath(m: *Module, lazy_path: LazyPath) void {
+    const b = m.owner;
+    m.include_dirs.append(b.allocator, .{ .embed_path = lazy_path.dupe(b) }) catch @panic("OOM");
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {

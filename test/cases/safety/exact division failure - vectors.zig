@@ -19,5 +19,5 @@ fn divExact(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
     return @divExact(a, b);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

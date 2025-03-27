@@ -30,16 +30,17 @@ test "use other module" {
 }
 
 test "fuzz example" {
-    const global = struct {
-        fn testOne(input: []const u8) anyerror!void {
+    const Context = struct {
+        fn testOne(context: @This(), input: []const u8) anyerror!void {
+            _ = context;
             // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
             try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
         }
     };
-    try std.testing.fuzz(global.testOne, .{});
+    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
 
 const std = @import("std");
 
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("$_lib");
+const lib = @import(".NAME_lib");

@@ -80,7 +80,7 @@ else if (builtin.os.tag == .openbsd)
     OpenbsdImpl
 else if (builtin.os.tag == .dragonfly)
     DragonflyImpl
-else if (builtin.target.isWasm())
+else if (builtin.target.cpu.arch.isWasm())
     WasmImpl
 else if (std.Thread.use_pthreads)
     PosixImpl
@@ -543,7 +543,7 @@ const PosixImpl = struct {
             // This can be changed with pthread_condattr_setclock, but it's an extension and may not be available everywhere.
             var ts: c.timespec = undefined;
             if (timeout) |timeout_ns| {
-                std.posix.clock_gettime(c.CLOCK.REALTIME, &ts) catch unreachable;
+                ts = std.posix.clock_gettime(c.CLOCK.REALTIME) catch unreachable;
                 ts.sec +|= @as(@TypeOf(ts.sec), @intCast(timeout_ns / std.time.ns_per_s));
                 ts.nsec += @as(@TypeOf(ts.nsec), @intCast(timeout_ns % std.time.ns_per_s));
 

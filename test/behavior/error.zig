@@ -124,6 +124,7 @@ test "debug info for optional error set" {
 
 test "implicit cast to optional to error union to return result loc" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -150,6 +151,7 @@ test "fn returning empty error set can be passed as fn returning any error" {
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     entryPtr();
     comptime entryPtr();
 }
@@ -1060,9 +1062,24 @@ test "errorCast to adhoc inferred error set" {
     try std.testing.expect((try S.baz()) == 1234);
 }
 
-test "errorCast from error sets to error unions" {
-    const err_union: Set1!void = @errorCast(error.A);
-    try expectError(error.A, err_union);
+test "@errorCast from error set to error union" {
+    const S = struct {
+        fn doTheTest(set: error{ A, B }) error{A}!i32 {
+            return @errorCast(set);
+        }
+    };
+    try expectError(error.A, S.doTheTest(error.A));
+    try expectError(error.A, comptime S.doTheTest(error.A));
+}
+
+test "@errorCast from error union to error union" {
+    const S = struct {
+        fn doTheTest(set: error{ A, B }!i32) error{A}!i32 {
+            return @errorCast(set);
+        }
+    };
+    try expectError(error.A, S.doTheTest(error.A));
+    try expectError(error.A, comptime S.doTheTest(error.A));
 }
 
 test "result location initialization of error union with OPV payload" {
@@ -1099,4 +1116,15 @@ test "return error union with i65" {
 
 fn add(x: i65, y: i65) anyerror!i65 {
     return x + y;
+}
+
+test "compare error union to error set" {
+    const S = struct {
+        fn doTheTest(val: error{Foo}!i32) !void {
+            if (error.Foo == val) return error.Unexpected;
+            if (val == error.Foo) return error.Unexpected;
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
 }

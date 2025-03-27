@@ -60,6 +60,41 @@
 #ifndef WIN_PTHREADS_PTHREAD_COMPAT_H
 #define WIN_PTHREADS_PTHREAD_COMPAT_H
 
+#if defined(IN_WINPTHREAD)
+#  if defined(DLL_EXPORT)
+#    define WINPTHREAD_API  __declspec(dllexport)  /* building the DLL  */
+#  else
+#    define WINPTHREAD_API  /* building the static library  */
+#  endif
+#else
+#  if defined(WINPTHREADS_USE_DLLIMPORT)
+#    define WINPTHREAD_API  __declspec(dllimport)  /* user wants explicit `dllimport`  */
+#  else
+#    define WINPTHREAD_API  /* the default; auto imported in case of DLL  */
+#  endif
+#endif
+
+#ifndef __clockid_t_defined
+typedef int clockid_t;
+#define __clockid_t_defined 1
+#endif  /* __clockid_t_defined */
+
+#ifndef _MODE_T_
+#define	_MODE_T_
+typedef unsigned short mode_t;
+#endif
+
+/* Error-codes.  */
+#ifndef ETIMEDOUT
+#define ETIMEDOUT	138
+#endif
+#ifndef ENOTSUP
+#define ENOTSUP		129
+#endif
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK	140
+#endif
+
 #ifdef __GNUC__
 
 #define WINPTHREADS_INLINE inline
@@ -68,14 +103,11 @@
 
 #elif _MSC_VER
 
-#include "pthread_time.h"
-
 #ifdef _WIN64
 typedef __int64 pid_t;
 #else
 typedef int     pid_t;
 #endif
-typedef int clockid_t;
 
 #define WINPTHREADS_INLINE __inline
 #define WINPTHREADS_ATTRIBUTE(X) __declspec X

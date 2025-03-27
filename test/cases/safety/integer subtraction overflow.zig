@@ -17,5 +17,5 @@ fn sub(a: u16, b: u16) u16 {
     return a - b;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

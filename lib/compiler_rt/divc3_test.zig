@@ -9,7 +9,7 @@ const __divdc3 = @import("./divdc3.zig").__divdc3;
 const __divxc3 = @import("./divxc3.zig").__divxc3;
 const __divtc3 = @import("./divtc3.zig").__divtc3;
 
-test {
+test "divc3" {
     try testDiv(f16, __divhc3);
     try testDiv(f32, __divsc3);
     try testDiv(f64, __divdc3);
@@ -17,7 +17,7 @@ test {
     try testDiv(f128, __divtc3);
 }
 
-fn testDiv(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)) !void {
+fn testDiv(comptime T: type, comptime f: fn (T, T, T, T) callconv(.c) Complex(T)) !void {
     {
         const a: T = 1.0;
         const b: T = 0.0;

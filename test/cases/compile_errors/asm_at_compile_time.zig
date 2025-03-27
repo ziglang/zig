@@ -11,7 +11,7 @@ fn doSomeAsm() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :6:5: error: unable to evaluate comptime expression

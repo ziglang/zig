@@ -959,14 +959,14 @@ pub const Request = struct {
 
     pub const WaitError = RequestError || SendError || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
-        error{ // TODO: file zig fmt issue for this bad indentation
-        TooManyHttpRedirects,
-        RedirectRequiresResend,
-        HttpRedirectLocationMissing,
-        HttpRedirectLocationInvalid,
-        CompressionInitializationFailed,
-        CompressionUnsupported,
-    };
+        error{
+            TooManyHttpRedirects,
+            RedirectRequiresResend,
+            HttpRedirectLocationMissing,
+            HttpRedirectLocationInvalid,
+            CompressionInitializationFailed,
+            CompressionUnsupported,
+        };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
@@ -1241,10 +1241,14 @@ pub fn initDefaultProxies(client: *Client, arena: Allocator) !void {
 
 fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?*Proxy {
     const content = for (env_var_names) |name| {
-        break std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
+        const content = std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => continue,
             else => |e| return e,
         };
+
+        if (content.len == 0) continue;
+
+        break content;
     } else return null;
 
     const uri = Uri.parse(content) catch try Uri.parseAfterScheme("http", content);
@@ -1539,13 +1543,13 @@ pub fn connect(
 
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
     std.fmt.ParseIntError || Connection.WriteError ||
-    error{ // TODO: file a zig fmt issue for this bad indentation
-    UnsupportedUriScheme,
-    UriMissingHost,
+    error{
+        UnsupportedUriScheme,
+        UriMissingHost,
 
-    CertificateBundleLoadFailure,
-    UnsupportedTransferEncoding,
-};
+        CertificateBundleLoadFailure,
+        UnsupportedTransferEncoding,
+    };
 
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",

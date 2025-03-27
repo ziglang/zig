@@ -8,14 +8,17 @@ comptime {
     if (common.want_windows_v2u64_abi) {
         @export(&__floattisf_windows_x86_64, .{ .name = "__floattisf", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(&__floattisf, .{ .name = "__floattisf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__floattisf, .{ .name = switch (builtin.cpu.arch) {
+            .hexagon => "__hexagon",
+            else => "_",
+        } ++ "_floattisf", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn __floattisf(a: i128) callconv(.C) f32 {
+pub fn __floattisf(a: i128) callconv(.c) f32 {
     return floatFromInt(f32, a);
 }
 
-fn __floattisf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f32 {
+fn __floattisf_windows_x86_64(a: @Vector(2, u64)) callconv(.c) f32 {
     return floatFromInt(f32, @as(i128, @bitCast(a)));
 }

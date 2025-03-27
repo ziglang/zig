@@ -39,6 +39,7 @@ fn canPrune(op: Opcode) bool {
         .Arithmetic,
         .RelationalAndLogical,
         .Bit,
+        .Annotation,
         => true,
         else => switch (op) {
             .OpFunction,
@@ -166,7 +167,7 @@ const ModuleInfo = struct {
             return error.InvalidPhysicalFormat;
         }
 
-        return ModuleInfo{
+        return .{
             .functions = functions.unmanaged,
             .callee_store = callee_store.items,
             .result_id_to_code_offset = result_id_to_code_offset.unmanaged,
@@ -273,7 +274,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
         .alive = try std.DynamicBitSetUnmanaged.initEmpty(a, info.result_id_to_code_offset.count()),
     };
 
-    // Mark initial stuff as slive
+    // Mark initial stuff as alive
     {
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {

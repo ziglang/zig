@@ -100,7 +100,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //           a0,    a1,    a2,  a3,   a4,  a5,   a6
     // sys_clone(flags, stack, ptid, ctid, tls)
@@ -140,7 +140,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ or $a7, $zero, %[number]
         \\ syscall 0

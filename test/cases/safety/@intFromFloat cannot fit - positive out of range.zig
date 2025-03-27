@@ -16,5 +16,5 @@ fn bar(a: f32) u8 {
 }
 fn baz(_: u8) void {}
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

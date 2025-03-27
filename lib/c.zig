@@ -54,11 +54,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 }
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
-fn wasm_start() callconv(.C) void {
+fn wasm_start() callconv(.c) void {
     _ = main(0, undefined);
 }
 
-fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.c) [*:0]u8 {
     var i: usize = 0;
     while (src[i] != 0) : (i += 1) {
         dest[i] = src[i];
@@ -76,7 +76,7 @@ test "strcpy" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8 {
+fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.c) [*:0]u8 {
     var i: usize = 0;
     while (i < n and src[i] != 0) : (i += 1) {
         dest[i] = src[i];
@@ -96,7 +96,7 @@ test "strncpy" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.c) [*:0]u8 {
     var dest_end: usize = 0;
     while (dest[dest_end] != 0) : (dest_end += 1) {}
 
@@ -119,7 +119,7 @@ test "strcat" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.C) [*:0]u8 {
+fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.c) [*:0]u8 {
     var dest_end: usize = 0;
     while (dest[dest_end] != 0) : (dest_end += 1) {}
 
@@ -142,7 +142,7 @@ test "strncat" {
     try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
-fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
+fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     return switch (std.mem.orderZ(u8, s1, s2)) {
         .lt => -1,
         .eq => 0,
@@ -150,11 +150,11 @@ fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
     };
 }
 
-fn strlen(s: [*:0]const u8) callconv(.C) usize {
+fn strlen(s: [*:0]const u8) callconv(.c) usize {
     return std.mem.len(s);
 }
 
-fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
+fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.c) c_int {
     if (_n == 0) return 0;
     var l = _l;
     var r = _r;
@@ -167,7 +167,7 @@ fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
     return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
+fn strerror(errnum: c_int) callconv(.c) [*:0]const u8 {
     _ = errnum;
     return "TODO strerror implementation";
 }

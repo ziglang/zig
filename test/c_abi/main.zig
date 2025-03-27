@@ -135,7 +135,7 @@ export fn zig_f64(x: f64) void {
     expect(x == 56.78) catch @panic("test failure: zig_f64");
 }
 export fn zig_longdouble(x: c_longdouble) void {
-    if (!builtin.target.isWasm()) return; // waiting for #1481
+    if (!builtin.target.cpu.arch.isWasm()) return; // waiting for #1481
     expect(x == 12.34) catch @panic("test failure: zig_longdouble");
 }
 
@@ -1661,7 +1661,7 @@ test "bool simd vector" {
     }
 
     {
-        if (!builtin.target.isWasm()) c_vector_256_bool(.{
+        if (!builtin.target.cpu.arch.isWasm()) c_vector_256_bool(.{
             false,
             true,
             true,
@@ -2179,7 +2179,7 @@ test "bool simd vector" {
         try expect(vec[255] == false);
     }
     {
-        if (!builtin.target.isWasm()) c_vector_512_bool(.{
+        if (!builtin.target.cpu.arch.isWasm()) c_vector_512_bool(.{
             true,
             true,
             true,
@@ -5593,7 +5593,7 @@ test "f80 extra struct" {
 
 comptime {
     skip: {
-        if (builtin.target.isWasm()) break :skip;
+        if (builtin.target.cpu.arch.isWasm()) break :skip;
 
         _ = struct {
             export fn zig_f128(x: f128) f128 {
@@ -5694,7 +5694,7 @@ test "Stdcall ABI big union" {
     stdcall_big_union(x);
 }
 
-extern fn c_explict_win64(ByRef) callconv(.Win64) ByRef;
+extern fn c_explict_win64(ByRef) callconv(.{ .x86_64_win = .{} }) ByRef;
 test "explicit SysV calling convention" {
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 
@@ -5702,7 +5702,7 @@ test "explicit SysV calling convention" {
     try expect(res.val == 42);
 }
 
-extern fn c_explict_sys_v(ByRef) callconv(.SysV) ByRef;
+extern fn c_explict_sys_v(ByRef) callconv(.{ .x86_64_sysv = .{} }) ByRef;
 test "explicit Win64 calling convention" {
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 

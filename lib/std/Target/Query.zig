@@ -26,7 +26,7 @@ os_version_min: ?OsVersion = null,
 os_version_max: ?OsVersion = null,
 
 /// `null` means default when cross compiling, or native when `os_tag` is native.
-/// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
+/// If `isGnu()` is `false`, this must be `null` and is ignored.
 glibc_version: ?SemanticVersion = null,
 
 /// `null` means default when cross compiling, or native when `os_tag` is native.
@@ -102,7 +102,7 @@ pub fn fromTarget(target: Target) Query {
         .os_version_min = undefined,
         .os_version_max = undefined,
         .abi = target.abi,
-        .glibc_version = target.os.versionRange().gnuLibCVersion(),
+        .glibc_version = if (target.abi.isGnu()) target.os.versionRange().gnuLibCVersion() else null,
         .android_api_level = if (target.abi.isAndroid()) target.os.version_range.linux.android else null,
     };
     result.updateOsVersionRange(target.os);
@@ -235,8 +235,7 @@ pub fn parse(args: ParseOptions) !Query {
 
         const abi_ver_text = abi_it.rest();
         if (abi_it.next() != null) {
-            const tag = result.os_tag orelse builtin.os.tag;
-            if (tag.isGnuLibC(abi)) {
+            if (abi.isGnu()) {
                 result.glibc_version = parseVersion(abi_ver_text) catch |err| switch (err) {
                     error.Overflow => return error.InvalidAbiVersion,
                     error.InvalidVersion => return error.InvalidAbiVersion,

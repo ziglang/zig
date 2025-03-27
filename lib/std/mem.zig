@@ -8,26 +8,6 @@ const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
 
-/// Compile time known minimum page size.
-/// https://github.com/ziglang/zig/issues/4082
-pub const page_size = switch (builtin.cpu.arch) {
-    .wasm32, .wasm64 => 64 * 1024,
-    .aarch64 => switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos, .visionos => 16 * 1024,
-        else => 4 * 1024,
-    },
-    .sparc64 => 8 * 1024,
-    .loongarch32, .loongarch64 => switch (builtin.os.tag) {
-        // Linux default KConfig value is 16KiB
-        .linux => 16 * 1024,
-        // FIXME:
-        // There is no other OS supported yet. Use the same value
-        // as Linux for now.
-        else => 16 * 1024,
-    },
-    else => 4 * 1024,
-};
-
 /// The standard library currently thoroughly depends on byte size
 /// being 8 bits.  (see the use of u8 throughout allocation code as
 /// the "byte" type.)  Code which depends on this can reference this
@@ -37,6 +17,60 @@ pub const page_size = switch (builtin.cpu.arch) {
 pub const byte_size_in_bits = 8;
 
 pub const Allocator = @import("mem/Allocator.zig");
+
+/// Stored as a power-of-two.
+pub const Alignment = enum(math.Log2Int(usize)) {
+    @"1" = 0,
+    @"2" = 1,
+    @"4" = 2,
+    @"8" = 3,
+    @"16" = 4,
+    @"32" = 5,
+    @"64" = 6,
+    _,
+
+    pub fn toByteUnits(a: Alignment) usize {
+        return @as(usize, 1) << @intFromEnum(a);
+    }
+
+    pub fn fromByteUnits(n: usize) Alignment {
+        assert(std.math.isPowerOfTwo(n));
+        return @enumFromInt(@ctz(n));
+    }
+
+    pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
+        return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
+    }
+
+    pub fn compare(lhs: Alignment, op: std.math.CompareOperator, rhs: Alignment) bool {
+        return std.math.compare(@intFromEnum(lhs), op, @intFromEnum(rhs));
+    }
+
+    pub fn max(lhs: Alignment, rhs: Alignment) Alignment {
+        return @enumFromInt(@max(@intFromEnum(lhs), @intFromEnum(rhs)));
+    }
+
+    pub fn min(lhs: Alignment, rhs: Alignment) Alignment {
+        return @enumFromInt(@min(@intFromEnum(lhs), @intFromEnum(rhs)));
+    }
+
+    /// Return next address with this alignment.
+    pub fn forward(a: Alignment, address: usize) usize {
+        const x = (@as(usize, 1) << @intFromEnum(a)) - 1;
+        return (address + x) & ~x;
+    }
+
+    /// Return previous address with this alignment.
+    pub fn backward(a: Alignment, address: usize) usize {
+        const x = (@as(usize, 1) << @intFromEnum(a)) - 1;
+        return address & ~x;
+    }
+
+    /// Return whether address is aligned to this amount.
+    pub fn check(a: Alignment, address: usize) bool {
+        return @ctz(address) >= @intFromEnum(a);
+    }
+};
 
 /// Detects and asserts if the std.mem.Allocator interface is violated by the caller
 /// or the allocator.
@@ -58,6 +92,7 @@ pub fn ValidationAllocator(comptime T: type) type {
                 .vtable = &.{
                     .alloc = alloc,
                     .resize = resize,
+                    .remap = remap,
                     .free = free,
                 },
             };
@@ -71,41 +106,54 @@ pub fn ValidationAllocator(comptime T: type) type {
         pub fn alloc(
             ctx: *anyopaque,
             n: usize,
-            log2_ptr_align: u8,
+            alignment: mem.Alignment,
             ret_addr: usize,
         ) ?[*]u8 {
             assert(n > 0);
             const self: *Self = @ptrCast(@alignCast(ctx));
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
+            const result = underlying.rawAlloc(n, alignment, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
+            assert(alignment.check(@intFromPtr(result)));
             return result;
         }
 
         pub fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: Alignment,
             new_len: usize,
             ret_addr: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
-            return underlying.rawResize(buf, log2_buf_align, new_len, ret_addr);
+            return underlying.rawResize(buf, alignment, new_len, ret_addr);
+        }
+
+        pub fn remap(
+            ctx: *anyopaque,
+            buf: []u8,
+            alignment: Alignment,
+            new_len: usize,
+            ret_addr: usize,
+        ) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            assert(buf.len > 0);
+            const underlying = self.getUnderlyingAllocatorPtr();
+            return underlying.rawRemap(buf, alignment, new_len, ret_addr);
         }
 
         pub fn free(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: Alignment,
             ret_addr: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
-            underlying.rawFree(buf, log2_buf_align, ret_addr);
+            underlying.rawFree(buf, alignment, ret_addr);
         }
 
         pub fn reset(self: *Self) void {
@@ -133,27 +181,9 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-const fail_allocator = Allocator{
-    .ptr = undefined,
-    .vtable = &failAllocator_vtable,
-};
-
-const failAllocator_vtable = Allocator.VTable{
-    .alloc = failAllocatorAlloc,
-    .resize = Allocator.noResize,
-    .free = Allocator.noFree,
-};
-
-fn failAllocatorAlloc(_: *anyopaque, n: usize, log2_alignment: u8, ra: usize) ?[*]u8 {
-    _ = n;
-    _ = log2_alignment;
-    _ = ra;
-    return null;
-}
-
 test "Allocator basics" {
-    try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
-    try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, testing.failing_allocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, testing.failing_allocator.allocSentinel(u8, 1, 0));
 }
 
 test "Allocator.resize" {
@@ -196,6 +226,18 @@ test "Allocator.resize" {
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
     }
+}
+
+test "Allocator alloc and remap with zero-bit type" {
+    var values = try testing.allocator.alloc(void, 10);
+    defer testing.allocator.free(values);
+
+    try testing.expectEqual(10, values.len);
+    const remaped = testing.allocator.remap(values, 200);
+    try testing.expect(remaped != null);
+
+    values = remaped.?;
+    try testing.expectEqual(200, values.len);
 }
 
 /// Copy all of source into dest at position 0.
@@ -1068,16 +1110,18 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
+                const page_size = std.heap.page_size_min;
                 const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime std.debug.assert(std.mem.page_size % block_size == 0);
+                comptime assert(std.heap.page_size_min % @sizeOf(Block) == 0);
+                assert(page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
-                const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page <= std.mem.page_size - block_size) {
+                const offset_in_page = start_addr & (page_size - 1);
+                if (offset_in_page <= page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1087,6 +1131,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 
                     i += @divExact(std.mem.alignForward(usize, start_addr, block_size) - start_addr, @sizeOf(T));
                 } else {
+                    @branchHint(.unlikely);
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
@@ -1097,7 +1142,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                     }
                 }
 
-                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
+                assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
                 while (true) {
                     const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
                     const matches = block.* == mask;
@@ -1120,23 +1165,24 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 test "indexOfSentinel vector paths" {
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
+    const page_size = std.heap.page_size_min;
 
     inline for (Types) |T| {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
-        const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
+        const memory = try allocator.alloc(T, 3 * page_size / @sizeOf(T));
         defer allocator.free(memory);
         @memset(memory, 0xaa);
 
         // Find starting page-alignment = 0
         var start: usize = 0;
         const start_addr = @intFromPtr(&memory);
-        start += (std.mem.alignForward(usize, start_addr, std.mem.page_size) - start_addr) / @sizeOf(T);
-        try testing.expect(start < std.mem.page_size / @sizeOf(T));
+        start += (std.mem.alignForward(usize, start_addr, page_size) - start_addr) / @sizeOf(T);
+        try testing.expect(start < page_size / @sizeOf(T));
 
         // Validate all sub-block alignments
-        const search_len = std.mem.page_size / @sizeOf(T);
+        const search_len = page_size / @sizeOf(T);
         memory[start + search_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(search_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start + offset])));
@@ -1144,7 +1190,7 @@ test "indexOfSentinel vector paths" {
         memory[start + search_len] = 0xaa;
 
         // Validate page boundary crossing
-        const start_page_boundary = start + (std.mem.page_size / @sizeOf(T));
+        const start_page_boundary = start + (page_size / @sizeOf(T));
         memory[start_page_boundary + block_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(2 * block_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start_page_boundary - block_len + offset])));
@@ -1363,6 +1409,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 /// Consider using `lastIndexOf` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
         if (mem.eql(T, haystack[i..][0..needle.len], needle)) return i;
@@ -1577,6 +1624,8 @@ test count {
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
+//
+/// See also: `containsAtLeastScalar`
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
     assert(needle.len > 0);
     if (expected_count == 0) return true;
@@ -1606,6 +1655,34 @@ test containsAtLeast {
 
     try testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
     try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
+}
+
+/// Returns true if the haystack contains expected_count or more needles
+//
+/// See also: `containsAtLeast`
+pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
+    if (expected_count == 0) return true;
+
+    var found: usize = 0;
+
+    for (haystack) |item| {
+        if (item == needle) {
+            found += 1;
+            if (found == expected_count) return true;
+        }
+    }
+
+    return false;
+}
+
+test containsAtLeastScalar {
+    try testing.expect(containsAtLeastScalar(u8, "aa", 0, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 1, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 2, 'a'));
+    try testing.expect(!containsAtLeastScalar(u8, "aa", 3, 'a'));
+
+    try testing.expect(containsAtLeastScalar(u8, "adadda", 3, 'd'));
+    try testing.expect(!containsAtLeastScalar(u8, "adadda", 4, 'd'));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -4142,10 +4219,11 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
 
 /// Given a slice of bytes, returns a slice of the specified type
 /// backed by those bytes, preserving pointer attributes.
+/// If `T` is zero-bytes sized, the returned slice has a len of zero.
 pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytes.len == 0) {
+    if (bytes.len == 0 or @sizeOf(T) == 0) {
         return &[0]T{};
     }
 
@@ -4221,6 +4299,19 @@ test "bytesAsSlice preserves pointer attributes" {
     try testing.expectEqual(in.is_volatile, out.is_volatile);
     try testing.expectEqual(in.is_allowzero, out.is_allowzero);
     try testing.expectEqual(in.alignment, out.alignment);
+}
+
+test "bytesAsSlice with zero-bit element type" {
+    {
+        const bytes = [_]u8{};
+        const slice = bytesAsSlice(void, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
+    {
+        const bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const slice = bytesAsSlice(u0, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
@@ -4571,11 +4662,6 @@ test "read/write(Var)PackedInt" {
         // LLVM backend fails with "too many locals: locals exceed maximum"
         .wasm32, .wasm64 => return error.SkipZigTest,
         else => {},
-    }
-
-    if (builtin.cpu.arch == .powerpc) {
-        // https://github.com/ziglang/zig/issues/16951
-        return error.SkipZigTest;
     }
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;

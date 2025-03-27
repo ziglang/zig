@@ -55,7 +55,7 @@ pub fn values(comptime E: type) []const E {
 /// A safe alternative to @tagName() for non-exhaustive enums that doesn't
 /// panic when `e` has no tagged value.
 /// Returns the tag name for `e` or null if no tag exists.
-pub fn tagName(comptime E: type, e: E) ?[]const u8 {
+pub fn tagName(comptime E: type, e: E) ?[:0]const u8 {
     return inline for (@typeInfo(E).@"enum".fields) |f| {
         if (@intFromEnum(e) == f.value) break f.name;
     } else null;

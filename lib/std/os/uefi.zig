@@ -9,10 +9,10 @@ pub const hii = @import("uefi/hii.zig");
 pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
 
-/// The memory type to allocate when using the pool
-/// Defaults to .LoaderData, the default data allocation type
+/// The memory type to allocate when using the pool.
+/// Defaults to `.loader_data`, the default data allocation type
 /// used by UEFI applications to allocate pool memory.
-pub var efi_pool_memory_type: tables.MemoryType = .LoaderData;
+pub var efi_pool_memory_type: tables.MemoryType = .loader_data;
 pub const pool_allocator = @import("uefi/pool_allocator.zig").pool_allocator;
 pub const raw_pool_allocator = @import("uefi/pool_allocator.zig").raw_pool_allocator;
 
@@ -113,31 +113,38 @@ pub const Time = extern struct {
     /// 0 - 59
     second: u8,
 
+    _pad1: u8,
+
     /// 0 - 999999999
     nanosecond: u32,
 
     /// The time's offset in minutes from UTC.
     /// Allowed values are -1440 to 1440 or unspecified_timezone
     timezone: i16,
-    daylight: packed struct {
-        _pad1: u6,
-
+    daylight: packed struct(u8) {
         /// If true, the time has been adjusted for daylight savings time.
         in_daylight: bool,
 
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
+
+        _: u6,
     },
+
+    _pad2: u8,
+
+    comptime {
+        std.debug.assert(@sizeOf(Time) == 16);
+    }
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
 
-    fn daysInYear(year: u16, maxMonth: u4) u32 {
-        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
-        var days: u32 = 0;
+    fn daysInYear(year: u16, max_month: u4) u9 {
+        var days: u9 = 0;
         var month: u4 = 0;
-        while (month < maxMonth) : (month += 1) {
-            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+        while (month < max_month) : (month += 1) {
+            days += std.time.epoch.getDaysInMonth(year, @enumFromInt(month + 1));
         }
         return days;
     }
@@ -151,9 +158,9 @@ pub const Time = extern struct {
         }
 
         days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
-        const hours = self.hour + (days * 24);
-        const minutes = self.minute + (hours * 60);
-        const seconds = self.second + (minutes * std.time.s_per_min);
+        const hours: u64 = self.hour + (days * 24);
+        const minutes: u64 = self.minute + (hours * 60);
+        const seconds: u64 = self.second + (minutes * std.time.s_per_min);
         return self.nanosecond + (seconds * std.time.ns_per_s);
     }
 };

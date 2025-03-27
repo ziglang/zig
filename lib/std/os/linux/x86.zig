@@ -122,7 +122,7 @@ pub fn socketcall(call: usize, args: [*]const usize) usize {
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         +8,   +12,   +16,   +20, +24,  +28, +32
     //
@@ -172,7 +172,7 @@ pub fn clone() callconv(.Naked) usize {
     );
 }
 
-pub fn restore() callconv(.Naked) noreturn {
+pub fn restore() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -190,7 +190,7 @@ pub fn restore() callconv(.Naked) noreturn {
     }
 }
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -405,7 +405,7 @@ noinline fn getContextReturnAddress() usize {
     return @returnAddress();
 }
 
-pub fn getContextInternal() callconv(.Naked) usize {
+pub fn getContextInternal() callconv(.naked) usize {
     asm volatile (
         \\ movl $0, %[flags_offset:c](%%edx)
         \\ movl $0, %[link_offset:c](%%edx)
