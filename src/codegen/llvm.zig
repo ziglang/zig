@@ -264,7 +264,12 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .eabihf => "eabihf",
         .android => "android",
         .androideabi => "androideabi",
-        .musl => "musl",
+        .musl => switch (target.os.tag) {
+            // For WASI/Emscripten, "musl" refers to the libc, not really the ABI.
+            // "unknown" provides better compatibility with LLVM-based tooling for these targets.
+            .wasi, .emscripten => "unknown",
+            else => "musl",
+        },
         .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
         .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
@@ -454,6 +459,30 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .kalimba,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
+    };
+}
+
+// Avoid depending on `llvm.CodeModel` in the bitcode-only case.
+const CodeModel = enum {
+    default,
+    tiny,
+    small,
+    kernel,
+    medium,
+    large,
+};
+
+fn codeModel(model: std.builtin.CodeModel, target: std.Target) CodeModel {
+    // Roughly match Clang's mapping of GCC code models to LLVM code models.
+    return switch (model) {
+        .default => .default,
+        .extreme, .large => .large,
+        .kernel => .kernel,
+        .medany => if (target.cpu.arch.isRISCV()) .medium else .large,
+        .medium => if (target.os.tag == .aix) .large else .medium,
+        .medmid => .medium,
+        .normal, .medlow, .small => .small,
+        .tiny => .tiny,
     };
 }
 
@@ -821,14 +850,17 @@ pub const Object = struct {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_error,
                     try o.builder.metadataString("Code Model"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
-                        .tiny => 0,
-                        .small => 1,
-                        .kernel => 2,
-                        .medium => 3,
-                        .large => 4,
-                        else => unreachable,
-                    }))),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(
+                        i32,
+                        switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
+                            .default => unreachable,
+                            .tiny => 0,
+                            .small => 1,
+                            .kernel => 2,
+                            .medium => 3,
+                            .large => 4,
+                        },
+                    ))),
                 ));
             }
 
@@ -980,7 +1012,7 @@ pub const Object = struct {
         else
             .Static;
 
-        const code_model: llvm.CodeModel = switch (comp.root_mod.code_model) {
+        const code_model: llvm.CodeModel = switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
             .default => .Default,
             .tiny => .Tiny,
             .small => .Small,
@@ -9498,7 +9530,7 @@ pub const FuncGen = struct {
         _ = inst;
         const o = self.ng.object;
         const llvm_usize = try o.lowerType(Type.usize);
-        if (!target_util.supportsReturnAddress(o.pt.zcu.getTarget())) {
+        if (!target_util.supportsReturnAddress(o.pt.zcu.getTarget(), self.ng.ownerModule().optimize_mode)) {
             // https://github.com/ziglang/zig/issues/11946
             return o.builder.intValue(llvm_usize, 0);
         }

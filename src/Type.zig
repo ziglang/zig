@@ -4201,6 +4201,10 @@ pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_senti
 
 pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };
 pub const vector_32_i8: Type = .{ .ip_index = .vector_32_i8_type };
+pub const vector_1_u8: Type = .{ .ip_index = .vector_1_u8_type };
+pub const vector_2_u8: Type = .{ .ip_index = .vector_2_u8_type };
+pub const vector_4_u8: Type = .{ .ip_index = .vector_4_u8_type };
+pub const vector_8_u8: Type = .{ .ip_index = .vector_8_u8_type };
 pub const vector_16_u8: Type = .{ .ip_index = .vector_16_u8_type };
 pub const vector_32_u8: Type = .{ .ip_index = .vector_32_u8_type };
 pub const vector_8_i16: Type = .{ .ip_index = .vector_8_i16_type };

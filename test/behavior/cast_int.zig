@@ -22,7 +22,6 @@ test "coerce i8 to i32 and @intCast back" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: i8 = -5;
     var y: i32 = -5;
@@ -36,8 +35,6 @@ test "coerce i8 to i32 and @intCast back" {
 }
 
 test "coerce non byte-sized integers accross 32bits boundary" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     {
         var v: u21 = 6417;
         _ = &v;
@@ -217,7 +214,6 @@ test "load non byte-sized value in union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 

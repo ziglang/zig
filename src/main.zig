@@ -499,9 +499,18 @@ const usage_build_generic =
     \\    hex  (planned feature)  Intel IHEX
     \\    raw  (planned feature)  Dump machine code directly
     \\  -mcpu [cpu]               Specify target CPU and feature set
-    \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
-    \\            small|kernel|
-    \\            medium|large]
+    \\  -mcmodel=[model]          Limit range of code and data virtual addresses
+    \\    default
+    \\    extreme
+    \\    kernel
+    \\    large
+    \\    medany
+    \\    medium
+    \\    medlow
+    \\    medmid
+    \\    normal
+    \\    small
+    \\    tiny
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
@@ -532,6 +541,7 @@ const usage_build_generic =
     \\  -idirafter [dir]          Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
+    \\  --embed-dir=[dir]         Add directory to embed search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
     \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
@@ -1278,6 +1288,8 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.startsWith(u8, arg, "--embed-dir=")) {
+                        try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, arg["--embed-dir=".len..], true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
@@ -4834,6 +4846,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
     var fetch_only = false;
+    var fetch_mode: Package.Fetch.JobQueue.Mode = .needed;
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
 
@@ -4915,6 +4928,13 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
                     fetch_only = true;
+                } else if (mem.startsWith(u8, arg, "--fetch=")) {
+                    fetch_only = true;
+                    const sub_arg = arg["--fetch=".len..];
+                    fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
+                        fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
+                            sub_arg,
+                        });
                 } else if (mem.eql(u8, arg, "--system")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -5199,6 +5219,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .debug_hash = false,
                     .work_around_btrfs_bug = work_around_btrfs_bug,
                     .unlazy_set = unlazy_set,
+                    .mode = fetch_mode,
                 };
                 defer job_queue.deinit();
 
@@ -6956,13 +6977,17 @@ const ClangSearchSanitizer = struct {
                 m.iframeworkwithsysroot = true;
                 if (m.iwithsysroot) warn(wtxt, .{ dir, "iframeworkwithsysroot", "iwithsysroot" });
             },
+            .embed_dir => {
+                if (m.embed_dir) return;
+                m.embed_dir = true;
+            },
         }
         try argv.ensureUnusedCapacity(ally, 2);
         argv.appendAssumeCapacity(arg);
         if (!joined) argv.appendAssumeCapacity(dir);
     }
 
-    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot };
+    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot, embed_dir };
 
     const Membership = packed struct {
         I: bool = false,
@@ -6971,6 +6996,7 @@ const ClangSearchSanitizer = struct {
         idirafter: bool = false,
         iframework: bool = false,
         iframeworkwithsysroot: bool = false,
+        embed_dir: bool = false,
     };
 };
 
@@ -7121,6 +7147,7 @@ fn cmdFetch(
         .read_only = false,
         .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
+        .mode = .all,
     };
     defer job_queue.deinit();
 

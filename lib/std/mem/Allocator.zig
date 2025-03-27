@@ -150,7 +150,10 @@ pub inline fn rawFree(a: Allocator, memory: []u8, alignment: Alignment, ret_addr
 /// Returns a pointer to undefined memory.
 /// Call `destroy` with the result to free the memory.
 pub fn create(a: Allocator, comptime T: type) Error!*T {
-    if (@sizeOf(T) == 0) return @as(*T, @ptrFromInt(math.maxInt(usize)));
+    if (@sizeOf(T) == 0) {
+        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), @alignOf(T));
+        return @as(*T, @ptrFromInt(ptr));
+    }
     const ptr: *T = @ptrCast(try a.allocBytesWithAlignment(@alignOf(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
@@ -312,12 +315,15 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
 /// unless `new_len` is also 0, in which case `allocation` is returned.
 ///
 /// `new_len` may be zero, in which case the allocation is freed.
+///
+/// If the allocation's elements' type is zero bytes sized, `allocation.len` is set to `new_len`.
 pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     const Slice = @typeInfo(@TypeOf(allocation)).pointer;
     break :t ?[]align(Slice.alignment) Slice.child;
 } {
     const Slice = @typeInfo(@TypeOf(allocation)).pointer;
     const T = Slice.child;
+
     const alignment = Slice.alignment;
     if (new_len == 0) {
         self.free(allocation);
@@ -325,6 +331,11 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     }
     if (allocation.len == 0) {
         return null;
+    }
+    if (@sizeOf(T) == 0) {
+        var new_memory = allocation;
+        new_memory.len = new_len;
+        return new_memory;
     }
     const old_memory = mem.sliceAsBytes(allocation);
     // I would like to use saturating multiplication here, but LLVM cannot lower it

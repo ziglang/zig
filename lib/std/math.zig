@@ -235,6 +235,7 @@ pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
+pub const lcm = @import("math/lcm.zig").lcm;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
 pub const order = @import("math/order.zig").order;
@@ -397,6 +398,7 @@ test {
     _ = cosh;
     _ = tanh;
     _ = gcd;
+    _ = lcm;
     _ = gamma;
     _ = lgamma;
 

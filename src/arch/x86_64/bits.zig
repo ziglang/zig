@@ -384,6 +384,7 @@ pub const Register = enum(u8) {
 
     pub const Class = enum {
         general_purpose,
+        gphi,
         segment,
         x87,
         mmx,
@@ -400,7 +401,7 @@ pub const Register = enum(u8) {
             @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => .general_purpose,
             @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => .general_purpose,
             @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => .general_purpose,
-            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => .general_purpose,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => .gphi,
 
             @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => .sse,
             @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => .sse,
@@ -525,7 +526,6 @@ pub const Register = enum(u8) {
     }
 
     fn gpBase(reg: Register) u7 {
-        assert(reg.class() == .general_purpose);
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => @intFromEnum(Register.rax),
@@ -577,7 +577,7 @@ pub const Register = enum(u8) {
     /// DWARF register encoding
     pub fn dwarfNum(reg: Register) u6 {
         return switch (reg.class()) {
-            .general_purpose => if (reg.isExtended())
+            .general_purpose, .gphi => if (reg.isExtended())
                 reg.enc()
             else
                 @as(u3, @truncate(@as(u24, 0o54673120) >> @as(u5, reg.enc()) * 3)),

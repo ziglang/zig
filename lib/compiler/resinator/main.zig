@@ -81,7 +81,8 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        try cli.writeUsage(stderr.writer(), "zig rc");
+        const stdout = std.io.getStdOut();
+        try cli.writeUsage(stdout.writer(), "zig rc");
         return;
     }
 

@@ -1705,7 +1705,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow => {
+            error.Overflow, error.RelocationNotByteAligned => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
@@ -3131,7 +3131,7 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow => {
+            error.Overflow, error.RelocationNotByteAligned => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
