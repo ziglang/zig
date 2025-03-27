@@ -784,6 +784,7 @@ pub const OpenError = error{
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
@@ -1565,6 +1566,7 @@ fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError
         error.FileLocksNotSupported => unreachable, // locking folders is not supported
         error.WouldBlock => unreachable, // can't happen for directories
         error.FileBusy => unreachable, // can't happen for directories
+        error.ProcessNotFound => unreachable, // can't happen for directories
         else => |e| return e,
     };
     return Dir{ .fd = fd };
@@ -1696,6 +1698,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
@@ -2005,6 +2008,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2079,6 +2083,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2175,6 +2180,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2282,6 +2288,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2383,6 +2390,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,
