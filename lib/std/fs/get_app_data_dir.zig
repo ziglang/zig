@@ -24,10 +24,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             return fs.path.join(allocator, &[_][]const u8{ local_app_data_dir, appname });
         },
         .macos => {
-            const home_dir = posix.getenv("HOME") orelse {
-                // TODO look in /etc/passwd
-                return error.AppDataDirUnavailable;
-            };
+            const home_dir = posix.getenv("HOME") orelse (getHomeDirFromPasswd() catch return error.AppDataDirUnavailable);
             return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos, .serenity => {
@@ -37,10 +34,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
                 }
             }
 
-            const home_dir = posix.getenv("HOME") orelse {
-                // TODO look in /etc/passwd
-                return error.AppDataDirUnavailable;
-            };
+            const home_dir = posix.getenv("HOME") orelse (getHomeDirFromPasswd() catch return error.AppDataDirUnavailable);
             return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
         .haiku => {
@@ -54,6 +48,102 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             }
         },
         else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Parses home directory from /etc/passwd.
+fn getHomeDirFromPasswd() ![]u8 {
+    const ReaderState = enum {
+        start,
+        wait_for_next_line,
+        skip_username,
+        skip_password,
+        read_user_id,
+        skip_group_id,
+        skip_gecos,
+        read_home_directory,
+    };
+
+    const file = try fs.openFileAbsolute("/etc/passwd", .{});
+    defer file.close();
+
+    const reader = file.reader();
+
+    var buf: [std.heap.page_size_min]u8 = undefined;
+    var state = ReaderState.start;
+    const currentUid = std.posix.getuid();
+    var uid: posix.uid_t = 0;
+    var home_dir_start: usize = 0;
+    var home_dir_len: usize = 0;
+
+    while (true) {
+        const bytes_read = try reader.read(buf[0..]);
+        for (0.., buf[0..bytes_read]) |i, byte| {
+            switch (state) {
+                .start => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .skip_password,
+                    else => continue,
+                },
+                .wait_for_next_line => switch (byte) {
+                    '\n' => {
+                        uid = 0;
+                        home_dir_len = 0;
+                        state = .start;
+                    },
+                    else => continue,
+                },
+                .skip_username => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => std.debug.print("*", .{}),
+                    else => continue,
+                },
+                .skip_password => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .read_user_id,
+                    else => continue,
+                },
+                .read_user_id => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = if (uid == currentUid) .skip_group_id else .wait_for_next_line,
+                    else => {
+                        const digit = switch (byte) {
+                            '0'...'9' => byte - '0',
+                            else => return error.CorruptPasswordFile,
+                        };
+                        {
+                            const ov = @mulWithOverflow(uid, 10);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
+                        {
+                            const ov = @addWithOverflow(uid, digit);
+                            if (ov[1] != 0) return error.CorruptPasswordFile;
+                            uid = ov[0];
+                        }
+                    },
+                },
+                .skip_group_id => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => state = .skip_gecos,
+                    else => continue,
+                },
+                .skip_gecos => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => {
+                        home_dir_start = i + 1;
+                        state = .read_home_directory;
+                    },
+                    else => continue,
+                },
+                .read_home_directory => switch (byte) {
+                    '\n', ':' => return buf[home_dir_start .. home_dir_start + home_dir_len],
+                    else => {
+                        home_dir_len += 1;
+                    },
+                },
+            }
+        }
     }
 }
 
