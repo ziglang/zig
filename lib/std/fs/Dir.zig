@@ -2395,7 +2395,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.BadPathName,
                     error.DeviceBusy,
                     error.NetworkNotFound,
-                    error.ProcessNotFound,
                     => |e| return e,
                 };
             } else {
@@ -2423,7 +2422,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.BadPathName,
                     error.NetworkNotFound,
                     error.Unexpected,
-                    error.ProcessNotFound,
                     => |e| return e,
                 }
             }
