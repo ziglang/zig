@@ -2471,10 +2471,10 @@ pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) Access
         const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
-    const os_mode = switch (flags.mode) {
-        .read_only => @as(u32, posix.F_OK),
-        .write_only => @as(u32, posix.W_OK),
-        .read_write => @as(u32, posix.R_OK | posix.W_OK),
+    const os_mode: c_int = switch (flags.mode) {
+        .read_only => posix.F_OK,
+        .write_only => posix.W_OK,
+        .read_write => posix.R_OK | posix.W_OK,
     };
     const result = posix.faccessatZ(self.fd, sub_path, os_mode, 0);
     return result;
