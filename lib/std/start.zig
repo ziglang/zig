@@ -250,7 +250,7 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
-            .m68k => ".cfi_undefined pc",
+            .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
