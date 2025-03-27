@@ -3648,7 +3648,7 @@ fn indexablePtrLen(
     const object_ty = sema.typeOf(object);
     const is_pointer_to = object_ty.isSinglePointer(zcu);
     const indexable_ty = if (is_pointer_to) object_ty.childType(zcu) else object_ty;
-    try checkIndexable(sema, block, src, indexable_ty);
+    try sema.checkIndexable(block, src, indexable_ty);
     const field_name = try zcu.intern_pool.getOrPutString(sema.gpa, pt.tid, "len", .no_embedded_nulls);
     return sema.fieldVal(block, src, object, field_name, src);
 }
@@ -10103,6 +10103,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
     try sema.requireRuntimeBlock(block, block.nodeOffset(inst_data.src_node), ptr_src);
     try sema.validateRuntimeValue(block, ptr_src, operand);
+    try sema.checkLogicalPtrOperation(block, ptr_src, ptr_ty);
     if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
         return block.addBitCast(dest_ty, operand);
     }
@@ -13518,7 +13519,7 @@ fn validateErrSetSwitch(
     seen_errors: *SwitchErrorSet,
     case_vals: *std.ArrayListUnmanaged(Air.Inst.Ref),
     operand_ty: Type,
-    inst_data: std.meta.FieldType(Zir.Inst.Data, .pl_node),
+    inst_data: @FieldType(Zir.Inst.Data, "pl_node"),
     scalar_cases_len: u32,
     multi_cases_len: u32,
     else_case: struct { body: []const Zir.Inst.Index, end: usize, src: LazySrcLoc },
@@ -16389,6 +16390,8 @@ fn analyzeArithmetic(
                 };
 
                 try sema.requireRuntimeBlock(block, src, runtime_src);
+                try sema.checkLogicalPtrOperation(block, src, lhs_ty);
+                try sema.checkLogicalPtrOperation(block, src, rhs_ty);
                 const lhs_int = try block.addBitCast(.usize, lhs);
                 const rhs_int = try block.addBitCast(.usize, rhs);
                 const address = try block.addBinOp(.sub_wrap, lhs_int, rhs_int);
@@ -16620,24 +16623,7 @@ fn analyzePtrArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, op_src, runtime_src);
-
-    const target = zcu.getTarget();
-    if (target_util.arePointersLogical(target, ptr_info.flags.address_space)) {
-        return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(op_src, "illegal pointer arithmetic on pointer of type '{}'", .{ptr_ty.fmt(pt)});
-            errdefer msg.destroy(sema.gpa);
-
-            const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
-            try sema.errNote(op_src, msg, "arithmetic cannot be performed on pointers with address space '{s}' on target {s}-{s} by compiler backend {s}", .{
-                @tagName(ptr_info.flags.address_space),
-                target.cpu.arch.genericName(),
-                @tagName(target.os.tag),
-                @tagName(backend),
-            });
-
-            break :msg msg;
-        });
-    }
+    try sema.checkLogicalPtrOperation(block, op_src, ptr_ty);
 
     return block.addInst(.{
         .tag = air_tag,
@@ -22501,6 +22487,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         });
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
+    try sema.checkLogicalPtrOperation(block, src, ptr_ty);
     if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
         if (block.wantSafety() and (try elem_ty.hasRuntimeBitsSema(pt) or elem_ty.zigTypeTag(zcu) == .@"fn")) {
             if (!ptr_ty.isAllowzeroPtr(zcu)) {
@@ -23165,8 +23152,9 @@ fn ptrCastFull(
 
     try sema.validateRuntimeValue(block, operand_src, operand);
 
-    const need_null_check = block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu);
-    const need_align_check = block.wantSafety() and dest_align.compare(.gt, src_align);
+    const can_cast_to_int = !target_util.arePointersLogical(zcu.getTarget(), operand_ty.ptrAddressSpace(zcu));
+    const need_null_check = can_cast_to_int and block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu);
+    const need_align_check = can_cast_to_int and block.wantSafety() and dest_align.compare(.gt, src_align);
 
     // `operand` might be a slice. If `need_operand_ptr`, we'll populate `operand_ptr` with the raw pointer.
     const need_operand_ptr = src_info.flags.size != .slice or // we already have it
@@ -23830,6 +23818,32 @@ fn checkPtrType(
         else => {},
     }
     return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty.fmt(pt)});
+}
+
+fn checkLogicalPtrOperation(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    if (zcu.intern_pool.indexToKey(ty.toIntern()) == .ptr_type) {
+        const target = zcu.getTarget();
+        const as = ty.ptrAddressSpace(zcu);
+        if (target_util.arePointersLogical(target, as)) {
+            return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(src, "illegal operation on logical pointer of type '{}'", .{ty.fmt(pt)});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(
+                    src,
+                    msg,
+                    "cannot perform arithmetic on pointers with address space '{s}' on target {s}-{s}",
+                    .{
+                        @tagName(as),
+                        target.cpu.arch.genericName(),
+                        @tagName(target.os.tag),
+                    },
+                );
+                break :msg msg;
+            });
+        }
+    }
 }
 
 fn checkVectorElemType(
@@ -28326,7 +28340,7 @@ fn elemPtr(
         .pointer => indexable_ptr_ty.childType(zcu),
         else => return sema.fail(block, indexable_ptr_src, "expected pointer, found '{}'", .{indexable_ptr_ty.fmt(pt)}),
     };
-    try checkIndexable(sema, block, src, indexable_ty);
+    try sema.checkIndexable(block, src, indexable_ty);
 
     const elem_ptr = switch (indexable_ty.zigTypeTag(zcu)) {
         .array, .vector => try sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init, oob_safety),
@@ -28362,7 +28376,7 @@ fn elemPtrOneLayerOnly(
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    try checkIndexable(sema, block, src, indexable_ty);
+    try sema.checkIndexable(block, src, indexable_ty);
 
     switch (indexable_ty.ptrSize(zcu)) {
         .slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
@@ -28376,6 +28390,8 @@ fn elemPtrOneLayerOnly(
                 const elem_ptr = try ptr_val.ptrElem(index, pt);
                 return Air.internedToRef(elem_ptr.toIntern());
             }
+
+            try sema.checkLogicalPtrOperation(block, src, indexable_ty);
             const result_ty = try indexable_ty.elemPtrType(null, pt);
 
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
@@ -28412,7 +28428,7 @@ fn elemVal(
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    try checkIndexable(sema, block, src, indexable_ty);
+    try sema.checkIndexable(block, src, indexable_ty);
 
     // TODO in case of a vector of pointers, we need to detect whether the element
     // index is a scalar or vector instead of unconditionally casting to usize.
@@ -28438,6 +28454,7 @@ fn elemVal(
                     return Air.internedToRef((try pt.getCoerced(elem_val, elem_ty)).toIntern());
                 }
 
+                try sema.checkLogicalPtrOperation(block, src, indexable_ty);
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .one => {
@@ -28477,6 +28494,9 @@ fn validateRuntimeElemAccess(
     parent_ty: Type,
     parent_src: LazySrcLoc,
 ) CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
     if (try elem_ty.comptimeOnlySema(sema.pt)) {
         const msg = msg: {
             const msg = try sema.errMsg(
@@ -28491,6 +28511,14 @@ fn validateRuntimeElemAccess(
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    if (zcu.intern_pool.indexToKey(parent_ty.toIntern()) == .ptr_type) {
+        const target = zcu.getTarget();
+        const as = parent_ty.ptrAddressSpace(zcu);
+        if (target_util.arePointersLogical(target, as)) {
+            return sema.fail(block, elem_index_src, "cannot access element of logical pointer '{}'", .{parent_ty.fmt(pt)});
+        }
     }
 }
 
@@ -30394,20 +30422,17 @@ fn coerceInMemoryAllowedFns(
             } };
         }
 
-        switch (src_param_ty.toIntern()) {
-            .generic_poison_type => {},
-            else => {
-                // Note: Cast direction is reversed here.
-                const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, dest_is_mut, target, dest_src, src_src, null);
-                if (param != .ok) {
-                    return .{ .fn_param = .{
-                        .child = try param.dupe(sema.arena),
-                        .actual = src_param_ty,
-                        .wanted = dest_param_ty,
-                        .index = param_i,
-                    } };
-                }
-            },
+        if (!src_param_ty.isGenericPoison() and !dest_param_ty.isGenericPoison()) {
+            // Note: Cast direction is reversed here.
+            const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, dest_is_mut, target, dest_src, src_src, null);
+            if (param != .ok) {
+                return .{ .fn_param = .{
+                    .child = try param.dupe(sema.arena),
+                    .actual = src_param_ty,
+                    .wanted = dest_param_ty,
+                    .index = param_i,
+                } };
+            }
         }
     }
 
@@ -31158,6 +31183,7 @@ fn coerceCompatiblePtrs(
     if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero(zcu) and
         (try dest_ty.elemType2(zcu).hasRuntimeBitsSema(pt) or dest_ty.elemType2(zcu).zigTypeTag(zcu) == .@"fn"))
     {
+        try sema.checkLogicalPtrOperation(block, inst_src, inst_ty);
         const actual_ptr = if (inst_ty.isSlice(zcu))
             try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
         else
@@ -36348,6 +36374,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .slice_const_u8_sentinel_0_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_1_u8_type,
+        .vector_2_u8_type,
+        .vector_4_u8_type,
+        .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
         .vector_8_i16_type,

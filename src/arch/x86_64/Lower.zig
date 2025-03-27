@@ -579,7 +579,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u, .ri_64, .ir => inst.data.ri.fixes,
-        .rm, .rmi_s, .mr => inst.data.rx.fixes,
+        .rm, .rmi_s, .rmi_u, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
         .rrmr => inst.data.rrrx.fixes,

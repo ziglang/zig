@@ -827,7 +827,7 @@ pub const MiscTask = enum {
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
-    @"mingw-w64 mingw32.lib",
+    @"mingw-w64 libmingw32.lib",
 };
 
 pub const MiscError = struct {
@@ -1512,7 +1512,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).array.len,
+            .work_queues = @splat(.init(gpa)),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
@@ -1886,7 +1886,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
-                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.mingw32_lib)] = true;
+                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.

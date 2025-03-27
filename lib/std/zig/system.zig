@@ -505,6 +505,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     UnexpectedEndOfFile,
     NameTooLong,
     ProcessNotFound,
+    StaticElfFile,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -550,6 +551,8 @@ pub fn abiAndDynamicLinkerFromFile(
     if (phentsize > @sizeOf(elf.Elf64_Phdr)) return error.InvalidElfFile;
 
     var ph_i: u16 = 0;
+    var got_dyn_section: bool = false;
+
     while (ph_i < phnum) {
         // Reserve some bytes so that we can deref the 64-bit struct fields
         // even when the ELF file is 32-bits.
@@ -565,61 +568,69 @@ pub fn abiAndDynamicLinkerFromFile(
             const ph64: *elf.Elf64_Phdr = @ptrCast(@alignCast(&ph_buf[ph_buf_i]));
             const p_type = elfInt(is_64, need_bswap, ph32.p_type, ph64.p_type);
             switch (p_type) {
-                elf.PT_INTERP => if (look_for_ld) {
-                    const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
-                    const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                    if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                    const filesz: usize = @intCast(p_filesz);
-                    _ = try preadAtLeast(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
-                    // PT_INTERP includes a null byte in filesz.
-                    const len = filesz - 1;
-                    // dynamic_linker.max_byte is "max", not "len".
-                    // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
-                    result.dynamic_linker.len = @intCast(len);
+                elf.PT_INTERP => {
+                    got_dyn_section = true;
 
-                    // Use it to determine ABI.
-                    const full_ld_path = result.dynamic_linker.buffer[0..len];
-                    for (ld_info_list) |ld_info| {
-                        const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
-                        if (std.mem.endsWith(u8, full_ld_path, standard_ld_basename)) {
-                            result.abi = ld_info.abi;
-                            break;
+                    if (look_for_ld) {
+                        const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
+                        const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
+                        if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
+                        const filesz: usize = @intCast(p_filesz);
+                        _ = try preadAtLeast(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
+                        // PT_INTERP includes a null byte in filesz.
+                        const len = filesz - 1;
+                        // dynamic_linker.max_byte is "max", not "len".
+                        // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
+                        result.dynamic_linker.len = @intCast(len);
+
+                        // Use it to determine ABI.
+                        const full_ld_path = result.dynamic_linker.buffer[0..len];
+                        for (ld_info_list) |ld_info| {
+                            const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
+                            if (std.mem.endsWith(u8, full_ld_path, standard_ld_basename)) {
+                                result.abi = ld_info.abi;
+                                break;
+                            }
                         }
                     }
                 },
                 // We only need this for detecting glibc version.
-                elf.PT_DYNAMIC => if (builtin.target.os.tag == .linux and result.isGnuLibC() and
-                    query.glibc_version == null)
-                {
-                    var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
-                    const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                    const dyn_size: usize = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
-                    const dyn_num = p_filesz / dyn_size;
-                    var dyn_buf: [16 * @sizeOf(elf.Elf64_Dyn)]u8 align(@alignOf(elf.Elf64_Dyn)) = undefined;
-                    var dyn_i: usize = 0;
-                    dyn: while (dyn_i < dyn_num) {
-                        // Reserve some bytes so that we can deref the 64-bit struct fields
-                        // even when the ELF file is 32-bits.
-                        const dyn_reserve: usize = @sizeOf(elf.Elf64_Dyn) - @sizeOf(elf.Elf32_Dyn);
-                        const dyn_read_byte_len = try preadAtLeast(
-                            file,
-                            dyn_buf[0 .. dyn_buf.len - dyn_reserve],
-                            dyn_off,
-                            dyn_size,
-                        );
-                        var dyn_buf_i: usize = 0;
-                        while (dyn_buf_i < dyn_read_byte_len and dyn_i < dyn_num) : ({
-                            dyn_i += 1;
-                            dyn_off += dyn_size;
-                            dyn_buf_i += dyn_size;
-                        }) {
-                            const dyn32: *elf.Elf32_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
-                            const dyn64: *elf.Elf64_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
-                            const tag = elfInt(is_64, need_bswap, dyn32.d_tag, dyn64.d_tag);
-                            const val = elfInt(is_64, need_bswap, dyn32.d_val, dyn64.d_val);
-                            if (tag == elf.DT_RUNPATH) {
-                                rpath_offset = val;
-                                break :dyn;
+                elf.PT_DYNAMIC => {
+                    got_dyn_section = true;
+
+                    if (builtin.target.os.tag == .linux and result.isGnuLibC() and
+                        query.glibc_version == null)
+                    {
+                        var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
+                        const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
+                        const dyn_size: usize = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
+                        const dyn_num = p_filesz / dyn_size;
+                        var dyn_buf: [16 * @sizeOf(elf.Elf64_Dyn)]u8 align(@alignOf(elf.Elf64_Dyn)) = undefined;
+                        var dyn_i: usize = 0;
+                        dyn: while (dyn_i < dyn_num) {
+                            // Reserve some bytes so that we can deref the 64-bit struct fields
+                            // even when the ELF file is 32-bits.
+                            const dyn_reserve: usize = @sizeOf(elf.Elf64_Dyn) - @sizeOf(elf.Elf32_Dyn);
+                            const dyn_read_byte_len = try preadAtLeast(
+                                file,
+                                dyn_buf[0 .. dyn_buf.len - dyn_reserve],
+                                dyn_off,
+                                dyn_size,
+                            );
+                            var dyn_buf_i: usize = 0;
+                            while (dyn_buf_i < dyn_read_byte_len and dyn_i < dyn_num) : ({
+                                dyn_i += 1;
+                                dyn_off += dyn_size;
+                                dyn_buf_i += dyn_size;
+                            }) {
+                                const dyn32: *elf.Elf32_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
+                                const dyn64: *elf.Elf64_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
+                                const tag = elfInt(is_64, need_bswap, dyn32.d_tag, dyn64.d_tag);
+                                const val = elfInt(is_64, need_bswap, dyn32.d_val, dyn64.d_val);
+                                if (tag == elf.DT_RUNPATH) {
+                                    rpath_offset = val;
+                                    break :dyn;
+                                }
                             }
                         }
                     }
@@ -627,6 +638,10 @@ pub fn abiAndDynamicLinkerFromFile(
                 else => continue,
             }
         }
+    }
+
+    if (!got_dyn_section) {
+        return error.StaticElfFile;
     }
 
     if (builtin.target.os.tag == .linux and result.isGnuLibC() and
@@ -731,6 +746,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 error.NetworkNotFound => unreachable, // Windows only
 
                 error.AccessDenied,
+                error.PermissionDenied,
                 error.FileNotFound,
                 error.NotLink,
                 error.NotDir,
@@ -825,6 +841,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
+        error.PermissionDenied,
         error.NoDevice,
         => return error.GLibCNotFound,
 
@@ -863,6 +880,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.NoDevice => unreachable, // not asking for a special device
 
         error.AccessDenied,
+        error.PermissionDenied,
         error.FileNotFound,
         error.NotDir,
         error.IsDir,
@@ -1122,6 +1140,7 @@ fn detectAbiAndDynamicLinker(
                 error.IsDir,
                 error.NotDir,
                 error.AccessDenied,
+                error.PermissionDenied,
                 error.NoDevice,
                 error.FileNotFound,
                 error.NetworkNotFound,
@@ -1204,6 +1223,7 @@ fn detectAbiAndDynamicLinker(
         error.Unexpected,
         error.UnexpectedEndOfFile,
         error.NameTooLong,
+        error.StaticElfFile,
         // Finally, we fall back on the standard path.
         => |e| {
             std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
