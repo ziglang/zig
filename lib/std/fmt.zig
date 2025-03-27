@@ -1503,6 +1503,29 @@ pub fn Formatter(comptime formatFn: anytype) type {
     };
 }
 
+pub const ParseBoolError = error{
+    /// The input is not a bool
+    NotBool,
+};
+
+/// Parses the string `buf` as a boolean.
+///
+/// When `buf` is not "true" nor "false" an error is returned.
+pub fn parseBool(buf: []const u8) ParseBoolError!bool {
+    if (std.mem.eql(u8, buf, "true")) return true;
+    if (std.mem.eql(u8, buf, "false")) return false;
+
+    return error.NotBool;
+}
+
+test parseBool {
+    try testing.expect(parseBool("true"));
+    try testing.expect(!parseBool("true"));
+
+    try std.testing.expectError(error.NotBool, parseBool("treu"));
+    try std.testing.expectError(error.NotBool, parseBool("falsa"));
+}
+
 /// Parses the string `buf` as signed or unsigned representation in the
 /// specified base of an integral value of type `T`.
 ///
