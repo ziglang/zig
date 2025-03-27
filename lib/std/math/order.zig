@@ -21,12 +21,9 @@ pub const Order = enum(i2) {
     }
 
     test invert {
-        const neg: i32 = -1;
-        const zero: i32 = 0;
-        const pos: i32 = 1;
-        try expectEqual(.eq, order(zero, zero).invert());
-        try expectEqual(.lt, order(pos, zero).invert());
-        try expectEqual(.gt, order(neg, zero).invert());
+        try expectEqual(.eq, order(0, 0).invert());
+        try expectEqual(.lt, order(1, 0).invert());
+        try expectEqual(.gt, order(-1, 0).invert());
     }
 
     pub fn differ(self: Order) ?Order {
@@ -61,32 +58,7 @@ pub const Order = enum(i2) {
     }
 
     pub fn compare(self: Order, op: CompareOperator) bool {
-        return switch (self) {
-            .lt => switch (op) {
-                .lt => true,
-                .lte => true,
-                .eq => false,
-                .gte => false,
-                .gt => false,
-                .neq => true,
-            },
-            .eq => switch (op) {
-                .lt => false,
-                .lte => true,
-                .eq => true,
-                .gte => true,
-                .gt => false,
-                .neq => false,
-            },
-            .gt => switch (op) {
-                .lt => false,
-                .lte => false,
-                .eq => false,
-                .gte => true,
-                .gt => true,
-                .neq => true,
-            },
-        };
+        return math.compare(@intFromEnum(self), op, 0);
     }
 
     test compare {
