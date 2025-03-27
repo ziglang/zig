@@ -258,10 +258,12 @@ pub fn EnumSet(comptime E: type) type {
         /// The maximum number of items in this set.
         pub const len = Indexer.count;
 
-        pub const empty: Self = Self.initEmpty();
-        pub const full: Self = Self.initFull();
+        /// A set containing no keys.
+        pub const empty: Self = .{ .bits = .empty };
+        /// A set containing all keys.
+        pub const full: Self = .{ .bits = .full };
 
-        bits: BitSet = BitSet.initEmpty(),
+        bits: BitSet = .empty,
 
         /// Initializes the set using a struct of bools
         pub fn init(init_values: EnumFieldStruct(E, bool, false)) Self {
@@ -287,19 +289,19 @@ pub fn EnumSet(comptime E: type) type {
             return result;
         }
 
-        /// Returns a set containing no keys.
+        /// Deprecated: use `.empty`
         pub fn initEmpty() Self {
-            return .{ .bits = BitSet.initEmpty() };
+            return .empty;
         }
 
-        /// Returns a set containing all possible keys.
+        /// Deprecated: use `.full`
         pub fn initFull() Self {
-            return .{ .bits = BitSet.initFull() };
+            return .full;
         }
 
         /// Returns a set containing multiple keys.
         pub fn initMany(keys: []const Key) Self {
-            var set = initEmpty();
+            var set: Self = .empty;
             for (keys) |key| set.insert(key);
             return set;
         }
@@ -449,13 +451,13 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         const BitSet = std.StaticBitSet(Indexer.count);
 
         /// Bits determining whether items are in the map
-        bits: BitSet = BitSet.initEmpty(),
+        bits: BitSet = .empty,
         /// Values of items in the map.  If the associated
         /// bit is zero, the value is undefined.
         values: [Indexer.count]Value = undefined,
 
-        pub const empty: Self = .{ .bits = BitSet.initEmpty(), .values = undefined };
-        pub const full: Self = Self.initFull();
+        /// A map with no entries.
+        pub const empty: Self = .{ .bits = .empty, .values = undefined };
 
         /// Initializes the map using a sparse struct of optionals
         pub fn init(init_values: EnumFieldStruct(E, ?Value, @as(?Value, null))) Self {
@@ -487,7 +489,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// Consider using EnumArray instead if the map will remain full.
         pub fn initFull(value: Value) Self {
             var result: Self = .{
-                .bits = Self.BitSet.initFull(),
+                .bits = .full,
                 .values = undefined,
             };
             @memset(&result.values, value);
@@ -505,7 +507,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         pub fn initFullWithDefault(comptime default: ?Value, init_values: EnumFieldStruct(E, Value, default)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{
-                .bits = Self.BitSet.initFull(),
+                .bits = .full,
                 .values = undefined,
             };
             inline for (0..Self.len) |i| {
@@ -687,7 +689,8 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
 
         counts: EnumArray(E, CountSize),
 
-        pub const empty: Self = Self.initEmpty();
+        /// A multiset with a count of zero.
+        pub const empty: Self = Self.initWithCount(0);
 
         /// Initializes the multiset using a struct of counts.
         pub fn init(init_counts: EnumFieldStruct(E, CountSize, 0)) Self {
@@ -701,9 +704,9 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             return self;
         }
 
-        /// Initializes the multiset with a count of zero.
+        /// Deprecated: use `.empty`
         pub fn initEmpty() Self {
-            return initWithCount(0);
+            return .empty;
         }
 
         /// Initializes the multiset with all keys at the
