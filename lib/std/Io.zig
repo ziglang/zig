@@ -1,6 +1,8 @@
 const std = @import("std.zig");
 const Io = @This();
 
+pub const EventLoop = @import("Io/EventLoop.zig");
+
 userdata: ?*anyopaque,
 vtable: *const VTable,
 
@@ -12,6 +14,7 @@ pub const VTable = struct {
         userdata: ?*anyopaque,
         /// The pointer of this slice is an "eager" result value.
         /// The length is the size in bytes of the result type.
+        /// This pointer's lifetime expires directly after the call to this function.
         eager_result: []u8,
         /// Passed to `start`.
         context: ?*anyopaque,
