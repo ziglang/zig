@@ -5480,6 +5480,7 @@ pub const RealPathError = error{
     FileSystem,
     BadPathName,
     DeviceBusy,
+    ProcessNotFound,
 
     SharingViolation,
     PipeBusy,
