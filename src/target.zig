@@ -64,7 +64,11 @@ pub fn supports_fpic(target: std.Target) bool {
 }
 
 pub fn alwaysSingleThreaded(target: std.Target) bool {
-    _ = target;
+    switch (target.os.tag) {
+        // Technically, multithreaded is possible but we don't support it currently.
+        .uefi => return true,
+        else => {},
+    }
     return false;
 }
 
