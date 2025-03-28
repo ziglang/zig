@@ -6888,8 +6888,8 @@ fn cmdFetch(
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
         .location = switch (parsed_path_or_url) {
-            .path => |path| .{ .cli_path = path },
-            .url => |url| .{ .cli_url = url },
+            .path => |path| .{ .path = path },
+            .url => |url| .{ .url = url },
         },
         .location_tok = 0,
         .hash_tok = .none,

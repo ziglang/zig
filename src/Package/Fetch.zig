@@ -298,19 +298,20 @@ pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
     relative_path: Cache.Path,
-    /// A URL passed via the CLI.
-    /// Indicates that the archive the URL refers to should
-    /// be fetched and copied into the global package cache.
-    /// Recursive Fetch tasks will never use this Location.
-    cli_url: std.Uri,
-    /// A file path (absolute or relative to the CWD) passed in via the CLI.
+    /// Recursive Fetch tasks will never use this Location,
+    /// but it may be passed in by the CLI.
+    /// Indicates that the archive the URL refers to should be fetched
+    /// and copied into the global package cache.
+    url: std.Uri,
+    /// Recursive Fetch tasks will never use this Location,
+    /// but it may be passed in by the CLI.
     /// Indicates that the contents of the archive or directory the path refers to
     /// should be copied into the global package cache.
-    /// If the path refers to an archive, it is treated like a `file://` URL.
-    /// If the path refers to a directory, it is treated like an already unpacked directory
-    /// and applies inclusion rules to its contents before copying its contents.
-    /// Recursive Fetch tasks will never use this Location.
-    cli_path: []const u8,
+    /// The path can be relative to the CWD or absolute.
+    /// If the path refers to an archive, it is treated exactly like a `file://` URL.
+    /// If the path refers to a directory, it is treated like an already unpacked archive
+    /// and applies inclusion rules to its contents before copying.
+    path: []const u8,
 
     pub const Remote = struct {
         url: []const u8,
@@ -385,7 +386,7 @@ pub fn run(f: *Fetch) RunError!void {
             return queueJobsForDeps(f);
         },
         .remote => |remote| remote,
-        .cli_path => |path| {
+        .path => |path| {
             const fs_err = if (fs.cwd().openDir(path, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
                 return f.runResource(path, &resource, null);
@@ -397,7 +398,7 @@ pub fn run(f: *Fetch) RunError!void {
             } else dir_err;
             return f.fail(0, try eb.printString("unable to open '{s}': {s}", .{ path, @errorName(fs_err) }));
         },
-        .cli_url => |uri| {
+        .url => |uri| {
             var server_header_buffer: [header_buffer_size]u8 = undefined;
             const uri_path = try uri.path.toRawMaybeAlloc(arena);
             var resource = try f.initResource(uri, &server_header_buffer);
@@ -2123,7 +2124,7 @@ test "zip" {
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = zip_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = zip_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2156,7 +2157,7 @@ test "zip with one root folder" {
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = zip_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = zip_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2193,7 +2194,7 @@ test "tarball with duplicate paths" {
 
     // Run tarball fetch, expect to fail
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = tarball_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
@@ -2225,7 +2226,7 @@ test "tarball with excluded duplicate paths" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = tarball_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try fetch.run();
 
@@ -2269,7 +2270,7 @@ test "tarball without root folder" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = tarball_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try fetch.run();
 
@@ -2308,7 +2309,7 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x       17  executables/script
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, .{ .cli_path = tarball_path });
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2361,7 +2362,7 @@ const TestFetchBuilder = struct {
         cache_parent_dir: std.fs.Dir,
         location: Location,
     ) !*Fetch {
-        assert(location == .cli_url or location == .cli_path);
+        assert(location == .url or location == .path);
 
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
