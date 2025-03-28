@@ -196,6 +196,9 @@ pub fn build(b: *std.Build) !void {
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
+    if (target.result.os.tag == .windows) {
+        exe.addWin32ResourceFile(.{ .file = b.path("rsc/resources.rc") });
+    }
 
     exe.build_id = b.option(
         std.zig.BuildId,
