@@ -131,27 +131,140 @@ test order {
 
     // 1 > -1
     try expectEqual(.gt, order(1, -1));
+
+    // Floats use IEEE total ordering.
+    // With the exception of NaN values and negative zeros,
+    // this behaves identically to regular float comparisons.
+
+    // Below is a rough "number line" of how floats are arranged with total ordering.
+    const ordered_floats = [_]f32{
+        -math.nan(f32), -math.inf(f32), -1.0, -0.0, 0.0, 1.0, math.inf(f32), math.nan(f32),
+    };
+
+    // We can check here that our "number line" is sorted
+    for (ordered_floats[0 .. ordered_floats.len - 1], ordered_floats[1..]) |lhs, rhs| {
+        try expectEqual(.lt, order(lhs, rhs));
+        try expectEqual(.gt, order(rhs, lhs));
+    }
+
+    // Equality is reflexive with total ordering, even when operating on NaN values.
+    // Keep in mind that while a NaN equals itself,
+    // it does not equal a NaN with a different payload or sign.
+    try expectEqual(.eq, order(math.nan(f32), math.nan(f32)));
+    try expectEqual(.lt, order(-math.nan(f32), math.nan(f32)));
+
+    // With total ordering, `-0.0 != 0.0`.
+    // This differentiates the two values,
+    // but is in contrast to the usual behavior of float comparisons.
+    try expectEqual(.lt, order(-0.0, 0.0));
 }
 
 test "total ordering" {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |Float| {
-        const inf = math.inf(Float);
-        const nan = math.nan(Float);
-        const snan = math.snan(Float);
-        const one: Float = 1.0;
-        const zero: Float = 0.0;
-        try expectEqual(.eq, order(zero, zero));
-        try expectEqual(.eq, order(nan, nan));
-        try expectEqual(.lt, order(zero, one));
-        try expectEqual(.gt, order(one, zero));
-        try expectEqual(.lt, order(-one, zero));
-        try expectEqual(.lt, order(-zero, zero));
-        try expectEqual(.lt, order(one, inf));
-        try expectEqual(.lt, order(-inf, inf));
-        try expectEqual(.eq, order(nan, nan));
-        try expectEqual(.gt, order(-inf, -nan));
-        try expectEqual(.gt, order(-inf, -snan));
-        try expectEqual(.lt, order(inf, nan));
-        try expectEqual(.lt, order(inf, snan));
+        const ordered_floats = [_]Float{
+            -math.nan(Float),
+            -math.inf(Float),
+            -math.floatMax(Float),
+            -100.0,
+            -1.0,
+            -0.5,
+            -math.floatMin(Float),
+            -math.floatTrueMin(Float),
+            -0.0,
+            0.0,
+            math.floatTrueMin(Float),
+            math.floatMin(Float),
+            0.5,
+            1.0,
+            100.0,
+            math.floatMax(Float),
+            math.inf(Float),
+            math.nan(Float),
+        };
+
+        for (ordered_floats) |value| {
+            try expectEqual(.eq, order(value, value));
+        }
+
+        for (ordered_floats[0 .. ordered_floats.len - 1], ordered_floats[1..]) |lhs, rhs| {
+            try expectEqual(.lt, order(lhs, rhs));
+            try expectEqual(.gt, order(rhs, lhs));
+        }
+    }
+}
+
+test "distinct nans" {
+    // Total ordering differentiates NaN values with different payloads
+
+    // TODO: https://github.com/ziglang/zig/issues/14366
+    if (!builtin.cpu.arch.isArm() and
+        !builtin.cpu.arch.isAARCH64() and
+        !builtin.cpu.arch.isMIPS32() and
+        !builtin.cpu.arch.isPowerPC() and
+        builtin.zig_backend != .stage2_c)
+    {
+        return error.SkipZigTest;
+    }
+
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |Float| {
+        const U = @Type(.{ .int = .{
+            .bits = @bitSizeOf(Float),
+            .signedness = .unsigned,
+        } });
+        const extra_payload: U = 1;
+
+        const quiet_nan: Float = math.nan(Float);
+        const signal_nan: Float = math.snan(Float);
+
+        // nan with all payload bits set
+        const max_nan: Float = @bitCast(~@as(U, 1 << @bitSizeOf(Float) - 1));
+
+        // inf < a < snan
+        const nan_a: Float = make_payload: {
+            const inf_bits: U = @bitCast(math.inf(Float));
+            break :make_payload @bitCast(inf_bits | extra_payload);
+        };
+
+        // snan < b < qnan
+        const nan_b: Float = make_payload: {
+            const snan_bits: U = @bitCast(signal_nan);
+            break :make_payload @bitCast(snan_bits | extra_payload);
+        };
+
+        // qnan < c < max_nan
+        const nan_c: Float = make_payload: {
+            const qnan_bits: U = @bitCast(quiet_nan);
+            break :make_payload @bitCast(qnan_bits | extra_payload);
+        };
+
+        const ordered_nans = [_]Float{
+            nan_a,
+            signal_nan,
+            nan_b,
+            quiet_nan,
+            nan_c,
+            max_nan,
+        };
+
+        for (ordered_nans) |nan| {
+            try expectEqual(.eq, order(nan, nan));
+            try expectEqual(.eq, order(-nan, -nan));
+            try expectEqual(.lt, order(-nan, nan));
+            try expectEqual(.gt, order(nan, -nan));
+        }
+
+        for (ordered_nans[0 .. ordered_nans.len - 1], ordered_nans[1..]) |lhs, rhs| {
+            try expectEqual(.lt, order(lhs, rhs));
+            try expectEqual(.gt, order(rhs, lhs));
+
+            try expectEqual(.gt, order(-lhs, -rhs));
+            try expectEqual(.lt, order(-rhs, -lhs));
+
+            try expectEqual(.lt, order(-lhs, rhs));
+            try expectEqual(.gt, order(rhs, -lhs));
+
+            try expectEqual(.gt, order(lhs, -rhs));
+            try expectEqual(.lt, order(-rhs, lhs));
+        }
     }
 }
