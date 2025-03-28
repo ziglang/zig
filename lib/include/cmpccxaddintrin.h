@@ -63,7 +63,7 @@ typedef enum {
                                     (int)(__D))))
 
 #define _cmpccxadd_epi64(__A, __B, __C, __D)                                   \
-  ((long long)(__builtin_ia32_cmpccxadd64((void *)(__A), (long long)(__B),     \
+  ((long long)(__builtin_ia32_cmpccxadd64((__A), (long long)(__B),             \
                                           (long long)(__C), (int)(__D))))
 
 #endif // __x86_64__

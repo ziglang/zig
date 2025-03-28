@@ -42,17 +42,21 @@ template<class E> const E* end(initializer_list<E> il) noexcept; // constexpr in
 
 */
 
-#include <__config>
-#include <cstddef>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/initializer_list>
+#else
+#  include <__config>
+#  include <__cstddef/size_t.h>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 namespace std // purposefully not versioned
 {
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Ep>
 class _LIBCPP_TEMPLATE_VIS initializer_list {
@@ -91,8 +95,13 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const _Ep* end(initia
   return __il.end();
 }
 
-#endif // !defined(_LIBCPP_CXX03_LANG)
+#  endif // !defined(_LIBCPP_CXX03_LANG)
 
 } // namespace std
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_INITIALIZER_LIST

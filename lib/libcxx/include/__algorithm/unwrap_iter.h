@@ -46,7 +46,7 @@ struct __unwrap_iter_impl {
 // It's a contiguous iterator, so we can use a raw pointer instead
 template <class _Iter>
 struct __unwrap_iter_impl<_Iter, true> {
-  using _ToAddressT = decltype(std::__to_address(std::declval<_Iter>()));
+  using _ToAddressT _LIBCPP_NODEBUG = decltype(std::__to_address(std::declval<_Iter>()));
 
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Iter __rewrap(_Iter __orig_iter, _ToAddressT __unwrapped_iter) {
     return __orig_iter + (__unwrapped_iter - std::__to_address(__orig_iter));

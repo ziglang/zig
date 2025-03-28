@@ -48,6 +48,7 @@
 #if SANITIZER_LINUX
 
 #  include "sanitizer_libc.h"
+#  include "sanitizer_platform_limits_posix.h"
 
 #  define PRE_SYSCALL(name) \
     SANITIZER_INTERFACE_ATTRIBUTE void __sanitizer_syscall_pre_impl_##name
@@ -2530,18 +2531,19 @@ PRE_SYSCALL(ptrace)(long request, long pid, long addr, long data) {
 #  if !SANITIZER_ANDROID &&                                                   \
       (defined(__i386) || defined(__x86_64) || defined(__mips64) ||           \
        defined(__powerpc64__) || defined(__aarch64__) || defined(__s390__) || \
-       defined(__loongarch__) || SANITIZER_RISCV64)
-  if (data) {
+       defined(__loongarch__) || SANITIZER_RISCV64 || defined(__sparc__))
+  long data_arg = ptrace_data_arg(request, addr, data);
+  if (data_arg) {
     if (request == ptrace_setregs) {
-      PRE_READ((void *)data, struct_user_regs_struct_sz);
+      PRE_READ((void *)data_arg, struct_user_regs_struct_sz);
     } else if (request == ptrace_setfpregs) {
-      PRE_READ((void *)data, struct_user_fpregs_struct_sz);
+      PRE_READ((void *)data_arg, struct_user_fpregs_struct_sz);
     } else if (request == ptrace_setfpxregs) {
-      PRE_READ((void *)data, struct_user_fpxregs_struct_sz);
+      PRE_READ((void *)data_arg, struct_user_fpxregs_struct_sz);
     } else if (request == ptrace_setsiginfo) {
-      PRE_READ((void *)data, siginfo_t_sz);
+      PRE_READ((void *)data_arg, siginfo_t_sz);
     } else if (request == ptrace_setregset) {
-      __sanitizer_iovec *iov = (__sanitizer_iovec *)data;
+      __sanitizer_iovec *iov = (__sanitizer_iovec *)data_arg;
       PRE_READ(iov->iov_base, iov->iov_len);
     }
   }
@@ -2552,25 +2554,26 @@ POST_SYSCALL(ptrace)(long res, long request, long pid, long addr, long data) {
 #  if !SANITIZER_ANDROID &&                                                   \
       (defined(__i386) || defined(__x86_64) || defined(__mips64) ||           \
        defined(__powerpc64__) || defined(__aarch64__) || defined(__s390__) || \
-       defined(__loongarch__) || SANITIZER_RISCV64)
-  if (res >= 0 && data) {
+       defined(__loongarch__) || SANITIZER_RISCV64 || defined(__sparc__))
+  long data_arg = ptrace_data_arg(request, addr, data);
+  if (res >= 0 && data_arg) {
     // Note that this is different from the interceptor in
     // sanitizer_common_interceptors.inc.
     // PEEK* requests return resulting values through data pointer.
     if (request == ptrace_getregs) {
-      POST_WRITE((void *)data, struct_user_regs_struct_sz);
+      POST_WRITE((void *)data_arg, struct_user_regs_struct_sz);
     } else if (request == ptrace_getfpregs) {
-      POST_WRITE((void *)data, struct_user_fpregs_struct_sz);
+      POST_WRITE((void *)data_arg, struct_user_fpregs_struct_sz);
     } else if (request == ptrace_getfpxregs) {
-      POST_WRITE((void *)data, struct_user_fpxregs_struct_sz);
+      POST_WRITE((void *)data_arg, struct_user_fpxregs_struct_sz);
     } else if (request == ptrace_getsiginfo) {
-      POST_WRITE((void *)data, siginfo_t_sz);
+      POST_WRITE((void *)data_arg, siginfo_t_sz);
     } else if (request == ptrace_getregset) {
-      __sanitizer_iovec *iov = (__sanitizer_iovec *)data;
+      __sanitizer_iovec *iov = (__sanitizer_iovec *)data_arg;
       POST_WRITE(iov->iov_base, iov->iov_len);
     } else if (request == ptrace_peekdata || request == ptrace_peektext ||
                request == ptrace_peekuser) {
-      POST_WRITE((void *)data, sizeof(void *));
+      POST_WRITE((void *)data_arg, sizeof(void *));
     }
   }
 #  endif

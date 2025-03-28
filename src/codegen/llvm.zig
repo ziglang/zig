@@ -140,6 +140,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v9_3a, "v9.3a" },
             .{ .v9_4a, "v9.4a" },
             .{ .v9_5a, "v9.5a" },
+            .{ .v9_6a, "v9.6a" },
         }),
         .powerpc => subArchName(features, std.Target.powerpc, .{
             .{ .spe, "spe" },
@@ -270,10 +271,12 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .wasi, .emscripten => "unknown",
             else => "musl",
         },
-        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
-        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
+        .muslabin32 => "muslabin32",
+        .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslf32 => "muslf32",
+        .muslsf => "muslsf",
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
@@ -353,12 +356,12 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
         .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
         .mips64 => switch (target.abi) {
-            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
-            else => "E-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            else => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .mips64el => switch (target.abi) {
-            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
-            else => "e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
         .powerpc => if (target.os.tag == .aix)
@@ -367,17 +370,17 @@ pub fn dataLayout(target: std.Target) []const u8 {
             "E-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpc64 => switch (target.os.tag) {
-            .aix => "E-m:a-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .aix => "E-m:a-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
             .linux => if (target.abi.isMusl())
-                "E-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+                "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
             else
-                "E-m:e-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
-            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-n32:64",
+                "E-m:e-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
+            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-i128:128-n32:64",
             else => if (target.os.tag == .openbsd or
                 (target.os.tag == .freebsd and target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false))
-                "E-m:e-Fn32-i64:64-n32:64"
+                "E-m:e-Fn32-i64:64-i128:128-n32:64"
             else
-                "E-m:e-Fi64-i64:64-n32:64",
+                "E-m:e-Fi64-i64:64-i128:128-n32:64",
         },
         .powerpc64le => if (target.os.tag == .linux)
             "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
@@ -394,8 +397,8 @@ pub fn dataLayout(target: std.Target) []const u8 {
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .sparc => "E-m:e-p:32:32-i64:64-f128:64-n32-S64",
-        .sparc64 => "E-m:e-i64:64-n32:64-S128",
+        .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
+        .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
             "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
         else
@@ -443,13 +446,13 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .spirv32 => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
         .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
         .wasm32 => if (target.os.tag == .emscripten)
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
         else
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
         .wasm64 => if (target.os.tag == .emscripten)
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
         else
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
         .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
         .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
         .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
@@ -821,13 +824,23 @@ pub const Object = struct {
         }
 
         {
-            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 7);
+            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 8);
             defer module_flags.deinit();
 
             const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
             const behavior_warning = try o.builder.metadataConstant(try o.builder.intConst(.i32, 2));
             const behavior_max = try o.builder.metadataConstant(try o.builder.intConst(.i32, 7));
             const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
+
+            if (target_util.llvmMachineAbi(comp.root_mod.resolved_target.result)) |abi| {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_error,
+                    try o.builder.metadataString("target-abi"),
+                    try o.builder.metadataConstant(
+                        try o.builder.stringConst(try o.builder.string(abi)),
+                    ),
+                ));
+            }
 
             const pic_level = target_util.picLevel(comp.root_mod.resolved_target.result);
             if (comp.root_mod.pic) {
@@ -1053,9 +1066,12 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .lto = options.lto != .none,
-            // https://github.com/ziglang/zig/issues/21215
-            .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
+            .lto = switch (options.lto) {
+                .none => .None,
+                .thin => .ThinPreLink,
+                .full => .FullPreLink,
+            },
+            .allow_fast_isel = true,
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
@@ -5174,8 +5190,8 @@ pub const FuncGen = struct {
         }
 
         switch (modifier) {
-            .auto, .never_tail, .always_tail => {},
-            .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
+            .auto, .always_tail => {},
+            .never_tail, .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
             .async_kw, .no_async, .always_inline, .compile_time => unreachable,
         }
 
@@ -9750,14 +9766,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
 
-        // Any WebAssembly runtime will trap when the destination pointer is out-of-bounds, regardless
-        // of the length. This means we need to emit a check where we skip the memset when the length
-        // is 0 as we allow for undefined pointers in 0-sized slices.
-        // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
-            ptr_ty.isSlice(zcu) and
-            std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
-
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
             if (elem_val.isUndefDeep(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -9768,24 +9776,14 @@ pub const FuncGen = struct {
                 else
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-                if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(
-                        dest_ptr,
-                        fill_byte,
-                        len,
-                        dest_ptr_align,
-                        access_kind,
-                    );
-                } else {
-                    _ = try self.wip.callMemSet(
-                        dest_ptr,
-                        dest_ptr_align,
-                        fill_byte,
-                        len,
-                        access_kind,
-                        self.disable_intrinsics,
-                    );
-                }
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
                     try self.valgrindMarkUndef(dest_ptr, len);
@@ -9800,24 +9798,14 @@ pub const FuncGen = struct {
             if (try elem_val.hasRepeatedByteRepr(pt)) |byte_val| {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-                if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(
-                        dest_ptr,
-                        fill_byte,
-                        len,
-                        dest_ptr_align,
-                        access_kind,
-                    );
-                } else {
-                    _ = try self.wip.callMemSet(
-                        dest_ptr,
-                        dest_ptr_align,
-                        fill_byte,
-                        len,
-                        access_kind,
-                        self.disable_intrinsics,
-                    );
-                }
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
                 return .none;
             }
         }
@@ -9830,24 +9818,14 @@ pub const FuncGen = struct {
             const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
-            if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(
-                    dest_ptr,
-                    fill_byte,
-                    len,
-                    dest_ptr_align,
-                    access_kind,
-                );
-            } else {
-                _ = try self.wip.callMemSet(
-                    dest_ptr,
-                    dest_ptr_align,
-                    fill_byte,
-                    len,
-                    access_kind,
-                    self.disable_intrinsics,
-                );
-            }
+            _ = try self.wip.callMemSet(
+                dest_ptr,
+                dest_ptr_align,
+                fill_byte,
+                len,
+                access_kind,
+                self.disable_intrinsics,
+            );
             return .none;
         }
 
@@ -9911,33 +9889,6 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn safeWasmMemset(
-        self: *FuncGen,
-        dest_ptr: Builder.Value,
-        fill_byte: Builder.Value,
-        len: Builder.Value,
-        dest_ptr_align: Builder.Alignment,
-        access_kind: Builder.MemoryAccessKind,
-    ) !void {
-        const o = self.ng.object;
-        const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
-        const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
-        const memset_block = try self.wip.block(1, "MemsetTrapSkip");
-        const end_block = try self.wip.block(2, "MemsetTrapEnd");
-        _ = try self.wip.brCond(cond, memset_block, end_block, .none);
-        self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(
-            dest_ptr,
-            dest_ptr_align,
-            fill_byte,
-            len,
-            access_kind,
-            self.disable_intrinsics,
-        );
-        _ = try self.wip.br(end_block);
-        self.wip.cursor = .{ .block = end_block };
-    }
-
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = o.pt;
@@ -9952,35 +9903,6 @@ pub const FuncGen = struct {
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
             dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
-
-        // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
-        // This instruction will trap on an invalid address, regardless of the length.
-        // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
-        // We only have to do this for slices as arrays will have a valid pointer.
-        // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.cpu.arch.isWasm() and
-            std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
-            dest_ptr_ty.isSlice(zcu))
-        {
-            const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
-            const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
-            const memcpy_block = try self.wip.block(1, "MemcpyTrapSkip");
-            const end_block = try self.wip.block(2, "MemcpyTrapEnd");
-            _ = try self.wip.brCond(cond, memcpy_block, end_block, .none);
-            self.wip.cursor = .{ .block = memcpy_block };
-            _ = try self.wip.callMemCpy(
-                dest_ptr,
-                dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                src_ptr,
-                src_ptr_ty.ptrAlignment(zcu).toLlvm(),
-                len,
-                access_kind,
-                self.disable_intrinsics,
-            );
-            _ = try self.wip.br(end_block);
-            self.wip.cursor = .{ .block = end_block };
-            return .none;
-        }
 
         _ = try self.wip.callMemCpy(
             dest_ptr,
@@ -12455,21 +12377,21 @@ fn backendSupportsF80(target: std.Target) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        // LoongArch can be removed from this list with LLVM 20.
-        .loongarch32,
-        .loongarch64,
+        // https://github.com/llvm/llvm-project/issues/97981
+        .csky,
+        // https://github.com/llvm/llvm-project/issues/97981
         .hexagon,
+        // https://github.com/llvm/llvm-project/issues/97981
         .powerpc,
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        // https://github.com/llvm/llvm-project/issues/97981
         .wasm32,
         .wasm64,
-        .mips,
-        .mipsel,
-        .mips64,
-        .mips64el,
+        // https://github.com/llvm/llvm-project/issues/50374
         .s390x,
+        // https://github.com/llvm/llvm-project/issues/97981
         .sparc,
         .sparc64,
         => false,
@@ -12477,7 +12399,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fullfp16),
+        // https://github.com/llvm/llvm-project/issues/129394
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12490,11 +12413,18 @@ fn backendSupportsF16(target: std.Target) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        // https://github.com/llvm/llvm-project/issues/121122
         .amdgcn,
+        // Test failures all over the place.
         .mips64,
         .mips64el,
+        // https://github.com/llvm/llvm-project/issues/95471
+        .nvptx,
+        .nvptx64,
+        // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
+        // https://github.com/llvm/llvm-project/issues/101545
         .powerpc,
         .powerpcle,
         .powerpc64,
@@ -12505,9 +12435,6 @@ fn backendSupportsF128(target: std.Target) bool {
         .thumb,
         .thumbeb,
         => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
-        .aarch64,
-        .aarch64_be,
-        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }

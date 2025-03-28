@@ -227,12 +227,15 @@ static void ReportStackOverflowImpl(const SignalContext &sig, u32 tid,
          SanitizerToolName, kDescription, (void *)sig.addr, (void *)sig.pc,
          (void *)sig.bp, (void *)sig.sp, tid);
   Printf("%s", d.Default());
-  InternalMmapVector<BufferedStackTrace> stack_buffer(1);
-  BufferedStackTrace *stack = stack_buffer.data();
-  stack->Reset();
-  unwind(sig, unwind_context, stack);
-  stack->Print();
-  ReportErrorSummary(kDescription, stack);
+  // Avoid SEGVs in the unwinder when bp couldn't be determined.
+  if (sig.bp) {
+    InternalMmapVector<BufferedStackTrace> stack_buffer(1);
+    BufferedStackTrace *stack = stack_buffer.data();
+    stack->Reset();
+    unwind(sig, unwind_context, stack);
+    stack->Print();
+    ReportErrorSummary(kDescription, stack);
+  }
 }
 
 static void ReportDeadlySignalImpl(const SignalContext &sig, u32 tid,

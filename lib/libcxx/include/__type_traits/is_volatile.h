@@ -21,11 +21,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_volatile)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_volatile : _BoolConstant<__is_volatile(_Tp)> {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_volatile : _BoolConstant<__is_volatile(_Tp)> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_volatile_v = __is_volatile(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_volatile_v = __is_volatile(_Tp);
 #  endif
 
 #else
