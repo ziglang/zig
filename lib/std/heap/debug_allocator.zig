@@ -935,9 +935,25 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
             bucket.freed_count += 1;
             if (bucket.freed_count == bucket.allocated_count) {
-                if (self.buckets[size_class_index] == bucket) {
-                    self.buckets[size_class_index] = null;
-                }
+                var optional_next_bucket: ?*BucketHeader = null;
+                var optional_target_bucket = self.buckets[size_class_index];
+
+                const removed_bucket = while (optional_target_bucket) |target_bucket| : ({
+                    optional_next_bucket = target_bucket;
+                    optional_target_bucket = target_bucket.prev;
+                }) {
+                    if (target_bucket == bucket) {
+                        if (optional_next_bucket) |next_bucket| {
+                            next_bucket.prev = target_bucket.prev;
+                        } else {
+                            self.buckets[size_class_index] = target_bucket.prev;
+                        }
+
+                        break true;
+                    }
+                } else false;
+                if (!removed_bucket) @panic("Invalid free");
+
                 if (!config.never_unmap) {
                     const page: [*]align(page_size) u8 = @ptrFromInt(page_addr);
                     self.backing_allocator.rawFree(page[0..page_size], page_align, @returnAddress());
