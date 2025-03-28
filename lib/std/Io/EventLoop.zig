@@ -84,7 +84,6 @@ pub fn io(el: *EventLoop) Io {
     };
 }
 
-
 pub fn init(el: *EventLoop, gpa: Allocator) error{OutOfMemory}!void {
     const threads_bytes = ((std.Thread.getCpuCount() catch 1) -| 1) * @sizeOf(Thread);
     const idle_context_offset = std.mem.alignForward(usize, threads_bytes, @alignOf(Context));
@@ -231,9 +230,11 @@ const SwitchMessage = extern struct {
     register_awaiter: ?*?*Fiber,
 
     fn handle(message: *const SwitchMessage, el: *EventLoop) void {
-        const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.prev_context));
         current_fiber_context = message.ready_context;
-        if (message.register_awaiter) |awaiter| if (@atomicRmw(?*Fiber, awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished) el.schedule(prev_fiber);
+        if (message.register_awaiter) |awaiter| {
+            const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.prev_context));
+            if (@atomicRmw(?*Fiber, awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished) el.schedule(prev_fiber);
+        }
     }
 };
 
