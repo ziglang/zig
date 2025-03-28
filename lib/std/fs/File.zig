@@ -3,7 +3,11 @@ handle: Handle,
 
 pub const Handle = posix.fd_t;
 pub const Mode = posix.mode_t;
-pub const INode = posix.ino_t;
+pub const INode = switch (builtin.os.tag) {
+    .linux => u64,
+    else => posix.ino_t,
+};
+
 pub const Uid = posix.uid_t;
 pub const Gid = posix.gid_t;
 
