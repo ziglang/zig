@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
 const CompareOperator = math.CompareOperator;
@@ -78,8 +79,24 @@ pub const Order = enum(i2) {
 pub fn order(lhs: anytype, rhs: anytype) Order {
     const T = @TypeOf(lhs, rhs);
     switch (@typeInfo(T)) {
-        .int, .comptime_int => {
-            return @enumFromInt(@as(i2, @intFromBool(lhs > rhs)) - @intFromBool(lhs < rhs));
+        .int, .comptime_int => switch (builtin.zig_backend) {
+            else => {
+                const gt: i2 = @intFromBool(lhs > rhs);
+                const lt: u1 = @intFromBool(lhs < rhs);
+                return @enumFromInt(gt - lt);
+            },
+            .stage2_riscv64 => {
+                // TODO: airSubWithOverflow non-power of 2 and less than 8 bits
+                if (lhs < rhs) {
+                    return .lt;
+                } else if (lhs > rhs) {
+                    return .gt;
+                } else if (lhs == rhs) {
+                    return .eq;
+                } else {
+                    unreachable;
+                }
+            },
         },
         .comptime_float => {
             return comptime order(@as(f128, lhs), @as(f128, rhs));
