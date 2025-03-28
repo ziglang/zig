@@ -38,6 +38,10 @@ pub const Alignment = enum(math.Log2Int(usize)) {
         return @enumFromInt(@ctz(n));
     }
 
+    pub inline fn of(comptime Type: type) Alignment {
+        return comptime .fromByteUnits(@alignOf(Type));
+    }
+
     pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
         return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
