@@ -55,3 +55,58 @@ test "reference to void constants" {
     var a = void_constant;
     _ = &a;
 }
+
+// See issue #23307
+const Bar = extern struct {
+    a: u8,
+    b: u8,
+    c: void,
+};
+
+test "store void in extern struct through a pointer at compile-time" {
+    comptime {
+        var x: Bar = undefined;
+        const y = &x;
+        y.* = Bar{
+            .a = 0,
+            .b = 1,
+            .c = {},
+        };
+    }
+}
+
+test "store void in extern struct inside an array at compile-time" {
+    comptime {
+        var x: [5]Bar = undefined;
+
+        for (&x) |*y| y.* = .{
+            .a = 0,
+            .b = 1,
+            .c = {},
+        };
+    }
+}
+
+const PackedBar = packed struct(u8) { a: u8, b: void };
+
+test "store void in packed struct through a pointer at compile-time" {
+    comptime {
+        var x: PackedBar = undefined;
+        const y = &x;
+        y.* = PackedBar{
+            .a = 0,
+            .b = {},
+        };
+    }
+}
+
+test "store void in packed struct inside an array at compile-time" {
+    comptime {
+        var x: [5]PackedBar = undefined;
+
+        for (&x) |*y| y.* = .{
+            .a = 0,
+            .b = {},
+        };
+    }
+}
