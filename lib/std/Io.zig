@@ -928,10 +928,12 @@ pub const VTable = struct {
         /// The pointer of this slice is an "eager" result value.
         /// The length is the size in bytes of the result type.
         /// This pointer's lifetime expires directly after the call to this function.
-        eager_result: []u8,
-        /// Passed to `start`.
-        context: ?*anyopaque,
-        start: *const fn (context: ?*anyopaque, result: *anyopaque) void,
+        result: []u8,
+        result_alignment: std.mem.Alignment,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
 
     /// This function is only called when `async` returns a non-null value.
@@ -969,17 +971,23 @@ pub fn Future(Result: type) type {
 /// }
 /// ```
 /// where `Result` is any type.
-pub fn async(io: Io, s: anytype) Future(@typeInfo(@TypeOf(@TypeOf(s).start)).@"fn".return_type.?) {
-    const S = @TypeOf(s);
+pub fn async(io: Io, S: type, s: S) Future(@typeInfo(@TypeOf(S.start)).@"fn".return_type.?) {
     const Result = @typeInfo(@TypeOf(S.start)).@"fn".return_type.?;
     const TypeErased = struct {
-        fn start(context: ?*anyopaque, result: *anyopaque) void {
+        fn start(context: *const anyopaque, result: *anyopaque) void {
             const context_casted: *const S = @alignCast(@ptrCast(context));
             const result_casted: *Result = @ptrCast(@alignCast(result));
             result_casted.* = S.start(context_casted.*);
         }
     };
     var future: Future(Result) = undefined;
-    future.any_future = io.vtable.async(io.userdata, @ptrCast((&future.result)[0..1]), @constCast(&s), TypeErased.start);
+    future.any_future = io.vtable.async(
+        io.userdata,
+        @ptrCast((&future.result)[0..1]),
+        .fromByteUnits(@alignOf(Result)),
+        if (@sizeOf(S) == 0) &.{} else @ptrCast((&s)[0..1]), // work around compiler bug
+        .fromByteUnits(@alignOf(S)),
+        TypeErased.start,
+    );
     return future;
 }
