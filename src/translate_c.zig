@@ -265,6 +265,16 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                 c.weak_global_names.putAssumeCapacity(decl_name, {});
                 c.weak_global_names.putAssumeCapacity(prefixed_name, {});
             },
+            .Typedef => {
+                const typedef_decl = @as(*const clang.TypedefNameDecl, @ptrCast(decl));
+                const child_qt = typedef_decl.getUnderlyingType();
+                if (child_qt.isVolatileQualified()) {
+                    const prefixed_name = try std.fmt.allocPrint(c.arena, "volatile_{s}", .{decl_name});
+                    try c.weak_global_names.put(c.gpa, prefixed_name, {});
+                } else {
+                    try c.global_names.put(c.gpa, decl_name, {});
+                }
+            },
             else => {
                 try c.global_names.put(c.gpa, decl_name, {});
             },
@@ -697,10 +707,14 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     if (builtin_typedef_map.get(name)) |builtin| {
         return c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), builtin);
     }
+    const child_qt = typedef_decl.getUnderlyingType();
+    if (child_qt.isVolatileQualified()) {
+        name = try std.fmt.allocPrint(c.arena, "volatile_{s}", .{name});
+        if (toplevel) name = try mangleWeakGlobalName(c, name);
+    }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), name);
 
-    const child_qt = typedef_decl.getUnderlyingType();
     const typedef_loc = typedef_decl.getLocation();
     const init_node = transQualType(c, scope, child_qt, typedef_loc) catch |err| switch (err) {
         error.UnsupportedType => {
