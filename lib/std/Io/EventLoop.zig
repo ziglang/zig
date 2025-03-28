@@ -55,6 +55,17 @@ const Fiber = struct {
     }
 };
 
+pub fn io(el: *EventLoop) Io {
+    return .{
+        .userdata = el,
+        .vtable = &.{
+            .@"async" = @"async",
+            .@"await" = @"await",
+        },
+    };
+}
+
+
 pub fn init(el: *EventLoop, gpa: Allocator) error{OutOfMemory}!void {
     const threads_bytes = ((std.Thread.getCpuCount() catch 1) -| 1) * @sizeOf(Thread);
     const idle_context_offset = std.mem.alignForward(usize, threads_bytes, @alignOf(Context));
