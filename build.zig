@@ -196,7 +196,7 @@ pub fn build(b: *std.Build) !void {
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
-    if (target.result.os.tag == .windows) {
+    if (!only_c) {
         exe.addWin32ResourceFile(.{ .file = b.path("rsc/resources.rc") });
     }
 
