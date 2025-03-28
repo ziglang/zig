@@ -31,35 +31,17 @@ allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
 available_options_list: ArrayList(AvailableOption),
-verbose: bool,
-verbose_link: bool,
-verbose_cc: bool,
-verbose_air: bool,
-verbose_llvm_ir: ?[]const u8,
-verbose_llvm_bc: ?[]const u8,
-verbose_cimport: bool,
-verbose_llvm_cpu_features: bool,
-reference_trace: ?u32 = null,
 invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
-install_prefix: []const u8,
-dest_dir: ?[]const u8,
-lib_dir: []const u8,
-exe_dir: []const u8,
-h_dir: []const u8,
-install_path: []const u8,
-sysroot: ?[]const u8 = null,
-search_prefixes: std.ArrayListUnmanaged([]const u8),
-libc_file: ?[]const u8 = null,
+install_prefix: Cache.Path,
+install_lib_path: Cache.Path,
+install_exe_path: Cache.Path,
+install_include_path: Cache.Path,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
-args: ?[]const []const u8 = null,
-debug_log_scopes: []const []const u8 = &.{},
-debug_compile_errors: bool = false,
-debug_pkg_config: bool = false,
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
 /// Set to 0 to disable stack collection.
@@ -75,11 +57,6 @@ enable_rosetta: bool = false,
 enable_wasmtime: bool = false,
 /// Use system Wine installation to run cross compiled Windows build artifacts.
 enable_wine: bool = false,
-/// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
-/// this will be the directory $glibc-build-dir/install/glibcs
-/// Given the example of the aarch64 target, this is the directory
-/// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -91,8 +68,6 @@ named_lazy_paths: std.StringArrayHashMap(LazyPath),
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
-
-release_mode: ReleaseMode,
 
 pub const ReleaseMode = enum {
     off,
@@ -107,7 +82,7 @@ pub const ReleaseMode = enum {
 pub const Graph = struct {
     arena: Allocator,
     system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
-    system_package_mode: bool = false,
+    system_package_mode: ?Cache.Directory = null,
     debug_compiler_runtime_libs: bool = false,
     cache: Cache,
     zig_exe: [:0]const u8,
@@ -121,6 +96,31 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+
+    release_mode: ReleaseMode,
+    sysroot: ?[]const u8 = null,
+    search_prefixes: std.ArrayListUnmanaged([]const u8),
+    libc_file: ?[]const u8 = null,
+    debug_compile_errors: bool = false,
+    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+    /// this will be the directory $glibc-build-dir/install/glibcs
+    /// Given the example of the aarch64 target, this is the directory
+    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    glibc_runtimes_dir: ?[]const u8 = null,
+    verbose: bool,
+    verbose_link: bool,
+    verbose_cc: bool,
+    verbose_air: bool,
+    verbose_llvm_ir: ?[]const u8,
+    verbose_llvm_bc: ?[]const u8,
+    verbose_cimport: bool,
+    verbose_llvm_cpu_features: bool,
+    reference_trace: ?u32 = null,
+    debug_log_scopes: []const []const u8 = &.{},
+
+    pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
+        b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
+    }
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -239,10 +239,10 @@ const TopLevelStep = struct {
     description: []const u8,
 };
 
-pub const DirList = struct {
-    lib_dir: ?[]const u8 = null,
-    exe_dir: ?[]const u8 = null,
-    include_dir: ?[]const u8 = null,
+pub const InstallPaths = struct {
+    lib_path: ?Cache.Path = null,
+    exe_path: ?Cache.Path = null,
+    include_path: ?Cache.Path = null,
 };
 
 pub fn create(
@@ -259,13 +259,6 @@ pub fn create(
         .build_root = build_root,
         .cache_root = cache_root,
         .verbose = false,
-        .verbose_link = false,
-        .verbose_cc = false,
-        .verbose_air = false,
-        .verbose_llvm_ir = null,
-        .verbose_llvm_bc = null,
-        .verbose_cimport = false,
-        .verbose_llvm_cpu_features = false,
         .invalid_user_input = false,
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
@@ -273,12 +266,10 @@ pub fn create(
         .available_options_list = ArrayList(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .search_prefixes = .{},
         .install_prefix = undefined,
         .lib_dir = undefined,
         .exe_dir = undefined,
         .h_dir = undefined,
-        .dest_dir = graph.env_map.get("DESTDIR"),
         .install_tls = .{
             .step = Step.init(.{
                 .id = TopLevelStep.base_id,
@@ -297,7 +288,6 @@ pub fn create(
             .description = "Remove build artifacts from prefix path",
         },
         .install_path = undefined,
-        .args = null,
         .modules = .init(arena),
         .named_writefiles = .init(arena),
         .named_lazy_paths = .init(arena),
@@ -358,37 +348,22 @@ fn createChildOnly(
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = ArrayList(AvailableOption).init(allocator),
         .verbose = parent.verbose,
-        .verbose_link = parent.verbose_link,
-        .verbose_cc = parent.verbose_cc,
-        .verbose_air = parent.verbose_air,
-        .verbose_llvm_ir = parent.verbose_llvm_ir,
-        .verbose_llvm_bc = parent.verbose_llvm_bc,
-        .verbose_cimport = parent.verbose_cimport,
-        .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
-        .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
         .install_prefix = undefined,
-        .dest_dir = parent.dest_dir,
         .lib_dir = parent.lib_dir,
         .exe_dir = parent.exe_dir,
         .h_dir = parent.h_dir,
         .install_path = parent.install_path,
         .sysroot = parent.sysroot,
-        .search_prefixes = parent.search_prefixes,
-        .libc_file = parent.libc_file,
         .build_root = build_root,
         .cache_root = parent.cache_root,
-        .debug_log_scopes = parent.debug_log_scopes,
-        .debug_compile_errors = parent.debug_compile_errors,
-        .debug_pkg_config = parent.debug_pkg_config,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),
@@ -638,42 +613,16 @@ fn determineAndApplyInstallPrefix(b: *Build) error{OutOfMemory}!void {
 
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
-    b.resolveInstallPrefix(install_prefix, .{});
+    try b.resolveInstallPrefix(install_prefix, .{});
 }
 
-/// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
-pub fn resolveInstallPrefix(b: *Build, install_prefix: ?[]const u8, dir_list: DirList) void {
-    if (b.dest_dir) |dest_dir| {
-        b.install_prefix = install_prefix orelse "/usr";
-        b.install_path = b.pathJoin(&.{ dest_dir, b.install_prefix });
-    } else {
-        b.install_prefix = install_prefix orelse
-            (b.build_root.join(b.allocator, &.{"zig-out"}) catch @panic("unhandled error"));
-        b.install_path = b.install_prefix;
-    }
+fn resolveInstallPrefix(b: *Build, install_prefix: Cache.Path, paths: InstallPaths) !void {
+    const arena = b.allocator;
 
-    var lib_list = [_][]const u8{ b.install_path, "lib" };
-    var exe_list = [_][]const u8{ b.install_path, "bin" };
-    var h_list = [_][]const u8{ b.install_path, "include" };
-
-    if (dir_list.lib_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) lib_list[0] = b.dest_dir orelse "";
-        lib_list[1] = dir;
-    }
-
-    if (dir_list.exe_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) exe_list[0] = b.dest_dir orelse "";
-        exe_list[1] = dir;
-    }
-
-    if (dir_list.include_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) h_list[0] = b.dest_dir orelse "";
-        h_list[1] = dir;
-    }
-
-    b.lib_dir = b.pathJoin(&lib_list);
-    b.exe_dir = b.pathJoin(&exe_list);
-    b.h_dir = b.pathJoin(&h_list);
+    b.install_prefix = install_prefix;
+    b.install_lib_path = paths.lib_path orelse try install_prefix.join(arena, "lib");
+    b.install_exe_path = paths.exe_path orelse try install_prefix.join(arena, "bin");
+    b.install_include_path = paths.include_path orelse try install_prefix.join(arena, "include");
 }
 
 /// Create a set of key-value pairs that can be converted into a Zig source
@@ -1990,38 +1939,6 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) error{FileNotFound}![]const u8 {
-    // TODO report error for ambiguous situations
-    for (b.search_prefixes.items) |search_prefix| {
-        for (names) |name| {
-            if (fs.path.isAbsolute(name)) {
-                return name;
-            }
-            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
-        }
-    }
-    if (b.graph.env_map.get("PATH")) |PATH| {
-        for (names) |name| {
-            if (fs.path.isAbsolute(name)) {
-                return name;
-            }
-            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
-            while (it.next()) |p| {
-                return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
-            }
-        }
-    }
-    for (names) |name| {
-        if (fs.path.isAbsolute(name)) {
-            return name;
-        }
-        for (paths) |p| {
-            return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
-        }
-    }
-    return error.FileNotFound;
-}
-
 pub fn runAllowFail(
     b: *Build,
     argv: []const []const u8,
@@ -2083,10 +2000,6 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
         });
         process.exit(1);
     };
-}
-
-pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
-    b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
 
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {

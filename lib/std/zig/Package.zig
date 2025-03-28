@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
-pub const Module = @import("Package/Module.zig");
 pub const Fetch = @import("Package/Fetch.zig");
 pub const build_zig_basename = "build.zig";
 pub const Manifest = @import("Package/Manifest.zig");
@@ -193,6 +193,113 @@ test Hash {
     };
     const result: Hash = .init(example_digest, "nasm", "2.16.1-3", 0xcafebabe, 10 * 1024 * 1024);
     try std.testing.expectEqualStrings("nasm-2.16.1-3-vrr-ygAAoADH9XG3tOdvPNuHen_d-XeHndOG-nNXmved", result.toSlice());
+}
+
+pub fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    for (bytes, 0..) |byte, i| switch (byte) {
+        '0'...'9' => {
+            if (i == 0) try result.append(arena, '_');
+            try result.append(arena, byte);
+        },
+        '_', 'a'...'z', 'A'...'Z' => try result.append(arena, byte),
+        '-', '.', ' ' => try result.append(arena, '_'),
+        else => continue,
+    };
+    if (!std.zig.isValidId(result.items)) return "foo";
+    if (result.items.len > Manifest.max_name_len)
+        result.shrinkRetainingCapacity(Manifest.max_name_len);
+
+    return result.toOwnedSlice(arena);
+}
+
+test sanitizeExampleName {
+    var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    try std.testing.expectEqualStrings("foo_bar", try sanitizeExampleName(arena, "foo bar+"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, ""));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "!"));
+    try std.testing.expectEqualStrings("a", try sanitizeExampleName(arena, "!a"));
+    try std.testing.expectEqualStrings("a_b", try sanitizeExampleName(arena, "a.b!"));
+    try std.testing.expectEqualStrings("_01234", try sanitizeExampleName(arena, "01234"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "error"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "test"));
+    try std.testing.expectEqualStrings("tests", try sanitizeExampleName(arena, "tests"));
+    try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
+}
+
+pub const BuildRoot = struct {
+    directory: std.Build.Cache.Directory,
+    build_zig_basename: []const u8,
+    cleanup_build_dir: ?std.fs.Dir,
+
+    fn deinit(br: *BuildRoot) void {
+        if (br.cleanup_build_dir) |*dir| dir.close();
+        br.* = undefined;
+    }
+};
+
+pub const FindBuildRootOptions = struct {
+    build_file: ?[]const u8 = null,
+    cwd_path: ?[]const u8 = null,
+};
+
+pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot {
+    const cwd_path = options.cwd_path orelse try std.process.getCwdAlloc(arena);
+    const basename = if (options.build_file) |bf| std.fs.path.basename(bf) else build_zig_basename;
+
+    if (options.build_file) |bf| {
+        if (std.fs.path.dirname(bf)) |dirname| {
+            const dir = std.fs.cwd().openDir(dirname, .{}) catch |err| {
+                std.process.fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+            };
+            return .{
+                .build_zig_basename = basename,
+                .directory = .{ .path = dirname, .handle = dir },
+                .cleanup_build_dir = dir,
+            };
+        }
+
+        return .{
+            .build_zig_basename = basename,
+            .directory = .{ .path = null, .handle = std.fs.cwd() },
+            .cleanup_build_dir = null,
+        };
+    }
+    // Search up parent directories until we find build.zig.
+    var dirname: []const u8 = cwd_path;
+    while (true) {
+        const joined_path = try std.fs.path.join(arena, &[_][]const u8{ dirname, basename });
+        if (std.fs.cwd().access(joined_path, .{})) |_| {
+            const dir = std.fs.cwd().openDir(dirname, .{}) catch |err| {
+                std.process.fatal("unable to open directory while searching for {s} file, '{s}': {s}", .{
+                    basename, dirname, @errorName(err),
+                });
+            };
+            return .{
+                .build_zig_basename = basename,
+                .directory = .{
+                    .path = dirname,
+                    .handle = dir,
+                },
+                .cleanup_build_dir = dir,
+            };
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                dirname = std.fs.path.dirname(dirname) orelse {
+                    std.log.info("initialize {s} template file with 'zig init'", .{basename});
+                    std.log.info("see 'zig --help' for more options", .{});
+                    std.process.fatal("no {s} file found, in the current directory or any parent directories", .{
+                        basename,
+                    });
+                };
+                continue;
+            },
+            else => |e| return e,
+        }
+    }
 }
 
 test {

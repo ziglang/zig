@@ -68,11 +68,7 @@ oom_flag: bool,
 /// will be left unchanged.
 latest_commit: ?git.Oid,
 
-// This field is used by the CLI only, untouched by this file.
-
-/// The module for this `Fetch` tasks's package, which exposes `build.zig` as
-/// the root source file.
-module: ?*Package.Module,
+userdata: ?*anyopaque = null,
 
 pub const LazyStatus = enum {
     /// Not lazy.
@@ -773,8 +769,6 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .has_build_zig = false,
                 .oom_flag = false,
                 .latest_commit = null,
-
-                .module = null,
             };
         }
 
@@ -2352,8 +2346,6 @@ const TestFetchBuilder = struct {
             .has_build_zig = false,
             .oom_flag = false,
             .latest_commit = null,
-
-            .module = null,
         };
         return &self.fetch;
     }
