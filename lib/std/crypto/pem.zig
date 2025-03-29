@@ -109,23 +109,23 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
             end_index = 0;
             end_trailer_index = pem_end.len - 1;
         } else {
-            end_index = mem.indexOf(u8, rest, pem_end).?;
+            end_index = mem.indexOf(u8, rest, pem_end) orelse 0;
             end_trailer_index = end_index + pem_end.len;
         }
         
-        if (end_index < 0) {
+        if (mem.indexOf(u8, rest, pem_end) == null) {
             continue;
         }
         
-        const end_trailer = rest[end_trailer_index..];
+        var end_trailer = rest[end_trailer_index..];
         const end_trailer_len = type_line.len + pem_end_of_line.len;
         if (end_trailer.len < end_trailer_len) {
             continue;
         }
 
         const rest_of_end_line = end_trailer[end_trailer_len..];
-        const end_trailer2 = end_trailer[0..end_trailer_len];
-        if (!hasPrefix(end_trailer2, type_line) or !hasSuffix(end_trailer2, pem_end_of_line)) {
+        end_trailer = end_trailer[0..end_trailer_len];
+        if (!hasPrefix(end_trailer, type_line) or !hasSuffix(end_trailer, pem_end_of_line)) {
             continue;
         }
         
@@ -278,13 +278,11 @@ const GetLineData = struct {
 };
 
 fn getLine(data: []const u8) GetLineData {
-    var i = mem.indexOf(u8, data, "\n").?;
-    var j: usize = 0;
-    
-    if (i < 0) {
-        i = data.len;
-        j = i;
-    } else {
+    var i = data.len;
+    var j = i;
+
+    if (mem.indexOf(u8, data, "\n")) |val| {
+        i = val;
         j = i + 1;
         if (i > 0 and data[i-1] == '\r') {
             i -= 1;
@@ -331,8 +329,7 @@ const CutData = struct {
 
 fn cut(s: []const u8, sep: []const u8) CutData {
     const i = mem.indexOf(u8, s, sep);
-    if (i != null) {
-        const j: usize = mem.indexOf(u8, s, sep).?;
+    if (i) |j| {
         return .{
             .before = s[0..j],
             .after = s[j+sep.len..],
