@@ -913,7 +913,6 @@ test {
 }
 
 const Io = @This();
-const fs = std.fs;
 
 pub const EventLoop = @import("Io/EventLoop.zig");
 
@@ -971,20 +970,16 @@ pub fn Future(Result: type) type {
     };
 }
 
-/// `s` is a struct instance that contains a function like this:
-/// ```
-/// struct {
-///     pub fn start(s: S) Result { ... }
-/// }
-/// ```
-/// where `Result` is any type.
-pub fn async(io: Io, S: type, s: S) Future(@typeInfo(@TypeOf(S.start)).@"fn".return_type.?) {
-    const Result = @typeInfo(@TypeOf(S.start)).@"fn".return_type.?;
+/// Calls `function` with `args`, such that the return value of the function is
+/// not guaranteed to be available until `await` is called.
+pub fn async(io: Io, function: anytype, args: anytype) Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
+    const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
+    const Args = @TypeOf(args);
     const TypeErased = struct {
         fn start(context: *const anyopaque, result: *anyopaque) void {
-            const context_casted: *const S = @alignCast(@ptrCast(context));
+            const args_casted: *const Args = @alignCast(@ptrCast(context));
             const result_casted: *Result = @ptrCast(@alignCast(result));
-            result_casted.* = S.start(context_casted.*);
+            result_casted.* = @call(.auto, function, args_casted.*);
         }
     };
     var future: Future(Result) = undefined;
@@ -992,8 +987,8 @@ pub fn async(io: Io, S: type, s: S) Future(@typeInfo(@TypeOf(S.start)).@"fn".ret
         io.userdata,
         @ptrCast((&future.result)[0..1]),
         .fromByteUnits(@alignOf(Result)),
-        if (@sizeOf(S) == 0) &.{} else @ptrCast((&s)[0..1]), // work around compiler bug
-        .fromByteUnits(@alignOf(S)),
+        if (@sizeOf(Args) == 0) &.{} else @ptrCast((&args)[0..1]), // work around compiler bug
+        .fromByteUnits(@alignOf(Args)),
         TypeErased.start,
     );
     return future;
