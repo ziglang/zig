@@ -396,6 +396,6 @@ pub fn @"await"(userdata: ?*anyopaque, any_future: *std.Io.AnyFuture, result: []
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
     closure.reset_event.wait();
     const base: [*]align(@alignOf(AsyncClosure)) u8 = @ptrCast(closure);
-    @memcpy(result, (base + @sizeOf(AsyncClosure))[0..result.len]);
-    thread_pool.allocator.free(base[0 .. @sizeOf(AsyncClosure) + result.len]);
+    @memcpy(result, closure.resultPointer()[0..result.len]);
+    thread_pool.allocator.free(base[0 .. closure.result_offset + result.len]);
 }
