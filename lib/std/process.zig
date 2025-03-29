@@ -1707,7 +1707,6 @@ pub fn execve(
             const envp_buf = try createNullDelimitedEnvMap(arena, m);
             break :m envp_buf.ptr;
         } else {
-            // TODO type-safety for null-termination of `envp()` results.
             break :m @as([*:null]const ?[*:0]const u8, std.os.envpN());
         }
     };
