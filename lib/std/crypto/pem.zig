@@ -1,12 +1,10 @@
 const std = @import("std");
-
-const fmt = std.fmt;
 const mem = std.mem;
 const sort = std.sort;
 const testing = std.testing;
 const base64 = std.base64;
 const StringHashMap = std.hash_map.StringHashMap;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 
 /// pem block data.
 pub const Block = struct {
@@ -20,7 +18,6 @@ pub const Block = struct {
 
     const Self = @This();
     
-    /// init
     pub fn init(allocator: Allocator) Block {
         const headers = StringHashMap([]const u8).init(allocator);
         
@@ -59,7 +56,7 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
     var rest = data;
     
     while (true) {
-        if (hasPrefix(rest, pem_start[1..])) {
+        if (mem.startsWith(u8, rest, pem_start[1..])) {
             rest = rest[pem_start.len-1..];
         } else {
             const cut_data = cut(rest, pem_start);
@@ -71,7 +68,7 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
         }
         
         const line_data = getLine(rest);
-        if (!hasSuffix(line_data.line, pem_end_of_line)) {
+        if (!mem.endsWith(u8, line_data.line, pem_end_of_line)) {
             continue;
         }
         
@@ -105,16 +102,16 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
         var end_index: usize = 0; 
         var end_trailer_index: usize = 0;
         
-        if (p.headers.count() == 0 and hasPrefix(rest, pem_end[1..])) {
+        if (p.headers.count() == 0 and mem.startsWith(u8, rest, pem_end[1..])) {
             end_index = 0;
             end_trailer_index = pem_end.len - 1;
         } else {
-            end_index = mem.indexOf(u8, rest, pem_end) orelse 0;
-            end_trailer_index = end_index + pem_end.len;
-        }
-        
-        if (mem.indexOf(u8, rest, pem_end) == null) {
-            continue;
+            if (mem.indexOf(u8, rest, pem_end)) |val| {
+                end_index = val;
+                end_trailer_index = end_index + pem_end.len;
+            } else {
+                continue;
+            }
         }
         
         var end_trailer = rest[end_trailer_index..];
@@ -125,7 +122,7 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
 
         const rest_of_end_line = end_trailer[end_trailer_len..];
         end_trailer = end_trailer[0..end_trailer_len];
-        if (!hasPrefix(end_trailer, type_line) or !hasSuffix(end_trailer, pem_end_of_line)) {
+        if (!mem.startsWith(u8, end_trailer, type_line) or !mem.endsWith(u8, end_trailer, pem_end_of_line)) {
             continue;
         }
         
@@ -135,10 +132,10 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
         }
         
         const base64_data = try removeSpacesAndTabs(allocator, rest[0..end_index]);
-        const base64_decode_len = try std.base64.standard.Decoder.calcSizeForSlice(base64_data);
+        const base64_decode_len = try base64.standard.Decoder.calcSizeForSlice(base64_data);
 
         const decoded_data = try allocator.alloc(u8, base64_decode_len);
-        try std.base64.standard.Decoder.decode(decoded_data, base64_data);
+        try base64.standard.Decoder.decode(decoded_data, base64_data);
 
         p.bytes = decoded_data;
 
@@ -150,18 +147,18 @@ const nl = "\n";
 
 const pem_line_length = 64;
 
-fn writeHeader(writer: anytype, k: []const u8, v: []const u8) !void {
-    try writer.appendSlice(k);
-    try writer.appendSlice(":");
-    try writer.appendSlice(v);
-    try writer.appendSlice("\n");
+fn appendHeader(list: *std.ArrayList(u8), k: []const u8, v: []const u8) !void {
+    try list.appendSlice(k);
+    try list.appendSlice(":");
+    try list.appendSlice(v);
+    try list.appendSlice("\n");
 }
 
 /// Encodes pem bytes.
 pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
     var headers1 = (try b.headers.clone()).iterator();
     while (headers1.next()) |kv| {
-        if (contains(kv.value_ptr.*, ":")) {
+        if (mem.indexOf(u8, kv.value_ptr.*, ":") != null) {
             return Error.PemHeaderHasColon;
         }
     }
@@ -196,7 +193,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
 
         if (has_proc_type) {
             if (b.headers.get(proc_type)) |vv| {
-                try writeHeader(&buf, proc_type, vv[0..]);
+                try appendHeader(&buf, proc_type, vv[0..]);
             }
 
             h.len -= 1;
@@ -208,7 +205,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
         
         for (h) |k| {
             if (b.headers.get(k)) |val| {
-                try writeHeader(&buf, k, val);
+                try appendHeader(&buf, k, val);
             }
         }
 
@@ -263,15 +260,6 @@ pub fn stringSort(comptime T: type) fn (void, T, T) bool {
     }.inner;
 }
 
-fn contains(data: []const u8, sep: []const u8) bool {
-    const i = mem.indexOf(u8, data, sep);
-    if (i != null) {
-        return true;
-    }
-
-    return false;
-}
-
 const GetLineData = struct {
     line: []const u8,
     rest: []const u8,
@@ -295,8 +283,8 @@ fn getLine(data: []const u8) GetLineData {
     };
 }
 
-fn removeSpacesAndTabs(allocator: Allocator, data: []const u8) ![:0]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
+    var buf = std.ArrayList(u8).init(alloc);
     defer buf.deinit();
     
     var n: usize = 0;
@@ -311,14 +299,6 @@ fn removeSpacesAndTabs(allocator: Allocator, data: []const u8) ![:0]u8 {
     }
 
     return buf.toOwnedSliceSentinel(0);
-}
-
-fn hasPrefix(rest: []const u8, needle: []const u8) bool {
-    return rest.len > needle.len and mem.eql(u8, rest[0..needle.len], needle);
-}
-
-fn hasSuffix(rest: []const u8, needle: []const u8) bool {
-    return rest.len > needle.len and mem.eql(u8, rest[rest.len-needle.len..], needle);
 }
 
 const CutData = struct {
@@ -344,24 +324,17 @@ fn cut(s: []const u8, sep: []const u8) CutData {
     };
 }
 
-fn isSpace(r: u8) bool {
-    return switch(r) {
-        '\t', '\n', '\r', ' ', 0x85, 0xA0 => true,
-        else => false,
-    };
-}
-
 fn trimSpace(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len) : (start += 1) {
-        if (!isSpace(s[start])) {
+        if (!std.ascii.isWhitespace(s[start])) {
             break;
         }
     }
     
     var stop = s.len - 1;
     while (stop > start) : (stop -= 1) {
-        if (!isSpace(s[stop])) {
+        if (!std.ascii.isWhitespace(s[stop])) {
             break;
         }
     }
@@ -397,7 +370,9 @@ test "ASN.1 type CERTIFICATE" {
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=\n" ++
         "-----END CERTIFICATE-----\n";
 
+    // const alloc = testing.allocator;
     const alloc = std.heap.page_allocator;
+ 
     var pem = try decode(alloc, byte);
     defer pem.deinit();
 
