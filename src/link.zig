@@ -26,6 +26,7 @@ const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 const target_util = @import("target.zig");
+const codegen = @import("codegen.zig");
 
 pub const LdScript = @import("link/LdScript.zig");
 
@@ -600,6 +601,20 @@ pub const File = struct {
         }
     }
 
+    /// Some linkers create a separate file for debug info, which we might need to temporarily close
+    /// when moving the compilation result directory due to the host OS not allowing moving a
+    /// file/directory while a handle remains open.
+    /// Returns `true` if a debug info file was closed. In that case, `reopenDebugInfo` may be called.
+    pub fn closeDebugInfo(base: *File) bool {
+        const macho = base.cast(.macho) orelse return false;
+        return macho.closeDebugInfo();
+    }
+
+    pub fn reopenDebugInfo(base: *File) !void {
+        const macho = base.cast(.macho).?;
+        return macho.reopenDebugInfo();
+    }
+
     pub fn makeExecutable(base: *File) !void {
         dev.check(.make_executable);
         const comp = base.comp;
@@ -669,13 +684,7 @@ pub const File = struct {
 
     /// Note that `LinkFailure` is not a member of this error set because the error message
     /// must be attached to `Zcu.failed_codegen` rather than `Compilation.link_diags`.
-    pub const UpdateNavError = error{
-        Overflow,
-        OutOfMemory,
-        /// Indicates the error is already reported and stored in
-        /// `failed_codegen` on the Zcu.
-        CodegenFail,
-    };
+    pub const UpdateNavError = codegen.CodeGenError;
 
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
@@ -906,7 +915,7 @@ pub const File = struct {
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
-    ) !@import("codegen.zig").GenResult {
+    ) !codegen.GenResult {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
@@ -1443,8 +1452,10 @@ pub const Task = union(enum) {
 pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
     const diags = &comp.link_diags;
     switch (task) {
-        .load_explicitly_provided => if (comp.bin_file) |base| {
+        .load_explicitly_provided => {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
+
             const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", comp.link_inputs.len);
             defer prog_node.end();
             for (comp.link_inputs) |input| {
@@ -1461,8 +1472,10 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 prog_node.completeOne();
             }
         },
-        .load_host_libc => if (comp.bin_file) |base| {
+        .load_host_libc => {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
+
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Host libc", 0);
             defer prog_node.end();
 
@@ -1521,8 +1534,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 }
             }
         },
-        .load_object => |path| if (comp.bin_file) |base| {
+        .load_object => |path| {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Object", 0);
             defer prog_node.end();
             base.openLoadObject(path) catch |err| switch (err) {
@@ -1530,8 +1544,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
             };
         },
-        .load_archive => |path| if (comp.bin_file) |base| {
+        .load_archive => |path| {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Archive", 0);
             defer prog_node.end();
             base.openLoadArchive(path, null) catch |err| switch (err) {
@@ -1539,8 +1554,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
             };
         },
-        .load_dso => |path| if (comp.bin_file) |base| {
+        .load_dso => |path| {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Shared Library", 0);
             defer prog_node.end();
             base.openLoadDso(path, .{
@@ -1551,8 +1567,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
             };
         },
-        .load_input => |input| if (comp.bin_file) |base| {
+        .load_input => |input| {
             comp.remaining_prelink_tasks -= 1;
+            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Input", 0);
             defer prog_node.end();
             base.loadInput(input) catch |err| switch (err) {

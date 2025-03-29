@@ -827,7 +827,7 @@ pub const MiscTask = enum {
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
-    @"mingw-w64 mingw32.lib",
+    @"mingw-w64 libmingw32.lib",
 };
 
 pub const MiscError = struct {
@@ -1512,7 +1512,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).array.len,
+            .work_queues = @splat(.init(gpa)),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
@@ -1886,7 +1886,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
-                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.mingw32_lib)] = true;
+                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
@@ -2261,7 +2261,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
-        zcu.skip_analysis_errors = false;
+        zcu.skip_analysis_this_update = false;
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
@@ -2336,6 +2336,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
+        if (!zcu.skip_analysis_this_update) {
+            if (comp.config.is_test) {
+                // The `test_functions` decl has been intentionally postponed until now,
+                // at which point we must populate it with the list of test functions that
+                // have been discovered and not filtered out.
+                try pt.populateTestFunctions(main_progress_node);
+            }
+
+            try pt.processExports();
+        }
+
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.root_name,
@@ -2350,15 +2361,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             });
             zcu.intern_pool.dumpGenericInstances(gpa);
         }
-
-        if (comp.config.is_test) {
-            // The `test_functions` decl has been intentionally postponed until now,
-            // at which point we must populate it with the list of test functions that
-            // have been discovered and not filtered out.
-            try pt.populateTestFunctions(main_progress_node);
-        }
-
-        try pt.processExports();
     }
 
     if (anyErrors(comp)) {
@@ -2397,7 +2399,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
-            const need_writable_dance = w: {
+            const need_writable_dance: enum { no, lf_only, lf_and_debug } = w: {
                 if (builtin.os.tag == .windows) {
                     if (comp.bin_file) |lf| {
                         // We cannot just call `makeExecutable` as it makes a false
@@ -2410,11 +2412,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                         if (lf.file) |f| {
                             f.close();
                             lf.file = null;
-                            break :w true;
+
+                            if (lf.closeDebugInfo()) break :w .lf_and_debug;
+                            break :w .lf_only;
                         }
                     }
                 }
-                break :w false;
+                break :w .no;
             };
 
             renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path) catch |err| {
@@ -2441,8 +2445,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 };
 
                 // Has to be after the `wholeCacheModeSetBinFilePath` above.
-                if (need_writable_dance) {
-                    try lf.makeWritable();
+                switch (need_writable_dance) {
+                    .no => {},
+                    .lf_only => try lf.makeWritable(),
+                    .lf_and_debug => {
+                        try lf.makeWritable();
+                        try lf.reopenDebugInfo();
+                    },
                 }
             }
 
@@ -3303,7 +3312,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        if (zcu.skip_analysis_errors) break :zcu_errors;
+        if (zcu.skip_analysis_this_update) break :zcu_errors;
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
@@ -3439,7 +3448,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
     if (comp.zcu) |zcu| {
-        if (!zcu.skip_analysis_errors and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
+        if (!zcu.skip_analysis_this_update and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3950,7 +3959,7 @@ fn performAllTheWorkInner(
             // However, this means our analysis data is invalid, so we want to omit all analysis errors.
 
             assert(zcu.failed_files.count() > 0); // we will get an error
-            zcu.skip_analysis_errors = true;
+            zcu.skip_analysis_this_update = true;
             return;
         }
 
@@ -5624,7 +5633,10 @@ pub fn addCCArgs(
     }
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
-        try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+        // Clang's integrated Arm assembler doesn't support `-mabi` yet...
+        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp))) {
+            try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+        }
     }
 
     // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
@@ -6019,17 +6031,19 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
 
-                        // It's recommended to use the minimal runtime in production environments
-                        // due to the security implications of the full runtime. The minimal runtime
-                        // doesn't provide much benefit over simply trapping.
                         if (mod.optimize_mode == .ReleaseSafe) {
+                            // It's recommended to use the minimal runtime in production
+                            // environments due to the security implications of the full runtime.
+                            // The minimal runtime doesn't provide much benefit over simply
+                            // trapping, however, so we do that instead.
                             try argv.append("-fsanitize-trap=undefined");
-                        }
-
-                        // This is necessary because, by default, Clang instructs LLVM to embed a COFF link
-                        // dependency on `libclang_rt.ubsan_standalone.a` when the UBSan runtime is used.
-                        if (target.os.tag == .windows) {
-                            try argv.append("-fno-rtlib-defaultlib");
+                        } else {
+                            // This is necessary because, by default, Clang instructs LLVM to embed
+                            // a COFF link dependency on `libclang_rt.ubsan_standalone.a` when the
+                            // UBSan runtime is used.
+                            if (target.os.tag == .windows) {
+                                try argv.append("-fno-rtlib-defaultlib");
+                            }
                         }
                     }
                 }

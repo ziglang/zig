@@ -248,9 +248,14 @@ pub fn libcProvidesStackProtector(target: std.Target) bool {
     return !target.isMinGW() and target.os.tag != .wasi and !target.cpu.arch.isSpirV();
 }
 
-pub fn supportsReturnAddress(target: std.Target) bool {
+/// Returns true if `@returnAddress()` is supported by the target and has a
+/// reasonably performant implementation for the requested optimization mode.
+pub fn supportsReturnAddress(target: std.Target, optimize: std.builtin.OptimizeMode) bool {
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => target.os.tag == .emscripten,
+        // Emscripten currently implements `emscripten_return_address()` by calling
+        // out into JavaScript and parsing a stack trace, which introduces significant
+        // overhead that we would prefer to avoid in release builds.
+        .wasm32, .wasm64 => target.os.tag == .emscripten and optimize == .Debug,
         .bpfel, .bpfeb => false,
         .spirv, .spirv32, .spirv64 => false,
         else => true,
@@ -306,12 +311,8 @@ pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .aarch64,
         .aarch64_be,
-        .powerpc,
-        .powerpcle,
-        .powerpc64,
-        .powerpc64le,
-        .x86_64,
         .x86,
+        .x86_64,
         => true,
 
         else => false,

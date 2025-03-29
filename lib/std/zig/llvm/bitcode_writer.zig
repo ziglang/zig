@@ -68,13 +68,13 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                 in_bits -= n;
 
                 if (self.bit_count != 0) return;
-                try self.buffer.append(self.bit_buffer);
+                try self.buffer.append(std.mem.nativeToLittle(u32, self.bit_buffer));
                 self.bit_buffer = 0;
             }
 
             // Write 32-bit chunks of input bits
             while (in_bits >= 32) {
-                try self.buffer.append(@truncate(in_buffer));
+                try self.buffer.append(std.mem.nativeToLittle(u32, @truncate(in_buffer)));
 
                 in_buffer >>= 31;
                 in_buffer >>= 1;
@@ -153,7 +153,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
         pub fn alignTo32(self: *BcWriter) Error!void {
             if (self.bit_count == 0) return;
 
-            try self.buffer.append(self.bit_buffer);
+            try self.buffer.append(std.mem.nativeToLittle(u32, self.bit_buffer));
             self.bit_buffer = 0;
             self.bit_count = 0;
         }
@@ -209,7 +209,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                     try self.bitcode.alignTo32();
 
                     // Set the number of words in the block at the start of the block
-                    self.bitcode.buffer.items[self.start] = @truncate(self.bitcode.length() - self.start - 1);
+                    self.bitcode.buffer.items[self.start] = std.mem.nativeToLittle(u32, @truncate(self.bitcode.length() - self.start - 1));
                 }
 
                 pub fn writeUnabbrev(self: *Self, code: u32, values: []const u64) Error!void {

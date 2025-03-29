@@ -34,7 +34,7 @@ comptime {
     @export(&__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.C) i128 {
+pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.c) i128 {
     const d = __divti3(a, b);
     rem.* = a -% (d * b);
     return d;
@@ -67,7 +67,7 @@ fn test_one_divmodti4(a: i128, b: i128, expected_q: i128, expected_r: i128) !voi
     try testing.expect(q == expected_q and r == expected_r);
 }
 
-pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
+pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.c) i64 {
     const d = __divdi3(a, b);
     rem.* = a -% (d * b);
     return d;
@@ -101,7 +101,7 @@ test "test_divmoddi4" {
     }
 }
 
-pub fn __udivmoddi4(a: u64, b: u64, maybe_rem: ?*u64) callconv(.C) u64 {
+pub fn __udivmoddi4(a: u64, b: u64, maybe_rem: ?*u64) callconv(.c) u64 {
     return udivmod(u64, a, b, maybe_rem);
 }
 
@@ -109,7 +109,7 @@ test "test_udivmoddi4" {
     _ = @import("udivmoddi4_test.zig");
 }
 
-pub fn __divdi3(a: i64, b: i64) callconv(.C) i64 {
+pub fn __divdi3(a: i64, b: i64) callconv(.c) i64 {
     // Set aside the sign of the quotient.
     const sign: u64 = @bitCast((a ^ b) >> 63);
     // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
@@ -146,7 +146,7 @@ fn test_one_divdi3(a: i64, b: i64, expected_q: i64) !void {
     try testing.expect(q == expected_q);
 }
 
-pub fn __moddi3(a: i64, b: i64) callconv(.C) i64 {
+pub fn __moddi3(a: i64, b: i64) callconv(.c) i64 {
     // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
     const abs_a = (a ^ (a >> 63)) -% (a >> 63);
     const abs_b = (b ^ (b >> 63)) -% (b >> 63);
@@ -184,11 +184,11 @@ fn test_one_moddi3(a: i64, b: i64, expected_r: i64) !void {
     try testing.expect(r == expected_r);
 }
 
-pub fn __udivdi3(a: u64, b: u64) callconv(.C) u64 {
+pub fn __udivdi3(a: u64, b: u64) callconv(.c) u64 {
     return __udivmoddi4(a, b, null);
 }
 
-pub fn __umoddi3(a: u64, b: u64) callconv(.C) u64 {
+pub fn __umoddi3(a: u64, b: u64) callconv(.c) u64 {
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
     return r;
@@ -207,7 +207,7 @@ fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) !void {
     try testing.expect(r == expected_r);
 }
 
-pub fn __divmodsi4(a: i32, b: i32, rem: *i32) callconv(.C) i32 {
+pub fn __divmodsi4(a: i32, b: i32, rem: *i32) callconv(.c) i32 {
     const d = __divsi3(a, b);
     rem.* = a -% (d * b);
     return d;
@@ -241,17 +241,17 @@ test "test_divmodsi4" {
     }
 }
 
-pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.C) u32 {
+pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.c) u32 {
     const d = __udivsi3(a, b);
     rem.* = @bitCast(@as(i32, @bitCast(a)) -% (@as(i32, @bitCast(d)) * @as(i32, @bitCast(b))));
     return d;
 }
 
-pub fn __divsi3(n: i32, d: i32) callconv(.C) i32 {
+pub fn __divsi3(n: i32, d: i32) callconv(.c) i32 {
     return div_i32(n, d);
 }
 
-fn __aeabi_idiv(n: i32, d: i32) callconv(.AAPCS) i32 {
+fn __aeabi_idiv(n: i32, d: i32) callconv(.{ .arm_aapcs = .{} }) i32 {
     return div_i32(n, d);
 }
 
@@ -292,11 +292,11 @@ fn test_one_divsi3(a: i32, b: i32, expected_q: i32) !void {
     try testing.expect(q == expected_q);
 }
 
-pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
+pub fn __udivsi3(n: u32, d: u32) callconv(.c) u32 {
     return div_u32(n, d);
 }
 
-fn __aeabi_uidiv(n: u32, d: u32) callconv(.AAPCS) u32 {
+fn __aeabi_uidiv(n: u32, d: u32) callconv(.{ .arm_aapcs = .{} }) u32 {
     return div_u32(n, d);
 }
 
@@ -485,7 +485,7 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) !void {
     try testing.expect(q == expected_q);
 }
 
-pub fn __modsi3(n: i32, d: i32) callconv(.C) i32 {
+pub fn __modsi3(n: i32, d: i32) callconv(.c) i32 {
     return n -% __divsi3(n, d) * d;
 }
 
@@ -514,7 +514,7 @@ fn test_one_modsi3(a: i32, b: i32, expected_r: i32) !void {
     try testing.expect(r == expected_r);
 }
 
-pub fn __umodsi3(n: u32, d: u32) callconv(.C) u32 {
+pub fn __umodsi3(n: u32, d: u32) callconv(.c) u32 {
     return n -% __udivsi3(n, d) * d;
 }
 

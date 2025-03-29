@@ -42,8 +42,8 @@ pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
 ///
 /// On many systems, the actual page size can only be determined at runtime
 /// with `pageSize`.
-pub const page_size_min: usize = std.options.page_size_min orelse page_size_min_default orelse
-    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min");
+pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse
+    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min"));
 
 /// comptime-known maximum page size of the target.
 ///
@@ -593,6 +593,8 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
+    const zero_len_array = try allocator.create([0]u64);
+    allocator.destroy(zero_len_array);
 
     const oversize = try allocator.alignedAlloc(u32, null, 5);
     try testing.expect(oversize.len >= 5);

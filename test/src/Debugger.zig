@@ -677,7 +677,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    param6: u64,
                 \\    param7: u64,
                 \\    param8: u64,
-                \\) callconv(.C) void {
+                \\) callconv(.c) void {
                 \\    const local_comptime_val: u64 = global_const *% global_const;
                 \\    const local_comptime_ptr: struct { u64 } = .{ local_comptime_val *% local_comptime_val };
                 \\    const local_const: u64 = global_var ^ global_threadlocal1 ^ global_threadlocal2 ^

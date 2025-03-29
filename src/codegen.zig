@@ -23,10 +23,7 @@ const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
 const dev = @import("dev.zig");
 
-pub const CodeGenError = error{
-    OutOfMemory,
-    /// Compiler was asked to operate on a number larger than supported.
-    Overflow,
+pub const CodeGenError = GenerateSymbolError || error{
     /// Indicates the error is already stored in Zcu `failed_codegen`.
     CodegenFail,
 };
@@ -177,6 +174,8 @@ pub const GenerateSymbolError = error{
     OutOfMemory,
     /// Compiler was asked to operate on a number larger than supported.
     Overflow,
+    /// Compiler was asked to produce a non-byte-aligned relocation.
+    RelocationNotByteAligned,
 };
 
 pub fn generateSymbol(
@@ -481,12 +480,18 @@ pub fn generateSymbol(
                             // pointer may point to a decl which must be marked used
                             // but can also result in a relocation. Therefore we handle those separately.
                             if (Type.fromInterned(field_ty).zigTypeTag(zcu) == .pointer) {
-                                const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(zcu)) orelse
-                                    return error.Overflow;
-                                var tmp_list = try std.ArrayListUnmanaged(u8).initCapacity(gpa, field_size);
-                                defer tmp_list.deinit(gpa);
-                                try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), &tmp_list, reloc_parent);
-                                @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items);
+                                const field_offset = std.math.divExact(u16, bits, 8) catch |err| switch (err) {
+                                    error.DivisionByZero => unreachable,
+                                    error.UnexpectedRemainder => return error.RelocationNotByteAligned,
+                                };
+                                code.items.len = current_pos + field_offset;
+                                // TODO: code.lockPointers();
+                                defer {
+                                    assert(code.items.len == current_pos + field_offset + @divExact(target.ptrBitWidth(), 8));
+                                    // TODO: code.unlockPointers();
+                                    code.items.len = current_pos + abi_size;
+                                }
+                                try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), code, reloc_parent);
                             } else {
                                 Value.fromInterned(field_val).writeToPackedMemory(Type.fromInterned(field_ty), pt, code.items[current_pos..], bits) catch unreachable;
                             }

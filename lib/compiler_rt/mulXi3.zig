@@ -20,7 +20,7 @@ comptime {
     }
 }
 
-pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
+pub fn __mulsi3(a: i32, b: i32) callconv(.c) i32 {
     var ua: u32 = @bitCast(a);
     var ub: u32 = @bitCast(b);
     var r: u32 = 0;
@@ -34,11 +34,11 @@ pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
     return @bitCast(r);
 }
 
-pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
+pub fn __muldi3(a: i64, b: i64) callconv(.c) i64 {
     return mulX(i64, a, b);
 }
 
-fn __aeabi_lmul(a: i64, b: i64) callconv(.AAPCS) i64 {
+fn __aeabi_lmul(a: i64, b: i64) callconv(.{ .arm_aapcs = .{} }) i64 {
     return mulX(i64, a, b);
 }
 
@@ -86,13 +86,13 @@ fn muldXi(comptime T: type, a: T, b: T) DoubleInt(T) {
     return r.all;
 }
 
-pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
+pub fn __multi3(a: i128, b: i128) callconv(.c) i128 {
     return mulX(i128, a, b);
 }
 
 const v2u64 = @Vector(2, u64);
 
-fn __multi3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+fn __multi3_windows_x86_64(a: v2u64, b: v2u64) callconv(.c) v2u64 {
     return @bitCast(mulX(i128, @as(i128, @bitCast(a)), @as(i128, @bitCast(b))));
 }
 

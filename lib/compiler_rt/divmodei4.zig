@@ -33,7 +33,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []u32, v: []u32) !void {
     if (r) |x| if (u_sign < 0) neg(x);
 }
 
-pub fn __divei4(r_q: [*]u32, u_p: [*]u32, v_p: [*]u32, bits: usize) callconv(.C) void {
+pub fn __divei4(r_q: [*]u32, u_p: [*]u32, v_p: [*]u32, bits: usize) callconv(.c) void {
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
@@ -41,7 +41,7 @@ pub fn __divei4(r_q: [*]u32, u_p: [*]u32, v_p: [*]u32, bits: usize) callconv(.C)
     @call(.always_inline, divmod, .{ q, null, u, v }) catch unreachable;
 }
 
-pub fn __modei4(r_p: [*]u32, u_p: [*]u32, v_p: [*]u32, bits: usize) callconv(.C) void {
+pub fn __modei4(r_p: [*]u32, u_p: [*]u32, v_p: [*]u32, bits: usize) callconv(.c) void {
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
