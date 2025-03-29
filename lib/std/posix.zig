@@ -2021,16 +2021,15 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (native_os == .wasi) {
         @compileError("std.posix.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
-    // The simplified start logic doesn't populate environ.
-    if (std.start.simplified_logic) return null;
-    // TODO see https://github.com/ziglang/zig/issues/4524
-    for (std.os.environ) |ptr| {
-        var line_i: usize = 0;
-        while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-        const this_key = ptr[0..line_i];
-        if (!mem.eql(u8, key, this_key)) continue;
+    if (std.os.environ) |environ| {
+        for (environ) |ptr| {
+            var line_i: usize = 0;
+            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
+            const this_key = ptr[0..line_i];
+            if (!mem.eql(u8, key, this_key)) continue;
 
-        return mem.sliceTo(ptr + line_i + 1, 0);
+            return mem.sliceTo(ptr + line_i + 1, 0);
+        }
     }
     return null;
 }
