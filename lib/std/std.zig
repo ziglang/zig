@@ -160,6 +160,12 @@ pub const Options = struct {
     http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// For libraries not linking libc, this function will be called once, if needed, to setup the
+    /// environment. For executables or libraries linking libc, environment setup is via Zig start
+    /// code or libc environ management respectively and it is a compile error to set this field to
+    /// a custom environment setup function.
+    environ_setupFn: ?fn () [*:null]?[*:0]u8 = null,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that

@@ -347,22 +347,8 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
             try result.put(key, value);
         }
         return result;
-    } else if (builtin.link_libc) {
-        var ptr = std.c.environ;
-        while (ptr[0]) |line| : (ptr += 1) {
-            var line_i: usize = 0;
-            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
-            const key = line[0..line_i];
-
-            var end_i: usize = line_i;
-            while (line[end_i] != 0) : (end_i += 1) {}
-            const value = line[line_i + 1 .. end_i];
-
-            try result.put(key, value);
-        }
-        return result;
     } else {
-        for (std.os.environ) |line| {
+        for (std.os.envp()) |line| {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const key = line[0..line_i];
@@ -1720,15 +1706,9 @@ pub fn execve(
         if (env_map) |m| {
             const envp_buf = try createNullDelimitedEnvMap(arena, m);
             break :m envp_buf.ptr;
-        } else if (builtin.link_libc) {
-            break :m std.c.environ;
-        } else if (builtin.output_mode == .Exe) {
-            // Then we have Zig start code and this works.
-            // TODO type-safety for null-termination of `os.environ`.
-            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
         } else {
-            // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
+            // TODO type-safety for null-termination of `envp()` results.
+            break :m @as([*:null]const ?[*:0]const u8, std.os.envpN());
         }
     };
 
