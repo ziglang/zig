@@ -2005,26 +2005,12 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (native_os == .windows) {
         @compileError("std.posix.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
     }
-    if (builtin.link_libc) {
-        var ptr = std.c.environ;
-        while (ptr[0]) |line| : (ptr += 1) {
-            var line_i: usize = 0;
-            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
-            const this_key = line[0..line_i];
-
-            if (!mem.eql(u8, this_key, key)) continue;
-
-            return mem.sliceTo(line + line_i + 1, 0);
-        }
-        return null;
-    }
     if (native_os == .wasi) {
         @compileError("std.posix.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
     if (std.start.simplified_logic) return null;
-    // TODO see https://github.com/ziglang/zig/issues/4524
-    for (std.os.environ) |ptr| {
+    for (std.os.envp()) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0..line_i];
