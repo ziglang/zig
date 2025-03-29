@@ -1434,6 +1434,7 @@ pub fn connectTunnel(
     proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
+    tunnel_protocol: Connection.Protocol,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
@@ -1487,6 +1488,38 @@ pub fn connectTunnel(
         conn.port = tunnel_port;
         conn.closing = false;
 
+        if (tunnel_protocol == .tls) {
+            if (disable_tls) unreachable;
+
+            conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
+            errdefer client.allocator.destroy(conn.tls_client);
+
+            const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
+                const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
+                    error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                defer client.allocator.free(ssl_key_log_path);
+                break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
+                    .truncate = false,
+                    .mode = switch (builtin.os.tag) {
+                        .windows, .wasi => 0,
+                        else => 0o600,
+                    },
+                }) catch null;
+            } else null;
+            errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
+
+            conn.tls_client.* = std.crypto.tls.Client.init(conn.stream, .{
+                .host = .{ .explicit = tunnel_host },
+                .ca = .{ .bundle = client.ca_bundle },
+                .ssl_key_log_file = ssl_key_log_file,
+            }) catch return error.TlsInitializationFailed;
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            conn.tls_client.allow_truncation_attacks = true;
+            conn.protocol = .tls;
+        }
         return conn;
     }) catch {
         // something went wrong with the tunnel
@@ -1524,7 +1557,7 @@ pub fn connect(
     }
 
     if (proxy.supports_connect) tunnel: {
-        return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+        return connectTunnel(client, proxy, host, port, protocol) catch |err| switch (err) {
             error.TunnelNotSupported => break :tunnel,
             else => |e| return e,
         };
