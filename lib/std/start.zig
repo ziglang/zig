@@ -239,7 +239,7 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
-            .m68k => ".cfi_undefined pc",
+            .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
@@ -354,7 +354,7 @@ fn _start() callconv(.naked) noreturn {
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
-            \\ suba.l %%fp, %%fp
+            \\ suba.l %%a6, %%a6  // fp
             \\ move.l %%sp, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
