@@ -435,7 +435,7 @@ pub fn Iterator(comptime ReaderType: type) type {
                 self.padding = blockPadding(size);
 
                 switch (kind) {
-                    // File types to retrun upstream
+                    // File types to return upstream
                     .directory, .normal, .symbolic_link, .hard_link => {
                         file.kind = switch (kind) {
                             .directory => .directory,
