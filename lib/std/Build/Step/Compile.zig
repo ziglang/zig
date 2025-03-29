@@ -677,10 +677,12 @@ pub fn producesImplib(compile: *Compile) bool {
     return compile.isDll();
 }
 
+/// Deprecated; use `compile.root_module.link_libc = true` instead.
 pub fn linkLibC(compile: *Compile) void {
     compile.root_module.link_libc = true;
 }
 
+/// Deprecated; use `compile.root_module.link_libcpp = true` instead.
 pub fn linkLibCpp(compile: *Compile) void {
     compile.root_module.link_libcpp = true;
 }
@@ -798,10 +800,12 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 }
 
+/// Deprecated; use `compile.root_module.linkSystemLibrary(name, .{})` instead.
 pub fn linkSystemLibrary(compile: *Compile, name: []const u8) void {
     return compile.root_module.linkSystemLibrary(name, .{});
 }
 
+/// Deprecated; use `compile.root_module.linkSystemLibrary(name, options)` instead.
 pub fn linkSystemLibrary2(
     compile: *Compile,
     name: []const u8,
@@ -810,22 +814,22 @@ pub fn linkSystemLibrary2(
     return compile.root_module.linkSystemLibrary(name, options);
 }
 
+/// Deprecated; use `c.root_module.linkFramework(name, .{})` instead.
 pub fn linkFramework(c: *Compile, name: []const u8) void {
     c.root_module.linkFramework(name, .{});
 }
 
-/// Handy when you have many C/C++ source files and want them all to have the same flags.
+/// Deprecated; use `compile.root_module.addCSourceFiles(options)` instead.
 pub fn addCSourceFiles(compile: *Compile, options: Module.AddCSourceFilesOptions) void {
     compile.root_module.addCSourceFiles(options);
 }
 
+/// Deprecated; use `compile.root_module.addCSourceFile(source)` instead.
 pub fn addCSourceFile(compile: *Compile, source: Module.CSourceFile) void {
     compile.root_module.addCSourceFile(source);
 }
 
-/// Resource files must have the extension `.rc`.
-/// Can be called regardless of target. The .rc file will be ignored
-/// if the target object format does not support embedded resources.
+/// Deprecated; use `compile.root_module.addWin32ResourceFile(source)` instead.
 pub fn addWin32ResourceFile(compile: *Compile, source: Module.RcSourceFile) void {
     compile.root_module.addWin32ResourceFile(source);
 }
@@ -911,54 +915,67 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_llvm_bc);
 }
 
+/// Deprecated; use `compile.root_module.addAssemblyFile(source)` instead.
 pub fn addAssemblyFile(compile: *Compile, source: LazyPath) void {
     compile.root_module.addAssemblyFile(source);
 }
 
+/// Deprecated; use `compile.root_module.addObjectFile(source)` instead.
 pub fn addObjectFile(compile: *Compile, source: LazyPath) void {
     compile.root_module.addObjectFile(source);
 }
 
+/// Deprecated; use `compile.root_module.addObject(object)` instead.
 pub fn addObject(compile: *Compile, object: *Compile) void {
     compile.root_module.addObject(object);
 }
 
+/// Deprecated; use `compile.root_module.linkLibrary(library)` instead.
 pub fn linkLibrary(compile: *Compile, library: *Compile) void {
     compile.root_module.linkLibrary(library);
 }
 
+/// Deprecated; use `compile.root_module.addAfterIncludePath(lazy_path)` instead.
 pub fn addAfterIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addAfterIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addSystemIncludePath(lazy_path)` instead.
 pub fn addSystemIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addSystemIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addIncludePath(lazy_path)` instead.
 pub fn addIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addConfigHeader(config_header)` instead.
 pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) void {
     compile.root_module.addConfigHeader(config_header);
 }
 
+/// Deprecated; use `compile.root_module.addEmbedPath(lazy_path)` instead.
 pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addEmbedPath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addLibraryPath(directory_path)` instead.
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addRPath(directory_path)` instead.
 pub fn addRPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addRPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addSystemFrameworkPath(directory_path)` instead.
 pub fn addSystemFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addSystemFrameworkPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addFrameworkPath(directory_path)` instead.
 pub fn addFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addFrameworkPath(directory_path);
 }
