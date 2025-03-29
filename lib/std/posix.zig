@@ -7504,7 +7504,7 @@ const lfs64_abi = native_os == .linux and builtin.link_libc and (builtin.abi.isG
 /// If this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-pub const unexpected_error_tracing = builtin.zig_backend == .stage2_llvm and builtin.mode == .Debug;
+pub const unexpected_error_tracing = (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_x86_64) and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
