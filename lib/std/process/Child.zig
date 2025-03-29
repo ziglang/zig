@@ -830,10 +830,6 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         .lpReserved2 = null,
     };
     var piProcInfo: windows.PROCESS_INFORMATION = undefined;
-    var dwCreationFlags: windows.DWORD = windows.CREATE_UNICODE_ENVIRONMENT;
-    if (self.detached) {
-        dwCreationFlags |= windows.DETACHED_PROCESS;
-    }
 
     const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
     defer if (cwd_w) |cwd| self.allocator.free(cwd);
@@ -887,6 +883,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         .create_suspended = self.start_suspended,
         .create_unicode_environment = true,
         .create_no_window = self.create_no_window,
+        .detached_process = self.detached,
     };
 
     run: {
