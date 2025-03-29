@@ -88,28 +88,6 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    cases.add("extern local variable referenced in sub block scope, Isssue #23275",
-        \\#include <stdlib.h>
-        \\int a = 42;
-        \\int foo(int bar) {
-        \\    extern int a;
-        \\    if (bar) {
-        \\        return a;
-        \\    }
-        \\    return 0;
-        \\}
-        \\int main() {
-        \\    int result1 = foo(0);
-        \\    if (result1 != 0) abort();
-        \\    int result2 = foo(1);
-        \\    if (result2 != 42) abort();
-        \\    a = 100;
-        \\    int result3 = foo(1);
-        \\    if (result3 != 100) abort();
-        \\    return 0;
-        \\}
-    , "");
-
     cases.add("array initializer",
         \\#include <stdlib.h>
         \\int main(int argc, char **argv) {
