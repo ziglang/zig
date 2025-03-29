@@ -82,7 +82,6 @@ pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
-pub const MMAP2_UNIT = system.MMAP2_UNIT;
 pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
