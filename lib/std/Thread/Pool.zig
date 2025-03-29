@@ -315,6 +315,11 @@ pub fn io(pool: *Pool) std.Io {
         .vtable = &.{
             .@"async" = @"async",
             .@"await" = @"await",
+            .createFile = createFile,
+            .openFile = openFile,
+            .closeFile = closeFile,
+            .read = read,
+            .write = write,
         },
     };
 }
@@ -398,4 +403,29 @@ pub fn @"await"(userdata: ?*anyopaque, any_future: *std.Io.AnyFuture, result: []
     const base: [*]align(@alignOf(AsyncClosure)) u8 = @ptrCast(closure);
     @memcpy(result, closure.resultPointer()[0..result.len]);
     thread_pool.allocator.free(base[0 .. closure.result_offset + result.len]);
+}
+
+pub fn createFile(userdata: ?*anyopaque, dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File.OpenError!std.fs.File {
+    _ = userdata;
+    return dir.createFile(sub_path, flags);
+}
+
+pub fn openFile(userdata: ?*anyopaque, dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.OpenFlags) std.fs.File.OpenError!std.fs.File {
+    _ = userdata;
+    return dir.openFile(sub_path, flags);
+}
+
+pub fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
+    _ = userdata;
+    return file.close();
+}
+
+pub fn read(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8) std.fs.File.ReadError!usize {
+    _ = userdata;
+    return file.read(buffer);
+}
+
+pub fn write(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8) std.fs.File.WriteError!usize {
+    _ = userdata;
+    return file.write(buffer);
 }

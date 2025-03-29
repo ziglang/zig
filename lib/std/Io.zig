@@ -913,6 +913,7 @@ test {
 }
 
 const Io = @This();
+const fs = std.fs;
 
 pub const EventLoop = @import("Io/EventLoop.zig");
 
@@ -946,6 +947,12 @@ pub const VTable = struct {
         /// The length is equal to size in bytes of result type.
         result: []u8,
     ) void,
+
+    createFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) fs.File.OpenError!fs.File,
+    openFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) fs.File.OpenError!fs.File,
+    closeFile: *const fn (?*anyopaque, fs.File) void,
+    read: *const fn (?*anyopaque, file: fs.File, buffer: []u8) fs.File.ReadError!usize,
+    write: *const fn (?*anyopaque, file: fs.File, buffer: []const u8) fs.File.WriteError!usize,
 };
 
 pub const AnyFuture = opaque {};
@@ -990,4 +997,41 @@ pub fn async(io: Io, S: type, s: S) Future(@typeInfo(@TypeOf(S.start)).@"fn".ret
         TypeErased.start,
     );
     return future;
+}
+
+pub fn openFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) fs.File.OpenError!fs.File {
+    return io.vtable.openFile(io.userdata, dir, sub_path, flags);
+}
+
+pub fn createFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) fs.File.OpenError!fs.File {
+    return io.vtable.createFile(io.userdata, dir, sub_path, flags);
+}
+
+pub fn closeFile(io: Io, file: fs.File) void {
+    return io.vtable.closeFile(io.userdata, file);
+}
+
+pub fn read(io: Io, file: fs.File, buffer: []u8) fs.File.ReadError!usize {
+    return io.vtable.read(io.userdata, file, buffer);
+}
+
+pub fn write(io: Io, file: fs.File, buffer: []const u8) fs.File.WriteError!usize {
+    return io.vtable.write(io.userdata, file, buffer);
+}
+
+pub fn writeAll(io: Io, file: fs.File, bytes: []const u8) fs.File.WriteError!void {
+    var index: usize = 0;
+    while (index < bytes.len) {
+        index += try io.write(file, bytes[index..]);
+    }
+}
+
+pub fn readAll(io: Io, file: fs.File, buffer: []u8) fs.File.ReadError!usize {
+    var index: usize = 0;
+    while (index != buffer.len) {
+        const amt = try io.read(file, buffer[index..]);
+        if (amt == 0) break;
+        index += amt;
+    }
+    return index;
 }
