@@ -28,15 +28,15 @@ pub const File = extern struct {
     pub const Reader = io.Reader(*const File, ReadError, readFn);
     pub const Writer = io.Writer(*const File, WriteError, writeFn);
 
-    pub fn seekableStream(self: *File) SeekableStream {
+    pub fn seekableStream(self: *const File) SeekableStream {
         return .{ .context = self };
     }
 
-    pub fn reader(self: *File) Reader {
+    pub fn reader(self: *const File) Reader {
         return .{ .context = self };
     }
 
-    pub fn writer(self: *File) Writer {
+    pub fn writer(self: *const File) Writer {
         return .{ .context = self };
     }
 
