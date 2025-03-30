@@ -265,16 +265,6 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                 c.weak_global_names.putAssumeCapacity(decl_name, {});
                 c.weak_global_names.putAssumeCapacity(prefixed_name, {});
             },
-            .Typedef => {
-                const typedef_decl = @as(*const clang.TypedefNameDecl, @ptrCast(decl));
-                const child_qt = typedef_decl.getUnderlyingType();
-                if (child_qt.isVolatileQualified()) {
-                    const prefixed_name = try std.fmt.allocPrint(c.arena, "volatile_{s}", .{decl_name});
-                    try c.weak_global_names.put(c.gpa, prefixed_name, {});
-                } else {
-                    try c.global_names.put(c.gpa, decl_name, {});
-                }
-            },
             else => {
                 try c.global_names.put(c.gpa, decl_name, {});
             },
@@ -708,10 +698,6 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
         return c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), builtin);
     }
     const child_qt = typedef_decl.getUnderlyingType();
-    if (child_qt.isVolatileQualified()) {
-        name = try std.fmt.allocPrint(c.arena, "volatile_{s}", .{name});
-        if (toplevel) name = try mangleWeakGlobalName(c, name);
-    }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), name);
 
@@ -3393,47 +3379,184 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
     return maybeSuppressResult(c, used, res);
 }
 
-fn restoreValueQualifiersPtr(
+fn restoreCVQualifiers(
     c: *Context,
     scope: *Scope,
-    expr: *const clang.Expr,
     pointee_ty: clang.QualType,
-    address_of_node: Node,
+    ptr_node: Node,
+    source_location: clang.SourceLocation,
 ) TransError!Node {
     const pointer_ty = try Tag.c_pointer.create(c.arena, .{
         .is_const = pointee_ty.isConstQualified(),
         .is_volatile = pointee_ty.isVolatileQualified(),
-        .elem_type = try transQualType(c, scope, pointee_ty, expr.getBeginLoc()),
+        .elem_type = try transType(c, scope, pointee_ty.getTypePtr(), source_location),
     });
     return try Tag.as.create(c.arena, .{
         .lhs = pointer_ty,
-        .rhs = try Tag.ptr_cast.create(c.arena, address_of_node),
+        .rhs = try Tag.ptr_cast.create(c.arena, ptr_node),
     });
 }
 
-fn restoreValueQualifiersValue(
+/// Check if this type is a reference to a typedef to a volatile-qualified value-type.
+/// If so, its zig type is `std.zig.c_translation.Volatile(T)`.
+fn isVolatileTypedef(ty: clang.QualType) bool {
+    if (!ty.isVolatileQualified()) {
+        return false;
+    }
+    var base_ty: clang.QualType = ty;
+    while (base_ty.getTypeClass() == .Elaborated) {
+        const elaborated = @as(*const clang.ElaboratedType, @ptrCast(base_ty.getTypePtr()));
+        base_ty = elaborated.getNamedType();
+    }
+
+    if (base_ty.getTypeClass() == .Typedef) {
+        const typedef_ty = @as(*const clang.TypedefType, @ptrCast(base_ty.getTypePtr()));
+        const underlying_ty = typedef_ty.getDecl().getUnderlyingType();
+        return underlying_ty.isVolatileQualified();
+    }
+    return false;
+}
+
+/// Checks if the expression in `node` is a dereference added by translate-c to maintain type qualifiers.
+/// Intended to be used when taking the address of an expression, to check if the sub-expression has
+/// a redundant dereference that did not appear in the original C source and can simply be removed
+/// to yield the 'address-of' result.
+fn maybeCollapseAddressOf(c: *Context, expr: *const clang.Expr, expr_ty: clang.QualType, node: Node) ?Node {
+    // TODO(theofabilous): should we even be doing this?
+    // TODO(theofabilous): obviously suboptimal approach. Is there a way to achieve this in a bottom-up
+    // manner without modifiying too many call-sites? This is very ad-hoc and modifying a lot of code
+    // just for this seems counter-intuitive.
+    const ptr: *ast.Payload.UnOp = node.castTag(.deref) orelse return null;
+    var subexpr = expr;
+    var stmt_class = expr.getStmtClass();
+    sw: switch (stmt_class) {
+        .UnaryOperatorClass => {
+            // Don't collapse the dereference if there was an actual
+            // dereference in the source code
+            const un_op = @as(*const clang.UnaryOperator, @ptrCast(subexpr));
+            const opcode = un_op.getOpcode();
+            if (opcode == .Deref) return null;
+        },
+        .ParenExprClass => {
+            const paren_expr = @as(*const clang.ParenExpr, @ptrCast(subexpr));
+            subexpr = paren_expr.getSubExpr();
+            stmt_class = subexpr.getStmtClass();
+            continue :sw stmt_class;
+        },
+        else => {},
+    }
+    const ptr_node = ptr.data;
+    switch (ptr_node.tag()) {
+        .call => {
+            // x.ptr().*
+            // x.constPtr().*
+            if (!isVolatileTypedef(expr_ty)) {
+                std.debug.print("{} {}\n", .{ expr.getStmtClass(), expr.getType().getTypeClass() });
+                return null;
+            }
+            const call_pl: *ast.Payload.Call = ptr_node.castTag(.call).?;
+            if (call_pl.data.args.len > 0) {
+                return null;
+            }
+            const func_pl: *ast.Payload.FieldAccess = call_pl.data.lhs.castTag(.field_access) orelse return null;
+            const is_const_ptr = is_const_ptr: {
+                if (std.mem.eql(u8, func_pl.data.field_name, "constPtr")) {
+                    break :is_const_ptr true;
+                } else if (std.mem.eql(u8, func_pl.data.field_name, "ptr")) {
+                    break :is_const_ptr false;
+                } else return null;
+            };
+            _ = is_const_ptr;
+            // TODO(theofabilous): is it actually ok to destroy here?
+            defer c.arena.destroy(@as(*ast.Node.Tag.deref.Type(), @ptrCast(@alignCast(node.ptr_otherwise))));
+            return ptr.data;
+        },
+        .as => {
+            // @as(..., @ptrCast(...)).*
+            if (!expr_ty.isVolatileQualified() and !expr_ty.isConstQualified()) {
+                return null;
+            }
+            const as_pl: *ast.Payload.BinOp = ptr_node.castTag(.as).?;
+            const value_operand = as_pl.data.rhs;
+            const ptr_cast_pl: *ast.Payload.UnOp = value_operand.castTag(.ptr_cast) orelse return null;
+            // TODO(theofabilous): is it actually ok to destroy here?
+            defer c.arena.destroy(@as(*ast.Node.Tag.as.Type(), @ptrCast(@alignCast(ptr_node.ptr_otherwise))));
+            defer c.arena.destroy(@as(*ast.Node.Tag.deref.Type(), @ptrCast(@alignCast(node.ptr_otherwise))));
+            return ptr_cast_pl.data;
+        },
+        else => return null,
+    }
+}
+
+/// Take the address of a volatile-qualified value and return a volatile pointer to that value.
+fn qualifiedAddressOf(
+    c: *Context,
+    scope: *Scope,
+    pointee_expr: *const clang.Expr,
+    expr_ty: clang.QualType,
+    node: Node,
+) TransError!Node {
+    assert(expr_ty.isVolatileQualified());
+    const ptr_node = ptr_node: {
+        if (maybeCollapseAddressOf(c, pointee_expr, expr_ty, node)) |ptr| {
+            break :ptr_node ptr;
+        }
+        var base_ty: clang.QualType = expr_ty;
+        while (base_ty.getTypeClass() == .Elaborated) {
+            const elaborated = @as(*const clang.ElaboratedType, @ptrCast(base_ty.getTypePtr()));
+            base_ty = elaborated.getNamedType();
+        }
+        if (isVolatileTypedef(base_ty)) {
+            const load_field = if (expr_ty.isConstQualified())
+                try Tag.field_access.create(c.arena, .{ .lhs = node, .field_name = "constPtr" })
+            else
+                try Tag.field_access.create(c.arena, .{ .lhs = node, .field_name = "ptr" });
+            return try Tag.call.create(c.arena, .{ .lhs = load_field, .args = &.{} });
+        }
+        // If the type is not std.zig.c_translation.Volatile(T), take its address and explicitly
+        // cast the pointer with the qualifiers of the pointee
+        const address_of_node = try Tag.address_of.create(c.arena, node);
+        break :ptr_node address_of_node;
+    };
+    return try restoreCVQualifiers(c, scope, expr_ty, ptr_node, pointee_expr.getBeginLoc());
+}
+
+/// Ensure a volatile-qualifed value is volatile-loaded. Extra book-keeping is required for such values because
+/// no equivalent concept exists in zig. The general strategy is to correctly apply the qualifiers whenever the
+/// address of a qualified value-type is taken, at which point the type can be correctly represented in zig.
+///
+/// Generally, this is only meaningful when the value itself has been previously obtained via a pointer somehow:
+/// - directly, via a normal volatile pointer (volatile T *ptr)
+/// - indirectly, via the address of an extern volatile-qualified value-type
+/// - indirectly, via a volatile qualified struct field through a pointer to a (possibly non-volatile) struct
+///   and taking the field's address.
+///
+/// For example, a pointer to a non-volatile struct with a volatile field can be volatile-loaded by first
+/// loading the field by value, taking the address, casting the resulting pointer to a volatile pointer,
+/// and dereferencing that, all within the same expression. This works because of zig's field pointer
+/// propogation semantics.
+fn volatileLoad(
     c: *Context,
     scope: *Scope,
     expr: *const clang.Expr,
     expr_ty: clang.QualType,
     node: Node,
 ) TransError!Node {
-    assert(expr_ty.isVolatileQualified() or expr_ty.isConstQualified());
-    // TODO(theofabilous): is this 100% guaranteed?
-    // If the result type is an array, don't apply qualifiers (yet). In C, an array cannot be legally
+    var base_ty: clang.QualType = expr_ty;
+    while (base_ty.getTypeClass() == .Elaborated) {
+        const elaborated = @as(*const clang.ElaboratedType, @ptrCast(base_ty.getTypePtr()));
+        base_ty = elaborated.getNamedType();
+    }
+    // If the element type is an array, don't apply qualifiers (yet). In C, an array cannot be legally
     // used by-value, and anything that looks like a by-value obtention of a whole array isn't *actually*
     // a load -- we don't want to falsely annotate this as a volatile load which cannot be optimized away.
     // Presumably, this expression will later be dereferenced or decay to a pointer, at which point
     // pointer qualifiers will be applied.
-    switch (expr_ty.getTypeClass()) {
-        // TODO(theofabilous): are there other type classes we will want to ignore?
-        // what is a 'ConstantMatrix'? and why is this undocumented?
-        .ConstantArray => return node,
-        else => {},
+    if (base_ty.getTypeClass() == .ConstantArray) {
+        return node;
     }
-    const address_of_node = try Tag.address_of.create(c.arena, node);
-    const qual_ptr = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, address_of_node);
-    return Tag.deref.create(c.arena, qual_ptr);
+    const ptr = try qualifiedAddressOf(c, scope, expr, expr_ty, node);
+    return try Tag.deref.create(c.arena, ptr);
 }
 
 fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, result_used: ResultUsed) TransError!Node {
@@ -3461,14 +3584,16 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
     var node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .field_name = name });
     if (exprIsFlexibleArrayRef(c, @as(*const clang.Expr, @ptrCast(stmt)))) {
         node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &.{} });
-    }
-
-    if (stmt.isArrow()) {
-        // TODO(theofabilous): function types, flexible array, opaque demotion?
+    } else if (stmt.isArrow()) {
+        // TODO(theofabilous): function types, opaque demotion?
+        // If accessing a field with the `->` operator and the field is volatile, this is equivalent
+        // to dereferencing a pointer-to-volatile of that field. To maintain the C semantics, take
+        // the address of the field, apply the volatile qualifiers, and dereference through that
+        // pointer.
         const expr = @as(*const clang.Expr, @ptrCast(stmt));
         const expr_ty = expr.getType();
-        if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
-            node = try restoreValueQualifiersValue(c, scope, expr, expr_ty, node);
+        if (expr_ty.isVolatileQualified()) {
+            node = try volatileLoad(c, scope, expr, expr_ty, node);
         }
     }
     return maybeSuppressResult(c, result_used, node);
@@ -3552,7 +3677,7 @@ fn transSignedArrayAccess(
     const expr = @as(*const clang.Expr, @ptrCast(stmt));
     const expr_ty = expr.getType();
     if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
-        node = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, node);
+        node = try restoreCVQualifiers(c, scope, expr_ty, node, expr.getBeginLoc());
     }
     const derefed = try Tag.deref.create(c.arena, node);
 
@@ -3605,8 +3730,8 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     });
     const expr = @as(*const clang.Expr, @ptrCast(stmt));
     const expr_ty = expr.getType();
-    if (expr_ty.isConstQualified() or expr_ty.isVolatileQualified()) {
-        node = try restoreValueQualifiersValue(c, scope, expr, expr_ty, node);
+    if (expr_ty.isVolatileQualified()) {
+        node = try volatileLoad(c, scope, expr, expr_ty, node);
     }
     return maybeSuppressResult(c, result_used, node);
 }
@@ -3792,13 +3917,17 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         else
             return transCreatePreCrement(c, scope, stmt, .sub_assign, used),
         .AddrOf => {
-            const node = try Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
-            const op_ty = op_expr.getType();
+            const expr = @as(*const clang.Expr, @ptrCast(stmt));
+            var op_ty = op_expr.getType();
+            const op_node = try transExpr(c, scope, op_expr, used);
             if (op_ty.isVolatileQualified() or op_ty.isConstQualified()) {
-                const expr = @as(*const clang.Expr, @ptrCast(stmt));
-                return restoreValueQualifiersPtr(c, scope, expr, op_ty, node);
+                const force_const = expr.getType().getTypePtr().getPointeeType().isConstQualified();
+                if (force_const) {
+                    op_ty.addConst();
+                }
+                return qualifiedAddressOf(c, scope, op_expr, op_ty, op_node);
             } else {
-                return node;
+                return try Tag.address_of.create(c.arena, op_node);
             }
         },
         .Deref => {
@@ -3811,9 +3940,13 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
             if (fn_ty != null and is_ptr)
                 return node;
             const expr = @as(*const clang.Expr, @ptrCast(stmt));
-            const expr_ty = expr.getType();
+            var expr_ty = expr.getType();
             if (expr_ty.isVolatileQualified() or expr_ty.isConstQualified()) {
-                node = try restoreValueQualifiersPtr(c, scope, expr, expr_ty, node);
+                const force_const = op_expr.getType().getTypePtr().getPointeeType().isConstQualified();
+                if (force_const) {
+                    expr_ty.addConst();
+                }
+                node = try restoreCVQualifiers(c, scope, expr_ty, node, expr.getBeginLoc());
             }
             return Tag.deref.create(c.arena, node);
         },
@@ -4345,7 +4478,17 @@ fn transQualTypeInitialized(
 }
 
 fn transQualType(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
-    return transType(c, scope, qt.getTypePtr(), source_loc);
+    const node = try transType(c, scope, qt.getTypePtr(), source_loc);
+    if (qt.isVolatileQualified()) {
+        switch (qt.getTypeClass()) {
+            .Builtin,
+            .Record,
+            .Enum,
+            => return try Tag.helpers_volatile.create(c.arena, node),
+            else => {},
+        }
+    }
+    return node;
 }
 
 /// Produces a Zig AST node by translating a Clang QualType, respecting the width, but modifying the signed-ness.
@@ -4870,7 +5013,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const is_fn_proto = qualTypeChildIsFnProto(child_qt);
             const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
-            const elem_type = try transQualType(c, scope, child_qt, source_loc);
+            const elem_type = try transType(c, scope, child_qt.getTypePtr(), source_loc);
             const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
@@ -4893,7 +5036,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const_arr_ty.getSize(&size_ap_int);
             defer size_ap_int.free();
             const size = size_ap_int.getLimitedValue(usize);
-            const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
+            const elem_type = try transQualType(c, scope, const_arr_ty.getElementType(), source_loc);
 
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
         },

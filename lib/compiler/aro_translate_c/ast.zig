@@ -192,6 +192,8 @@ pub const Node = extern union {
         array_type,
         null_sentinel_array_type,
 
+        /// @import("std").zig.c_translation.Volatile(operand)
+        helpers_volatile,
         /// @import("std").zig.c_translation.sizeof(operand)
         helpers_sizeof,
         /// @import("std").zig.c_translation.FlexibleArrayType(lhs, rhs)
@@ -286,6 +288,7 @@ pub const Node = extern union {
                 .const_cast,
                 .volatile_cast,
                 .vector_zero_init,
+                .helpers_volatile,
                 => Payload.UnOp,
 
                 .add,
@@ -934,6 +937,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.helpers_shuffle_vector_index).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "shuffleVectorIndex" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
+        .helpers_volatile => {
+            const payload = node.castTag(.helpers_volatile).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "Volatile" });
+            return renderCall(c, import_node, &.{payload});
         },
         .vector => {
             const payload = node.castTag(.vector).?.data;
@@ -2356,6 +2364,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .helpers_promoteIntLiteral,
         .helpers_shuffle_vector_index,
         .helpers_flexible_array_type,
+        .helpers_volatile,
         .std_mem_zeroinit,
         .integer_literal,
         .float_literal,

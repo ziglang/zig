@@ -366,6 +366,42 @@ test "Flexible Array Type" {
     try testing.expectEqual(FlexibleArrayType(*const volatile Container, c_int), [*c]const volatile c_int);
 }
 
+pub fn Volatile(comptime T: type) type {
+    return extern struct {
+        inner: T = std.mem.zeroes(T),
+
+        pub inline fn ptr(v: *volatile Volatile(T)) *volatile T {
+            return @ptrCast(v);
+        }
+
+        pub inline fn constPtr(v: *const volatile Volatile(T)) *const volatile T {
+            return @ptrCast(v);
+        }
+
+        pub inline fn load(v: *const volatile Volatile(T)) T {
+            return v.constPtr().*;
+        }
+
+        pub inline fn store(v: *volatile Volatile(T), value: T) void {
+            v.ptr().* = value;
+        }
+    };
+}
+
+test "Volatile" {
+    try testing.expectEqual(@sizeOf(Volatile(c_int)), @sizeOf(c_int));
+    try testing.expectEqual(@alignOf(Volatile(c_int)), @alignOf(c_int));
+
+    try testing.expectEqual(@sizeOf([7]Volatile(c_int)), @sizeOf([7]c_int));
+    try testing.expectEqual(@alignOf([7]Volatile(c_int)), @alignOf([7]c_int));
+
+    try testing.expectEqual(@sizeOf(Volatile(u32)), @sizeOf(u32));
+    try testing.expectEqual(@alignOf(Volatile(u32)), @alignOf(u32));
+
+    try testing.expectEqual(@sizeOf(Volatile(u64)), @sizeOf(u64));
+    try testing.expectEqual(@alignOf(Volatile(u64)), @alignOf(u64));
+}
+
 /// C `%` operator for signed integers
 /// C standard states: "If the quotient a/b is representable, the expression (a/b)*b + a%b shall equal a"
 /// The quotient is not representable if denominator is zero, or if numerator is the minimum integer for
