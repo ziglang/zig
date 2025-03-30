@@ -11,7 +11,7 @@ pub fn main() !void {
     _ = args.next() orelse unreachable; // skip executable name
     const child_path = args.next() orelse unreachable;
 
-    const argv = if (builtin.os.tag == .windows) &.{""} else &.{ child_path, "30" };
+    const argv = &.{""};
     var child = std.process.Child.init(argv, gpa);
     child.stdin_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
@@ -23,7 +23,9 @@ pub fn main() !void {
     }
 
     if (child.spawn()) {
-        return error.SpawnSilencedError;
+        if (child.waitForSpawn()) {
+            return error.SpawnSilencedError;
+        } else |_| {}
     } else |_| {}
 
     child = std.process.Child.init(&.{ child_path, "30" }, gpa);

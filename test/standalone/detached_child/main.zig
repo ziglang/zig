@@ -24,6 +24,7 @@ pub fn main() !void {
     child.stdout_behavior = .Pipe;
     child.detached = true;
     try child.spawn();
+    try child.waitForSpawn();
     defer {
         _ = child.kill() catch {};
     }
