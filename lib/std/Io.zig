@@ -922,6 +922,8 @@ vtable: *const VTable,
 pub const VTable = struct {
     /// If it returns `null` it means `result` has been already populated and
     /// `await` will be a no-op.
+    ///
+    /// Thread-safe.
     async: *const fn (
         /// Corresponds to `Io.userdata`.
         userdata: ?*anyopaque,
@@ -937,6 +939,8 @@ pub const VTable = struct {
     ) ?*AnyFuture,
 
     /// This function is only called when `async` returns a non-null value.
+    ///
+    /// Thread-safe.
     await: *const fn (
         /// Corresponds to `Io.userdata`.
         userdata: ?*anyopaque,
@@ -947,12 +951,40 @@ pub const VTable = struct {
         result: []u8,
     ) void,
 
-    createFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) fs.File.OpenError!fs.File,
-    openFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) fs.File.OpenError!fs.File,
+    /// Equivalent to `await` but initiates cancel request.
+    ///
+    /// This function is only called when `async` returns a non-null value.
+    ///
+    /// Thread-safe.
+    cancel: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// The same value that was returned from `async`.
+        any_future: *AnyFuture,
+        /// Points to a buffer where the result is written.
+        /// The length is equal to size in bytes of result type.
+        result: []u8,
+    ) void,
+
+    /// Returns whether the current thread of execution is known to have
+    /// been requested to cancel.
+    ///
+    /// Thread-safe.
+    cancelRequested: *const fn (?*anyopaque) bool,
+
+    createFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) FileOpenError!fs.File,
+    openFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) FileOpenError!fs.File,
     closeFile: *const fn (?*anyopaque, fs.File) void,
-    read: *const fn (?*anyopaque, file: fs.File, buffer: []u8) fs.File.ReadError!usize,
-    write: *const fn (?*anyopaque, file: fs.File, buffer: []const u8) fs.File.WriteError!usize,
+    read: *const fn (?*anyopaque, file: fs.File, buffer: []u8) FileReadError!usize,
+    write: *const fn (?*anyopaque, file: fs.File, buffer: []const u8) FileWriteError!usize,
 };
+
+pub const OpenFlags = fs.File.OpenFlags;
+pub const CreateFlags = fs.File.CreateFlags;
+
+pub const FileOpenError = fs.File.OpenError || error{AsyncCancel};
+pub const FileReadError = fs.File.ReadError || error{AsyncCancel};
+pub const FileWriteError = fs.File.WriteError || error{AsyncCancel};
 
 pub const AnyFuture = opaque {};
 
@@ -960,6 +992,17 @@ pub fn Future(Result: type) type {
     return struct {
         any_future: ?*AnyFuture,
         result: Result,
+
+        /// Equivalent to `await` but sets a flag observable to application
+        /// code that cancellation has been requested.
+        ///
+        /// Idempotent.
+        pub fn cancel(f: *@This(), io: Io) Result {
+            const any_future = f.any_future orelse return f.result;
+            io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]));
+            f.any_future = null;
+            return f.result;
+        }
 
         pub fn await(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
@@ -994,11 +1037,11 @@ pub fn async(io: Io, function: anytype, args: anytype) Future(@typeInfo(@TypeOf(
     return future;
 }
 
-pub fn openFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) fs.File.OpenError!fs.File {
+pub fn openFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) FileOpenError!fs.File {
     return io.vtable.openFile(io.userdata, dir, sub_path, flags);
 }
 
-pub fn createFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) fs.File.OpenError!fs.File {
+pub fn createFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) FileOpenError!fs.File {
     return io.vtable.createFile(io.userdata, dir, sub_path, flags);
 }
 
@@ -1006,22 +1049,22 @@ pub fn closeFile(io: Io, file: fs.File) void {
     return io.vtable.closeFile(io.userdata, file);
 }
 
-pub fn read(io: Io, file: fs.File, buffer: []u8) fs.File.ReadError!usize {
+pub fn read(io: Io, file: fs.File, buffer: []u8) FileReadError!usize {
     return io.vtable.read(io.userdata, file, buffer);
 }
 
-pub fn write(io: Io, file: fs.File, buffer: []const u8) fs.File.WriteError!usize {
+pub fn write(io: Io, file: fs.File, buffer: []const u8) FileWriteError!usize {
     return io.vtable.write(io.userdata, file, buffer);
 }
 
-pub fn writeAll(io: Io, file: fs.File, bytes: []const u8) fs.File.WriteError!void {
+pub fn writeAll(io: Io, file: fs.File, bytes: []const u8) FileWriteError!void {
     var index: usize = 0;
     while (index < bytes.len) {
         index += try io.write(file, bytes[index..]);
     }
 }
 
-pub fn readAll(io: Io, file: fs.File, buffer: []u8) fs.File.ReadError!usize {
+pub fn readAll(io: Io, file: fs.File, buffer: []u8) FileReadError!usize {
     var index: usize = 0;
     while (index != buffer.len) {
         const amt = try io.read(file, buffer[index..]);
