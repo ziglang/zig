@@ -7,12 +7,13 @@ const EventLoop = @This();
 const Alignment = std.mem.Alignment;
 const IoUring = std.os.linux.IoUring;
 
+/// Must be a thread-safe allocator.
 gpa: Allocator,
 mutex: std.Thread.Mutex,
-queue: std.DoublyLinkedList(void),
+queue: std.DoublyLinkedList,
 /// Atomic copy of queue.len
 queue_len: u32,
-free: std.DoublyLinkedList(void),
+free: std.DoublyLinkedList,
 main_fiber: Fiber,
 idle_count: usize,
 threads: std.ArrayListUnmanaged(Thread),
@@ -39,7 +40,7 @@ const Thread = struct {
 const Fiber = struct {
     context: Context,
     awaiter: ?*Fiber,
-    queue_node: std.DoublyLinkedList(void).Node,
+    queue_node: std.DoublyLinkedList.Node,
     result_align: Alignment,
 
     const finished: ?*Fiber = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Fiber)));
@@ -442,6 +443,15 @@ const AsyncClosure = struct {
 pub fn @"await"(userdata: ?*anyopaque, any_future: *std.Io.AnyFuture, result: []u8) void {
     const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
     const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+    if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) != Fiber.finished) event_loop.yield(null, .{ .register_awaiter = &future_fiber.awaiter });
+    @memcpy(result, future_fiber.resultPointer());
+    event_loop.recycle(future_fiber);
+}
+
+pub fn cancel(userdata: ?*anyopaque, any_future: *std.Io.AnyFuture, result: []u8) void {
+    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
+    const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+    // TODO set a flag that makes all IO operations for this fiber return error.Canceled
     if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) != Fiber.finished) event_loop.yield(null, .{ .register_awaiter = &future_fiber.awaiter });
     @memcpy(result, future_fiber.resultPointer());
     event_loop.recycle(future_fiber);
