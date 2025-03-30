@@ -435,13 +435,25 @@ fn @"async"(
     return @ptrCast(closure);
 }
 
-fn @"await"(userdata: ?*anyopaque, any_future: *Io.AnyFuture, result: []u8) void {
+fn @"await"(
+    userdata: ?*anyopaque,
+    any_future: *std.Io.AnyFuture,
+    result: []u8,
+    result_alignment: std.mem.Alignment,
+) void {
+    _ = result_alignment;
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
     closure.waitAndFree(pool.allocator, result);
 }
 
-fn cancel(userdata: ?*anyopaque, any_future: *Io.AnyFuture, result: []u8) void {
+fn cancel(
+    userdata: ?*anyopaque,
+    any_future: *Io.AnyFuture,
+    result: []u8,
+    result_alignment: std.mem.Alignment,
+) void {
+    _ = result_alignment;
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
     @atomicStore(bool, &closure.cancel_flag, true, .seq_cst);

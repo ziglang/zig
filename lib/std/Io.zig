@@ -949,6 +949,7 @@ pub const VTable = struct {
         /// Points to a buffer where the result is written.
         /// The length is equal to size in bytes of result type.
         result: []u8,
+        result_alignment: std.mem.Alignment,
     ) void,
 
     /// Equivalent to `await` but initiates cancel request.
@@ -964,6 +965,7 @@ pub const VTable = struct {
         /// Points to a buffer where the result is written.
         /// The length is equal to size in bytes of result type.
         result: []u8,
+        result_alignment: std.mem.Alignment,
     ) void,
 
     /// Returns whether the current thread of execution is known to have
@@ -999,14 +1001,14 @@ pub fn Future(Result: type) type {
         /// Idempotent.
         pub fn cancel(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]));
+            io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
             f.any_future = null;
             return f.result;
         }
 
         pub fn await(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.await(io.userdata, any_future, @ptrCast((&f.result)[0..1]));
+            io.vtable.await(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
             f.any_future = null;
             return f.result;
         }
@@ -1029,9 +1031,9 @@ pub fn async(io: Io, function: anytype, args: anytype) Future(@typeInfo(@TypeOf(
     future.any_future = io.vtable.async(
         io.userdata,
         @ptrCast((&future.result)[0..1]),
-        .fromByteUnits(@alignOf(Result)),
+        .of(Result),
         if (@sizeOf(Args) == 0) &.{} else @ptrCast((&args)[0..1]), // work around compiler bug
-        .fromByteUnits(@alignOf(Args)),
+        .of(Args),
         TypeErased.start,
     );
     return future;
