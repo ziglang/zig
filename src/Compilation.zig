@@ -3328,7 +3328,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     if (comp.zcu) |zcu| zcu_errors: {
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
-                try addModuleErrorMsg(zcu, &bundle, msg.*);
+                try addModuleErrorMsg(zcu, &bundle, msg.*, false);
             } else {
                 // Must be ZIR or Zoir errors. Note that this may include AST errors.
                 _ = try file.getTree(gpa); // Tree must be loaded.
@@ -3378,6 +3378,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             break :s entries.slice();
         };
         defer sorted_failed_analysis.deinit(gpa);
+        var added_any_analysis_error = false;
         for (sorted_failed_analysis.items(.key), sorted_failed_analysis.items(.value)) |anal_unit, error_msg| {
             if (comp.incremental) {
                 const refs = try zcu.resolveReferences();
@@ -3389,7 +3390,9 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 zcu.fmtAnalUnit(anal_unit),
             });
 
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, added_any_analysis_error);
+            added_any_analysis_error = true;
+
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
                 for (errors.getMessages()) |err_msg_index| {
                     const err_msg = errors.getErrorMessage(err_msg_index);
@@ -3412,13 +3415,13 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             }
         }
         for (zcu.failed_codegen.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, false);
         }
         for (zcu.failed_types.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, false);
         }
         for (zcu.failed_exports.values()) |value| {
-            try addModuleErrorMsg(zcu, &bundle, value.*);
+            try addModuleErrorMsg(zcu, &bundle, value.*, false);
         }
 
         const actual_error_count = zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
@@ -3527,7 +3530,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         // We don't actually include the error here if `!include_compile_log_sources`.
         // The sorting above was still necessary, though, to get `log_text` in the right order.
         if (include_compile_log_sources) {
-            try addModuleErrorMsg(zcu, &bundle, messages.items[0]);
+            try addModuleErrorMsg(zcu, &bundle, messages.items[0], false);
         }
 
         break :compile_log_text try log_text.toOwnedSlice(gpa);
@@ -3631,10 +3634,14 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
+const default_reference_trace_len = 2;
 pub fn addModuleErrorMsg(
     zcu: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
+    /// If `-freference-trace` is not specified, we only want to show the one reference trace.
+    /// So, this is whether we have already emitted an error with a reference trace.
+    already_added_error: bool,
 ) !void {
     const gpa = eb.gpa;
     const ip = &zcu.intern_pool;
@@ -3657,13 +3664,17 @@ pub fn addModuleErrorMsg(
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
 
-    if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
+    rt: {
+        const rt_root = module_err_msg.reference_trace_root.unwrap() orelse break :rt;
+        const max_references = zcu.comp.reference_trace orelse refs: {
+            if (already_added_error) break :rt;
+            break :refs default_reference_trace_len;
+        };
+
         const all_references = try zcu.resolveReferences();
 
         var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .empty;
         defer seen.deinit(gpa);
-
-        const max_references = zcu.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
         while (all_references.get(referenced_by)) |maybe_ref| {

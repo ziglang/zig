@@ -191,7 +191,6 @@ const LowerZon = @import("Sema/LowerZon.zig");
 const arith = @import("Sema/arith.zig");
 
 pub const default_branch_quota = 1000;
-pub const default_reference_trace_len = 2;
 
 pub const InferredErrorSet = struct {
     /// The function body from which this error set originates.
@@ -2580,7 +2579,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
     if (build_options.enable_debug_extensions and zcu.comp.debug_compile_errors) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         wip_errors.init(gpa) catch @panic("out of memory");
-        Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*) catch @panic("out of memory");
+        Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*, false) catch @panic("out of memory");
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
@@ -2600,10 +2599,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
         }
     }
 
-    const use_ref_trace = if (zcu.comp.reference_trace) |n| n > 0 else zcu.failed_analysis.count() == 0;
-    if (use_ref_trace) {
-        err_msg.reference_trace_root = sema.owner.toOptional();
-    }
+    err_msg.reference_trace_root = sema.owner.toOptional();
 
     const gop = try zcu.failed_analysis.getOrPut(gpa, sema.owner);
     if (gop.found_existing) {
