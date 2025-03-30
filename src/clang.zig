@@ -32,6 +32,9 @@ pub const QualType = extern struct {
     pub const isVolatileQualified = ZigClangQualType_isVolatileQualified;
     extern fn ZigClangQualType_isVolatileQualified(QualType) bool;
 
+    pub const isLocalVolatileQualified = ZigClangQualType_isLocalVolatileQualified;
+    extern fn ZigClangQualType_isLocalVolatileQualified(QualType) bool;
+
     pub const isRestrictQualified = ZigClangQualType_isRestrictQualified;
     extern fn ZigClangQualType_isRestrictQualified(QualType) bool;
 };

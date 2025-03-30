@@ -4485,6 +4485,11 @@ fn transQualType(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: cla
             .Record,
             .Enum,
             => return try Tag.helpers_volatile.create(c.arena, node),
+            .Elaborated, .Typedef => {
+                if (qt.isLocalVolatileQualified()) {
+                    return try Tag.helpers_volatile.create(c.arena, node);
+                }
+            },
             else => {},
         }
     }

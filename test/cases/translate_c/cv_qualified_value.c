@@ -1,9 +1,12 @@
-typedef volatile int mmio_int;
+typedef unsigned int uint;
 
+typedef volatile int mmio_int;
+typedef volatile uint mmio_uint;
 typedef mmio_int *mmio_int_ptr;
 
 typedef struct {
     mmio_int reg;
+    mmio_uint regu;
     mmio_int regs[4];
     mmio_int regm[2][2];
     volatile int regx;
@@ -22,6 +25,9 @@ static int hw_reg(void) {
     (void) chw->regx;
     (void) *(&hw->reg);
     hw->reg = 0;
+
+    (void) hw->regu;
+    hw->regu = 0;
 
     return hw->reg;
 }
@@ -61,10 +67,13 @@ static int ptr_arith(void) {
 // translate-c
 // c_frontend=clang
 //
+// pub const uint = c_uint;
 // pub const mmio_int = @import("std").zig.c_translation.Volatile(c_int);
+// pub const mmio_uint = @import("std").zig.c_translation.Volatile(uint);
 // pub const mmio_int_ptr = [*c]volatile mmio_int;
 // pub const hw_t = extern struct {
 //     reg: mmio_int = @import("std").mem.zeroes(mmio_int),
+//     regu: mmio_uint = @import("std").mem.zeroes(mmio_uint),
 //     regs: [4]mmio_int = @import("std").mem.zeroes([4]mmio_int),
 //     regm: [2][2]mmio_int = @import("std").mem.zeroes([2][2]mmio_int),
 //     regx: @import("std").zig.c_translation.Volatile(c_int) = @import("std").mem.zeroes(@import("std").zig.c_translation.Volatile(c_int)),
@@ -81,6 +90,8 @@ static int ptr_arith(void) {
 //     _ = @as([*c]const volatile c_int, @ptrCast(&chw.*.regx)).*;
 //     _ = @as([*c]volatile mmio_int, @ptrCast(@as([*c]volatile mmio_int, @ptrCast(hw.*.reg.ptr())))).*;
 //     hw.*.reg.ptr().* = 0;
+//     _ = hw.*.regu.ptr().*;
+//     hw.*.regu.ptr().* = 0;
 //     return hw.*.reg.ptr().*;
 // }
 // pub fn hw_reg_ptr() callconv(.c) @TypeOf(@as([*c]volatile mmio_int, @ptrCast(hw.*.reg.ptr()))) {

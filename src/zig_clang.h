@@ -1479,6 +1479,7 @@ ZIG_EXTERN_C void ZigClangQualType_addConst(struct ZigClangQualType *);
 ZIG_EXTERN_C bool ZigClangQualType_eq(struct ZigClangQualType, struct ZigClangQualType);
 ZIG_EXTERN_C bool ZigClangQualType_isConstQualified(struct ZigClangQualType);
 ZIG_EXTERN_C bool ZigClangQualType_isVolatileQualified(struct ZigClangQualType);
+ZIG_EXTERN_C bool ZigClangQualType_isLocalVolatileQualified(struct ZigClangQualType);
 ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(struct ZigClangQualType);
 
 ZIG_EXTERN_C enum ZigClangTypeClass ZigClangType_getTypeClass(const struct ZigClangType *self);

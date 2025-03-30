@@ -2789,6 +2789,11 @@ bool ZigClangQualType_isVolatileQualified(ZigClangQualType self) {
     return qt.isVolatileQualified();
 }
 
+bool ZigClangQualType_isLocalVolatileQualified(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    return qt.isLocalVolatileQualified();
+}
+
 bool ZigClangQualType_isRestrictQualified(ZigClangQualType self) {
     clang::QualType qt = bitcast(self);
     return qt.isRestrictQualified();
