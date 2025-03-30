@@ -3,15 +3,17 @@ const mem = std.mem;
 const sort = std.sort;
 const testing = std.testing;
 const base64 = std.base64;
-const StringHashMap = std.hash_map.StringHashMap;
 const Allocator = std.mem.Allocator;
+
+const ArraySlice = std.ArrayList(u8);
+const StringKeyHashMap = std.hash_map.StringHashMap([]const u8);
 
 /// pem block data.
 pub const Block = struct {
     /// The pem type.
     type: []const u8,
     /// Optional headers.
-    headers: StringHashMap([]const u8),
+    headers: StringKeyHashMap,
     /// Decoded content of a PEM file.
     bytes: []const u8,
     allocator: Allocator,
@@ -19,7 +21,7 @@ pub const Block = struct {
     const Self = @This();
     
     pub fn init(allocator: Allocator) Block {
-        const headers = StringHashMap([]const u8).init(allocator);
+        const headers = StringKeyHashMap.init(allocator);
         
         return .{
             .type = "",
@@ -147,7 +149,7 @@ const nl = "\n";
 
 const pem_line_length = 64;
 
-fn appendHeader(list: *std.ArrayList(u8), k: []const u8, v: []const u8) !void {
+fn appendHeader(list: *ArraySlice, k: []const u8, v: []const u8) !void {
     try list.appendSlice(k);
     try list.appendSlice(":");
     try list.appendSlice(v);
@@ -163,7 +165,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
         }
     }
     
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = ArraySlice.init(allocator);
     defer buf.deinit();
 
     try buf.appendSlice(pem_start[1..]);
@@ -284,10 +286,8 @@ fn getLine(data: []const u8) GetLineData {
 }
 
 fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
-    var buf = std.ArrayList(u8).init(alloc);
+    var buf = ArraySlice.init(alloc);
     defer buf.deinit();
-    
-    var n: usize = 0;
 
     for (data) |b| {
         if (b == ' ' or b == '\t' or b == '\n') {
@@ -295,7 +295,6 @@ fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
         }
         
         try buf.append(b);
-        n += 1;
     }
 
     return buf.toOwnedSliceSentinel(0);
@@ -370,8 +369,7 @@ test "ASN.1 type CERTIFICATE" {
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=\n" ++
         "-----END CERTIFICATE-----\n";
 
-    // const alloc = testing.allocator;
-    const alloc = std.heap.page_allocator;
+    const alloc = testing.allocator;
  
     var pem = try decode(alloc, byte);
     defer pem.deinit();
@@ -410,7 +408,8 @@ test "ASN.1 type CERTIFICATE + Explanatory Text" {
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=\n" ++
         "-----END CERTIFICATE-----\n";
 
-    const alloc = std.heap.page_allocator;
+    const alloc = testing.allocator;
+
     var pem = try decode(alloc, byte);
     defer pem.deinit();
 
@@ -448,7 +447,8 @@ test "ASN.1 type RSA PRIVATE With headers" {
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=\n" ++
         "-----END RSA PRIVATE-----\n";
 
-    const alloc = std.heap.page_allocator;
+    const alloc = testing.allocator;
+
     var pem = try decode(alloc, byte);
     defer pem.deinit();
 
@@ -475,7 +475,7 @@ test "ASN.1 type RSA PRIVATE With headers" {
 }
 
 test "encode pem bin" {
-    const alloc = std.heap.page_allocator;
+    const alloc = testing.allocator;
     
     var pp = Block.init(alloc);
     pp.type = "RSA PRIVATE";
@@ -483,8 +483,7 @@ test "encode pem bin" {
     try pp.headers.put("Proc-Type", "4,Encond");
     pp.bytes = "pem bytes";
 
-    const allocator = std.heap.page_allocator;
-    const encoded_pem = try encode(allocator, pp);
+    const encoded_pem = try encode(alloc, pp);
 
     const check =
         \\-----BEGIN RSA PRIVATE-----
@@ -498,8 +497,7 @@ test "encode pem bin" {
 
     try testing.expectFmt(check, "{s}", .{encoded_pem});
 
-    const alloc2 = std.heap.page_allocator;
-    var pem = try decode(alloc2, encoded_pem);
+    var pem = try decode(alloc, encoded_pem);
     defer pem.deinit();
 
     try testing.expectFmt("RSA PRIVATE", "{s}", .{pem.type});
