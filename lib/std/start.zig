@@ -631,8 +631,8 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
+    maybeIgnoreSignals();
     std.debug.maybeEnableSegfaultHandler();
-    maybeIgnoreSigpipe();
 
     return callMain();
 }
@@ -734,8 +734,8 @@ pub fn call_wWinMain() std.os.windows.INT {
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
 }
 
-fn maybeIgnoreSigpipe() void {
-    const have_sigpipe_support = switch (builtin.os.tag) {
+fn maybeIgnoreSignals() void {
+    switch (builtin.os.tag) {
         .linux,
         .plan9,
         .solaris,
@@ -749,22 +749,20 @@ fn maybeIgnoreSigpipe() void {
         .visionos,
         .dragonfly,
         .freebsd,
-        => true,
-
-        else => false,
-    };
-
-    if (have_sigpipe_support and !std.options.keep_sigpipe) {
-        const posix = std.posix;
-        const act: posix.Sigaction = .{
-            // Set handler to a noop function instead of `SIG.IGN` to prevent
-            // leaking signal disposition to a child process.
-            .handler = .{ .handler = noopSigHandler },
-            .mask = posix.sigemptyset(),
-            .flags = 0,
-        };
-        posix.sigaction(posix.SIG.PIPE, &act, null);
+        => {},
+        else => return,
     }
+    const posix = std.posix;
+    const act: posix.Sigaction = .{
+        // Set handler to a noop function instead of `SIG.IGN` to prevent
+        // leaking signal disposition to a child process.
+        .handler = .{ .handler = noopSigHandler },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    if (!std.options.keep_sigpoll) posix.sigaction(posix.SIG.POLL, &act, null);
+    if (@hasField(posix.SIG, "IO") and posix.SIG.IO != posix.SIG.POLL and !std.options.keep_sigio) posix.sigaction(posix.SIG.IO, &act, null);
+    if (!std.options.keep_sigpipe) posix.sigaction(posix.SIG.PIPE, &act, null);
 }
 
 fn noopSigHandler(_: i32) callconv(.c) void {}

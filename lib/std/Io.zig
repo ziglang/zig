@@ -937,7 +937,6 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
-
     /// This function is only called when `async` returns a non-null value.
     ///
     /// Thread-safe.
@@ -967,7 +966,6 @@ pub const VTable = struct {
         result: []u8,
         result_alignment: std.mem.Alignment,
     ) void,
-
     /// Returns whether the current thread of execution is known to have
     /// been requested to cancel.
     ///
@@ -977,8 +975,11 @@ pub const VTable = struct {
     createFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) FileOpenError!fs.File,
     openFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) FileOpenError!fs.File,
     closeFile: *const fn (?*anyopaque, fs.File) void,
-    read: *const fn (?*anyopaque, file: fs.File, buffer: []u8) FileReadError!usize,
-    write: *const fn (?*anyopaque, file: fs.File, buffer: []const u8) FileWriteError!usize,
+    pread: *const fn (?*anyopaque, file: fs.File, buffer: []u8, offset: std.posix.off_t) FilePReadError!usize,
+    pwrite: *const fn (?*anyopaque, file: fs.File, buffer: []const u8, offset: std.posix.off_t) FilePWriteError!usize,
+
+    now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp,
+    sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void,
 };
 
 pub const OpenFlags = fs.File.OpenFlags;
@@ -986,7 +987,27 @@ pub const CreateFlags = fs.File.CreateFlags;
 
 pub const FileOpenError = fs.File.OpenError || error{AsyncCancel};
 pub const FileReadError = fs.File.ReadError || error{AsyncCancel};
+pub const FilePReadError = fs.File.PReadError || error{AsyncCancel};
 pub const FileWriteError = fs.File.WriteError || error{AsyncCancel};
+pub const FilePWriteError = fs.File.PWriteError || error{AsyncCancel};
+
+pub const Timestamp = enum(i96) {
+    _,
+
+    pub fn durationTo(from: Timestamp, to: Timestamp) i96 {
+        return @intFromEnum(to) - @intFromEnum(from);
+    }
+
+    pub fn addDuration(from: Timestamp, duration: i96) Timestamp {
+        return @enumFromInt(@intFromEnum(from) + duration);
+    }
+};
+pub const Deadline = union(enum) {
+    nanoseconds: i96,
+    timestamp: Timestamp,
+};
+pub const ClockGetTimeError = std.posix.ClockGetTimeError || error{AsyncCancel};
+pub const SleepError = error{ UnsupportedClock, Unexpected, AsyncCancel };
 
 pub const AnyFuture = opaque {};
 
@@ -1052,11 +1073,19 @@ pub fn closeFile(io: Io, file: fs.File) void {
 }
 
 pub fn read(io: Io, file: fs.File, buffer: []u8) FileReadError!usize {
-    return io.vtable.read(io.userdata, file, buffer);
+    return @errorCast(io.pread(file, buffer, -1));
+}
+
+pub fn pread(io: Io, file: fs.File, buffer: []u8, offset: std.posix.off_t) FilePReadError!usize {
+    return io.vtable.pread(io.userdata, file, buffer, offset);
 }
 
 pub fn write(io: Io, file: fs.File, buffer: []const u8) FileWriteError!usize {
-    return io.vtable.write(io.userdata, file, buffer);
+    return @errorCast(io.pwrite(file, buffer, -1));
+}
+
+pub fn pwrite(io: Io, file: fs.File, buffer: []const u8, offset: std.posix.off_t) FilePWriteError!usize {
+    return io.vtable.pwrite(io.userdata, file, buffer, offset);
 }
 
 pub fn writeAll(io: Io, file: fs.File, bytes: []const u8) FileWriteError!void {
@@ -1074,4 +1103,12 @@ pub fn readAll(io: Io, file: fs.File, buffer: []u8) FileReadError!usize {
         index += amt;
     }
     return index;
+}
+
+pub fn now(io: Io, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp {
+    return io.vtable.now(io.userdata, clockid);
+}
+
+pub fn sleep(io: Io, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void {
+    return io.vtable.sleep(io.userdata, clockid, deadline);
 }
