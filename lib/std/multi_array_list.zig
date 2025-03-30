@@ -170,6 +170,7 @@ pub fn MultiArrayList(comptime T: type) type {
                     return lhs.alignment > rhs.alignment;
                 }
             };
+            @setEvalBranchQuota(3 * fields.len * std.math.log2(fields.len));
             mem.sort(Data, &data, {}, Sort.lessThan);
             var sizes_bytes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
@@ -977,4 +978,41 @@ test "0 sized struct" {
 
     list.swapRemove(list.len - 1);
     try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+}
+
+test "struct with many fields" {
+    const ManyFields = struct {
+        fn Type(count: comptime_int) type {
+            var fields: [count]std.builtin.Type.StructField = undefined;
+            for (0..count) |i| {
+                fields[i] = .{
+                    .name = std.fmt.comptimePrint("a{}", .{i}),
+                    .type = u32,
+                    .default_value_ptr = null,
+                    .is_comptime = false,
+                    .alignment = @alignOf(u32),
+                };
+            }
+            const info: std.builtin.Type = .{ .@"struct" = .{
+                .layout = .auto,
+                .fields = &fields,
+                .decls = &.{},
+                .is_tuple = false,
+            } };
+            return @Type(info);
+        }
+
+        fn doTest(ally: std.mem.Allocator, count: comptime_int) !void {
+            var list: MultiArrayList(Type(count)) = .empty;
+            defer list.deinit(ally);
+
+            try list.resize(ally, 1);
+            list.items(.a0)[0] = 42;
+        }
+    };
+
+    try ManyFields.doTest(testing.allocator, 25);
+    try ManyFields.doTest(testing.allocator, 50);
+    try ManyFields.doTest(testing.allocator, 100);
+    try ManyFields.doTest(testing.allocator, 200);
 }
