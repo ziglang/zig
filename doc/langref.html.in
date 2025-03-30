@@ -2289,7 +2289,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the `==` and `!=` operators.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -5010,6 +5010,11 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               This is usually <code>src/main.zig</code> but depends on what file is built.
           </li>
       </ul>
+      <p>
+      {#syntax#}@import{#endsyntax#} can also import ZON at compile time.
+      Example: {#syntax#}const foo: Foo = @import("foo.zon");{#endsyntax#}
+      Right now a known result type is required, however, this can be changed in the future.
+      </p>
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
