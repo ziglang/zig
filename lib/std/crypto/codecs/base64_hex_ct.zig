@@ -1,5 +1,5 @@
 //! Hexadecimal and Base64 codecs designed for cryptographic use.
-//! Thie file provides (best-effort) constant-time encoding and decoding functions for hexadecimal and Base64 formats.
+//! This file provides (best-effort) constant-time encoding and decoding functions for hexadecimal and Base64 formats.
 //! This is designed to be used in cryptographic applications where timing attacks are a concern.
 const std = @import("std");
 const testing = std.testing;
