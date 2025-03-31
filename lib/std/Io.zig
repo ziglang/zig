@@ -979,8 +979,8 @@ pub const VTable = struct {
     /// Thread-safe.
     cancelRequested: *const fn (?*anyopaque) bool,
 
-    mutexLock: *const fn (?*anyopaque, mutex: *Mutex) void,
-    mutexUnlock: *const fn (?*anyopaque, mutex: *Mutex) void,
+    mutexLock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) error{Canceled}!void,
+    mutexUnlock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
 
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex, timeout_ns: ?u64) Condition.WaitError!void,
     conditionWake: *const fn (?*anyopaque, cond: *Condition, notify: Condition.Notify) void,
@@ -1059,8 +1059,63 @@ pub fn Future(Result: type) type {
     };
 }
 
-pub const Mutex = struct {
-    state: std.atomic.Value(u32) = std.atomic.Value(u32).init(unlocked),
+pub const Mutex = if (true) struct {
+    state: State,
+
+    pub const State = enum(usize) {
+        locked_once = 0b00,
+        unlocked = 0b01,
+        contended = 0b10,
+        /// contended
+        _,
+
+        pub fn isUnlocked(state: State) bool {
+            return @intFromEnum(state) & @intFromEnum(State.unlocked) == @intFromEnum(State.unlocked);
+        }
+    };
+
+    pub const init: Mutex = .{ .state = .unlocked };
+
+    pub fn tryLock(mutex: *Mutex) bool {
+        const prev_state: State = @enumFromInt(@atomicRmw(
+            usize,
+            @as(*usize, @ptrCast(&mutex.state)),
+            .And,
+            ~@intFromEnum(State.unlocked),
+            .acquire,
+        ));
+        return prev_state.isUnlocked();
+    }
+
+    pub fn lock(mutex: *Mutex, io: std.Io) error{Canceled}!void {
+        const prev_state: State = @enumFromInt(@atomicRmw(
+            usize,
+            @as(*usize, @ptrCast(&mutex.state)),
+            .And,
+            ~@intFromEnum(State.unlocked),
+            .acquire,
+        ));
+        if (prev_state.isUnlocked()) {
+            @branchHint(.likely);
+            return;
+        }
+        return io.vtable.mutexLock(io.userdata, prev_state, mutex);
+    }
+
+    pub fn unlock(mutex: *Mutex, io: std.Io) void {
+        const prev_state = @cmpxchgWeak(State, &mutex.state, .locked_once, .unlocked, .release, .acquire) orelse {
+            @branchHint(.likely);
+            return;
+        };
+        std.debug.assert(prev_state != .unlocked); // mutex not locked
+        return io.vtable.mutexUnlock(io.userdata, prev_state, mutex);
+    }
+} else struct {
+    state: std.atomic.Value(u32),
+
+    pub const State = void;
+
+    pub const init: Mutex = .{ .state = .init(unlocked) };
 
     pub const unlocked: u32 = 0b00;
     pub const locked: u32 = 0b01;
@@ -1081,15 +1136,15 @@ pub const Mutex = struct {
     }
 
     /// Avoids the vtable for uncontended locks.
-    pub fn lock(m: *Mutex, io: Io) void {
+    pub fn lock(m: *Mutex, io: Io) error{Canceled}!void {
         if (!m.tryLock()) {
             @branchHint(.unlikely);
-            io.vtable.mutexLock(io.userdata, m);
+            try io.vtable.mutexLock(io.userdata, {}, m);
         }
     }
 
     pub fn unlock(m: *Mutex, io: Io) void {
-        io.vtable.mutexUnlock(io.userdata, m);
+        io.vtable.mutexUnlock(io.userdata, {}, m);
     }
 };
 
