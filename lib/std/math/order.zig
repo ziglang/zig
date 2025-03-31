@@ -255,14 +255,19 @@ test "distinct nans" {
             try expectEqual(.lt, order(lhs, rhs));
             try expectEqual(.gt, order(rhs, lhs));
 
-            try expectEqual(.gt, order(-lhs, -rhs));
-            try expectEqual(.lt, order(-rhs, -lhs));
-
             try expectEqual(.lt, order(-lhs, rhs));
             try expectEqual(.gt, order(rhs, -lhs));
 
             try expectEqual(.gt, order(lhs, -rhs));
             try expectEqual(.lt, order(-rhs, lhs));
+
+            // Skip the `order(-lhs, -rhs)` test if negating either operator flips the signal nan bit
+            const lhs_changes_signal = math.isSignalNan(lhs) != math.isSignalNan(-lhs);
+            const rhs_changes_signal = math.isSignalNan(rhs) != math.isSignalNan(-rhs);
+            if (!lhs_changes_signal and !rhs_changes_signal) {
+                try expectEqual(.gt, order(-lhs, -rhs));
+                try expectEqual(.lt, order(-rhs, -lhs));
+            }
         }
     }
 }
