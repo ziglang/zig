@@ -181,7 +181,7 @@ const Executable = struct {
                 .{ &coverage_file_name, @errorName(e) },
             );
 
-            const seen_pcs_header: *const abi.SeenPcsHeader = @ptrCast(map.items);
+            const seen_pcs_header: *const abi.SeenPcsHeader = @ptrCast(@volatileCast(map.items));
             if (seen_pcs_header.pcs_len != pcs.len) fatal(
                 "incompatible existing coverage file '{s}' (differing pcs length: {} != {})",
                 .{ &coverage_file_name, seen_pcs_header.pcs_len, pcs.len },
@@ -405,7 +405,7 @@ const Instrumentation = struct {
     /// Updates based off fresh_pcs and fresh_rodata_loads
     fn updateSeen(self: *Instrumentation) void {
         comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_bits_usize);
-        const shared_seen_pcs: [*]usize = @ptrCast(
+        const shared_seen_pcs: [*]volatile usize = @ptrCast(
             exec.shared_seen_pcs.items[@sizeOf(abi.SeenPcsHeader)..].ptr,
         );
 
@@ -475,9 +475,9 @@ const Fuzzer = struct {
 
             // Perform a dry-run of the stored input if there was one in case it might reproduce a
             // crash.
-            const old_in_len = mem.readInt(u64, map.items[0..8], .little);
+            const old_in_len = mem.littleToNative(usize, mem.bytesAsValue(usize, map.items[0..8]).*);
             if (size >= 8 and old_in_len != 0 and map.items.len - 8 < old_in_len) {
-                test_one(.fromSlice(map.items[8..][0..old_in_len]));
+                test_one(.fromSlice(@volatileCast(map.items[8..][0..old_in_len])));
             }
 
             break :in map;
@@ -563,14 +563,10 @@ const Fuzzer = struct {
         // what we do for tracking memory (i.e. a __sanitizer_cov function that updates a flag on a
         // new hit.)
         assert(!inst.any_new_rodata_loads);
-        @atomicStore(
-            usize,
-            mem.bytesAsValue(usize, self.input.items[0..8]),
-            mem.nativeToLittle(usize, self.input.items.len - 8),
-            // This also ensures that all the input bytes have been written
-            .release,
-        );
-        self.test_one(.fromSlice(self.input.items[8..]));
+
+        mem.bytesAsValue(usize, self.input.items[0..8]).* =
+            mem.nativeToLittle(usize, self.input.items.len - 8);
+        self.test_one(.fromSlice(@volatileCast(self.input.items[8..])));
 
         const header = mem.bytesAsValue(
             abi.SeenPcsHeader,
@@ -624,7 +620,7 @@ const Fuzzer = struct {
                 }
 
                 const arena = self.arena_ctx.allocator();
-                const bytes = arena.dupe(u8, self.input.items[8..]) catch @panic("OOM");
+                const bytes = arena.dupe(u8, @volatileCast(self.input.items[8..])) catch @panic("OOM");
 
                 self.corpus.append(gpa, bytes) catch @panic("OOM");
                 self.mutations.appendNTimes(gpa, m, 6) catch @panic("OOM");
@@ -813,6 +809,22 @@ export fn __sanitizer_cov_pcs_init(start: usize, end: usize) void {
     // symbol table.
     _ = start;
     _ = end;
+}
+
+/// Copy all of source into dest at position 0.
+/// If the slices overlap, dest.ptr must be <= src.ptr.
+fn volatileCopyForwards(comptime T: type, dest: []volatile T, source: []const volatile T) void {
+    for (dest, source) |*d, s| d.* = s;
+}
+
+/// Copy all of source into dest at position 0.
+/// If the slices overlap, dest.ptr must be >= src.ptr.
+fn volatileCopyBackwards(comptime T: type, dest: []volatile T, source: []const volatile T) void {
+    var i = source.len;
+    while (i > 0) {
+        i -= 1;
+        dest[i] = source[i];
+    }
 }
 
 const Mutation = enum {
@@ -1327,7 +1339,8 @@ const Mutation = enum {
                     },
                 };
                 out.appendSliceAssumeCapacity(in);
-                mem.writeInt(T, out.items[8..][idx..][0..@sizeOf(T)], new, endian);
+                mem.bytesAsValue(T, out.items[8..][idx..][0..@sizeOf(T)]).* =
+                    mem.nativeTo(T, new, endian);
             },
             .move_span => {
                 if (in.len < 2) return false;
@@ -1379,7 +1392,7 @@ pub const MemoryMappedList = struct {
     /// of this ArrayList in accordance with the respective documentation. In
     /// all cases, "invalidated" means that the memory has been passed to this
     /// allocator's resize or free function.
-    items: []align(std.heap.page_size_min) u8,
+    items: []align(std.heap.page_size_min) volatile u8,
     /// How many bytes this list can hold without allocating additional memory.
     capacity: usize,
     /// The file is kept open so that it can be resized.
@@ -1408,7 +1421,7 @@ pub const MemoryMappedList = struct {
 
     pub fn deinit(l: *MemoryMappedList) void {
         l.file.close();
-        std.posix.munmap(l.items.ptr[0..l.capacity]);
+        std.posix.munmap(@volatileCast(l.items.ptr[0..l.capacity]));
         l.* = undefined;
     }
 
@@ -1431,7 +1444,7 @@ pub const MemoryMappedList = struct {
     pub fn ensureTotalCapacityPrecise(l: *MemoryMappedList, new_capacity: usize) !void {
         if (l.capacity >= new_capacity) return;
 
-        std.posix.munmap(l.items.ptr[0..l.capacity]);
+        std.posix.munmap(@volatileCast(l.items.ptr[0..l.capacity]));
         try l.file.setEndPos(new_capacity);
         l.* = try init(l.file, l.items.len, new_capacity);
     }
@@ -1463,7 +1476,7 @@ pub const MemoryMappedList = struct {
     /// The returned pointer becomes invalid when the list is resized.
     /// Never invalidates element pointers.
     /// Asserts that the list can hold one additional item.
-    pub fn addOneAssumeCapacity(l: *MemoryMappedList) *u8 {
+    pub fn addOneAssumeCapacity(l: *MemoryMappedList) *volatile u8 {
         assert(l.items.len < l.capacity);
         l.items.len += 1;
         return &l.items[l.items.len - 1];
@@ -1486,7 +1499,7 @@ pub const MemoryMappedList = struct {
     /// Never invalidates element pointers.
     /// The returned pointer becomes invalid when the list is resized.
     /// Asserts that the list can hold the additional items.
-    pub fn addManyAsSliceAssumeCapacity(l: *MemoryMappedList, n: usize) []u8 {
+    pub fn addManyAsSliceAssumeCapacity(l: *MemoryMappedList, n: usize) []volatile u8 {
         assert(l.items.len + n <= l.capacity);
         const prev_len = l.items.len;
         l.items.len += n;
@@ -1506,14 +1519,14 @@ pub const MemoryMappedList = struct {
     pub fn insertAssumeCapacity(l: *MemoryMappedList, i: usize, item: u8) void {
         assert(l.items.len + 1 <= l.capacity);
         l.items.len += 1;
-        mem.copyBackwards(u8, l.items[i + 1 ..], l.items[i .. l.items.len - 1]);
+        volatileCopyBackwards(u8, l.items[i + 1 ..], l.items[i .. l.items.len - 1]);
         l.items[i] = item;
     }
 
     pub fn orderedRemove(l: *MemoryMappedList, i: usize) u8 {
         assert(l.items.len + 1 <= l.capacity);
         const old = l.items[i];
-        mem.copyForwards(u8, l.items[i .. l.items.len - 1], l.items[i + 1 ..]);
+        volatileCopyForwards(u8, l.items[i .. l.items.len - 1], l.items[i + 1 ..]);
         l.items.len -= 1;
         return old;
     }
