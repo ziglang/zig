@@ -335,8 +335,10 @@ pub fn io(pool: *Pool) Io {
             .go = go,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
+
             .mutexLock = mutexLock,
             .mutexUnlock = mutexUnlock,
+
             .conditionWait = conditionWait,
             .conditionWake = conditionWake,
 
@@ -594,53 +596,26 @@ fn checkCancel(pool: *Pool) error{Canceled}!void {
     if (cancelRequested(pool)) return error.Canceled;
 }
 
-fn mutexLock(userdata: ?*anyopaque, m: *Io.Mutex) void {
-    @branchHint(.cold);
-    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
-    _ = pool;
-
-    // Avoid doing an atomic swap below if we already know the state is contended.
-    // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
-    if (m.state.load(.monotonic) == Io.Mutex.contended) {
-        std.Thread.Futex.wait(&m.state, Io.Mutex.contended);
+fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) error{Canceled}!void {
+    _ = userdata;
+    if (prev_state == .contended) {
+        std.Thread.Futex.wait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
     }
-
-    // Try to acquire the lock while also telling the existing lock holder that there are threads waiting.
-    //
-    // Once we sleep on the Futex, we must acquire the mutex using `contended` rather than `locked`.
-    // If not, threads sleeping on the Futex wouldn't see the state change in unlock and potentially deadlock.
-    // The downside is that the last mutex unlocker will see `contended` and do an unnecessary Futex wake
-    // but this is better than having to wake all waiting threads on mutex unlock.
-    //
-    // Acquire barrier ensures grabbing the lock happens before the critical section
-    // and that the previous lock holder's critical section happens before we grab the lock.
-    while (m.state.swap(Io.Mutex.contended, .acquire) != Io.Mutex.unlocked) {
-        std.Thread.Futex.wait(&m.state, Io.Mutex.contended);
+    while (@atomicRmw(
+        Io.Mutex.State,
+        &mutex.state,
+        .Xchg,
+        .contended,
+        .acquire,
+    ) != .unlocked) {
+        std.Thread.Futex.wait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
     }
 }
-
-fn mutexUnlock(userdata: ?*anyopaque, m: *Io.Mutex) void {
-    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
-    _ = pool;
-    // Needs to also wake up a waiting thread if any.
-    //
-    // A waiting thread will acquire with `contended` instead of `locked`
-    // which ensures that it wakes up another thread on the next unlock().
-    //
-    // Release barrier ensures the critical section happens before we let go of the lock
-    // and that our critical section happens before the next lock holder grabs the lock.
-    const state = m.state.swap(Io.Mutex.unlocked, .release);
-    assert(state != Io.Mutex.unlocked);
-
-    if (state == Io.Mutex.contended) {
-        std.Thread.Futex.wake(&m.state, 1);
-    }
-}
-
-fn mutexLockInternal(pool: *std.Thread.Pool, m: *Io.Mutex) void {
-    if (!m.tryLock()) {
-        @branchHint(.unlikely);
-        mutexLock(pool, m);
+fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
+    _ = userdata;
+    _ = prev_state;
+    if (@atomicRmw(Io.Mutex.State, &mutex.state, .Xchg, .unlocked, .release) == .contended) {
+        std.Thread.Futex.wake(@ptrCast(&mutex.state), 1);
     }
 }
 
@@ -674,8 +649,8 @@ fn conditionWait(
     assert(state & waiter_mask != waiter_mask);
     state += one_waiter;
 
-    mutexUnlock(pool, mutex);
-    defer mutexLockInternal(pool, mutex);
+    mutex.unlock(pool.io());
+    defer mutex.lock(pool.io()) catch @panic("TODO");
 
     var futex_deadline = std.Thread.Futex.Deadline.init(timeout);
 
@@ -808,14 +783,14 @@ fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offset: 
     };
 }
 
-pub fn now(userdata: ?*anyopaque, clockid: std.posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
+fn now(userdata: ?*anyopaque, clockid: std.posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
     const timespec = try std.posix.clock_gettime(clockid);
     return @enumFromInt(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec);
 }
 
-pub fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
+fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     const deadline_nanoseconds: i96 = switch (deadline) {
         .nanoseconds => |nanoseconds| nanoseconds,
