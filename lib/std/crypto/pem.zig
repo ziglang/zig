@@ -1,3 +1,7 @@
+/// pem.zig implements the PEM data encoding, which originated in Privacy Enhanced Mail. 
+/// The most common use of PEM encoding today is in TLS keys and certificates. 
+/// See RFC 1421.
+
 const std = @import("std");
 const mem = std.mem;
 const sort = std.sort;
@@ -8,13 +12,22 @@ const Allocator = std.mem.Allocator;
 const ArraySlice = std.ArrayList(u8);
 const StringKeyHashMap = std.hash_map.StringHashMap([]const u8);
 
-/// pem block data.
+/// A Block represents a PEM encoded structure.
+///
+/// The encoded form is:
+///
+///  -----BEGIN Type-----
+///  Headers
+///  base64-encoded Bytes
+///  -----END Type-----
+///
+/// where Headers is a possibly empty sequence of Key: Value lines.
 pub const Block = struct {
-    /// The pem type.
+    /// The type, taken from the preamble (i.e. "RSA PRIVATE KEY").
     type: []const u8,
     /// Optional headers.
     headers: StringKeyHashMap,
-    /// Decoded content of a PEM file.
+    /// The decoded bytes of the contents. Typically a DER encoded ASN.1 structure.
     bytes: []const u8,
     allocator: Allocator,
 
@@ -41,7 +54,6 @@ pub const Block = struct {
     }
 };
 
-// pem errors
 pub const Error = error {
     NotPemData,
     PemDataEmpty,
@@ -53,7 +65,8 @@ const pem_end = "\n-----END ";
 const pem_end_of_line = "-----";
 const colon = ":";
 
-/// Decodes pem bytes.
+/// decode will find the next PEM formatted block (certificate, private key
+/// etc) in the input. It returns that block and the remainder of the input.
 pub fn decode(allocator: Allocator, data: []const u8) !Block {
     var rest = data;
     
@@ -158,8 +171,8 @@ fn appendHeader(list: *ArraySlice, k: []const u8, v: []const u8) !void {
 
 /// Encodes pem bytes.
 pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
-    var headers1 = (try b.headers.clone()).iterator();
-    while (headers1.next()) |kv| {
+    var headers_it = (try b.headers.clone()).iterator();
+    while (headers_it.next()) |kv| {
         if (mem.indexOf(u8, kv.value_ptr.*, ":") != null) {
             return Error.PemHeaderHasColon;
         }
@@ -285,6 +298,8 @@ fn getLine(data: []const u8) GetLineData {
     };
 }
 
+// removeSpacesAndTabs returns a copy of its input with all spaces and tabs
+// removed, if there were any. Otherwise, the input is returned unchanged.
 fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
     var buf = ArraySlice.init(alloc);
     defer buf.deinit();
@@ -323,6 +338,8 @@ fn cut(s: []const u8, sep: []const u8) CutData {
     };
 }
 
+// TrimSpace returns a subslice of s by slicing off all leading and
+// trailing white space, as defined by Unicode.
 fn trimSpace(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len) : (start += 1) {
@@ -345,7 +362,7 @@ fn trimSpace(s: []const u8) []const u8 {
     return s[start..(stop+1)];
 }
 
-pub fn base64Encode(alloc: Allocator, input: []const u8) ![]const u8 {
+fn base64Encode(alloc: Allocator, input: []const u8) ![]const u8 {
     const encoder = base64.standard.Encoder;
     const encode_len = encoder.calcSize(input.len);
 
