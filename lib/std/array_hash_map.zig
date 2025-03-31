@@ -2486,13 +2486,13 @@ test "reIndex" {
 test "auto store_hash" {
     const HasCheapEql = AutoArrayHashMap(i32, i32);
     const HasExpensiveEql = AutoArrayHashMap([32]i32, i32);
-    try testing.expect(std.meta.fieldInfo(HasCheapEql.Data, .hash).type == void);
-    try testing.expect(std.meta.fieldInfo(HasExpensiveEql.Data, .hash).type != void);
+    try testing.expect(@FieldType(HasCheapEql.Data, "hash") == void);
+    try testing.expect(@FieldType(HasExpensiveEql.Data, "hash") != void);
 
     const HasCheapEqlUn = AutoArrayHashMapUnmanaged(i32, i32);
     const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
-    try testing.expect(std.meta.fieldInfo(HasCheapEqlUn.Data, .hash).type == void);
-    try testing.expect(std.meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).type != void);
+    try testing.expect(@FieldType(HasCheapEqlUn.Data, "hash") == void);
+    try testing.expect(@FieldType(HasExpensiveEqlUn.Data, "hash") != void);
 }
 
 test "sort" {

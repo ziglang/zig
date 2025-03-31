@@ -482,7 +482,7 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .android = 14,
+                        .android = 24,
                     },
                 },
                 .rtems => .{

@@ -7526,9 +7526,9 @@ pub const Constant = enum(u32) {
                                 };
                             }
                         };
-                        const Mantissa64 = std.meta.FieldType(Float.Repr(f64), .mantissa);
-                        const Exponent32 = std.meta.FieldType(Float.Repr(f32), .exponent);
-                        const Exponent64 = std.meta.FieldType(Float.Repr(f64), .exponent);
+                        const Mantissa64 = @FieldType(Float.Repr(f64), "mantissa");
+                        const Exponent32 = @FieldType(Float.Repr(f32), "exponent");
+                        const Exponent64 = @FieldType(Float.Repr(f64), "exponent");
 
                         const repr: Float.Repr(f32) = @bitCast(item.data);
                         const denormal_shift = switch (repr.exponent) {

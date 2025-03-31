@@ -13,7 +13,7 @@ export fn entry2() void {
 
 // error
 //
-// :4:13: error: pointer computation here causes undefined behavior
+// :4:13: error: pointer computation here causes illegal behavior
 // :4:13: note: resulting pointer exceeds bounds of containing value which may trigger overflow
-// :10:55: error: pointer computation here causes undefined behavior
+// :10:55: error: pointer computation here causes illegal behavior
 // :10:55: note: resulting pointer exceeds bounds of containing value which may trigger overflow

@@ -989,6 +989,7 @@ pub fn decodeLiteralsSection(
     const header = try decodeLiteralsHeader(source);
     switch (header.block_type) {
         .raw => {
+            if (buffer.len < header.regenerated_size) return error.LiteralsBufferTooSmall;
             try source.readNoEof(buffer[0..header.regenerated_size]);
             return LiteralsSection{
                 .header = header,

@@ -693,6 +693,8 @@ const PkgConfigResult = struct {
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
 fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
+    const wl_rpath_prefix = "-Wl,-rpath,";
+
     const b = compile.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -783,6 +785,8 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             try zig_cflags.appendSlice(&[_][]const u8{ "-D", macro });
         } else if (mem.startsWith(u8, arg, "-D")) {
             try zig_cflags.append(arg);
+        } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
+            try zig_cflags.appendSlice(&[_][]const u8{ "-rpath", arg[wl_rpath_prefix.len..] });
         } else if (b.debug_pkg_config) {
             return compile.step.fail("unknown pkg-config flag '{s}'", .{arg});
         }
@@ -937,6 +941,10 @@ pub fn addIncludePath(compile: *Compile, lazy_path: LazyPath) void {
 
 pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) void {
     compile.root_module.addConfigHeader(config_header);
+}
+
+pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
+    compile.root_module.addEmbedPath(lazy_path);
 }
 
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {

@@ -394,7 +394,7 @@ pub const Node = extern union {
         }
 
         pub fn Data(comptime t: Tag) type {
-            return std.meta.fieldInfo(t.Type(), .data).type;
+            return @FieldType(t.Type(), "data");
         }
     };
 

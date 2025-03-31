@@ -2223,7 +2223,7 @@ pub fn shlSatScalar(
     const shift: usize = @intCast(rhs.toUnsignedInt(zcu));
     const limbs = try arena.alloc(
         std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits) + 1,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
     );
     var result_bigint = BigIntMutable{
         .limbs = limbs,

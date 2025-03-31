@@ -1517,7 +1517,7 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
 
 pub const GetFileAttributesError = error{
     FileNotFound,
-    PermissionDenied,
+    AccessDenied,
     Unexpected,
 };
 
@@ -1532,7 +1532,7 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.PermissionDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1747,12 +1747,12 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
+pub const TerminateProcessError = error{ AccessDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (GetLastError()) {
-            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
+            Win32Error.ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1918,13 +1918,48 @@ pub const CreateProcessError = error{
     Unexpected,
 };
 
+pub const CreateProcessFlags = packed struct(u32) {
+    debug_process: bool = false,
+    debug_only_this_process: bool = false,
+    create_suspended: bool = false,
+    detached_process: bool = false,
+    create_new_console: bool = false,
+    normal_priority_class: bool = false,
+    idle_priority_class: bool = false,
+    high_priority_class: bool = false,
+    realtime_priority_class: bool = false,
+    create_new_process_group: bool = false,
+    create_unicode_environment: bool = false,
+    create_separate_wow_vdm: bool = false,
+    create_shared_wow_vdm: bool = false,
+    create_forcedos: bool = false,
+    below_normal_priority_class: bool = false,
+    above_normal_priority_class: bool = false,
+    inherit_parent_affinity: bool = false,
+    inherit_caller_priority: bool = false,
+    create_protected_process: bool = false,
+    extended_startupinfo_present: bool = false,
+    process_mode_background_begin: bool = false,
+    process_mode_background_end: bool = false,
+    create_secure_process: bool = false,
+    _reserved: bool = false,
+    create_breakaway_from_job: bool = false,
+    create_preserve_code_authz_level: bool = false,
+    create_default_error_mode: bool = false,
+    create_no_window: bool = false,
+    profile_user: bool = false,
+    profile_kernel: bool = false,
+    profile_server: bool = false,
+    create_ignore_system_default: bool = false,
+};
+
 pub fn CreateProcessW(
     lpApplicationName: ?LPCWSTR,
     lpCommandLine: ?LPWSTR,
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
+    dwCreationFlags: CreateProcessFlags,
     lpEnvironment: ?*anyopaque,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,

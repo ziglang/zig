@@ -925,3 +925,19 @@ test "parse at comptime" {
     };
     comptime testing.expectEqual(@as(u64, 9999), config.uptime) catch unreachable;
 }
+
+test "parse with zero-bit field" {
+    const str =
+        \\{
+        \\    "a": ["a", "a"],
+        \\    "b": "a"
+        \\}
+    ;
+    const ZeroSizedEnum = enum { a };
+    try testing.expectEqual(0, @sizeOf(ZeroSizedEnum));
+
+    const Inner = struct { a: []const ZeroSizedEnum, b: ZeroSizedEnum };
+    const expected: Inner = .{ .a = &.{ .a, .a }, .b = .a };
+
+    try testAllParseFunctions(Inner, expected, str);
+}
