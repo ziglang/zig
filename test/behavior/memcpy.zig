@@ -133,3 +133,34 @@ test "@memcpy zero-bit type with aliasing" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "@memcpy with sentinel" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() void {
+            const field = @typeInfo(struct { a: u32 }).@"struct".fields[0];
+            var buffer: [field.name.len]u8 = undefined;
+            @memcpy(&buffer, field.name);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "@memcpy no sentinel source into sentinel destination" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() void {
+            const src: []const u8 = &.{ 1, 2, 3 };
+            comptime var dest_buf: [3:0]u8 = @splat(0);
+            const dest: [:0]u8 = &dest_buf;
+            @memcpy(dest, src);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
