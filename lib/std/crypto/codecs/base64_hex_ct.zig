@@ -17,7 +17,7 @@ pub const Error = error{
 };
 
 /// (best-effort) constant time hexadecimal encoding and decoding.
-pub const Hex = struct {
+pub const hex = struct {
     /// Encodes a binary buffer into a hexadecimal string.
     /// The output buffer must be twice the size of the input buffer.
     pub fn encode(hex: []u8, bin: []const u8, comptime case: std.fmt.Case) error{SizeMismatch}!void {
