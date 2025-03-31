@@ -568,3 +568,24 @@ test "bug 19895" {
     var buf: [0]u8 = undefined;
     try testing.expectEqual(0, try decomp.read(&buf));
 }
+
+test "fuzz" {
+    try std.testing.fuzz({}, fuzzTestOne, .{});
+}
+
+fn fuzzTestOne(ctx: void, input: []const u8) anyerror!void {
+    _ = ctx;
+    var fbs = std.io.fixedBufferStream(input);
+    var stream = decompressor(.raw, fbs.reader());
+
+    var buf: [16384]u8 = undefined;
+    // According to https://stackoverflow.com/a/16794960, the maximum decompression ratio for a
+    // flate stream is 1032:1, so we will ensure that this property is upheld.
+    var rem_bytes: usize = input.len *| 1032;
+
+    while (true) {
+        const bytes = stream.read(&buf) catch return;
+        if (bytes == 0) break;
+        rem_bytes = try std.math.sub(usize, rem_bytes, bytes);
+    }
+}
