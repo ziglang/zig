@@ -22837,11 +22837,14 @@ fn ptrCastFull(
         if (src_slice_like_elem.comptimeOnly(zcu) or dest_elem.comptimeOnly(zcu)) {
             return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
         }
-        const src_elem_size = src_slice_like_elem.abiSize(zcu);
+        // It's okay for `src_slice_like_elem` to be 0-bit; the resulting slice will just always have 0 elements.
+        // However, `dest_elem` can't be 0-bit. If it were, then either the source slice has 0 bits and we don't
+        // know how what `result.len` should be, or the source has >0 bits and there is no valid `result.len`.
         const dest_elem_size = dest_elem.abiSize(zcu);
-        if (src_elem_size == 0 or dest_elem_size == 0) {
+        if (dest_elem_size == 0) {
             return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
         }
+        const src_elem_size = src_slice_like_elem.abiSize(zcu);
         break :need_len_change src_elem_size != dest_elem_size;
     } else false;
 
