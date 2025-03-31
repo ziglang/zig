@@ -933,6 +933,18 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
+    /// Executes `start` asynchronously in a manner such that it cleans itself
+    /// up. This mode does not support results, await, or cancel.
+    ///
+    /// Thread-safe.
+    go: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (context: *const anyopaque) void,
+    ) void,
     /// This function is only called when `async` returns a non-null value.
     ///
     /// Thread-safe.
@@ -946,7 +958,6 @@ pub const VTable = struct {
         result: []u8,
         result_alignment: std.mem.Alignment,
     ) void,
-
     /// Equivalent to `await` but initiates cancel request.
     ///
     /// This function is only called when `async` returns a non-null value.
@@ -1024,14 +1035,24 @@ pub fn Future(Result: type) type {
         /// Idempotent.
         pub fn cancel(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
+            io.vtable.cancel(
+                io.userdata,
+                any_future,
+                if (@sizeOf(Result) == 0) &.{} else @ptrCast((&f.result)[0..1]), // work around compiler bug
+                .of(Result),
+            );
             f.any_future = null;
             return f.result;
         }
 
         pub fn await(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.await(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
+            io.vtable.await(
+                io.userdata,
+                any_future,
+                if (@sizeOf(Result) == 0) &.{} else @ptrCast((&f.result)[0..1]), // work around compiler bug
+                .of(Result),
+            );
             f.any_future = null;
             return f.result;
         }
@@ -1349,13 +1370,31 @@ pub fn async(io: Io, function: anytype, args: anytype) Future(@typeInfo(@TypeOf(
     var future: Future(Result) = undefined;
     future.any_future = io.vtable.async(
         io.userdata,
-        @ptrCast((&future.result)[0..1]),
+        if (@sizeOf(Result) == 0) &.{} else @ptrCast((&future.result)[0..1]), // work around compiler bug
         .of(Result),
         if (@sizeOf(Args) == 0) &.{} else @ptrCast((&args)[0..1]), // work around compiler bug
         .of(Args),
         TypeErased.start,
     );
     return future;
+}
+
+/// Calls `function` with `args` asynchronously. The resource cleans itself up
+/// when the function returns. Does not support await, cancel, or a return value.
+pub fn go(io: Io, function: anytype, args: anytype) void {
+    const Args = @TypeOf(args);
+    const TypeErased = struct {
+        fn start(context: *const anyopaque) void {
+            const args_casted: *const Args = @alignCast(@ptrCast(context));
+            @call(.auto, function, args_casted.*);
+        }
+    };
+    io.vtable.go(
+        io.userdata,
+        if (@sizeOf(Args) == 0) &.{} else @ptrCast((&args)[0..1]), // work around compiler bug
+        .of(Args),
+        TypeErased.start,
+    );
 }
 
 pub fn openFile(io: Io, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) FileOpenError!fs.File {
