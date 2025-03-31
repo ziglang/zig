@@ -619,12 +619,7 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
     }
 }
 
-fn conditionWait(
-    userdata: ?*anyopaque,
-    cond: *Io.Condition,
-    mutex: *Io.Mutex,
-    timeout: ?u64,
-) Io.Condition.WaitError!void {
+fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     comptime assert(@TypeOf(cond.state) == u64);
     const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
@@ -652,25 +647,11 @@ fn conditionWait(
     mutex.unlock(pool.io());
     defer mutex.lock(pool.io()) catch @panic("TODO");
 
-    var futex_deadline = std.Thread.Futex.Deadline.init(timeout);
+    var futex_deadline = std.Thread.Futex.Deadline.init(null);
 
     while (true) {
         futex_deadline.wait(cond_epoch, epoch) catch |err| switch (err) {
-            // On timeout, we must decrement the waiter we added above.
-            error.Timeout => {
-                while (true) {
-                    // If there's a signal when we're timing out, consume it and report being woken up instead.
-                    // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
-                    while (state & signal_mask != 0) {
-                        const new_state = state - one_waiter - one_signal;
-                        state = cond_state.cmpxchgWeak(state, new_state, .acquire, .monotonic) orelse return;
-                    }
-
-                    // Remove the waiter we added and officially return timed out.
-                    const new_state = state - one_waiter;
-                    state = cond_state.cmpxchgWeak(state, new_state, .monotonic, .monotonic) orelse return err;
-                }
-            },
+            error.Timeout => unreachable,
         };
 
         epoch = cond_epoch.load(.acquire);
@@ -685,7 +666,7 @@ fn conditionWait(
     }
 }
 
-fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, notify: Io.Condition.Notify) void {
+fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition) void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     _ = pool;
     comptime assert(@TypeOf(cond.state) == u64);
@@ -709,10 +690,7 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, notify: Io.Conditio
             return;
         }
 
-        const to_wake = switch (notify) {
-            .one => 1,
-            .all => wakeable,
-        };
+        const to_wake = 1;
 
         // Reserve the amount of waiters to wake by incrementing the signals count.
         // Release barrier ensures code before the wake() happens before the signal it posted and consumed by the wait() threads.

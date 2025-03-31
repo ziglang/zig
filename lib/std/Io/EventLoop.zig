@@ -781,7 +781,6 @@ fn go(
     event_loop.schedule(current_thread, .{ .head = fiber, .tail = fiber });
 }
 
-
 fn @"await"(
     userdata: ?*anyopaque,
     any_future: *std.Io.AnyFuture,
@@ -1277,24 +1276,24 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
     el.yield(maybe_waiting_fiber.?, .reschedule);
 }
 
-fn conditionWait(
-    userdata: ?*anyopaque,
-    cond: *Io.Condition,
-    mutex: *Io.Mutex,
-    timeout: ?u64,
-) Io.Condition.WaitError!void {
-    _ = userdata;
-    _ = cond;
-    _ = mutex;
-    _ = timeout;
-    @panic("TODO");
+fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
+    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const cond_state: *?*Fiber = @ptrCast(&cond.state);
+    const thread: *Thread = .current();
+    const fiber = thread.currentFiber();
+    const prev = @atomicRmw(?*Fiber, cond_state, .Xchg, fiber, .acquire);
+    assert(prev == null); // More than one wait on same Condition is illegal.
+    mutex.unlock(io(el));
+    el.yield(null, .nothing);
+    try mutex.lock(io(el));
 }
 
-fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, notify: Io.Condition.Notify) void {
-    _ = userdata;
-    _ = cond;
-    _ = notify;
-    @panic("TODO");
+fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition) void {
+    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const cond_state: *?*Fiber = @ptrCast(&cond.state);
+    if (@atomicRmw(?*Fiber, cond_state, .Xchg, null, .acquire)) |fiber| {
+        el.yield(fiber, .reschedule);
+    }
 }
 
 fn errno(signed: i32) std.os.linux.E {
