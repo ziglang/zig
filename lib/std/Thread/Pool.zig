@@ -332,9 +332,12 @@ pub fn io(pool: *Pool) Io {
         .vtable = &.{
             .@"async" = @"async",
             .@"await" = @"await",
-
             .cancel = cancel,
             .cancelRequested = cancelRequested,
+            .mutexLock = mutexLock,
+            .mutexUnlock = mutexUnlock,
+            .conditionWait = conditionWait,
+            .conditionWake = conditionWake,
 
             .createFile = createFile,
             .openFile = openFile,
@@ -517,11 +520,179 @@ fn cancelRequested(userdata: ?*anyopaque) bool {
     return @atomicLoad(std.Thread.Id, &closure.cancel_tid, .acquire) == AsyncClosure.canceling_tid;
 }
 
-fn checkCancel(pool: *Pool) error{AsyncCancel}!void {
-    if (cancelRequested(pool)) return error.AsyncCancel;
+fn checkCancel(pool: *Pool) error{Canceled}!void {
+    if (cancelRequested(pool)) return error.Canceled;
 }
 
-pub fn createFile(
+fn mutexLock(userdata: ?*anyopaque, m: *Io.Mutex) void {
+    @branchHint(.cold);
+    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
+    _ = pool;
+
+    // Avoid doing an atomic swap below if we already know the state is contended.
+    // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
+    if (m.state.load(.monotonic) == Io.Mutex.contended) {
+        std.Thread.Futex.wait(&m.state, Io.Mutex.contended);
+    }
+
+    // Try to acquire the lock while also telling the existing lock holder that there are threads waiting.
+    //
+    // Once we sleep on the Futex, we must acquire the mutex using `contended` rather than `locked`.
+    // If not, threads sleeping on the Futex wouldn't see the state change in unlock and potentially deadlock.
+    // The downside is that the last mutex unlocker will see `contended` and do an unnecessary Futex wake
+    // but this is better than having to wake all waiting threads on mutex unlock.
+    //
+    // Acquire barrier ensures grabbing the lock happens before the critical section
+    // and that the previous lock holder's critical section happens before we grab the lock.
+    while (m.state.swap(Io.Mutex.contended, .acquire) != Io.Mutex.unlocked) {
+        std.Thread.Futex.wait(&m.state, Io.Mutex.contended);
+    }
+}
+
+fn mutexUnlock(userdata: ?*anyopaque, m: *Io.Mutex) void {
+    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
+    _ = pool;
+    // Needs to also wake up a waiting thread if any.
+    //
+    // A waiting thread will acquire with `contended` instead of `locked`
+    // which ensures that it wakes up another thread on the next unlock().
+    //
+    // Release barrier ensures the critical section happens before we let go of the lock
+    // and that our critical section happens before the next lock holder grabs the lock.
+    const state = m.state.swap(Io.Mutex.unlocked, .release);
+    assert(state != Io.Mutex.unlocked);
+
+    if (state == Io.Mutex.contended) {
+        std.Thread.Futex.wake(&m.state, 1);
+    }
+}
+
+fn mutexLockInternal(pool: *std.Thread.Pool, m: *Io.Mutex) void {
+    if (!m.tryLock()) {
+        @branchHint(.unlikely);
+        mutexLock(pool, m);
+    }
+}
+
+fn conditionWait(
+    userdata: ?*anyopaque,
+    cond: *Io.Condition,
+    mutex: *Io.Mutex,
+    timeout: ?u64,
+) Io.Condition.WaitError!void {
+    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
+    comptime assert(@TypeOf(cond.state) == u64);
+    const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
+    const cond_state = &ints[0];
+    const cond_epoch = &ints[1];
+    const one_waiter = 1;
+    const waiter_mask = 0xffff;
+    const one_signal = 1 << 16;
+    const signal_mask = 0xffff << 16;
+    // Observe the epoch, then check the state again to see if we should wake up.
+    // The epoch must be observed before we check the state or we could potentially miss a wake() and deadlock:
+    //
+    // - T1: s = LOAD(&state)
+    // - T2: UPDATE(&s, signal)
+    // - T2: UPDATE(&epoch, 1) + FUTEX_WAKE(&epoch)
+    // - T1: e = LOAD(&epoch) (was reordered after the state load)
+    // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed the state update + the epoch change)
+    //
+    // Acquire barrier to ensure the epoch load happens before the state load.
+    var epoch = cond_epoch.load(.acquire);
+    var state = cond_state.fetchAdd(one_waiter, .monotonic);
+    assert(state & waiter_mask != waiter_mask);
+    state += one_waiter;
+
+    mutexUnlock(pool, mutex);
+    defer mutexLockInternal(pool, mutex);
+
+    var futex_deadline = std.Thread.Futex.Deadline.init(timeout);
+
+    while (true) {
+        futex_deadline.wait(cond_epoch, epoch) catch |err| switch (err) {
+            // On timeout, we must decrement the waiter we added above.
+            error.Timeout => {
+                while (true) {
+                    // If there's a signal when we're timing out, consume it and report being woken up instead.
+                    // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
+                    while (state & signal_mask != 0) {
+                        const new_state = state - one_waiter - one_signal;
+                        state = cond_state.cmpxchgWeak(state, new_state, .acquire, .monotonic) orelse return;
+                    }
+
+                    // Remove the waiter we added and officially return timed out.
+                    const new_state = state - one_waiter;
+                    state = cond_state.cmpxchgWeak(state, new_state, .monotonic, .monotonic) orelse return err;
+                }
+            },
+        };
+
+        epoch = cond_epoch.load(.acquire);
+        state = cond_state.load(.monotonic);
+
+        // Try to wake up by consuming a signal and decremented the waiter we added previously.
+        // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
+        while (state & signal_mask != 0) {
+            const new_state = state - one_waiter - one_signal;
+            state = cond_state.cmpxchgWeak(state, new_state, .acquire, .monotonic) orelse return;
+        }
+    }
+}
+
+fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, notify: Io.Condition.Notify) void {
+    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
+    _ = pool;
+    comptime assert(@TypeOf(cond.state) == u64);
+    const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
+    const cond_state = &ints[0];
+    const cond_epoch = &ints[1];
+    const one_waiter = 1;
+    const waiter_mask = 0xffff;
+    const one_signal = 1 << 16;
+    const signal_mask = 0xffff << 16;
+    var state = cond_state.load(.monotonic);
+    while (true) {
+        const waiters = (state & waiter_mask) / one_waiter;
+        const signals = (state & signal_mask) / one_signal;
+
+        // Reserves which waiters to wake up by incrementing the signals count.
+        // Therefore, the signals count is always less than or equal to the waiters count.
+        // We don't need to Futex.wake if there's nothing to wake up or if other wake() threads have reserved to wake up the current waiters.
+        const wakeable = waiters - signals;
+        if (wakeable == 0) {
+            return;
+        }
+
+        const to_wake = switch (notify) {
+            .one => 1,
+            .all => wakeable,
+        };
+
+        // Reserve the amount of waiters to wake by incrementing the signals count.
+        // Release barrier ensures code before the wake() happens before the signal it posted and consumed by the wait() threads.
+        const new_state = state + (one_signal * to_wake);
+        state = cond_state.cmpxchgWeak(state, new_state, .release, .monotonic) orelse {
+            // Wake up the waiting threads we reserved above by changing the epoch value.
+            // NOTE: a waiting thread could miss a wake up if *exactly* ((1<<32)-1) wake()s happen between it observing the epoch and sleeping on it.
+            // This is very unlikely due to how many precise amount of Futex.wake() calls that would be between the waiting thread's potential preemption.
+            //
+            // Release barrier ensures the signal being added to the state happens before the epoch is changed.
+            // If not, the waiting thread could potentially deadlock from missing both the state and epoch change:
+            //
+            // - T2: UPDATE(&epoch, 1) (reordered before the state change)
+            // - T1: e = LOAD(&epoch)
+            // - T1: s = LOAD(&state)
+            // - T2: UPDATE(&state, signal) + FUTEX_WAKE(&epoch)
+            // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed both epoch change and state change)
+            _ = cond_epoch.fetchAdd(1, .release);
+            std.Thread.Futex.wake(cond_epoch, to_wake);
+            return;
+        };
+    }
+}
+
+fn createFile(
     userdata: ?*anyopaque,
     dir: std.fs.Dir,
     sub_path: []const u8,
@@ -532,7 +703,7 @@ pub fn createFile(
     return dir.createFile(sub_path, flags);
 }
 
-pub fn openFile(
+fn openFile(
     userdata: ?*anyopaque,
     dir: std.fs.Dir,
     sub_path: []const u8,
@@ -543,13 +714,13 @@ pub fn openFile(
     return dir.openFile(sub_path, flags);
 }
 
-pub fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
+fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     _ = pool;
     return file.close();
 }
 
-pub fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std.posix.off_t) Io.FilePReadError!usize {
+fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std.posix.off_t) Io.FilePReadError!usize {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
     return switch (offset) {
@@ -558,7 +729,7 @@ pub fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std
     };
 }
 
-pub fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offset: std.posix.off_t) Io.FilePWriteError!usize {
+fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offset: std.posix.off_t) Io.FilePWriteError!usize {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
     return switch (offset) {
