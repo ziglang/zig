@@ -68,13 +68,13 @@ const Fiber = struct {
     const min_stack_size = 4 * 1024 * 1024;
     const max_context_align: Alignment = .@"16";
     const max_context_size = max_context_align.forward(1024);
+    const max_closure_size: usize = @max(@sizeOf(AsyncClosure), @sizeOf(DetachedClosure));
+    const max_closure_align: Alignment = .max(.of(AsyncClosure), .of(DetachedClosure));
     const allocation_size = std.mem.alignForward(
         usize,
-        std.mem.alignForward(
-            usize,
+        max_closure_align.max(max_context_align).forward(
             max_result_align.forward(@sizeOf(Fiber)) + max_result_size + min_stack_size,
-            @max(@alignOf(AsyncClosure), max_context_align.toByteUnits()),
-        ) + @sizeOf(AsyncClosure) + max_context_size,
+        ) + max_closure_size + max_context_size,
         std.heap.page_size_max,
     );
 
