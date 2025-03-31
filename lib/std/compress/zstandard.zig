@@ -289,3 +289,22 @@ test "zero sized block" {
     try expectEqualDecodedStreaming("", input_raw);
     try expectEqualDecodedStreaming("", input_rle);
 }
+
+test "declared raw literals size too large" {
+    const input_raw =
+        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
+        "\x00\x00" ++ // frame header: everything unset, window descriptor zero
+        "\x95\x00\x00" ++ // block header with: last_block set, block_type compressed, block_size 18
+        "\xbc\xf3\xae" ++ // literals section header with: type raw, size_format 3, regenerated_size 716603
+        "\xa5\x9f\xe3"; // some bytes of literal content - the content is shorter than regenerated_size
+
+    // Note that the regenerated_size in the above input is larger than block maximum size, so the
+    // block can't be valid as it is a raw literals block.
+
+    var fbs = std.io.fixedBufferStream(input_raw);
+    var window: [1024]u8 = undefined;
+    var stream = decompressor(fbs.reader(), .{ .window_buffer = &window });
+
+    var buf: [1024]u8 = undefined;
+    try std.testing.expectError(error.MalformedBlock, stream.read(&buf));
+}
