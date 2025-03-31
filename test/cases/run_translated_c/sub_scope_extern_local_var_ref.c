@@ -20,3 +20,4 @@ int main() {
 
 // run-translated-c
 // c_frontend=clang
+// link_libc=true
