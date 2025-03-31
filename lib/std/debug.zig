@@ -605,9 +605,9 @@ pub fn defaultPanic(
             // isn't visible on actual hardware if directly booted into
             inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
                 if (o) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(exit_msg);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    out.setAttribute(.{ .foreground = .red }) catch {};
+                    _ = out.outputString(exit_msg) catch {};
+                    out.setAttribute(.{ .foreground = .white }) catch {};
                 }
             }
 
