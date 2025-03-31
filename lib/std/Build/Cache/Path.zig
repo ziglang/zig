@@ -86,6 +86,16 @@ pub fn makeOpenPath(p: Path, sub_path: []const u8, opts: fs.Dir.OpenOptions) !fs
     return p.root_dir.handle.makeOpenPath(joined_path, opts);
 }
 
+pub fn realpath(p: Path, sub_path: []const u8, out_buffer: []u8) std.fs.Dir.RealPathError![]u8 {
+    var buf: [fs.max_path_bytes]u8 = undefined;
+    const joined_path = if (p.sub_path.len == 0) sub_path else p: {
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+            p.sub_path, sub_path,
+        }) catch return error.NameTooLong;
+    };
+    return p.root_dir.handle.realpath(joined_path, out_buffer);
+}
+
 pub fn statFile(p: Path, sub_path: []const u8) !fs.Dir.Stat {
     var buf: [fs.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
