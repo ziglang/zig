@@ -156,7 +156,7 @@ pub const base64 = struct {
         /// The standard base64 variant.
         pub const standard: Variant = .{ .urlsafe_alphabet = false, .padding = true };
         /// The URL-safe base64 variant.
-        pub const urlsafe: Variant = { .urlsafe_alphabet = true, .padding = true };
+        pub const urlsafe: Variant = .{ .urlsafe_alphabet = true, .padding = true };
         /// The standard base64 variant without padding.
         pub const standard_nopad: Variant = .{ .urlsafe_alphabet = false, .padding = false };
         /// The URL-safe base64 variant without padding.
