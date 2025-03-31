@@ -5013,7 +5013,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       {#syntax#}@import{#endsyntax#} can also import ZON at compile time.
       Example: {#syntax#}const foo: Foo = @import("foo.zon");{#endsyntax#}
-      Right now a known result type is required, however, this can be changed in the future.
+      Right now a known result type is required.
       </p>
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
