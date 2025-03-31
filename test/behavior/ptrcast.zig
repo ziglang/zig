@@ -509,3 +509,23 @@ test "@ptrCast array pointer to slice with complex length decrease" {
     try S.doTheTest(@splat(0));
     try comptime S.doTheTest(@splat(0));
 }
+
+test "@ptrCast slice of zero-bit type to different slice" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(comptime T: type, zero_bits: []const T) !void {
+            const out: []const u8 = @ptrCast(zero_bits);
+            try expect(out.len == 0);
+        }
+    };
+    try S.doTheTest(void, &.{ {}, {}, {} });
+    try S.doTheTest(u0, &.{ 0, 0, 0, 0 });
+    try S.doTheTest(packed struct(u0) {}, &.{ .{}, .{} });
+    try comptime S.doTheTest(void, &.{ {}, {}, {} });
+    try comptime S.doTheTest(u0, &.{ 0, 0, 0, 0 });
+    try comptime S.doTheTest(packed struct(u0) {}, &.{ .{}, .{} });
+}
