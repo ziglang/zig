@@ -87,15 +87,9 @@ pub fn order(lhs: anytype, rhs: anytype) Order {
             },
             .stage2_riscv64 => {
                 // TODO: airSubWithOverflow non-power of 2 and less than 8 bits
-                if (lhs < rhs) {
-                    return .lt;
-                } else if (lhs > rhs) {
-                    return .gt;
-                } else if (lhs == rhs) {
-                    return .eq;
-                } else {
-                    unreachable;
-                }
+                const gt: i8 = @intFromBool(lhs > rhs);
+                const lt: i8 = @intFromBool(lhs < rhs);
+                return @enumFromInt(gt - lt);
             },
         },
         .comptime_float => {
@@ -184,6 +178,9 @@ test "total ordering" {
 
         for (ordered_floats) |value| {
             try expectEqual(.eq, order(value, value));
+            const neg_actual: Order = order(-value, value);
+            const neg_expected: Order = if (std.math.signbit(value)) .gt else .lt;
+            try expectEqual(neg_expected, neg_actual);
         }
 
         for (ordered_floats[0 .. ordered_floats.len - 1], ordered_floats[1..]) |lhs, rhs| {
@@ -197,11 +194,11 @@ test "distinct nans" {
     // Total ordering differentiates NaN values with different payloads
 
     // TODO: https://github.com/ziglang/zig/issues/14366
-    if (!builtin.cpu.arch.isArm() and
-        !builtin.cpu.arch.isAARCH64() and
-        !builtin.cpu.arch.isMIPS32() and
-        !builtin.cpu.arch.isPowerPC() and
-        builtin.zig_backend != .stage2_c)
+    if (builtin.cpu.arch.isArm() or
+        builtin.cpu.arch.isAARCH64() or
+        builtin.cpu.arch.isMIPS32() or
+        builtin.cpu.arch.isPowerPC() or
+        builtin.zig_backend == .stage2_c)
     {
         return error.SkipZigTest;
     }
@@ -247,6 +244,7 @@ test "distinct nans" {
         };
 
         for (ordered_nans) |nan| {
+            try expect(math.isNan(nan));
             try expectEqual(.eq, order(nan, nan));
             try expectEqual(.eq, order(-nan, -nan));
             try expectEqual(.lt, order(-nan, nan));
