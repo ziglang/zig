@@ -102,7 +102,7 @@ const Fiber = struct {
         return @ptrFromInt(alignment.forward(@intFromPtr(f) + @sizeOf(Fiber)));
     }
 
-    fn enterCancelRegion(fiber: *Fiber, thread: *Thread) error{AsyncCancel}!void {
+    fn enterCancelRegion(fiber: *Fiber, thread: *Thread) error{Canceled}!void {
         if (@cmpxchgStrong(
             ?*Thread,
             &fiber.cancel_thread,
@@ -112,7 +112,7 @@ const Fiber = struct {
             .acquire,
         )) |cancel_thread| {
             assert(cancel_thread == Thread.canceling);
-            return error.AsyncCancel;
+            return error.Canceled;
         }
     }
 
@@ -746,7 +746,7 @@ pub fn createFile(
     switch (errno(completion.result)) {
         .SUCCESS => return .{ .handle = completion.result },
         .INTR => unreachable,
-        .CANCELED => return error.AsyncCancel,
+        .CANCELED => return error.Canceled,
 
         .FAULT => unreachable,
         .INVAL => return error.BadPathName,
@@ -854,7 +854,7 @@ pub fn openFile(
     switch (errno(completion.result)) {
         .SUCCESS => return .{ .handle = completion.result },
         .INTR => unreachable,
-        .CANCELED => return error.AsyncCancel,
+        .CANCELED => return error.Canceled,
 
         .FAULT => unreachable,
         .INVAL => return error.BadPathName,
@@ -950,7 +950,7 @@ pub fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std
     switch (errno(completion.result)) {
         .SUCCESS => return @as(u32, @bitCast(completion.result)),
         .INTR => unreachable,
-        .CANCELED => return error.AsyncCancel,
+        .CANCELED => return error.Canceled,
 
         .INVAL => unreachable,
         .FAULT => unreachable,
@@ -1002,7 +1002,7 @@ pub fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offs
     switch (errno(completion.result)) {
         .SUCCESS => return @as(u32, @bitCast(completion.result)),
         .INTR => unreachable,
-        .CANCELED => return error.AsyncCancel,
+        .CANCELED => return error.Canceled,
 
         .INVAL => return error.InvalidArgument,
         .FAULT => unreachable,
@@ -1080,7 +1080,7 @@ pub fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.D
     switch (errno(completion.result)) {
         .SUCCESS, .TIME => return,
         .INTR => unreachable,
-        .CANCELED => return error.AsyncCancel,
+        .CANCELED => return error.Canceled,
 
         else => |err| return std.posix.unexpectedErrno(err),
     }
