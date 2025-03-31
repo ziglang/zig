@@ -516,7 +516,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
             -1,
             0,
         );
-        if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
+        if (@call(.always_inline, linux.E.init, .{begin_addr}) != .SUCCESS) @trap();
 
         const area_ptr: [*]align(page_size_min) u8 = @ptrFromInt(begin_addr);
 

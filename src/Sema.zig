@@ -2327,11 +2327,11 @@ fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: ?
 }
 
 pub fn failWithUseOfUndef(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
-    return sema.fail(block, src, "use of undefined value here causes undefined behavior", .{});
+    return sema.fail(block, src, "use of undefined value here causes illegal behavior", .{});
 }
 
 pub fn failWithDivideByZero(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
-    return sema.fail(block, src, "division by zero here causes undefined behavior", .{});
+    return sema.fail(block, src, "division by zero here causes illegal behavior", .{});
 }
 
 fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: Type, rhs_ty: Type) CompileError {
@@ -15496,7 +15496,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     // Depending on whether safety is enabled, we will have a slightly different strategy
-    // here. The `div_exact` AIR instruction causes undefined behavior if a remainder
+    // here. The `div_exact` AIR instruction causes illegal behavior if a remainder
     // is produced, so in the safety check case, it cannot be used. Instead we do a
     // div_trunc and check for remainder.
 
@@ -25266,7 +25266,7 @@ fn ptrSubtract(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, byte
     };
     if (ptr.byte_offset < byte_subtract) {
         return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(src, "pointer computation here causes undefined behavior", .{});
+            const msg = try sema.errMsg(src, "pointer computation here causes illegal behavior", .{});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(src, msg, "resulting pointer exceeds bounds of containing value which may trigger overflow", .{});
             break :msg msg;
@@ -25726,12 +25726,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             var info = dest_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
         const src_array_ptr_ty = try pt.ptrType(info: {
             var info = src_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
 
