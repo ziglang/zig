@@ -72,7 +72,7 @@ pub const Hex = struct {
 
         /// Returns the decoded length of a hexadecimal string, ignoring any characters in the ignore list.
         /// This operation doesn't run im constant time, but shouldn't leak information about the actual hexadecimal string.
-        pub fn decodedLenForSlice(Decoder: DecoderWithIgnore, hex: []const u8) !usize {
+        pub fn decodedLenForSlice(decoder: DecoderWithIgnore, hex: []const u8) !usize {
             var hex_len = hex.len;
             for (hex) |c| {
                 if (Decoder.ignored_chars.isSet(c)) hex_len -= 1;
