@@ -27,6 +27,7 @@ const Thread = struct {
     current_context: *Context,
     ready_queue: ?*Fiber,
     free_queue: ?*Fiber,
+    detached_queue: ?*Fiber,
     io_uring: IoUring,
     idle_search_index: u32,
     steal_ready_search_index: u32,
@@ -208,6 +209,7 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
         .current_context = &main_fiber.context,
         .ready_queue = null,
         .free_queue = null,
+        .detached_queue = null,
         .io_uring = try IoUring.init(io_uring_entries, 0),
         .idle_search_index = 1,
         .steal_ready_search_index = 1,
@@ -218,7 +220,16 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
 }
 
 pub fn deinit(el: *EventLoop) void {
+    // Wait for detached fibers.
     const active_threads = @atomicLoad(u32, &el.threads.active, .acquire);
+    for (el.threads.allocated[0..active_threads]) |*thread| {
+        while (thread.detached_queue) |detached_fiber| {
+            if (@atomicLoad(?*Fiber, &detached_fiber.awaiter, .acquire) != Fiber.finished)
+                el.yield(null, .{ .register_awaiter = &detached_fiber.awaiter });
+            detached_fiber.recycle();
+        }
+    }
+
     for (el.threads.allocated[0..active_threads]) |*thread| {
         const ready_fiber = @atomicLoad(?*Fiber, &thread.ready_queue, .monotonic);
         assert(ready_fiber == null or ready_fiber == Fiber.finished); // pending async
@@ -336,6 +347,7 @@ fn schedule(el: *EventLoop, thread: *Thread, ready_queue: Fiber.Queue) void {
             .current_context = &new_thread.idle_context,
             .ready_queue = ready_queue.head,
             .free_queue = null,
+            .detached_queue = null,
             .io_uring = IoUring.init(io_uring_entries, 0) catch |err| {
                 @atomicStore(u32, &el.threads.reserved, new_thread_index, .release);
                 // no more access to `thread` after giving up reservation
@@ -470,6 +482,7 @@ const SwitchMessage = struct {
     const PendingTask = union(enum) {
         nothing,
         reschedule,
+        recycle: *Fiber,
         register_awaiter: *?*Fiber,
         lock_mutex: struct {
             prev_state: Io.Mutex.State,
@@ -487,6 +500,9 @@ const SwitchMessage = struct {
                 const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
                 assert(prev_fiber.queue_next == null);
                 el.schedule(thread, .{ .head = prev_fiber, .tail = prev_fiber });
+            },
+            .recycle => |fiber| {
+                fiber.recycle();
             },
             .register_awaiter => |awaiter| {
                 const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
@@ -612,6 +628,18 @@ fn fiberEntry() callconv(.naked) void {
     }
 }
 
+fn fiberEntryDetached() callconv(.naked) void {
+    switch (builtin.cpu.arch) {
+        .x86_64 => asm volatile (
+            \\ leaq 8(%%rsp), %%rdi
+            \\ jmp %[DetachedClosure_call:P]
+            :
+            : [DetachedClosure_call] "X" (&DetachedClosure.call),
+        ),
+        else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
+    }
+}
+
 const AsyncClosure = struct {
     event_loop: *EventLoop,
     fiber: *Fiber,
@@ -628,6 +656,31 @@ const AsyncClosure = struct {
         closure.start(closure.contextPointer(), closure.fiber.resultBytes(closure.result_align));
         const awaiter = @atomicRmw(?*Fiber, &closure.fiber.awaiter, .Xchg, Fiber.finished, .acq_rel);
         closure.event_loop.yield(awaiter, .nothing);
+        unreachable; // switched to dead fiber
+    }
+};
+
+const DetachedClosure = struct {
+    event_loop: *EventLoop,
+    fiber: *Fiber,
+    start: *const fn (context: *const anyopaque) void,
+
+    fn contextPointer(closure: *DetachedClosure) [*]align(Fiber.max_context_align.toByteUnits()) u8 {
+        return @alignCast(@as([*]u8, @ptrCast(closure)) + @sizeOf(DetachedClosure));
+    }
+
+    fn call(closure: *DetachedClosure, message: *const SwitchMessage) callconv(.withStackAlign(.c, @alignOf(DetachedClosure))) noreturn {
+        message.handle(closure.event_loop);
+        std.log.debug("{*} performing async detached", .{closure.fiber});
+        closure.start(closure.contextPointer());
+        const current_thread: *Thread = .current();
+        current_thread.detached_queue = closure.fiber.queue_next;
+        const awaiter = @atomicRmw(?*Fiber, &closure.fiber.awaiter, .Xchg, Fiber.finished, .acq_rel);
+        if (awaiter) |a| {
+            closure.event_loop.yield(a, .nothing);
+        } else {
+            closure.event_loop.yield(null, .{ .recycle = closure.fiber });
+        }
         unreachable; // switched to dead fiber
     }
 };
@@ -682,6 +735,53 @@ fn @"async"(
     return @ptrCast(fiber);
 }
 
+fn go(
+    userdata: ?*anyopaque,
+    context: []const u8,
+    context_alignment: std.mem.Alignment,
+    start: *const fn (context: *const anyopaque) void,
+) void {
+    assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
+    assert(context.len <= Fiber.max_context_size); // TODO
+
+    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
+    const fiber = Fiber.allocate(event_loop) catch {
+        start(context.ptr);
+        return;
+    };
+    std.log.debug("allocated {*}", .{fiber});
+
+    const current_thread: *Thread = .current();
+    const closure: *DetachedClosure = @ptrFromInt(Fiber.max_context_align.max(.of(DetachedClosure)).backward(
+        @intFromPtr(fiber.allocatedEnd()) - Fiber.max_context_size,
+    ) - @sizeOf(DetachedClosure));
+    fiber.* = .{
+        .required_align = {},
+        .context = switch (builtin.cpu.arch) {
+            .x86_64 => .{
+                .rsp = @intFromPtr(closure) - @sizeOf(usize),
+                .rbp = 0,
+                .rip = @intFromPtr(&fiberEntryDetached),
+            },
+            else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
+        },
+        .awaiter = null,
+        .queue_next = current_thread.detached_queue,
+        .cancel_thread = null,
+        .awaiting_completions = .initEmpty(),
+    };
+    current_thread.detached_queue = fiber;
+    closure.* = .{
+        .event_loop = event_loop,
+        .fiber = fiber,
+        .start = start,
+    };
+    @memcpy(closure.contextPointer(), context);
+
+    event_loop.schedule(current_thread, .{ .head = fiber, .tail = fiber });
+}
+
+
 fn @"await"(
     userdata: ?*anyopaque,
     any_future: *std.Io.AnyFuture,
@@ -690,22 +790,10 @@ fn @"await"(
 ) void {
     const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
     const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
-    if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) != Fiber.finished) event_loop.yield(null, .{ .register_awaiter = &future_fiber.awaiter });
+    if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) != Fiber.finished)
+        event_loop.yield(null, .{ .register_awaiter = &future_fiber.awaiter });
     @memcpy(result, future_fiber.resultBytes(result_alignment));
     future_fiber.recycle();
-}
-
-fn go(
-    userdata: ?*anyopaque,
-    context: []const u8,
-    context_alignment: std.mem.Alignment,
-    start: *const fn (context: *const anyopaque) void,
-) void {
-    _ = userdata;
-    _ = context;
-    _ = context_alignment;
-    _ = start;
-    @panic("TODO");
 }
 
 fn cancel(

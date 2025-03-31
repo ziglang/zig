@@ -979,7 +979,7 @@ pub const VTable = struct {
     /// Thread-safe.
     cancelRequested: *const fn (?*anyopaque) bool,
 
-    mutexLock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) error{Canceled}!void,
+    mutexLock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) Cancelable!void,
     mutexUnlock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
 
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex, timeout_ns: ?u64) Condition.WaitError!void,
@@ -998,11 +998,11 @@ pub const VTable = struct {
 pub const OpenFlags = fs.File.OpenFlags;
 pub const CreateFlags = fs.File.CreateFlags;
 
-pub const FileOpenError = fs.File.OpenError || error{Canceled};
-pub const FileReadError = fs.File.ReadError || error{Canceled};
-pub const FilePReadError = fs.File.PReadError || error{Canceled};
-pub const FileWriteError = fs.File.WriteError || error{Canceled};
-pub const FilePWriteError = fs.File.PWriteError || error{Canceled};
+pub const FileOpenError = fs.File.OpenError || Cancelable;
+pub const FileReadError = fs.File.ReadError || Cancelable;
+pub const FilePReadError = fs.File.PReadError || Cancelable;
+pub const FileWriteError = fs.File.WriteError || Cancelable;
+pub const FilePWriteError = fs.File.PWriteError || Cancelable;
 
 pub const Timestamp = enum(i96) {
     _,
@@ -1019,7 +1019,7 @@ pub const Deadline = union(enum) {
     nanoseconds: i96,
     timestamp: Timestamp,
 };
-pub const ClockGetTimeError = std.posix.ClockGetTimeError || error{Canceled};
+pub const ClockGetTimeError = std.posix.ClockGetTimeError || Cancelable;
 pub const SleepError = error{ UnsupportedClock, Unexpected, Canceled };
 
 pub const AnyFuture = opaque {};
@@ -1087,7 +1087,7 @@ pub const Mutex = if (true) struct {
         return prev_state.isUnlocked();
     }
 
-    pub fn lock(mutex: *Mutex, io: std.Io) error{Canceled}!void {
+    pub fn lock(mutex: *Mutex, io: std.Io) Cancelable!void {
         const prev_state: State = @enumFromInt(@atomicRmw(
             usize,
             @as(*usize, @ptrCast(&mutex.state)),
@@ -1136,7 +1136,7 @@ pub const Mutex = if (true) struct {
     }
 
     /// Avoids the vtable for uncontended locks.
-    pub fn lock(m: *Mutex, io: Io) error{Canceled}!void {
+    pub fn lock(m: *Mutex, io: Io) Cancelable!void {
         if (!m.tryLock()) {
             @branchHint(.unlikely);
             try io.vtable.mutexLock(io.userdata, {}, m);
@@ -1162,10 +1162,10 @@ pub const Condition = struct {
         all,
     };
 
-    pub fn wait(cond: *Condition, io: Io, mutex: *Mutex) void {
+    pub fn wait(cond: *Condition, io: Io, mutex: *Mutex) Cancelable!void {
         io.vtable.conditionWait(io.userdata, cond, mutex, null) catch |err| switch (err) {
             error.Timeout => unreachable, // no timeout provided so we shouldn't have timed-out
-            error.Canceled => return, // handled as spurious wakeup
+            error.Canceled => return error.Canceled,
         };
     }
 
@@ -1180,6 +1180,11 @@ pub const Condition = struct {
     pub fn broadcast(cond: *Condition, io: Io) void {
         io.vtable.conditionWake(io.userdata, cond, .all);
     }
+};
+
+pub const Cancelable = error{
+    /// Caller has requested the async operation to stop.
+    Canceled,
 };
 
 pub const TypeErasedQueue = struct {
@@ -1205,7 +1210,7 @@ pub const TypeErasedQueue = struct {
 
     pub fn init(buffer: []u8) TypeErasedQueue {
         return .{
-            .mutex = .{},
+            .mutex = .init,
             .buffer = buffer,
             .put_index = 0,
             .get_index = 0,
@@ -1214,10 +1219,10 @@ pub const TypeErasedQueue = struct {
         };
     }
 
-    pub fn put(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize) usize {
+    pub fn put(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize) Cancelable!usize {
         assert(elements.len >= min);
 
-        q.mutex.lock(io);
+        try q.mutex.lock(io);
         defer q.mutex.unlock(io);
 
         // Getters have first priority on the data, and only when the getters
@@ -1264,15 +1269,15 @@ pub const TypeErasedQueue = struct {
                 .data = .{ .remaining = remaining, .condition = .{} },
             };
             q.putters.append(&node);
-            node.data.condition.wait(io, &q.mutex);
+            try node.data.condition.wait(io, &q.mutex);
             remaining = node.data.remaining;
         }
     }
 
-    pub fn get(q: *@This(), io: Io, buffer: []u8, min: usize) usize {
+    pub fn get(q: *@This(), io: Io, buffer: []u8, min: usize) Cancelable!usize {
         assert(buffer.len >= min);
 
-        q.mutex.lock(io);
+        try q.mutex.lock(io);
         defer q.mutex.unlock(io);
 
         // The ring buffer gets first priority, then data should come from any
@@ -1329,7 +1334,7 @@ pub const TypeErasedQueue = struct {
                 .data = .{ .remaining = remaining, .condition = .{} },
             };
             q.getters.append(&node);
-            node.data.condition.wait(io, &q.mutex);
+            try node.data.condition.wait(io, &q.mutex);
             remaining = node.data.remaining;
         }
     }
@@ -1383,8 +1388,8 @@ pub fn Queue(Elem: type) type {
         /// Returns how many elements have been added to the queue.
         ///
         /// Asserts that `elements.len >= min`.
-        pub fn put(q: *@This(), io: Io, elements: []const Elem, min: usize) usize {
-            return @divExact(q.type_erased.put(io, @ptrCast(elements), min * @sizeOf(Elem)), @sizeOf(Elem));
+        pub fn put(q: *@This(), io: Io, elements: []const Elem, min: usize) Cancelable!usize {
+            return @divExact(try q.type_erased.put(io, @ptrCast(elements), min * @sizeOf(Elem)), @sizeOf(Elem));
         }
 
         /// Receives elements from the beginning of the queue. The function
@@ -1394,17 +1399,17 @@ pub fn Queue(Elem: type) type {
         /// Returns how many elements of `buffer` have been populated.
         ///
         /// Asserts that `buffer.len >= min`.
-        pub fn get(q: *@This(), io: Io, buffer: []Elem, min: usize) usize {
-            return @divExact(q.type_erased.get(io, @ptrCast(buffer), min * @sizeOf(Elem)), @sizeOf(Elem));
+        pub fn get(q: *@This(), io: Io, buffer: []Elem, min: usize) Cancelable!usize {
+            return @divExact(try q.type_erased.get(io, @ptrCast(buffer), min * @sizeOf(Elem)), @sizeOf(Elem));
         }
 
-        pub fn putOne(q: *@This(), io: Io, item: Elem) void {
-            assert(q.put(io, &.{item}, 1) == 1);
+        pub fn putOne(q: *@This(), io: Io, item: Elem) Cancelable!void {
+            assert(try q.put(io, &.{item}, 1) == 1);
         }
 
-        pub fn getOne(q: *@This(), io: Io) Elem {
+        pub fn getOne(q: *@This(), io: Io) Cancelable!Elem {
             var buf: [1]Elem = undefined;
-            assert(q.get(io, &buf, 1) == 1);
+            assert(try q.get(io, &buf, 1) == 1);
             return buf[0];
         }
     };
