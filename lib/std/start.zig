@@ -220,13 +220,12 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             return @intFromEnum(root.main());
         },
         Status.Error!void => {
-            root.main() catch |err| {
-                // if (err == error.Unexpected) {
-                //     unreachable;
-                // }
-
-                const status = Status.fromError(err);
-                return status;
+            root.main() catch |err| switch (err) {
+                error.Unexpected => @panic("EfiMain: unexpected error"),
+                else => {
+                    const status = Status.fromError(@errorCast(err));
+                    return @intFromEnum(status);
+                }
             };
 
             return 0;
