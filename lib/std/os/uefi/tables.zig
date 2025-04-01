@@ -7,9 +7,9 @@ pub const TableHeader = @import("tables/table_header.zig").TableHeader;
 pub const EventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
 
 pub const TimerDelay = enum(u32) {
-    timer_cancel,
-    timer_periodic,
-    timer_relative,
+    cancel,
+    periodic,
+    relative,
 };
 
 pub const MemoryType = enum(u32) {
@@ -65,6 +65,12 @@ pub const LocateSearchType = enum(u32) {
     by_protocol,
 };
 
+pub const LocateSearch = union(LocateSearchType) {
+    all_handles,
+    by_register_notify: *anyopaque,
+    by_protocol: *align(8) const Guid,
+};
+
 pub const OpenProtocolAttributes = packed struct(u32) {
     by_handle_protocol: bool = false,
     get_protocol: bool = false,
@@ -110,10 +116,10 @@ pub const UefiCapsuleBlockDescriptor = extern struct {
 };
 
 pub const ResetType = enum(u32) {
-    reset_cold,
-    reset_warm,
-    reset_shutdown,
-    reset_platform_specific,
+    cold,
+    warm,
+    shutdown,
+    platform_specific,
 };
 
 pub const global_variable align(8) = Guid{
