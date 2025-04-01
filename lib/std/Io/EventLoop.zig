@@ -248,8 +248,16 @@ fn findReadyFiber(el: *EventLoop, thread: *Thread) ?*Fiber {
         if (thread.steal_ready_search_index == active_threads) thread.steal_ready_search_index = 0;
         const steal_ready_search_thread = &el.threads.allocated[0..active_threads][thread.steal_ready_search_index];
         if (steal_ready_search_thread == thread) continue;
-        const ready_fiber = @atomicRmw(?*Fiber, &steal_ready_search_thread.ready_queue, .And, Fiber.finished, .acquire) orelse continue;
+        const ready_fiber = @atomicLoad(?*Fiber, &steal_ready_search_thread.ready_queue, .acquire) orelse continue;
         if (ready_fiber == Fiber.finished) continue;
+        if (@cmpxchgWeak(
+            ?*Fiber,
+            &steal_ready_search_thread.ready_queue,
+            ready_fiber,
+            null,
+            .acquire,
+            .monotonic,
+        )) |_| continue;
         @atomicStore(?*Fiber, &thread.ready_queue, ready_fiber.queue_next, .release);
         ready_fiber.queue_next = null;
         return ready_fiber;
@@ -297,7 +305,7 @@ fn schedule(el: *EventLoop, thread: *Thread, ready_queue: Fiber.Queue) void {
             &idle_search_thread.ready_queue,
             null,
             ready_queue.head,
-            .acq_rel,
+            .release,
             .monotonic,
         )) |_| continue;
         getSqe(&thread.io_uring).* = .{
@@ -1268,9 +1276,9 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
     const fiber = thread.currentFiber();
     const prev = @atomicRmw(?*Fiber, cond_state, .Xchg, fiber, .acquire);
     assert(prev == null); // More than one wait on same Condition is illegal.
-    mutex.unlock(io(el));
+    mutex.unlock(el.io());
     el.yield(null, .nothing);
-    try mutex.lock(io(el));
+    try mutex.lock(el.io());
 }
 
 fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition) void {
