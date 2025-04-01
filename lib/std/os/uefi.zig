@@ -7,6 +7,7 @@ pub const hii = @import("uefi/hii.zig");
 
 /// Status codes returned by EFI interfaces
 pub const Status = @import("uefi/status.zig").Status;
+pub const Error = UnexpectedError || Status.Error;
 pub const tables = @import("uefi/tables.zig");
 
 /// The memory type to allocate when using the pool.

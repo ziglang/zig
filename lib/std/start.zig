@@ -211,13 +211,24 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             root.main();
             return 0;
         },
-        usize => {
-            return root.main();
-        },
         uefi.Status => {
             return @intFromEnum(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
+        uefi.Error!void => {
+            root.main() catch |err| switch (err) {
+                error.Unexpected => @panic("EfiMain: unexpected error"),
+                else => {
+                    const status = uefi.Status.fromError(@errorCast(err));
+                    return @intFromEnum(status);
+                },
+            };
+
+            return 0;
+        },
+        else => @compileError(
+            "expected return type of main to be 'void', 'noreturn', " ++
+                "'uefi.Status', or 'uefi.Error!void'",
+        ),
     }
 }
 
