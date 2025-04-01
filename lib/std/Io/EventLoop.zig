@@ -27,7 +27,6 @@ const Thread = struct {
     current_context: *Context,
     ready_queue: ?*Fiber,
     free_queue: ?*Fiber,
-    detached_queue: ?*Fiber,
     io_uring: IoUring,
     idle_search_index: u32,
     steal_ready_search_index: u32,
@@ -209,7 +208,6 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
         .current_context = &main_fiber.context,
         .ready_queue = null,
         .free_queue = null,
-        .detached_queue = null,
         .io_uring = try IoUring.init(io_uring_entries, 0),
         .idle_search_index = 1,
         .steal_ready_search_index = 1,
@@ -220,16 +218,7 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
 }
 
 pub fn deinit(el: *EventLoop) void {
-    // Wait for detached fibers.
     const active_threads = @atomicLoad(u32, &el.threads.active, .acquire);
-    for (el.threads.allocated[0..active_threads]) |*thread| {
-        while (thread.detached_queue) |detached_fiber| {
-            if (@atomicLoad(?*Fiber, &detached_fiber.awaiter, .acquire) != Fiber.finished)
-                el.yield(null, .{ .register_awaiter = &detached_fiber.awaiter });
-            detached_fiber.recycle();
-        }
-    }
-
     for (el.threads.allocated[0..active_threads]) |*thread| {
         const ready_fiber = @atomicLoad(?*Fiber, &thread.ready_queue, .monotonic);
         assert(ready_fiber == null or ready_fiber == Fiber.finished); // pending async
@@ -347,7 +336,6 @@ fn schedule(el: *EventLoop, thread: *Thread, ready_queue: Fiber.Queue) void {
             .current_context = &new_thread.idle_context,
             .ready_queue = ready_queue.head,
             .free_queue = null,
-            .detached_queue = null,
             .io_uring = IoUring.init(io_uring_entries, 0) catch |err| {
                 @atomicStore(u32, &el.threads.reserved, new_thread_index, .release);
                 // no more access to `thread` after giving up reservation
@@ -673,8 +661,6 @@ const DetachedClosure = struct {
         message.handle(closure.event_loop);
         std.log.debug("{*} performing async detached", .{closure.fiber});
         closure.start(closure.contextPointer());
-        const current_thread: *Thread = .current();
-        current_thread.detached_queue = closure.fiber.queue_next;
         const awaiter = @atomicRmw(?*Fiber, &closure.fiber.awaiter, .Xchg, Fiber.finished, .acq_rel);
         if (awaiter) |a| {
             closure.event_loop.yield(a, .nothing);
@@ -766,11 +752,10 @@ fn go(
             else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
         },
         .awaiter = null,
-        .queue_next = current_thread.detached_queue,
+        .queue_next = null,
         .cancel_thread = null,
         .awaiting_completions = .initEmpty(),
     };
-    current_thread.detached_queue = fiber;
     closure.* = .{
         .event_loop = event_loop,
         .fiber = fiber,
