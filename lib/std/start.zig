@@ -200,8 +200,6 @@ fn wasi_start() callconv(.c) void {
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.c) usize {
-    const Status = uefi.Status;
-
     uefi.handle = handle;
     uefi.system_table = system_table;
 
@@ -213,14 +211,14 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             root.main();
             return 0;
         },
-        Status => {
+        uefi.Status => {
             return @intFromEnum(root.main());
         },
         uefi.Error!void => {
             root.main() catch |err| switch (err) {
                 error.Unexpected => @panic("EfiMain: unexpected error"),
                 else => {
-                    const status = Status.fromError(@errorCast(err));
+                    const status = uefi.Status.fromError(@errorCast(err));
                     return @intFromEnum(status);
                 },
             };
