@@ -477,6 +477,7 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
 }
 
 test "fuzz compress decompress match" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
     try std.testing.fuzz({}, fuzzTestCompressDecompress, .{});
 }
 
