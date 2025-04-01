@@ -87,9 +87,15 @@ pub fn order(lhs: anytype, rhs: anytype) Order {
             },
             .stage2_riscv64 => {
                 // TODO: airSubWithOverflow non-power of 2 and less than 8 bits
-                const gt: i8 = @intFromBool(lhs > rhs);
-                const lt: i8 = @intFromBool(lhs < rhs);
-                return @enumFromInt(gt - lt);
+                if (lhs < rhs) {
+                    return .lt;
+                } else if (lhs > rhs) {
+                    return .gt;
+                } else if (lhs == rhs) {
+                    return .eq;
+                } else {
+                    unreachable;
+                }
             },
         },
         .comptime_float => {
