@@ -595,10 +595,16 @@ pub const Serializer = struct {
                 return self.writer.writeAll("inf");
             } else if (std.math.isNegativeInf(val)) {
                 return self.writer.writeAll("-inf");
+            } else if (std.math.isNegativeZero(val)) {
+                return self.writer.writeAll("-0.0");
             } else {
                 try std.fmt.format(self.writer, "{d}", .{val});
             },
-            .comptime_float => try std.fmt.format(self.writer, "{d}", .{val}),
+            .comptime_float => if (val == 0) {
+                return self.writer.writeAll("0");
+            } else {
+                try std.fmt.format(self.writer, "{d}", .{val});
+            },
             else => comptime unreachable,
         }
     }
