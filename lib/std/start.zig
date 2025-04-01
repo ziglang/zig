@@ -229,7 +229,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
         },
         else => @compileError(
             "expected return type of main to be 'void', 'noreturn', " ++
-                "'uefi.Status', 'uefi.Error!void', or 'uefi.Error!noreturn'",
+                "'uefi.Status', or 'uefi.Error!void'",
         ),
     }
 }
