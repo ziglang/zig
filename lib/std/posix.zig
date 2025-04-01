@@ -39,6 +39,7 @@ const use_libc = builtin.link_libc or switch (native_os) {
 const linux = std.os.linux;
 const windows = std.os.windows;
 const wasi = std.os.wasi;
+const uefi = std.os.uefi;
 
 /// A libc-compatible API layer.
 pub const system = if (use_libc)
@@ -46,6 +47,7 @@ pub const system = if (use_libc)
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
+    .uefi => uefi.posix,
     else => struct {
         pub const ucontext_t = void;
         pub const pid_t = void;
@@ -267,6 +269,9 @@ pub fn errno(rc: anytype) E {
 pub fn close(fd: fd_t) void {
     if (native_os == .windows) {
         return windows.CloseHandle(fd);
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.close(fd);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         _ = std.os.wasi.fd_close(fd);
@@ -770,7 +775,6 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (native_os == .uefi) {
-        const uefi = std.os.uefi;
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
@@ -827,6 +831,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (buf.len == 0) return 0;
     if (native_os == .windows) {
         return windows.ReadFile(fd, buf, null);
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.read(fd, buf);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -1237,7 +1244,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (native_os == .windows) {
         return windows.WriteFile(fd, bytes, null);
     }
-
+    if (native_os == .uefi) {
+        return uefi.posix.write(fd, bytes);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         const ciovs = [_]iovec_const{iovec_const{
             .base = bytes.ptr,
@@ -1709,6 +1718,8 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         }
 
         return fd;
+    } else if (native_os == .uefi) {
+        return uefi.posix.openat(dir_fd, file_path, flags, mode);
     }
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
@@ -1811,7 +1822,7 @@ fn openOptionsFromFlagsWasi(oflag: O) OpenError!WasiOpenOptions {
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if ((native_os == .wasi or native_os == .uefi) and !builtin.link_libc) {
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
@@ -3551,6 +3562,9 @@ pub fn isatty(handle: fd_t) bool {
             }
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.isatty(handle);
+    }
     return system.isatty(handle) != 0;
 }
 
@@ -5246,6 +5260,9 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_BEGIN(fd, offset);
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_SET(fd, offset);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, @bitCast(offset), .SET, &new_offset)) {
@@ -5289,6 +5306,9 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_CUR(fd, offset);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, offset, .CUR, &new_offset)) {
@@ -5331,6 +5351,9 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_END(fd, offset);
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_END(fd, offset);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, offset, .END, &new_offset)) {
@@ -5372,6 +5395,9 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     if (native_os == .windows) {
         return windows.SetFilePointerEx_CURRENT_get(fd);
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_CUR_get(fd);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;

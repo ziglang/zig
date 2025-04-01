@@ -8,7 +8,7 @@ const cc = uefi.cc;
 
 pub const File = extern struct {
     revision: u64,
-    _open: *const fn (*const File, **const File, [*:0]const u16, u64, u64) callconv(cc) Status,
+    _open: *const fn (*const File, **const File, [*:0]const u16, OpenMode, Attributes) callconv(cc) Status,
     _close: *const fn (*const File) callconv(cc) Status,
     _delete: *const fn (*const File) callconv(cc) Status,
     _read: *const fn (*const File, *usize, [*]u8) callconv(cc) Status,
@@ -40,8 +40,43 @@ pub const File = extern struct {
         return .{ .context = self };
     }
 
-    pub fn open(self: *const File, new_handle: **const File, file_name: [*:0]const u16, open_mode: u64, attributes: u64) Status {
-        return self._open(self, new_handle, file_name, open_mode, attributes);
+    /// The attributes of a file.
+    pub const Attributes = packed struct(u64) {
+        read_only: bool = false,
+        hidden: bool = false,
+        system: bool = false,
+        reserved: bool = false,
+        directory: bool = false,
+        archive: bool = false,
+
+        _pad: u58 = 0,
+    };
+
+    pub const OpenMode = packed struct(u64) {
+        read: bool = true,
+
+        /// May only be specified if `read` is true.
+        write: bool = false,
+
+        _pad: u61 = 0,
+
+        /// May only be specified if `write` is true.
+        create: bool = false,
+    };
+
+    pub fn open(
+        self: *const File,
+        /// The Null-terminated string of the name of the file to be opened. The file name may contain the following
+        /// path modifiers: "\", ".", and "..".
+        file_name: [:0]const u16,
+        /// The mode to open the file with.
+        open_mode: OpenMode,
+        /// The attributes for a newly created file.
+        attributes: Attributes,
+    ) !*const File {
+        var new_handle: *const File = undefined;
+        try self._open(self, &new_handle, file_name.ptr, open_mode, attributes).err();
+        return new_handle;
     }
 
     pub fn close(self: *const File) Status {
