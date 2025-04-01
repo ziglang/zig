@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
 const ValueInterpretMode = enum { direct, by_name };
 
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -171,7 +171,7 @@ pub fn build(b: *std.Build) !void {
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_callstack_depth: u32 = b.option(u32, "tracy-callstack-depth", "Declare callstack depth for Tracy data. Does nothing if -Dtracy_callstack is not provided") orelse 10;
-    const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
+    const debug_gpa = b.option(bool, "debug-allocator", "Force the compiler to use DebugAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information");
@@ -214,11 +214,6 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(&exe.step);
 
-    if (target.result.os.tag == .windows and target.result.abi == .gnu) {
-        // LTO is currently broken on mingw, this can be removed when it's fixed.
-        exe.want_lto = false;
-    }
-
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
     exe.use_llvm = use_llvm;
     exe.use_lld = use_llvm;
@@ -233,7 +228,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
-    exe_options.addOption(bool, "force_gpa", force_gpa);
+    exe_options.addOption(bool, "debug_gpa", debug_gpa);
     exe_options.addOption(DevEnv, "dev", b.option(DevEnv, "dev", "Build a compiler with a reduced feature set for development of specific features") orelse if (only_c) .bootstrap else .full);
     exe_options.addOption(ValueInterpretMode, "value_interpret_mode", value_interpret_mode);
 
@@ -257,13 +252,10 @@ pub fn build(b: *std.Build) !void {
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git",
-            "-C",
-            b.build_root.path orelse ".",
-            "describe",
-            "--match",
-            "*.*.*",
-            "--tags",
-            "--abbrev=9",
+            "-C", b.build_root.path orelse ".", // affects the --git-dir argument
+            "--git-dir", ".git", // affected by the -C argument
+            "describe", "--match",    "*.*.*", //
+            "--tags",   "--abbrev=9",
         }, &code, .Ignore) catch {
             break :v version_string;
         };
@@ -334,7 +326,12 @@ pub fn build(b: *std.Build) !void {
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
-            try addStaticLlvmOptionsToModule(exe.root_module);
+            try addStaticLlvmOptionsToModule(exe.root_module, .{
+                .llvm_has_m68k = llvm_has_m68k,
+                .llvm_has_csky = llvm_has_csky,
+                .llvm_has_arc = llvm_has_arc,
+                .llvm_has_xtensa = llvm_has_xtensa,
+            });
         }
         if (target.result.os.tag == .windows) {
             // LLVM depends on networking as of version 18.
@@ -362,11 +359,7 @@ pub fn build(b: *std.Build) !void {
             &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
         );
 
-        // On mingw, we need to opt into windows 7+ to get some features required by tracy.
-        const tracy_c_flags: []const []const u8 = if (target.result.os.tag == .windows and target.result.abi == .gnu)
-            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
-        else
-            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+        const tracy_c_flags: []const []const u8 = &.{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
         exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
         exe.root_module.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
@@ -406,7 +399,7 @@ pub fn build(b: *std.Build) !void {
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
     const fmt_include_paths = &.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" };
-    const fmt_exclude_paths = &.{"test/cases"};
+    const fmt_exclude_paths = &.{ "test/cases", "test/behavior/zon" };
     const do_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
@@ -450,7 +443,7 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        .max_rss = 1 * 1024 * 1024 * 1024,
+        .max_rss = 2 * 1024 * 1024 * 1024,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -513,8 +506,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        // I observed a value of 4572626944 on the M2 CI.
-        .max_rss = 5029889638,
+        // I observed a value of 5605064704 on the M2 CI.
+        .max_rss = 6165571174,
     }));
 
     const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
@@ -608,7 +601,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 
     exe_options.addOption(u32, "mem_leak_frames", 0);
     exe_options.addOption(bool, "have_llvm", false);
-    exe_options.addOption(bool, "force_gpa", false);
+    exe_options.addOption(bool, "debug_gpa", false);
     exe_options.addOption([:0]const u8, "version", version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
     exe_options.addOption(bool, "enable_debug_extensions", false);
@@ -742,7 +735,7 @@ fn addCmakeCfgOptionsToExe(
     const mod = exe.root_module;
     const target = mod.resolved_target.?.result;
 
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         // useful for package maintainers
         exe.headerpad_max_install_names = true;
     }
@@ -791,24 +784,19 @@ fn addCmakeCfgOptionsToExe(
                 if (target.abi != .msvc) mod.link_libcpp = true;
             },
             .freebsd => {
-                if (static) {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
-                } else {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                }
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                if (static) try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             .openbsd => {
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
+                // - llvm requires libexecinfo which has conflicting symbols with libc++abi
+                // - only an issue with .a linking
+                // - workaround is to link c++abi dynamically
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{target.dynamicLibSuffix()[1..]}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{target.dynamicLibSuffix()[1..]}), null, need_cpp_includes);
             },
             .netbsd, .dragonfly => {
-                if (static) {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
-                } else {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                }
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                if (static) try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             .solaris, .illumos => {
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
@@ -826,7 +814,12 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToModule(mod: *std.Build.Module) !void {
+fn addStaticLlvmOptionsToModule(mod: *std.Build.Module, options: struct {
+    llvm_has_m68k: bool,
+    llvm_has_csky: bool,
+    llvm_has_arc: bool,
+    llvm_has_xtensa: bool,
+}) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -849,6 +842,22 @@ fn addStaticLlvmOptionsToModule(mod: *std.Build.Module) !void {
     for (llvm_libs) |lib_name| {
         mod.linkSystemLibrary(lib_name, .{});
     }
+
+    if (options.llvm_has_m68k) for (llvm_libs_m68k) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_csky) for (llvm_libs_csky) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_arc) for (llvm_libs_arc) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_xtensa) for (llvm_libs_xtensa) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
 
     mod.linkSystemLibrary("z", .{});
     mod.linkSystemLibrary("zstd", .{});
@@ -1337,6 +1346,33 @@ const llvm_libs = [_][]const u8{
     "LLVMTargetParser",
     "LLVMSupport",
     "LLVMDemangle",
+};
+const llvm_libs_m68k = [_][]const u8{
+    "LLVMM68kDisassembler",
+    "LLVMM68kAsmParser",
+    "LLVMM68kCodeGen",
+    "LLVMM68kDesc",
+    "LLVMM68kInfo",
+};
+const llvm_libs_csky = [_][]const u8{
+    "LLVMCSKYDisassembler",
+    "LLVMCSKYAsmParser",
+    "LLVMCSKYCodeGen",
+    "LLVMCSKYDesc",
+    "LLVMCSKYInfo",
+};
+const llvm_libs_arc = [_][]const u8{
+    "LLVMARCDisassembler",
+    "LLVMARCCodeGen",
+    "LLVMARCDesc",
+    "LLVMARCInfo",
+};
+const llvm_libs_xtensa = [_][]const u8{
+    "LLVMXtensaDisassembler",
+    "LLVMXtensaAsmParser",
+    "LLVMXtensaCodeGen",
+    "LLVMXtensaDesc",
+    "LLVMXtensaInfo",
 };
 
 fn generateLangRef(b: *std.Build) std.Build.LazyPath {

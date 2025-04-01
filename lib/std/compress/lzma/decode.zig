@@ -112,17 +112,17 @@ pub const DecoderState = struct {
             .lzma_props = lzma_props,
             .unpacked_size = unpacked_size,
             .literal_probs = try Vec2D(u16).init(allocator, 0x400, .{ @as(usize, 1) << (lzma_props.lc + lzma_props.lp), 0x300 }),
-            .pos_slot_decoder = .{.{}} ** 4,
+            .pos_slot_decoder = @splat(.{}),
             .align_decoder = .{},
-            .pos_decoders = .{0x400} ** 115,
-            .is_match = .{0x400} ** 192,
-            .is_rep = .{0x400} ** 12,
-            .is_rep_g0 = .{0x400} ** 12,
-            .is_rep_g1 = .{0x400} ** 12,
-            .is_rep_g2 = .{0x400} ** 12,
-            .is_rep_0long = .{0x400} ** 192,
+            .pos_decoders = @splat(0x400),
+            .is_match = @splat(0x400),
+            .is_rep = @splat(0x400),
+            .is_rep_g0 = @splat(0x400),
+            .is_rep_g1 = @splat(0x400),
+            .is_rep_g2 = @splat(0x400),
+            .is_rep_0long = @splat(0x400),
             .state = 0,
-            .rep = .{0} ** 4,
+            .rep = @splat(0),
             .len_decoder = .{},
             .rep_len_decoder = .{},
         };
@@ -145,15 +145,15 @@ pub const DecoderState = struct {
         self.lzma_props = new_props;
         for (&self.pos_slot_decoder) |*t| t.reset();
         self.align_decoder.reset();
-        self.pos_decoders = .{0x400} ** 115;
-        self.is_match = .{0x400} ** 192;
-        self.is_rep = .{0x400} ** 12;
-        self.is_rep_g0 = .{0x400} ** 12;
-        self.is_rep_g1 = .{0x400} ** 12;
-        self.is_rep_g2 = .{0x400} ** 12;
-        self.is_rep_0long = .{0x400} ** 192;
+        self.pos_decoders = @splat(0x400);
+        self.is_match = @splat(0x400);
+        self.is_rep = @splat(0x400);
+        self.is_rep_g0 = @splat(0x400);
+        self.is_rep_g1 = @splat(0x400);
+        self.is_rep_g2 = @splat(0x400);
+        self.is_rep_0long = @splat(0x400);
         self.state = 0;
-        self.rep = .{0} ** 4;
+        self.rep = @splat(0);
         self.len_decoder.reset();
         self.rep_len_decoder.reset();
     }

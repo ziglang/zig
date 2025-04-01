@@ -431,6 +431,13 @@ pub fn main() !void {
                 .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
                 else => {},
             }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
+            }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
                 gpa,
@@ -733,7 +740,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf, .include_reference_trace = (b.reference_trace orelse 0) > 0 });
             }
         }
 
@@ -1112,7 +1119,11 @@ fn workerMakeOneStep(
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
+        const options: std.zig.ErrorBundle.RenderOptions = .{
+            .ttyconf = run.ttyconf,
+            .include_reference_trace = (b.reference_trace orelse 0) > 0,
+        };
+        printErrorMessages(gpa, s, options, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1168,7 +1179,7 @@ fn workerMakeOneStep(
 pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
-    ttyconf: std.io.tty.Config,
+    options: std.zig.ErrorBundle.RenderOptions,
     stderr: File,
     prominent_compile_errors: bool,
 ) !void {
@@ -1183,9 +1194,10 @@ pub fn printErrorMessages(
     }
 
     // Now, `step_stack` has the subtree that we want to print, in reverse order.
+    const ttyconf = options.ttyconf;
     try ttyconf.setColor(stderr, .dim);
     var indent: usize = 0;
-    while (step_stack.popOrNull()) |s| : (indent += 1) {
+    while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
             try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
@@ -1208,8 +1220,9 @@ pub fn printErrorMessages(
         }
     }
 
-    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
-        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
+        try failing_step.result_error_bundle.renderToWriter(options, stderr.writer());
+    }
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1280,7 +1293,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --fetch                      Exit after fetching dependency tree
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    needed                     (Default) Lazy dependencies are fetched as needed
+        \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
@@ -1410,14 +1425,6 @@ fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
     };
 }
 
-fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
-    };
-}
-
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
     process.exit(1);
@@ -1489,6 +1496,7 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .path_after,
             .framework_path,
             .framework_path_system,
+            .embed_path,
             => |lp| lp.addStepDependencies(step),
 
             .other_step => |other| {

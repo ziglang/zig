@@ -1783,9 +1783,9 @@ const aarch64 = struct {
                     aarch64_util.writeAddImmInst(off, code);
                 } else {
                     const old_inst: Instruction = .{
-                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
                             Instruction,
-                            Instruction.add_subtract_immediate,
+                            @tagName(Instruction.add_subtract_immediate),
                         ), code),
                     };
                     const rd: Register = @enumFromInt(old_inst.add_subtract_immediate.rd);
@@ -1797,9 +1797,9 @@ const aarch64 = struct {
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
                 const old_inst: Instruction = .{
-                    .unconditional_branch_register = mem.bytesToValue(std.meta.TagPayload(
+                    .unconditional_branch_register = mem.bytesToValue(@FieldType(
                         Instruction,
-                        Instruction.unconditional_branch_register,
+                        @tagName(Instruction.unconditional_branch_register),
                     ), code),
                 };
                 const rn: Register = @enumFromInt(old_inst.unconditional_branch_register.rn);
@@ -1882,6 +1882,9 @@ const riscv = struct {
             .LO12_S,
             .ADD32,
             .SUB32,
+
+            .SUB_ULEB128,
+            .SET_ULEB128,
             => {},
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -2070,6 +2073,9 @@ const riscv = struct {
 
             .SET6 => riscv_util.writeSetSub6(.set, code[r_offset..][0..1], S + A),
             .SUB6 => riscv_util.writeSetSub6(.sub, code[r_offset..][0..1], S + A),
+
+            .SET_ULEB128 => try riscv_util.writeSetSubUleb(.set, stream, S + A),
+            .SUB_ULEB128 => try riscv_util.writeSetSubUleb(.sub, stream, S - A),
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }

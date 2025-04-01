@@ -360,7 +360,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                     const target_unit = sect.getUnit(reloc.target_unit);
                     const r_offset = unit.off + reloc.source_off;
                     const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
-                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sect, dwarf).off
                     else
                         0));
                     const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
@@ -388,7 +388,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                     const target_unit = target_sec.getUnit(reloc.target_unit);
                     const r_offset = unit.off + reloc.source_off;
                     const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
-                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sect, dwarf).off
                     else
                         0));
                     const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
@@ -422,7 +422,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         const target_unit = sect.getUnit(reloc.target_unit);
                         const r_offset = entry_off + reloc.source_off;
                         const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
-                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sect, dwarf).off
                         else
                             0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
@@ -450,7 +450,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         const target_unit = target_sec.getUnit(reloc.target_unit);
                         const r_offset = entry_off + reloc.source_off;
                         const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
-                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sect, dwarf).off
                         else
                             0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
@@ -1937,9 +1937,14 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
     const shdr = &slice.items(.shdr)[atom_ptr.output_section_index];
     const last_atom_ref = &slice.items(.last_atom)[atom_ptr.output_section_index];
 
-    // This only works if this atom is the only atom in the output section. In
-    // every other case, we need to redo the prev/next links.
-    if (last_atom_ref.eql(atom_ptr.ref())) last_atom_ref.* = .{};
+    if (last_atom_ref.eql(atom_ptr.ref())) {
+        if (atom_ptr.prevAtom(elf_file)) |prev_atom| {
+            prev_atom.next_atom_ref = .{};
+            last_atom_ref.* = prev_atom.ref();
+        } else {
+            last_atom_ref.* = .{};
+        }
+    }
 
     const alloc_res = try elf_file.allocateChunk(.{
         .shndx = atom_ptr.output_section_index,

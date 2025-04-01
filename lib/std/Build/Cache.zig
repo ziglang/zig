@@ -775,7 +775,7 @@ pub const Manifest = struct {
 
         // Remove files not in the initial hash.
         while (self.files.count() != input_file_count) {
-            var file = self.files.pop();
+            var file = self.files.pop().?;
             file.key.deinit(self.cache.gpa);
         }
 
@@ -1254,11 +1254,6 @@ fn testGetCurrentFileTimestamp(dir: fs.Dir) !i128 {
 }
 
 test "cache file and then recall it" {
-    if (builtin.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1320,11 +1315,6 @@ test "cache file and then recall it" {
 }
 
 test "check that changing a file makes cache fail" {
-    if (builtin.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1394,11 +1384,6 @@ test "check that changing a file makes cache fail" {
 }
 
 test "no file inputs" {
-    if (builtin.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1442,11 +1427,6 @@ test "no file inputs" {
 }
 
 test "Manifest with files added after initial hash work" {
-    if (builtin.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 

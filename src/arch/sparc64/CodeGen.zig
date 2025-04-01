@@ -392,7 +392,7 @@ fn gen(self: *Self) !void {
             // dbg_epilogue_begin) is the last exitlude jump
             // relocation (which would just jump two instructions
             // further), it can be safely removed
-            const index = self.exitlude_jump_relocs.pop();
+            const index = self.exitlude_jump_relocs.pop().?;
 
             // First, remove the delay slot, then remove
             // the branch instruction itself.
@@ -577,7 +577,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => @panic("TODO try self.airFpext(inst)"),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .int_from_bool     => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => @panic("TODO try self.airIsNonNullPtr(inst)"),
             .is_null         => try self.airIsNull(inst),
@@ -589,7 +588,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
             .not             => try self.airNot(inst),
-            .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
             .ret_safe        => try self.airRet(inst), // TODO
             .ret_load        => try self.airRetLoad(inst),
@@ -714,6 +712,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => @panic("TODO implement safety_checked_instructions"),
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
@@ -1076,13 +1075,6 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try self.resolveInst(un_op);
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else operand;
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -1155,7 +1147,7 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
         // If the last Mir instruction is the last relocation (which
         // would just jump two instruction further), it can be safely
         // removed
-        const index = relocs.pop();
+        const index = relocs.pop().?;
 
         // First, remove the delay slot, then remove
         // the branch instruction itself.
@@ -1509,7 +1501,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.branch_stack.append(.{});
     errdefer {
-        _ = self.branch_stack.pop();
+        _ = self.branch_stack.pop().?;
     }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
@@ -1520,7 +1512,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Revert to the previous register and stack allocation state.
 
-    var saved_then_branch = self.branch_stack.pop();
+    var saved_then_branch = self.branch_stack.pop().?;
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
@@ -1616,7 +1608,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     {
-        var item = self.branch_stack.pop();
+        var item = self.branch_stack.pop().?;
         item.deinit(self.gpa);
     }
 
@@ -2227,12 +2219,6 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = try self.resolveInst(un_op);
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airRem(self: *Self, inst: Air.Inst.Index) !void {
@@ -4408,12 +4394,12 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
 
 /// Turns stack_offset MCV into a real SPARCv9 stack offset usable for asm.
 fn realStackOffset(off: u32) u32 {
-    return off
-    // SPARCv9 %sp points away from the stack by some amount.
-    + abi.stack_bias
-    // The first couple bytes of each stack frame is reserved
-    // for ABI and hardware purposes.
-    + abi.stack_reserved_area;
+    return off +
+        // SPARCv9 %sp points away from the stack by some amount.
+        abi.stack_bias +
+        // The first couple bytes of each stack frame is reserved
+        // for ABI and hardware purposes.
+        abi.stack_reserved_area;
     // Only after that we have the usable stack frame portion.
 }
 

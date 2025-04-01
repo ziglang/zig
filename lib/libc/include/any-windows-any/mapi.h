@@ -35,6 +35,15 @@ extern "C" {
     LPVOID lpFileType;
   } MapiFileDesc,*lpMapiFileDesc;
 
+  typedef struct {
+    ULONG ulReserved;
+    ULONG flFlags;
+    ULONG nPosition;
+    PWSTR lpszPathName;
+    PWSTR lpszFileName;
+    PVOID lpFileType;
+  } MapiFileDescW, *lpMapiFileDescW;
+
 #define MAPI_OLE 0x00000001
 #define MAPI_OLE_STATIC 0x00000002
 
@@ -54,6 +63,15 @@ extern "C" {
     ULONG ulEIDSize;
     LPVOID lpEntryID;
   } MapiRecipDesc,*lpMapiRecipDesc;
+
+  typedef struct {
+    ULONG ulReserved;
+    ULONG ulRecipClass;
+    PWSTR lpszName;
+    PWSTR lpszAddress;
+    ULONG ulEIDSize;
+    PVOID lpEntryID;
+  } MapiRecipDescW, *lpMapiRecipDescW;
 
 #ifndef MAPI_ORIG
 #define MAPI_ORIG 0
@@ -77,6 +95,21 @@ extern "C" {
     lpMapiFileDesc lpFiles;
   } MapiMessage,*lpMapiMessage;
 
+  typedef struct {
+    ULONG ulReserved;
+    PWSTR lpszSubject;
+    PWSTR lpszNoteText;
+    PWSTR lpszMessageType;
+    PWSTR lpszDateReceived;
+    PWSTR lpszConversationID;
+    FLAGS flFlags;
+    lpMapiRecipDescW lpOriginator;
+    ULONG nRecipCount;
+    lpMapiRecipDescW lpRecips;
+    ULONG nFileCount;
+    lpMapiFileDescW lpFiles;
+  } MapiMessageW, *lpMapiMessageW;
+
 #define MAPI_UNREAD 0x00000001
 #define MAPI_RECEIPT_REQUESTED 0x00000002
 #define MAPI_SENT 0x00000004
@@ -92,6 +125,9 @@ extern "C" {
 #ifndef MAPI_DIALOG
 #define MAPI_DIALOG 0x00000008
 #endif
+
+#define MAPI_DIALOG_MODELESS (0x00000004 | MAPI_DIALOG)
+#define MAPI_FORCE_UNICODE 0x00040000
 
 #define MAPI_UNREAD_ONLY 0x00000020
 #define MAPI_GUARANTEE_FIFO 0x00000100
@@ -115,6 +151,10 @@ extern "C" {
   typedef ULONG (WINAPI MAPISENDMAIL)(LHANDLE lhSession,ULONG_PTR ulUIParam,lpMapiMessage lpMessage,FLAGS flFlags,ULONG ulReserved);
   typedef MAPISENDMAIL *LPMAPISENDMAIL;
   MAPISENDMAIL MAPISendMail;
+
+  typedef ULONG (WINAPI MAPISENDMAILW)(LHANDLE lhSession,ULONG_PTR ulUIParam,lpMapiMessageW lpMessage,FLAGS flFlags,ULONG ulReserved);
+  typedef MAPISENDMAILW *LPMAPISENDMAILW;
+  MAPISENDMAILW MAPISendMailW;
 
   typedef ULONG (WINAPI MAPISENDDOCUMENTS)(ULONG_PTR ulUIParam,LPSTR lpszDelimChar,LPSTR lpszFilePaths,LPSTR lpszFileNames,ULONG ulReserved);
   typedef MAPISENDDOCUMENTS *LPMAPISENDDOCUMENTS;
@@ -183,6 +223,8 @@ extern "C" {
 #define MAPI_E_INVALID_EDITFIELDS 24
 #define MAPI_E_INVALID_RECIPS 25
 #define MAPI_E_NOT_SUPPORTED 26
+#define MAPI_E_UNICODE_NOT_SUPPORTED 27
+#define MAPI_E_ATTACHMENT_TOO_LARGE 28
 
 #ifdef MAPIX_H
   STDMETHODIMP_(SCODE) ScMAPIXFromSMAPI(LHANDLE lhSimpleSession,ULONG ulFlags,LPCIID lpInterface,LPMAPISESSION*lppMAPISession);

@@ -247,7 +247,7 @@ pub const Iterator = switch (native_os) {
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                         self.first_iter = false;
@@ -267,7 +267,7 @@ pub const Iterator = switch (native_os) {
                             .INVAL => unreachable,
                             .OVERFLOW => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
@@ -294,7 +294,7 @@ pub const Iterator = switch (native_os) {
                     .BADF => unreachable, // Dir is invalid
                     .NOMEM => return error.SystemResources,
                     .ACCES => return error.AccessDenied,
-                    .PERM => return error.AccessDenied,
+                    .PERM => return error.PermissionDenied,
                     .FAULT => unreachable,
                     .NAMETOOLONG => unreachable,
                     .LOOP => unreachable,
@@ -682,7 +682,7 @@ pub const Walker = struct {
                 // walking if they want, which means that we need to pop the directory
                 // that errored from the stack. Otherwise, all future `next` calls would
                 // likely just fail with the same error.
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -718,7 +718,7 @@ pub const Walker = struct {
                     .kind = base.kind,
                 };
             } else {
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -768,6 +768,7 @@ pub const OpenError = error{
     FileNotFound,
     NotDir,
     AccessDenied,
+    PermissionDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
     NameTooLong,
@@ -1295,17 +1296,10 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
-    const flags: posix.O = switch (native_os) {
-        .linux => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-            .PATH = true,
-        },
-        else => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-        },
-    };
+    var flags: posix.O = .{};
+    if (@hasField(posix.O, "NONBLOCK")) flags.NONBLOCK = true;
+    if (@hasField(posix.O, "CLOEXEC")) flags.CLOEXEC = true;
+    if (@hasField(posix.O, "PATH")) flags.PATH = true;
 
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
         error.FileLocksNotSupported => return error.Unexpected,
@@ -1510,7 +1504,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
                 .NOENT => return error.FileNotFound,
                 .NOMEM => return error.SystemResources,
                 .NOTDIR => return error.NotDir,
-                .PERM => return error.AccessDenied,
+                .PERM => return error.PermissionDenied,
                 .BUSY => return error.DeviceBusy,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1659,9 +1653,9 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
 pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     posix.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
-        error.AccessDenied => |e| switch (native_os) {
-            // non-Linux POSIX systems return EPERM when trying to delete a directory, so
-            // we need to handle that case specifically and translate the error
+        error.AccessDenied, error.PermissionDenied => |e| switch (native_os) {
+            // non-Linux POSIX systems return permission errors when trying to delete a
+            // directory, so we need to handle that case specifically and translate the error
             .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                 const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
@@ -1686,6 +1680,7 @@ pub const DeleteDirError = error{
     DirNotEmpty,
     FileNotFound,
     AccessDenied,
+    PermissionDenied,
     FileBusy,
     FileSystem,
     SymLinkLoop,
@@ -1998,6 +1993,7 @@ pub fn readFileAllocOptions(
 
 pub const DeleteTreeError = error{
     AccessDenied,
+    PermissionDenied,
     FileTooBig,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -2080,6 +2076,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2119,6 +2116,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         },
 
                         error.AccessDenied,
+                        error.PermissionDenied,
                         error.InvalidUtf8,
                         error.InvalidWtf8,
                         error.SymLinkLoop,
@@ -2175,6 +2173,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2204,6 +2203,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2280,6 +2280,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2316,6 +2317,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2378,6 +2380,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
                     error.NameTooLong,
@@ -2404,6 +2407,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.InvalidUtf8,
                     error.InvalidWtf8,
                     error.SymLinkLoop,
@@ -2454,10 +2458,7 @@ pub const AccessError = posix.AccessError;
 /// open it and handle the error for file not found.
 pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const path_c = try posix.toPosixPath(sub_path);
@@ -2467,10 +2468,7 @@ pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessErro
 /// Same as `access` except the path parameter is null-terminated.
 pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const os_mode = switch (flags.mode) {
@@ -2594,7 +2592,7 @@ const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || p
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
 fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
         switch (posix.errno(rc)) {
             .SUCCESS => return,

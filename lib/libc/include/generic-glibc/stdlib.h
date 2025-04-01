@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -739,7 +739,7 @@ extern void *aligned_alloc (size_t __alignment, size_t __size)
 #endif
 
 /* Abort execution and generate a core-dump.  */
-extern void abort (void) __THROW __attribute__ ((__noreturn__));
+extern void abort (void) __THROW __attribute__ ((__noreturn__)) __COLD;
 
 
 /* Register a function to be called when `exit' is called.  */

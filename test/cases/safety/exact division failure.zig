@@ -17,5 +17,5 @@ fn divExact(a: i32, b: i32) i32 {
     return @divExact(a, b);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

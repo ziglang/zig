@@ -88,6 +88,9 @@ fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype
         .pointer => {
             return castPtr(DestType, target);
         },
+        .@"fn" => {
+            return castPtr(DestType, &target);
+        },
         .optional => |target_opt| {
             if (@typeInfo(target_opt.child) == .pointer) {
                 return castPtr(DestType, target);
@@ -436,15 +439,24 @@ pub const Macros = struct {
 /// Integer promotion described in C11 6.3.1.1.2
 fn PromotedIntType(comptime T: type) type {
     return switch (T) {
-        bool, u8, i8, c_short => c_int,
+        bool, c_short => c_int,
         c_ushort => if (@sizeOf(c_ushort) == @sizeOf(c_int)) c_uint else c_int,
         c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong => T,
-        else => if (T == comptime_int) {
-            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a fixed-size number type is required");
-        } else if (@typeInfo(T) == .int) {
-            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a C ABI type is required");
-        } else {
-            @compileError("Attempted to promote invalid type `" ++ @typeName(T) ++ "`");
+        else => switch (@typeInfo(T)) {
+            .comptime_int => @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a fixed-size number type is required"),
+            // promote to c_int if it can represent all values of T
+            .int => |int_info| if (int_info.bits < @bitSizeOf(c_int))
+                c_int
+                // otherwise, restore the original C type
+            else if (int_info.bits == @bitSizeOf(c_int))
+                if (int_info.signedness == .unsigned) c_uint else c_int
+            else if (int_info.bits <= @bitSizeOf(c_long))
+                if (int_info.signedness == .unsigned) c_ulong else c_long
+            else if (int_info.bits <= @bitSizeOf(c_longlong))
+                if (int_info.signedness == .unsigned) c_ulonglong else c_longlong
+            else
+                @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a C ABI type is required"),
+            else => @compileError("Attempted to promote invalid type `" ++ @typeName(T) ++ "`"),
         },
     };
 }
@@ -533,6 +545,16 @@ test "ArithmeticConversion" {
     try Test.checkPromotion(c_uint, c_long, c_long);
 
     try Test.checkPromotion(c_ulong, c_longlong, c_ulonglong);
+
+    // stdint.h
+    try Test.checkPromotion(u8, i8, c_int);
+    try Test.checkPromotion(u16, i16, c_int);
+    try Test.checkPromotion(i32, c_int, c_int);
+    try Test.checkPromotion(u32, c_int, c_uint);
+    try Test.checkPromotion(i64, c_int, c_long);
+    try Test.checkPromotion(u64, c_int, c_ulong);
+    try Test.checkPromotion(isize, c_int, c_long);
+    try Test.checkPromotion(usize, c_int, c_ulong);
 }
 
 pub const MacroArithmetic = struct {
@@ -666,4 +688,15 @@ test "Extended C ABI casting" {
         try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
         try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
     }
+}
+
+// Function with complex signature for testing the SDL case
+fn complexFunction(_: ?*anyopaque, _: c_uint, _: ?*const fn (?*anyopaque) callconv(.c) c_uint, _: ?*anyopaque, _: c_uint, _: [*c]c_uint) callconv(.c) usize {
+    return 0;
+}
+
+test "function pointer casting" {
+    const SDL_FunctionPointer = ?*const fn () callconv(.c) void;
+    const fn_ptr = cast(SDL_FunctionPointer, complexFunction);
+    try testing.expect(fn_ptr != null);
 }

@@ -1,4 +1,5 @@
-//! Base64 encoding/decoding.
+//! Base64 encoding/decoding as specified by
+//! [RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648).
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
@@ -24,12 +25,15 @@ pub const Codecs = struct {
     Decoder: Base64Decoder,
 };
 
+/// The Base64 alphabet defined in
+/// [RFC 4648 section 4](https://datatracker.ietf.org/doc/html/rfc4648#section-4).
 pub const standard_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".*;
 fn standardBase64DecoderWithIgnore(ignore: []const u8) Base64DecoderWithIgnore {
     return Base64DecoderWithIgnore.init(standard_alphabet_chars, '=', ignore);
 }
 
-/// Standard Base64 codecs, with padding
+/// Standard Base64 codecs, with padding, as defined in
+/// [RFC 4648 section 4](https://datatracker.ietf.org/doc/html/rfc4648#section-4).
 pub const standard = Codecs{
     .alphabet_chars = standard_alphabet_chars,
     .pad_char = '=',
@@ -38,7 +42,8 @@ pub const standard = Codecs{
     .Decoder = Base64Decoder.init(standard_alphabet_chars, '='),
 };
 
-/// Standard Base64 codecs, without padding
+/// Standard Base64 codecs, without padding, as defined in
+/// [RFC 4648 section 3.2](https://datatracker.ietf.org/doc/html/rfc4648#section-3.2).
 pub const standard_no_pad = Codecs{
     .alphabet_chars = standard_alphabet_chars,
     .pad_char = null,
@@ -47,12 +52,15 @@ pub const standard_no_pad = Codecs{
     .Decoder = Base64Decoder.init(standard_alphabet_chars, null),
 };
 
+/// The URL-safe Base64 alphabet defined in
+/// [RFC 4648 section 5](https://datatracker.ietf.org/doc/html/rfc4648#section-5).
 pub const url_safe_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 fn urlSafeBase64DecoderWithIgnore(ignore: []const u8) Base64DecoderWithIgnore {
     return Base64DecoderWithIgnore.init(url_safe_alphabet_chars, null, ignore);
 }
 
-/// URL-safe Base64 codecs, with padding
+/// URL-safe Base64 codecs, with padding, as defined in
+/// [RFC 4648 section 5](https://datatracker.ietf.org/doc/html/rfc4648#section-5).
 pub const url_safe = Codecs{
     .alphabet_chars = url_safe_alphabet_chars,
     .pad_char = '=',
@@ -61,7 +69,8 @@ pub const url_safe = Codecs{
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, '='),
 };
 
-/// URL-safe Base64 codecs, without padding
+/// URL-safe Base64 codecs, without padding, as defined in
+/// [RFC 4648 section 3.2](https://datatracker.ietf.org/doc/html/rfc4648#section-3.2).
 pub const url_safe_no_pad = Codecs{
     .alphabet_chars = url_safe_alphabet_chars,
     .pad_char = null,

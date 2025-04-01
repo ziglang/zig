@@ -14,7 +14,7 @@ const dev = @import("dev.zig");
 pub const CrtFile = enum {
     crt2_o,
     dllcrt2_o,
-    mingw32_lib,
+    libmingw32_lib,
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
@@ -69,7 +69,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             });
         },
 
-        .mingw32_lib => {
+        .libmingw32_lib => {
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
 
             {
@@ -173,7 +173,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 }
             }
 
-            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{
+            return comp.build_crt_file("libmingw32", .Lib, .@"mingw-w64 libmingw32.lib", prog_node, c_source_files.items, .{
                 .unwind_tables = unwind_tables,
                 // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
                 .allow_lto = false,
@@ -497,7 +497,7 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "cxa_atexit.c",
     "crt" ++ path.sep_str ++ "cxa_thread_atexit.c",
     "crt" ++ path.sep_str ++ "tls_atexit.c",
-    "crt" ++ path.sep_str ++ "intrincs" ++ path.sep_str ++ "RtlSecureZeroMemory.c",
+    "intrincs" ++ path.sep_str ++ "RtlSecureZeroMemory.c",
     // mingwex
     "cfguard" ++ path.sep_str ++ "mingw_cfguard_support.c",
     "complex" ++ path.sep_str ++ "_cabs.c",
@@ -630,8 +630,6 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "getlogin.c",
     "misc" ++ path.sep_str ++ "getopt.c",
     "misc" ++ path.sep_str ++ "gettimeofday.c",
-    "misc" ++ path.sep_str ++ "isblank.c",
-    "misc" ++ path.sep_str ++ "iswblank.c",
     "misc" ++ path.sep_str ++ "mempcpy.c",
     "misc" ++ path.sep_str ++ "mingw-access.c",
     "misc" ++ path.sep_str ++ "mingw-aligned-malloc.c",
@@ -658,8 +656,6 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "wcstold.c",
     "misc" ++ path.sep_str ++ "wcstoumax.c",
     "misc" ++ path.sep_str ++ "wctob.c",
-    "misc" ++ path.sep_str ++ "wctrans.c",
-    "misc" ++ path.sep_str ++ "wctype.c",
     "misc" ++ path.sep_str ++ "wdirent.c",
     "misc" ++ path.sep_str ++ "winbs_uint64.c",
     "misc" ++ path.sep_str ++ "winbs_ulong.c",
@@ -692,35 +688,36 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "lseek64.c",
     "stdio" ++ path.sep_str ++ "mingw_asprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_fprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_fprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_fwprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_fscanf.c",
     "stdio" ++ path.sep_str ++ "mingw_fwscanf.c",
     "stdio" ++ path.sep_str ++ "mingw_pformat.c",
-    "stdio" ++ path.sep_str ++ "mingw_pformatw.c",
+    "stdio" ++ path.sep_str ++ "mingw_sformat.c",
+    "stdio" ++ path.sep_str ++ "mingw_swformat.c",
+    "stdio" ++ path.sep_str ++ "mingw_wpformat.c",
     "stdio" ++ path.sep_str ++ "mingw_printf.c",
-    "stdio" ++ path.sep_str ++ "mingw_printfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_wprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_scanf.c",
     "stdio" ++ path.sep_str ++ "mingw_snprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_snprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_snwprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_sprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_sprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_swprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_sscanf.c",
     "stdio" ++ path.sep_str ++ "mingw_swscanf.c",
     "stdio" ++ path.sep_str ++ "mingw_vasprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_vfprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vfprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_vfwprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_vfscanf.c",
     "stdio" ++ path.sep_str ++ "mingw_vprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_vsscanf.c",
+    "stdio" ++ path.sep_str ++ "mingw_vwprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_vsnprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsnprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_vsnwprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_vsprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsprintfw.c",
+    "stdio" ++ path.sep_str ++ "mingw_vswprintf.c",
     "stdio" ++ path.sep_str ++ "mingw_wscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_wvfscanf.c",
-    "stdio" ++ path.sep_str ++ "scanf2-argcount-char.c",
-    "stdio" ++ path.sep_str ++ "scanf2-argcount-wchar.c",
-    "stdio" ++ path.sep_str ++ "scanf.S",
+    "stdio" ++ path.sep_str ++ "mingw_vfwscanf.c",
+    "stdio" ++ path.sep_str ++ "mingw_vswscanf.c",
     "stdio" ++ path.sep_str ++ "snprintf.c",
     "stdio" ++ path.sep_str ++ "snwprintf.c",
     "stdio" ++ path.sep_str ++ "strtok_r.c",
@@ -728,20 +725,8 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "ulltoa.c",
     "stdio" ++ path.sep_str ++ "ulltow.c",
     "stdio" ++ path.sep_str ++ "vasprintf.c",
-    "stdio" ++ path.sep_str ++ "vfscanf.c",
-    "stdio" ++ path.sep_str ++ "vfscanf2.S",
-    "stdio" ++ path.sep_str ++ "vfwscanf.c",
-    "stdio" ++ path.sep_str ++ "vfwscanf2.S",
-    "stdio" ++ path.sep_str ++ "vscanf.c",
-    "stdio" ++ path.sep_str ++ "vscanf2.S",
     "stdio" ++ path.sep_str ++ "vsnprintf.c",
     "stdio" ++ path.sep_str ++ "vsnwprintf.c",
-    "stdio" ++ path.sep_str ++ "vsscanf.c",
-    "stdio" ++ path.sep_str ++ "vsscanf2.S",
-    "stdio" ++ path.sep_str ++ "vswscanf.c",
-    "stdio" ++ path.sep_str ++ "vswscanf2.S",
-    "stdio" ++ path.sep_str ++ "vwscanf.c",
-    "stdio" ++ path.sep_str ++ "vwscanf2.S",
     "stdio" ++ path.sep_str ++ "wtoll.c",
     // mingwthrd
     "libsrc" ++ path.sep_str ++ "mingwthrd_mt.c",
@@ -768,6 +753,7 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "ucrt_fprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_ms_fprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_ms_fwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_printf.c",
     "stdio" ++ path.sep_str ++ "ucrt_scanf.c",
@@ -933,6 +919,7 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl_internal.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossin.c",
+    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossinl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "exp2l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expm1l.c",

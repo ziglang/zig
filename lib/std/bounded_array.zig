@@ -134,18 +134,12 @@ pub fn BoundedArrayAligned(
             return self.slice()[prev_len..][0..n];
         }
 
-        /// Remove and return the last element from the slice.
-        /// Asserts the slice has at least one item.
-        pub fn pop(self: *Self) T {
+        /// Remove and return the last element from the slice, or return `null` if the slice is empty.
+        pub fn pop(self: *Self) ?T {
+            if (self.len == 0) return null;
             const item = self.get(self.len - 1);
             self.len -= 1;
             return item;
-        }
-
-        /// Remove and return the last element from the slice, or
-        /// return `null` if the slice is empty.
-        pub fn popOrNull(self: *Self) ?T {
-            return if (self.len == 0) null else self.pop();
         }
 
         /// Return a slice of only the extra capacity after items.
@@ -229,7 +223,7 @@ pub fn BoundedArrayAligned(
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.len - 1;
-            if (newlen == i) return self.pop();
+            if (newlen == i) return self.pop().?;
             const old_item = self.get(i);
             for (self.slice()[i..newlen], 0..) |*b, j| b.* = self.get(i + 1 + j);
             self.set(newlen, undefined);
@@ -241,9 +235,9 @@ pub fn BoundedArrayAligned(
         /// The empty slot is filled from the end of the slice.
         /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.len - 1 == i) return self.pop();
+            if (self.len - 1 == i) return self.pop().?;
             const old_item = self.get(i);
-            self.set(i, self.pop());
+            self.set(i, self.pop().?);
             return old_item;
         }
 
@@ -339,8 +333,8 @@ test BoundedArray {
     try testing.expectEqual(a.pop(), 0xff);
 
     try a.resize(1);
-    try testing.expectEqual(a.popOrNull(), 0);
-    try testing.expectEqual(a.popOrNull(), null);
+    try testing.expectEqual(a.pop(), 0);
+    try testing.expectEqual(a.pop(), null);
     var unused = a.unusedCapacitySlice();
     @memset(unused[0..8], 2);
     unused[8] = 3;
@@ -397,7 +391,7 @@ test BoundedArray {
     try testing.expectEqual(added_slice.len, 3);
     try testing.expectEqual(a.len, 36);
 
-    while (a.popOrNull()) |_| {}
+    while (a.pop()) |_| {}
     const w = a.writer();
     const s = "hello, this is a test string";
     try w.writeAll(s);

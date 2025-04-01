@@ -179,8 +179,8 @@ test "load non byte-sized optional value" {
 }
 
 test "load non byte-sized value in struct" {
-    if (builtin.cpu.arch.endian() != .little) return error.SkipZigTest; // packed struct TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.endian() != .little) return error.SkipZigTest; // packed struct TODO
 
     // note: this bug is triggered by the == operator, expectEqual will hide it
     // using ptrCast not to depend on unitialised memory state
@@ -214,7 +214,6 @@ test "load non byte-sized value in union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 

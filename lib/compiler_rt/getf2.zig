@@ -19,12 +19,12 @@ comptime {
 
 /// "These functions return a value greater than or equal to zero if neither
 /// argument is NaN, and a is greater than or equal to b."
-fn __getf2(a: f128, b: f128) callconv(.C) i32 {
+fn __getf2(a: f128, b: f128) callconv(.c) i32 {
     return @intFromEnum(comparef.cmpf2(f128, comparef.GE, a, b));
 }
 
 /// "These functions return a value greater than zero if neither argument is NaN,
 /// and a is strictly greater than b."
-fn __gttf2(a: f128, b: f128) callconv(.C) i32 {
+fn __gttf2(a: f128, b: f128) callconv(.c) i32 {
     return __getf2(a, b);
 }

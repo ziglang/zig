@@ -551,7 +551,7 @@ pub const GotSection = struct {
             switch (entry.tag) {
                 .got => if (symbol.?.flags.import or symbol.?.isIFunc(elf_file) or
                     ((elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
-                    !symbol.?.isAbs(elf_file)))
+                        !symbol.?.isAbs(elf_file)))
                 {
                     num += 1;
                 },

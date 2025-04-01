@@ -24,7 +24,15 @@
 extern "C" {
 #endif
 
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma push_macro("_getcwd")
+#undef _getcwd
+#endif
 _CRTIMP char* __cdecl _getcwd (char*, int);
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma pop_macro("_getcwd")
+#endif
+
 #ifndef _FSIZE_T_DEFINED
   typedef unsigned long _fsize_t;
 #define _FSIZE_T_DEFINED
@@ -278,7 +286,14 @@ _CRTIMP char* __cdecl _getcwd (char*, int);
 #ifndef NO_OLDNAMES
 #ifndef _UWIN
   int __cdecl chdir (const char *) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma push_macro("getcwd")
+#undef getcwd
+#endif
   char *__cdecl getcwd (char *, int) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
+#if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
+#pragma pop_macro("getcwd")
+#endif
   int __cdecl mkdir (const char *) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
   char *__cdecl mktemp(char *) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
   int __cdecl rmdir (const char*) __MINGW_ATTRIB_DEPRECATED_MSVC2005;

@@ -316,6 +316,7 @@
           <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
           <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
+          <a href="https://ziglang.org/documentation/0.14.0/">0.14.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -381,7 +382,7 @@
       In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
       type of <code>main</code> because no errors are returned from the function.
       </p>
-      {#see_also|Values|Tuples|@import|Errors|Root Source File|Source Encoding|try#}
+      {#see_also|Values|Tuples|@import|Errors|Entry Point|Source Encoding|try#}
       {#header_close#}
       {#header_open|Comments#}
       <p>
@@ -823,7 +824,7 @@
         <kbd>zig test</kbd> is a tool that creates and runs a test build. By default, it builds and runs an
         executable program using the <em>default test runner</em> provided by the {#link|Zig Standard Library#}
         as its main entry point. During the build, {#syntax#}test{#endsyntax#} declarations found while
-        {#link|resolving|Root Source File#} the given Zig source file are included for the default test runner
+        {#link|resolving|File and Declaration Discovery#} the given Zig source file are included for the default test runner
         to run and report on.
       </p>
       <aside>
@@ -1049,12 +1050,12 @@
       {#header_close#}
       {#header_open|Runtime Integer Values#}
       <p>
-      Integer literals have no size limitation, and if any undefined behavior occurs,
+      Integer literals have no size limitation, and if any Illegal Behavior occurs,
       the compiler catches it.
       </p>
       <p>
       However, once an integer value is no longer known at compile-time, it must have a
-      known size, and is vulnerable to undefined behavior.
+      known size, and is vulnerable to safety-checked {#link|Illegal Behavior#}.
       </p>
       {#code|runtime_vs_comptime.zig#}
 
@@ -1064,7 +1065,7 @@
       {#link|Division by Zero#}.
       </p>
       <p>
-      Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
+      Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause {#link|Illegal Behavior#} on
       integer overflow. Alternative operators are provided for wrapping and saturating arithmetic on all targets.
       {#syntax#}+%{#endsyntax#} and {#syntax#}-%{#endsyntax#} perform wrapping arithmetic
       while {#syntax#}+|{#endsyntax#} and {#syntax#}-|{#endsyntax#} perform saturating arithmetic.
@@ -2029,7 +2030,7 @@ or
       </p>
       <p>
         Slices have bounds checking and are therefore protected
-        against this kind of undefined behavior. This is one reason
+        against this kind of Illegal Behavior. This is one reason
         we prefer slices to pointers.
       </p>
       {#code|test_slice_bounds.zig#}
@@ -2048,7 +2049,7 @@ or
 
       <p>
       {#link|@ptrCast#} converts a pointer's element type to another. This
-      creates a new pointer that can cause undetectable illegal behavior
+      creates a new pointer that can cause undetectable Illegal Behavior
       depending on the loads and stores that pass through it. Generally, other
       kinds of type conversions are preferable to
       {#syntax#}@ptrCast{#endsyntax#} if possible.
@@ -2164,7 +2165,7 @@ or
 
       <p>
       Sentinel-terminated slicing asserts that the element in the sentinel position of the backing data is
-      actually the sentinel value. If this is not the case, safety-protected {#link|Undefined Behavior#} results.
+      actually the sentinel value. If this is not the case, safety-checked {#link|Illegal Behavior#} results.
       </p>
       {#code|test_sentinel_mismatch.zig#}
 
@@ -2425,7 +2426,7 @@ or
       or use an {#link|extern union#} or a {#link|packed union#} which have
       guaranteed in-memory layout.
       {#link|Accessing the non-active field|Wrong Union Field Access#} is
-      safety-checked {#link|Undefined Behavior#}:
+      safety-checked {#link|Illegal Behavior#}:
       </p>
       {#code|test_wrong_union_access.zig#}
 
@@ -2937,8 +2938,7 @@ or
       </p>
       {#header_open|The Global Error Set#}
       <p>{#syntax#}anyerror{#endsyntax#} refers to the global error set.
-      This is the error set that contains all errors in the entire compilation unit.
-      It is a superset of all other error sets and a subset of none of them.
+      This is the error set that contains all errors in the entire compilation unit, i.e. it is the union of all other error sets.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} any error set to the global one, and you can explicitly
@@ -3024,11 +3024,11 @@ or
       {#syntax#}const number = parseU64("1234", 10) catch unreachable;{#endsyntax#}
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
-      {#syntax#}unreachable{#endsyntax#} value on the right hand side. {#syntax#}unreachable{#endsyntax#} generates
-      a panic in {#link|Debug#} and {#link|ReleaseSafe#} modes and undefined behavior in
-      {#link|ReleaseFast#} and {#link|ReleaseSmall#} modes. So, while we're debugging the
-      application, if there <em>was</em> a surprise error here, the application would crash
-      appropriately.
+      {#syntax#}unreachable{#endsyntax#} value on the right hand side.
+      {#syntax#}unreachable{#endsyntax#} invokes safety-checked {#link|Illegal Behavior#}, so
+      in {#link|Debug#} and {#link|ReleaseSafe#}, triggers a safety panic by default. So, while
+      we're debugging the application, if there <em>was</em> a surprise error here, the application
+      would crash appropriately.
       </p>
       <p>
       You may want to take a different action for every situation. For that, we combine
@@ -3679,22 +3679,22 @@ void do_a_thing(struct Foo *foo) {
           <tr>
             <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
             <td>{#syntax#}T{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "0"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
             <td>{#syntax#}T{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "0"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
@@ -4035,7 +4035,7 @@ fn performFn(start_value: i32) i32 {
       </p>
       <p>
       Luckily, we used an unsigned integer, and so when we tried to subtract 1 from 0, it triggered
-      undefined behavior, which is always a compile error if the compiler knows it happened.
+      {#link|Illegal Behavior#}, which is always a compile error if the compiler knows it happened.
       But what would have happened if we used a signed integer?
       </p>
       {#code|fibonacci_comptime_infinite_recursion.zig#}
@@ -4240,7 +4240,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       </p>
       <p>
       Failure to declare the full set of clobbers for a given inline assembly
-      expression is unchecked {#link|Undefined Behavior#}.
+      expression is unchecked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -4806,7 +4806,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       Attempting to convert an integer with no corresponding value in the enum invokes
-      safety-checked {#link|Undefined Behavior#}.
+      safety-checked {#link|Illegal Behavior#}.
       Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
       integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all
       the remaining unnamed integers in the enum's tag type.
@@ -4825,7 +4825,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       Attempting to convert an integer that does not correspond to any error results in
-      safety-protected {#link|Undefined Behavior#}.
+      safety-checked {#link|Illegal Behavior#}.
       </p>
       {#see_also|@intFromError#}
       {#header_close#}
@@ -4857,7 +4857,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Converts an error set or error union value from one error set to another error set. The return type is the
 			inferred result type. Attempting to convert an error which is not in the destination error
-			set results in safety-protected {#link|Undefined Behavior#}.
+			set results in safety-checked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -4908,7 +4908,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@fieldParentPtr#}
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
-      Given a pointer to a field, returns the base pointer of a struct.
+      Given a pointer to a struct field, returns a pointer to the struct containing that field.
+      The return type (and struct in question) is the inferred result type.
+      </p>
+      <p>
+      If {#syntax#}field_ptr{#endsyntax#} does not point to the {#syntax#}field_name{#endsyntax#} field of an instance of
+      the result type, and the result type has ill-defined layout, invokes unchecked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -5025,7 +5030,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer to another integer while keeping the same numerical value.
 			The return type is the inferred result type.
       Attempting to convert a number which is out of range of the destination type results in
-      safety-protected {#link|Undefined Behavior#}.
+      safety-checked {#link|Illegal Behavior#}.
       </p>
       {#code|test_intCast_builtin.zig#}
 
@@ -5086,7 +5091,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       If the integer part of the floating point number cannot fit in the destination type,
-      it invokes safety-checked {#link|Undefined Behavior#}.
+      it invokes safety-checked {#link|Illegal Behavior#}.
       </p>
       {#see_also|@floatFromInt#}
       {#header_close#}
@@ -5120,9 +5125,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
         an array, or a many-item {#link|pointer|Pointers#}. It may
         have any alignment, and it may have any element type.</p>
-      <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
-        into the {#syntax#}dest{#endsyntax#} element type. The element types may have
-        different ABI size, however, that may incur a performance penalty.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must have the same in-memory
+        representation as the {#syntax#}dest{#endsyntax#} element type.</p>
       <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
         {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
         they must be equal.</p>
@@ -5219,7 +5223,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>From library code, calling the programmer's panic function if they exposed one in the root source file.</li>
         <li>When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.</li>
       </ul>
-      {#see_also|Root Source File#}
+      {#see_also|Panic Handler#}
       {#header_close#}
 
       {#header_open|@popCount#}
@@ -5247,7 +5251,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       The {#syntax#}ptr{#endsyntax#} argument may be any pointer type and determines the memory
       address to prefetch. This function does not dereference the pointer, it is perfectly legal
-      to pass a pointer to invalid memory to this function and no illegal behavior will result.
+      to pass a pointer to invalid memory to this function and no Illegal Behavior will result.
       </p>
       <p>{#syntax#}PrefetchOptions{#endsyntax#} can be found with {#syntax#}@import("std").builtin.PrefetchOptions{#endsyntax#}.</p>
       {#header_close#}
@@ -5259,7 +5263,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
-      to a non-optional pointer invokes safety-checked {#link|Undefined Behavior#}.
+      to a non-optional pointer invokes safety-checked {#link|Illegal Behavior#}.
       </p>
       <p>
       {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
@@ -5283,7 +5287,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
-      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
+      is zero, this invokes safety-checked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -5358,8 +5362,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>
             {#syntax#}Optimized{#endsyntax#} - Floating point operations may do all of the following:
           <ul>
-            <li>Assume the arguments and result are not NaN. Optimizations are required to retain defined behavior over NaNs, but the value of the result is undefined.</li>
-            <li>Assume the arguments and result are not +/-Inf. Optimizations are required to retain defined behavior over +/-Inf, but the value of the result is undefined.</li>
+            <li>Assume the arguments and result are not NaN. Optimizations are required to retain legal behavior over NaNs, but the value of the result is undefined.</li>
+            <li>Assume the arguments and result are not +/-Inf. Optimizations are required to retain legal behavior over +/-Inf, but the value of the result is undefined.</li>
             <li>Treat the sign of a zero argument or result as insignificant.</li>
             <li>Use the reciprocal of an argument rather than perform division.</li>
             <li>Perform floating-point contraction (e.g. fusing a multiply followed by an addition into a fused multiply-add).</li>
@@ -5398,7 +5402,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} is undefined behavior.
+      This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} triggers safety-checked {#link|Illegal Behavior#}.
       </p>
       <p>
       {#syntax#}comptime_int{#endsyntax#} is modeled as an integer with an infinite number of bits,
@@ -5415,7 +5419,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(@TypeOf(a)).int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).int.bits{#endsyntax#} is undefined behavior.
+      This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).int.bits{#endsyntax#} triggers safety-checked {#link|Illegal Behavior#}.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -5428,7 +5432,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} is undefined behavior.
+      This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} triggers safety-checked {#link|Illegal Behavior#}.
       </p>
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
@@ -5494,8 +5498,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}.
-      The return type and thus the length of the vector is inferred.
+      Produces an array or vector where each element is the value
+      {#syntax#}scalar{#endsyntax#}. The return type and thus the length of the
+      vector is inferred.
       </p>
       {#code|test_splat_builtin.zig#}
 
@@ -5703,7 +5708,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>
-      Converts an enum value or union value to a string literal representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
+      Converts an enum value or union value to a string literal representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Illegal Behavior#}.
       </p>
       {#header_close#}
 
@@ -5940,7 +5945,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>Reproducible build</li>
       </ul>
       {#header_close#}
-      {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
+      {#see_also|Compile Variables|Zig Build System|Illegal Behavior#}
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
@@ -5955,20 +5960,36 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </ul>
       {#header_close#}
 
-      {#header_open|Undefined Behavior#}
+      {#header_open|Illegal Behavior#}
       <p>
-      Zig has many instances of undefined behavior. If undefined behavior is
-      detected at compile-time, Zig emits a compile error and refuses to continue.
-      Most undefined behavior that cannot be detected at compile-time can be detected
-      at runtime. In these cases, Zig has safety checks. Safety checks can be disabled
-      on a per-block basis with {#link|@setRuntimeSafety#}. The {#link|ReleaseFast#}
-      and {#link|ReleaseSmall#} build modes disable all safety checks (except where overridden
-      by {#link|@setRuntimeSafety#}) in order to facilitate optimizations.
+      Many operations in Zig trigger what is known as "Illegal Behavior" (IB). If Illegal Behavior is detected at
+      compile-time, Zig emits a compile error and refuses to continue. Otherwise, when Illegal Behavior is not caught
+      at compile-time, it falls into one of two categories.
       </p>
       <p>
-      When a safety check fails, Zig crashes with a stack trace, like this:
+      Some Illegal Behavior is <em>safety-checked</em>: this means that the compiler will insert "safety checks"
+      anywhere that the Illegal Behavior may occur at runtime, to determine whether it is about to happen. If it
+      is, the safety check "fails", which triggers a panic.
       </p>
-      {#code|test_undefined_behavior.zig#}
+      <p>
+      All other Illegal Behavior is <em>unchecked</em>, meaning the compiler is unable to insert safety checks for
+      it. If Unchecked Illegal Behavior is invoked at runtime, anything can happen: usually that will be some kind of
+      crash, but the optimizer is free to make Unchecked Illegal Behavior do anything, such as calling arbitrary functions
+      or clobbering arbitrary data. This is similar to the concept of "undefined behavior" in some other languages. Note that
+      Unchecked Illegal Behavior still always results in a compile error if evaluated at {#link|comptime#}, because the Zig
+      compiler is able to perform more sophisticated checks at compile-time than at runtime.
+      </p>
+      <p>
+      Most Illegal Behavior is safety-checked. However, to facilitate optimizations, safety checks are disabled by default
+      in the {#link|ReleaseFast#} and {#link|ReleaseSmall#} optimization modes. Safety checks can also be enabled or disabled
+      on a per-block basis, overriding the default for the current optimization mode, using {#link|@setRuntimeSafety#}. When
+      safety checks are disabled, Safety-Checked Illegal Behavior behaves like Unchecked Illegal Behavior; that is, any behavior
+      may result from invoking it.
+      </p>
+      <p>
+      When a safety check fails, Zig's default panic handler crashes with a stack trace, like this:
+      </p>
+      {#code|test_illegal_behavior.zig#}
 
       {#header_open|Reaching Unreachable Code#}
       <p>At compile-time:</p>
@@ -6334,7 +6355,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       {#syntax#}var{#endsyntax#} declarations inside functions are stored in the function's stack frame. Once a function returns,
       any {#link|Pointers#} to variables in the function's stack frame become invalid references, and
-      dereferencing them becomes unchecked {#link|Undefined Behavior#}.
+      dereferencing them becomes unchecked {#link|Illegal Behavior#}.
       </p>
       <p>
       {#syntax#}var{#endsyntax#} declarations at the top level or in {#link|struct#} declarations are stored in the global
@@ -6442,7 +6463,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       The API documentation for functions and data structures should take great care to explain
       the ownership and lifetime semantics of pointers. Ownership determines whose responsibility it
       is to free the memory referenced by the pointer, and lifetime determines the point at which
-      the memory becomes inaccessible (lest {#link|Undefined Behavior#} occur).
+      the memory becomes inaccessible (lest {#link|Illegal Behavior#} occur).
       </p>
       {#header_close#}
 
@@ -6461,14 +6482,155 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#builtin#}
       {#see_also|Build Mode#}
       {#header_close#}
-      {#header_open|Root Source File#}
-      <p>TODO: explain how root source file finds other files</p>
-      <p>TODO: pub fn main</p>
-      <p>TODO: pub fn panic</p>
-      <p>TODO: if linking with libc you can use export fn main</p>
-      <p>TODO: order independent top level declarations</p>
-      <p>TODO: lazy analysis</p>
-      <p>TODO: using comptime { _ = @import() }</p>
+      {#header_open|Compilation Model#}
+      <p>
+      A Zig compilation is separated into <em>modules</em>. Each module is a collection of Zig source files,
+      one of which is the module's <em>root source file</em>. Each module can <em>depend</em> on any number of
+      other modules, forming a directed graph (dependency loops between modules are allowed). If module A
+      depends on module B, then any Zig source file in module A can import the <em>root source file</em> of
+      module B using {#syntax#}@import{#endsyntax#} with the module's name. In essence, a module acts as an
+      alias to import a Zig source file (which might exist in a completely separate part of the filesystem).
+      </p>
+      <p>
+      A simple Zig program compiled with <code>zig build-exe</code> has two key modules: the one containing your
+      code, known as the "main" or "root" module, and the standard library. Your module <em>depends on</em>
+      the standard library module under the name "std", which is what allows you to write
+      {#syntax#}@import("std"){#endsyntax#}! In fact, every single module in a Zig compilation &mdash; including
+      the standard library itself &mdash; implicitly depends on the standard library module under the name "std".
+      </p>
+      <p>
+      The "root module" (the one provided by you in the <code>zig build-exe</code> example) has a special
+      property. Like the standard library, it is implicitly made available to all modules (including itself),
+      this time under the name "root". So, {#syntax#}@import("root"){#endsyntax#} will always be equivalent to
+      {#syntax#}@import{#endsyntax#} of your "main" source file (often, but not necessarily, named
+      <code>main.zig</code>).
+      </p>
+      {#header_open|Source File Structs#}
+      <p>
+      Every Zig source file is implicitly a {#syntax#}struct{#endsyntax#} declaration; you can imagine that
+      the file's contents are literally surrounded by {#syntax#}struct { ... }{#endsyntax#}. This means that
+      as well as declarations, the top level of a file is permitted to contain fields:
+      </p>
+      {#code|TopLevelFields.zig#}
+      <p>
+      Such files can be instantiated just like any other {#syntax#}struct{#endsyntax#} type. A file's "root
+      struct type" can be referred to within that file using {#link|@This#}.
+      </p>
+      {#header_close#}
+      {#header_open|File and Declaration Discovery#}
+      <p>
+      Zig places importance on the concept of whether any piece of code is <em>semantically analyzed</em>; in
+      essence, whether the compiler "looks at" it. What code is analyzed is based on what files and
+      declarations are "discovered" from a certain point. This process of "discovery" is based on a simple set
+      of recursive rules:
+      </p>
+      <ul>
+        <li>If a call to {#syntax#}@import{#endsyntax#} is analyzed, the file being imported is analyzed.</li>
+        <li>If a type (including a file) is analyzed, all {#syntax#}comptime{#endsyntax#}, {#syntax#}usingnamespace{#endsyntax#}, and {#syntax#}export{#endsyntax#} declarations within it are analyzed.</li>
+        <li>If a type (including a file) is analyzed, and the compilation is for a {#link|test|Zig Test#}, and the module the type is within is the root module of the compilation, then all {#syntax#}test{#endsyntax#} declarations within it are also analyzed.</li>
+        <li>If a reference to a named declaration (i.e. a usage of it) is analyzed, the declaration being referenced is analyzed. Declarations are order-independent, so this reference may be above or below the declaration being referenced, or even in another file entirely.</li>
+      </ul>
+      <p>
+      That's it! Those rules define how Zig files and declarations are discovered. All that remains is to
+      understand where this process <em>starts</em>.
+      </p>
+      <p>
+      The answer to that is the root of the standard library: every Zig compilation begins by analyzing the
+      file <code>lib/std/std.zig</code>. This file contains a {#syntax#}comptime{#endsyntax#} declaration
+      which imports {#syntax#}lib/std/start.zig{#endsyntax#}, and that file in turn uses
+      {#syntax#}@import("root"){#endsyntax#} to reference the "root module"; so, the file you provide as your
+      main module's root source file is effectively also a root, because the standard library will always
+      reference it.
+      </p>
+      <p>
+      It is often desirable to make sure that certain declarations &mdash; particularly {#syntax#}test{#endsyntax#}
+      or {#syntax#}export{#endsyntax#} declarations &mdash; are discovered. Based on the above rules, a common
+      strategy for this is to use {#syntax#}@import{#endsyntax#} within a {#syntax#}comptime{#endsyntax#} or
+      {#syntax#}test{#endsyntax#} block:
+      </p>
+      {#syntax_block|zig|force_file_discovery.zig#}
+comptime {
+    // This will ensure that the file 'api.zig' is always discovered (as long as this file is discovered).
+    // It is useful if 'api.zig' contains important exported declarations.
+    _ = @import("api.zig");
+
+    // We could also have a file which contains declarations we only want to export depending on a comptime
+    // condition. In that case, we can use an `if` statement here:
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows_api.zig");
+    }
+}
+
+test {
+    // This will ensure that the file 'tests.zig' is always discovered (as long as this file is discovered),
+    // if this compilation is a test. It is useful if 'tests.zig' contains tests we want to ensure are run.
+    _ = @import("tests.zig");
+
+    // We could also have a file which contains tests we only want to run depending on a comptime condition.
+    // In that case, we can use an `if` statement here:
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows_tests.zig");
+    }
+}
+
+const builtin = @import("builtin");
+      {#end_syntax_block#}
+      {#header_close#}
+      {#header_open|Special Root Declarations#}
+      <p>
+      Because the root module's root source file is always accessible using
+      {#syntax#}@import("root"){#endsyntax#}, is is sometimes used by libraries &mdash; including the Zig Standard
+      Library &mdash; as a place for the program to expose some "global" information to that library. The Zig
+      Standard Library will look for several declarations in this file.
+      </p>
+      {#header_open|Entry Point#}
+      <p>
+      When building an executable, the most important thing to be looked up in this file is the program's
+      <em>entry point</em>. Most commonly, this is a function named {#syntax#}main{#endsyntax#}, which
+      {#syntax#}std.start{#endsyntax#} will call just after performing important initialization work.
+      </p>
+      <p>
+      Alternatively, the presence of a declaration named {#syntax#}_start{#endsyntax#} (for instance,
+      {#syntax#}pub const _start = {};{#endsyntax#}) will disable the default {#syntax#}std.start{#endsyntax#}
+      logic, allowing your root source file to export a low-level entry point as needed.
+      </p>
+      {#code|entry_point.zig#}
+      <p>
+      If the Zig compilation links libc, the {#syntax#}main{#endsyntax#} function can optionally be an
+      {#syntax#}export fn{#endsyntax#} which matches the signature of the C <code>main</code> function:
+      </p>
+      {#code|libc_export_entry_point.zig#}
+      <p>
+      {#syntax#}std.start{#endsyntax#} may also use other entry point declarations in certain situations, such
+      as {#syntax#}wWinMain{#endsyntax#} or {#syntax#}EfiMain{#endsyntax#}. Refer to the
+      {#syntax#}lib/std/start.zig{#endsyntax#} logic for details of these declarations.
+      </p>
+      {#header_close#}
+      {#header_open|Standard Library Options#}
+      <p>
+      The standard library also looks for a declaration in the root module's root source file named
+      {#syntax#}std_options{#endsyntax#}. If present, this declaration is expected to be a struct of type
+      {#syntax#}std.Options{#endsyntax#}, and allows the program to customize some standard library
+      functionality, such as the {#syntax#}std.log{#endsyntax#} implementation.
+      </p>
+      {#code|std_options.zig#}
+      {#header_close#}
+      {#header_open|Panic Handler#}
+      <p>
+      The Zig Standard Library looks for a declaration named {#syntax#}panic{#endsyntax#} in the root module's
+      root source file. If present, it is expected to be a namespace (container type) with declarations
+      providing different panic handlers.
+      </p>
+      <p>
+      See {#syntax#}std.debug.simple_panic{#endsyntax#} for a basic implementation of this namespace.
+      </p>
+      <p>
+      Overriding how the panic handler actually outputs messages, but keeping the formatted safety panics
+      which are enabled by default, can be easily achieved with {#syntax#}std.debug.FullPanic{#endsyntax#}:
+      </p>
+      {#code|panic_handler.zig#}
+      {#header_close#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Zig Build System#}
       <p>
@@ -6730,10 +6892,10 @@ int foo(void) {
         <li>Supports all the syntax of the other two pointer types ({#syntax#}*T{#endsyntax#}) and ({#syntax#}[*]T{#endsyntax#}).</li>
         <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
             When a C pointer is coerced to a non-optional pointer, safety-checked
-            {#link|Undefined Behavior#} occurs if the address is 0.
+            {#link|Illegal Behavior#} occurs if the address is 0.
         </li>
         <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
-            {#link|Undefined Behavior#}. Optional C pointers introduce another bit to keep track of
+            {#link|Illegal Behavior#}. Optional C pointers introduce another bit to keep track of
             null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
             is unnecessary as one can use normal {#link|Optional Pointers#}.
         </li>
@@ -7048,8 +7210,8 @@ fn readU32Be() u32 {}
       <ul>
         <li>Omit any information that is redundant based on the name of the thing being documented.</li>
         <li>Duplicating information onto multiple similar functions is encouraged because it helps IDEs and other tools provide better help text.</li>
-        <li>Use the word <strong>assume</strong> to indicate invariants that cause {#link|Undefined Behavior#} when violated.</li>
-        <li>Use the word <strong>assert</strong> to indicate invariants that cause <em>safety-checked</em> {#link|Undefined Behavior#} when violated.</li>
+        <li>Use the word <strong>assume</strong> to indicate invariants that cause <em>unchecked</em> {#link|Illegal Behavior#} when violated.</li>
+        <li>Use the word <strong>assert</strong> to indicate invariants that cause <em>safety-checked</em> {#link|Illegal Behavior#} when violated.</li>
       </ul>
       {#header_close#}
       {#header_close#}
@@ -7445,8 +7607,8 @@ fn readU32Be() u32 {}
             In particular, inside a {#syntax#}nosuspend{#endsyntax#} scope:
             <ul>
               <li>Using the {#syntax#}suspend{#endsyntax#} keyword results in a compile error.</li>
-              <li>Using {#syntax#}await{#endsyntax#} on a function frame which hasn't completed yet results in safety-checked {#link|Undefined Behavior#}.</li>
-              <li>Calling an async function may result in safety-checked {#link|Undefined Behavior#}, because it's equivalent to <code>await async some_async_fn()</code>, which contains an {#syntax#}await{#endsyntax#}.</li>
+              <li>Using {#syntax#}await{#endsyntax#} on a function frame which hasn't completed yet results in safety-checked {#link|Illegal Behavior#}.</li>
+              <li>Calling an async function may result in safety-checked {#link|Illegal Behavior#}, because it's equivalent to <code>await async some_async_fn()</code>, which contains an {#syntax#}await{#endsyntax#}.</li>
             </ul>
             Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
             <ul>

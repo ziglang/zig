@@ -23,7 +23,7 @@ fn cWriterWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!u
         .FBIG => return error.FileTooBig,
         .IO => return error.InputOutput,
         .NOSPC => return error.NoSpaceLeft,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .PIPE => return error.BrokenPipe,
         else => |err| return std.posix.unexpectedErrno(err),
     }

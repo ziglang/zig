@@ -11,10 +11,10 @@ comptime {
     }
 }
 
-fn __adddf3(a: f64, b: f64) callconv(.C) f64 {
+fn __adddf3(a: f64, b: f64) callconv(.c) f64 {
     return addf3(f64, a, b);
 }
 
-fn __aeabi_dadd(a: f64, b: f64) callconv(.AAPCS) f64 {
+fn __aeabi_dadd(a: f64, b: f64) callconv(.{ .arm_aapcs = .{} }) f64 {
     return addf3(f64, a, b);
 }

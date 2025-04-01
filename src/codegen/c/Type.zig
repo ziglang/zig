@@ -728,6 +728,14 @@ pub const Kind = enum {
             .global => .global,
         };
     }
+
+    pub fn asComplete(kind: Kind) Kind {
+        return switch (kind) {
+            .forward, .complete => .complete,
+            .forward_parameter, .parameter => .parameter,
+            .global => .global,
+        };
+    }
 };
 
 pub const Info = union(enum) {
@@ -750,12 +758,12 @@ pub const Info = union(enum) {
         fn tag(pointer_info: Pointer) Pool.Tag {
             return @enumFromInt(@intFromEnum(Pool.Tag.pointer) +
                 @as(u2, @bitCast(packed struct(u2) {
-                @"const": bool,
-                @"volatile": bool,
-            }{
-                .@"const" = pointer_info.@"const",
-                .@"volatile" = pointer_info.@"volatile",
-            })));
+                    @"const": bool,
+                    @"volatile": bool,
+                }{
+                    .@"const" = pointer_info.@"const",
+                    .@"volatile" = pointer_info.@"volatile",
+                })));
         }
     };
 
@@ -879,24 +887,24 @@ pub const Info = union(enum) {
                 pool_adapter.eql(lhs_vector_info.elem_ctype, rhs_info.vector.elem_ctype),
             .fwd_decl => |lhs_fwd_decl_info| lhs_fwd_decl_info.tag == rhs_info.fwd_decl.tag and
                 switch (lhs_fwd_decl_info.name) {
-                .anon => |lhs_anon| rhs_info.fwd_decl.name == .anon and lhs_anon.eqlAdapted(
-                    lhs_pool,
-                    rhs_info.fwd_decl.name.anon,
-                    rhs_pool,
-                    pool_adapter,
-                ),
-                .index => |lhs_index| rhs_info.fwd_decl.name == .index and
-                    lhs_index == rhs_info.fwd_decl.name.index,
-            },
+                    .anon => |lhs_anon| rhs_info.fwd_decl.name == .anon and lhs_anon.eqlAdapted(
+                        lhs_pool,
+                        rhs_info.fwd_decl.name.anon,
+                        rhs_pool,
+                        pool_adapter,
+                    ),
+                    .index => |lhs_index| rhs_info.fwd_decl.name == .index and
+                        lhs_index == rhs_info.fwd_decl.name.index,
+                },
             .aggregate => |lhs_aggregate_info| lhs_aggregate_info.tag == rhs_info.aggregate.tag and
                 lhs_aggregate_info.@"packed" == rhs_info.aggregate.@"packed" and
                 switch (lhs_aggregate_info.name) {
-                .anon => |lhs_anon| rhs_info.aggregate.name == .anon and
-                    lhs_anon.index == rhs_info.aggregate.name.anon.index and
-                    lhs_anon.id == rhs_info.aggregate.name.anon.id,
-                .fwd_decl => |lhs_fwd_decl| rhs_info.aggregate.name == .fwd_decl and
-                    pool_adapter.eql(lhs_fwd_decl, rhs_info.aggregate.name.fwd_decl),
-            } and lhs_aggregate_info.fields.eqlAdapted(
+                    .anon => |lhs_anon| rhs_info.aggregate.name == .anon and
+                        lhs_anon.index == rhs_info.aggregate.name.anon.index and
+                        lhs_anon.id == rhs_info.aggregate.name.anon.id,
+                    .fwd_decl => |lhs_fwd_decl| rhs_info.aggregate.name == .fwd_decl and
+                        pool_adapter.eql(lhs_fwd_decl, rhs_info.aggregate.name.fwd_decl),
+                } and lhs_aggregate_info.fields.eqlAdapted(
                 lhs_pool,
                 rhs_info.aggregate.fields,
                 rhs_pool,
@@ -905,13 +913,12 @@ pub const Info = union(enum) {
             .function => |lhs_function_info| lhs_function_info.param_ctypes.len ==
                 rhs_info.function.param_ctypes.len and
                 pool_adapter.eql(lhs_function_info.return_ctype, rhs_info.function.return_ctype) and
-                for (0..lhs_function_info.param_ctypes.len) |param_index|
-            {
-                if (!pool_adapter.eql(
-                    lhs_function_info.param_ctypes.at(param_index, lhs_pool),
-                    rhs_info.function.param_ctypes.at(param_index, rhs_pool),
-                )) break false;
-            } else true,
+                for (0..lhs_function_info.param_ctypes.len) |param_index| {
+                    if (!pool_adapter.eql(
+                        lhs_function_info.param_ctypes.at(param_index, lhs_pool),
+                        rhs_info.function.param_ctypes.at(param_index, rhs_pool),
+                    )) break false;
+                } else true,
         };
     }
 };
@@ -1467,6 +1474,66 @@ pub const Pool = struct {
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
+            .vector_1_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 1,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_2_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_16_u8_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
@@ -1707,6 +1774,21 @@ pub const Pool = struct {
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
+            .vector_2_f32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f32,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_4_f32_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .f32,
@@ -1872,7 +1954,7 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
                     if (elem_ctype.index == .void) return .void;
                     const array_ctype = try pool.getArray(allocator, .{
@@ -1898,7 +1980,7 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
                     if (elem_ctype.index == .void) return .void;
                     const vector_ctype = try pool.getVector(allocator, .{
@@ -2278,13 +2360,13 @@ pub const Pool = struct {
                     const return_type = Type.fromInterned(func_info.return_type);
                     const return_ctype: CType =
                         if (!ip.isNoReturn(func_info.return_type)) try pool.fromType(
-                        allocator,
-                        scratch,
-                        return_type,
-                        pt,
-                        mod,
-                        kind.asParameter(),
-                    ) else .void;
+                            allocator,
+                            scratch,
+                            return_type,
+                            pt,
+                            mod,
+                            kind.asParameter(),
+                        ) else .void;
                     for (0..func_info.param_types.len) |param_index| {
                         const param_type = Type.fromInterned(
                             func_info.param_types.get(ip)[param_index],

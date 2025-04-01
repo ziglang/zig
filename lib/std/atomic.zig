@@ -482,7 +482,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
 ///
 /// https://en.wikipedia.org/wiki/False_sharing
 /// https://github.com/golang/go/search?q=CacheLinePadSize
-pub const cache_line = cacheLineForCpu(builtin.cpu);
+pub const cache_line: comptime_int = cacheLineForCpu(builtin.cpu);
 
 test "current CPU has a cache line size" {
     _ = cache_line;

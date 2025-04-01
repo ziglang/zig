@@ -6,7 +6,7 @@ const log = std.log.scoped(.codegen);
 const math = std.math;
 const DW = std.dwarf;
 
-const Builder = @import("llvm/Builder.zig");
+const Builder = std.zig.llvm.Builder;
 const llvm = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
@@ -98,11 +98,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable, // Gated by hasLlvmSupport().
-
     };
 
     try llvm_triple.appendSlice(llvm_arch);
@@ -267,7 +264,12 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .eabihf => "eabihf",
         .android => "android",
         .androideabi => "androideabi",
-        .musl => "musl",
+        .musl => switch (target.os.tag) {
+            // For WASI/Emscripten, "musl" refers to the libc, not really the ABI.
+            // "unknown" provides better compatibility with LLVM-based tooling for these targets.
+            .wasi, .emscripten => "unknown",
+            else => "musl",
+        },
         .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
         .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
@@ -311,467 +313,178 @@ pub fn supportsTailCall(target: std.Target) bool {
     }
 }
 
-const DataLayoutBuilder = struct {
-    target: std.Target,
+pub fn dataLayout(target: std.Target) []const u8 {
+    // These data layouts should match Clang.
+    return switch (target.cpu.arch) {
+        .arc => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-i64:32-f64:32-a:0:32-n32",
+        .xcore => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32-f64:32-a:0:32-n32",
+        .hexagon => "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048",
+        .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
+        .aarch64 => if (target.ofmt == .macho)
+            if (target.os.tag == .windows)
+                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+            else if (target.abi == .ilp32)
+                "e-m:o-p:32:32-i64:64-i128:128-n32:64-S128-Fn32"
+            else
+                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+        else if (target.os.tag == .windows)
+            "e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
+        else
+            "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .aarch64_be => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .arm => if (target.ofmt == .macho)
+            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .armeb, .thumbeb => if (target.ofmt == .macho)
+            "E-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "E-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .thumb => if (target.ofmt == .macho)
+            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else if (target.os.tag == .windows)
+            "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+        else
+            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+        .avr => "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8",
+        .bpfeb => "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .bpfel => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .msp430 => "e-m:e-p:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n8:16-S16",
+        .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+        .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+        .mips64 => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            else => "E-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+        },
+        .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+            else => "e-m:e-i8:8:32-i16:16:32-i64:64-n32:64-S128",
+        },
+        .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
+        .powerpc => if (target.os.tag == .aix)
+            "E-m:a-p:32:32-Fi32-i64:64-n32"
+        else
+            "E-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpc64 => switch (target.os.tag) {
+            .aix => "E-m:a-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .linux => if (target.abi.isMusl())
+                "E-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+            else
+                "E-m:e-Fi64-i64:64-n32:64-S128-v256:256:256-v512:512:512",
+            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-n32:64",
+            else => if (target.os.tag == .openbsd or
+                (target.os.tag == .freebsd and target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false))
+                "E-m:e-Fn32-i64:64-n32:64"
+            else
+                "E-m:e-Fi64-i64:64-n32:64",
+        },
+        .powerpc64le => if (target.os.tag == .linux)
+            "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+        else
+            "e-m:e-Fn32-i64:64-n32:64",
+        .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+        .riscv32 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+            "e-m:e-p:32:32-i64:64-n32-S32"
+        else
+            "e-m:e-p:32:32-i64:64-n32-S128",
+        .riscv64 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+        else
+            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .sparc => "E-m:e-p:32:32-i64:64-f128:64-n32-S64",
+        .sparc64 => "E-m:e-i64:64-n32:64-S128",
+        .s390x => if (target.os.tag == .zos)
+            "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
+        else
+            "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
+        .x86 => switch (target.os.tag) {
+            .elfiamcu => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:32-f64:32-f128:32-n8:16:32-a:0:32-S32",
+            .windows => switch (target.abi) {
+                .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+                .gnu => if (target.ofmt == .coff)
+                    "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                else
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+                else => blk: {
+                    const msvc = switch (target.abi) {
+                        .none, .msvc => true,
+                        else => false,
+                    };
 
-    pub fn format(
-        self: DataLayoutBuilder,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeByte(switch (self.target.cpu.arch.endian()) {
-            .little => 'e',
-            .big => 'E',
-        });
-        switch (self.target.cpu.arch) {
-            .amdgcn,
-            .nvptx,
-            .nvptx64,
-            => {},
-            .avr => try writer.writeAll("-P1"),
-            else => try writer.print("-m:{c}", .{@as(u8, switch (self.target.cpu.arch) {
-                .mips, .mipsel => 'm', // Mips mangling: Private symbols get a $ prefix.
-                else => switch (self.target.ofmt) {
-                    .elf => 'e', // ELF mangling: Private symbols get a `.L` prefix.
-                    //.goff => 'l', // GOFF mangling: Private symbols get a `@` prefix.
-                    .macho => 'o', // Mach-O mangling: Private symbols get `L` prefix.
-                    // Other symbols get a `_` prefix.
-                    .coff => switch (self.target.os.tag) {
-                        .uefi, .windows => switch (self.target.cpu.arch) {
-                            .x86 => 'x', // Windows x86 COFF mangling: Private symbols get the usual
-                            // prefix. Regular C symbols get a `_` prefix. Functions with `__stdcall`,
-                            //`__fastcall`, and `__vectorcall` have custom mangling that appends `@N`
-                            // where N is the number of bytes used to pass parameters. C++ symbols
-                            // starting with `?` are not mangled in any way.
-                            else => 'w', // Windows COFF mangling: Similar to x, except that normal C
-                            // symbols do not receive a `_` prefix.
-                        },
-                        else => 'e',
-                    },
-                    //.xcoff => 'a', // XCOFF mangling: Private symbols get a `L..` prefix.
-                    else => 'e',
+                    break :blk if (target.ofmt == .coff)
+                        if (msvc)
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                        else
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                    else if (msvc)
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                    else
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
                 },
-            })}),
-        }
-        const stack_abi = self.target.stackAlignment() * 8;
-        if (self.target.cpu.arch == .csky) try writer.print("-S{d}", .{stack_abi});
-        var any_non_integral = false;
-        const ptr_bit_width = self.target.ptrBitWidth();
-        var default_info = struct { size: u16, abi: u16, pref: u16, idx: u16 }{
-            .size = 64,
-            .abi = 64,
-            .pref = 64,
-            .idx = 64,
-        };
-        const addr_space_info = llvmAddrSpaceInfo(self.target);
-        for (addr_space_info, 0..) |info, i| {
-            assert((info.llvm == .default) == (i == 0));
-            if (info.non_integral) {
-                assert(info.llvm != .default);
-                any_non_integral = true;
-            }
-            const size = info.size orelse ptr_bit_width;
-            const abi = info.abi orelse ptr_bit_width;
-            const pref = info.pref orelse abi;
-            const idx = info.idx orelse size;
-            const matches_default =
-                size == default_info.size and
-                abi == default_info.abi and
-                pref == default_info.pref and
-                idx == default_info.idx;
-            if (info.llvm == .default) default_info = .{
-                .size = size,
-                .abi = abi,
-                .pref = pref,
-                .idx = idx,
-            };
-            if (!info.force_in_data_layout and matches_default and
-                self.target.cpu.arch != .riscv64 and
-                self.target.cpu.arch != .loongarch64 and
-                !(self.target.cpu.arch == .aarch64 and
-                (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
-                self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
-            try writer.writeAll("-p");
-            if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
-            try writer.print(":{d}:{d}", .{ size, abi });
-            if (pref != abi or idx != size or self.target.cpu.arch == .hexagon) {
-                try writer.print(":{d}", .{pref});
-                if (idx != size) try writer.print(":{d}", .{idx});
-            }
-        }
-        if (self.target.cpu.arch.isArm())
-            try writer.writeAll("-Fi8") // for thumb interwork
-        else if (self.target.cpu.arch == .powerpc64 and
-            self.target.os.tag != .freebsd and
-            self.target.os.tag != .openbsd and
-            !self.target.abi.isMusl())
-            try writer.writeAll("-Fi64")
-        else if (self.target.cpu.arch.isPowerPC() and self.target.os.tag == .aix)
-            try writer.writeAll(if (self.target.cpu.arch.isPowerPC64()) "-Fi64" else "-Fi32")
-        else if (self.target.cpu.arch.isPowerPC())
-            try writer.writeAll("-Fn32");
-        if (self.target.cpu.arch != .hexagon) {
-            if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
-                try self.typeAlignment(.integer, 1, 8, 8, false, writer);
-            try self.typeAlignment(.integer, 8, 8, 8, false, writer);
-            try self.typeAlignment(.integer, 16, 16, 16, false, writer);
-            try self.typeAlignment(.integer, 32, 32, 32, false, writer);
-            if (self.target.cpu.arch == .arc)
-                try self.typeAlignment(.float, 32, 32, 32, false, writer);
-            try self.typeAlignment(.integer, 64, 32, 64, false, writer);
-            try self.typeAlignment(.integer, 128, 32, 64, false, writer);
-            if (backendSupportsF16(self.target))
-                try self.typeAlignment(.float, 16, 16, 16, false, writer);
-            if (self.target.cpu.arch != .arc)
-                try self.typeAlignment(.float, 32, 32, 32, false, writer);
-            try self.typeAlignment(.float, 64, 64, 64, false, writer);
-            if (self.target.cpu.arch.isX86()) try self.typeAlignment(.float, 80, 0, 0, false, writer);
-            try self.typeAlignment(.float, 128, 128, 128, false, writer);
-        }
-        switch (self.target.cpu.arch) {
-            .amdgcn => {
-                try self.typeAlignment(.vector, 16, 16, 16, false, writer);
-                try self.typeAlignment(.vector, 24, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 32, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 48, 64, 64, false, writer);
-                try self.typeAlignment(.vector, 96, 128, 128, false, writer);
-                try self.typeAlignment(.vector, 192, 256, 256, false, writer);
-                try self.typeAlignment(.vector, 256, 256, 256, false, writer);
-                try self.typeAlignment(.vector, 512, 512, 512, false, writer);
-                try self.typeAlignment(.vector, 1024, 1024, 1024, false, writer);
-                try self.typeAlignment(.vector, 2048, 2048, 2048, false, writer);
             },
-            .ve => {},
-            else => {
-                try self.typeAlignment(.vector, 16, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 32, 32, 32, false, writer);
-                try self.typeAlignment(.vector, 64, 64, 64, false, writer);
-                try self.typeAlignment(.vector, 128, 128, 128, true, writer);
-            },
-        }
-        const swap_agg_nat = switch (self.target.cpu.arch) {
-            .x86, .x86_64 => switch (self.target.os.tag) {
-                .uefi, .windows => true,
-                else => false,
-            },
-            .avr, .m68k => true,
-            else => false,
-        };
-        if (!swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
-        if (self.target.cpu.arch == .csky) try writer.writeAll("-Fi32");
-        for (@as([]const u24, switch (self.target.cpu.arch) {
-            .avr => &.{8},
-            .msp430 => &.{ 8, 16 },
-            .arc,
-            .arm,
-            .armeb,
-            .csky,
-            .loongarch32,
-            .mips,
-            .mipsel,
-            .powerpc,
-            .powerpcle,
-            .riscv32,
-            .sparc,
-            .thumb,
-            .thumbeb,
-            .xtensa,
-            => &.{32},
-            .aarch64,
-            .aarch64_be,
-            .amdgcn,
-            .bpfeb,
-            .bpfel,
-            .loongarch64,
-            .mips64,
-            .mips64el,
-            .powerpc64,
-            .powerpc64le,
-            .riscv64,
-            .s390x,
-            .sparc64,
-            .ve,
-            .wasm32,
-            .wasm64,
-            => &.{ 32, 64 },
-            .hexagon => &.{ 16, 32 },
-            .m68k,
-            .x86,
-            => &.{ 8, 16, 32 },
-            .nvptx,
-            .nvptx64,
-            => &.{ 16, 32, 64 },
-            .x86_64 => &.{ 8, 16, 32, 64 },
-            else => &.{},
-        }), 0..) |natural, index| switch (index) {
-            0 => try writer.print("-n{d}", .{natural}),
-            else => try writer.print(":{d}", .{natural}),
-        };
-        if (swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
-        if (self.target.cpu.arch == .hexagon) {
-            try self.typeAlignment(.integer, 64, 64, 64, true, writer);
-            try self.typeAlignment(.integer, 32, 32, 32, true, writer);
-            try self.typeAlignment(.integer, 16, 16, 16, true, writer);
-            try self.typeAlignment(.integer, 1, 8, 8, true, writer);
-            try self.typeAlignment(.float, 32, 32, 32, true, writer);
-            try self.typeAlignment(.float, 64, 64, 64, true, writer);
-        }
-        if (stack_abi != ptr_bit_width or self.target.cpu.arch == .msp430 or
-            self.target.os.tag == .uefi or self.target.os.tag == .windows or
-            self.target.cpu.arch == .riscv32)
-            try writer.print("-S{d}", .{stack_abi});
-        if (self.target.cpu.arch.isAARCH64())
-            try writer.writeAll("-Fn32");
-        switch (self.target.cpu.arch) {
-            .hexagon, .ve => {
-                try self.typeAlignment(.vector, 32, 128, 128, true, writer);
-                try self.typeAlignment(.vector, 64, 128, 128, true, writer);
-                try self.typeAlignment(.vector, 128, 128, 128, true, writer);
-            },
-            else => {},
-        }
-        if (self.target.cpu.arch != .amdgcn) {
-            try self.typeAlignment(.vector, 256, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 512, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 1024, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 2048, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 4096, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 8192, 128, 128, true, writer);
-            try self.typeAlignment(.vector, 16384, 128, 128, true, writer);
-        }
-        const alloca_addr_space = llvmAllocaAddressSpace(self.target);
-        if (alloca_addr_space != .default) try writer.print("-A{d}", .{@intFromEnum(alloca_addr_space)});
-        const global_addr_space = llvmDefaultGlobalAddressSpace(self.target);
-        if (global_addr_space != .default) try writer.print("-G{d}", .{@intFromEnum(global_addr_space)});
-        if (any_non_integral) {
-            try writer.writeAll("-ni");
-            for (addr_space_info) |info| if (info.non_integral)
-                try writer.print(":{d}", .{@intFromEnum(info.llvm)});
-        }
-    }
+            else => if (target.ofmt == .macho)
+                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+            else
+                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
+        },
+        .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
+            "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+        else switch (target.abi) {
+            .gnux32, .muslx32 => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+            else => if (target.os.tag == .windows and target.ofmt == .coff)
+                "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+            else
+                "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        },
+        .spirv => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .spirv32 => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .wasm32 => if (target.os.tag == .emscripten)
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+        else
+            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+        .wasm64 => if (target.os.tag == .emscripten)
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-f128:64-n32:64-S128-ni:1:10:20"
+        else
+            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",
+        .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
+        .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
+        .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
+        .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
-    fn typeAlignment(
-        self: DataLayoutBuilder,
-        kind: enum { integer, vector, float, aggregate },
-        size: u24,
-        default_abi: u24,
-        default_pref: u24,
-        default_force_pref: bool,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        var abi = default_abi;
-        var pref = default_pref;
-        var force_abi = false;
-        var force_pref = default_force_pref;
-        if (kind == .float and size == 80) {
-            abi = 128;
-            pref = 128;
-        }
-        for (@as([]const std.Target.CType, switch (kind) {
-            .integer => &.{ .char, .short, .int, .long, .longlong },
-            .float => &.{ .float, .double, .longdouble },
-            .vector, .aggregate => &.{},
-        })) |cty| {
-            if (self.target.cTypeBitSize(cty) != size) continue;
-            abi = self.target.cTypeAlignment(cty) * 8;
-            pref = self.target.cTypePreferredAlignment(cty) * 8;
-            break;
-        }
-        switch (kind) {
-            .integer => {
-                if (self.target.ptrBitWidth() <= 16 and size >= 128) return;
-                abi = @min(abi, Type.maxIntAlignment(self.target) * 8);
-                switch (self.target.cpu.arch) {
-                    .aarch64,
-                    .aarch64_be,
-                    => if (size == 128) {
-                        abi = size;
-                        pref = size;
-                    } else switch (self.target.os.tag) {
-                        .macos, .ios, .watchos, .tvos, .visionos => {},
-                        .uefi, .windows => {
-                            pref = size;
-                            force_abi = size >= 32;
-                        },
-                        else => pref = @max(pref, 32),
-                    },
-                    .arc => if (size <= 64) {
-                        abi = @min((std.math.divCeil(u24, size, 8) catch unreachable) * 8, 32);
-                        pref = 32;
-                        force_abi = true;
-                        force_pref = size <= 32;
-                    },
-                    .bpfeb,
-                    .bpfel,
-                    .nvptx,
-                    .nvptx64,
-                    .riscv64,
-                    => if (size == 128) {
-                        abi = size;
-                        pref = size;
-                    },
-                    .csky => if (size == 32 or size == 64) {
-                        abi = 32;
-                        pref = 32;
-                        force_abi = true;
-                        force_pref = true;
-                    },
-                    .hexagon => force_abi = true,
-                    .m68k => if (size <= 32) {
-                        abi = @min(size, 16);
-                        pref = size;
-                        force_abi = true;
-                        force_pref = true;
-                    } else if (size == 64) {
-                        abi = 32;
-                        pref = size;
-                    },
-                    .mips,
-                    .mipsel,
-                    .mips64,
-                    .mips64el,
-                    => pref = @max(pref, 32),
-                    .s390x => pref = @max(pref, 16),
-                    .ve => if (size == 64) {
-                        abi = size;
-                        pref = size;
-                    },
-                    .xtensa => if (size <= 64) {
-                        pref = @max(size, 32);
-                        abi = size;
-                        force_abi = size == 64;
-                    },
-                    .x86 => switch (size) {
-                        128 => {
-                            abi = size;
-                            pref = size;
-                        },
-                        else => {},
-                    },
-                    .x86_64 => switch (size) {
-                        64, 128 => {
-                            abi = size;
-                            pref = size;
-                        },
-                        else => {},
-                    },
-                    .loongarch64 => switch (size) {
-                        128 => {
-                            abi = size;
-                            pref = size;
-                            force_abi = true;
-                        },
-                        else => {},
-                    },
-                    else => {},
-                }
-            },
-            .vector => if (self.target.cpu.arch.isArm()) {
-                switch (size) {
-                    128 => abi = 64,
-                    else => {},
-                }
-            } else if ((self.target.cpu.arch.isPowerPC64() and self.target.os.tag == .linux and
-                (size == 256 or size == 512)) or
-                (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
-            {
-                force_abi = true;
-                abi = size;
-                pref = size;
-            } else if (self.target.cpu.arch == .amdgcn and size <= 2048) {
-                force_abi = true;
-            } else if (self.target.cpu.arch == .csky and (size == 64 or size == 128)) {
-                abi = 32;
-                pref = 32;
-                force_pref = true;
-            } else if (self.target.cpu.arch == .hexagon and
-                ((size >= 32 and size <= 64) or (size >= 512 and size <= 2048)))
-            {
-                abi = size;
-                pref = size;
-                force_pref = true;
-            } else if (self.target.cpu.arch == .s390x and size == 128) {
-                abi = 64;
-                pref = 64;
-                force_pref = false;
-            } else if (self.target.cpu.arch == .ve and (size >= 64 and size <= 16384)) {
-                abi = 64;
-                pref = 64;
-                force_abi = true;
-                force_pref = true;
-            },
-            .float => switch (self.target.cpu.arch) {
-                .amdgcn => if (size == 128) {
-                    abi = size;
-                    pref = size;
-                },
-                .arc => if (size == 32 or size == 64) {
-                    abi = 32;
-                    pref = 32;
-                    force_abi = true;
-                    force_pref = size == 32;
-                },
-                .avr, .msp430, .sparc64 => if (size != 32 and size != 64) return,
-                .csky => if (size == 32 or size == 64) {
-                    abi = 32;
-                    pref = 32;
-                    force_abi = true;
-                    force_pref = true;
-                },
-                .hexagon => if (size == 32 or size == 64) {
-                    force_abi = true;
-                },
-                .ve, .xtensa => if (size == 64) {
-                    abi = size;
-                    pref = size;
-                },
-                .wasm32, .wasm64 => if (self.target.os.tag == .emscripten and size == 128) {
-                    abi = 64;
-                    pref = 64;
-                },
-                else => {},
-            },
-            .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isArm())
-            {
-                pref = @min(pref, self.target.ptrBitWidth());
-            } else switch (self.target.cpu.arch) {
-                .arc, .csky => {
-                    abi = 0;
-                    pref = 32;
-                },
-                .hexagon => {
-                    abi = 0;
-                    pref = 0;
-                },
-                .m68k => {
-                    abi = 0;
-                    pref = 16;
-                },
-                .msp430 => {
-                    abi = 8;
-                    pref = 8;
-                },
-                .s390x => {
-                    abi = 8;
-                    pref = 16;
-                },
-                else => {},
-            },
-        }
-        if (kind != .vector and self.target.cpu.arch == .avr) {
-            force_abi = true;
-            abi = 8;
-            pref = 8;
-        }
-        if (!force_abi and abi == default_abi and pref == default_pref) return;
-        try writer.print("-{c}", .{@tagName(kind)[0]});
-        if (size != 0) try writer.print("{d}", .{size});
-        try writer.print(":{d}", .{abi});
-        if (pref != abi or force_pref) try writer.print(":{d}", .{pref});
-    }
+        .kalimba,
+        .propeller,
+        => unreachable, // Gated by hasLlvmSupport().
+    };
+}
+
+// Avoid depending on `llvm.CodeModel` in the bitcode-only case.
+const CodeModel = enum {
+    default,
+    tiny,
+    small,
+    kernel,
+    medium,
+    large,
 };
+
+fn codeModel(model: std.builtin.CodeModel, target: std.Target) CodeModel {
+    // Roughly match Clang's mapping of GCC code models to LLVM code models.
+    return switch (model) {
+        .default => .default,
+        .extreme, .large => .large,
+        .kernel => .kernel,
+        .medany => if (target.cpu.arch.isRISCV()) .medium else .large,
+        .medium => if (target.os.tag == .aix) .large else .medium,
+        .medmid => .medium,
+        .normal, .medlow, .small => .small,
+        .tiny => .tiny,
+    };
+}
 
 pub const Object = struct {
     gpa: Allocator,
@@ -858,58 +571,57 @@ pub const Object = struct {
         });
         errdefer builder.deinit();
 
-        builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
+        builder.data_layout = try builder.string(dataLayout(target));
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
-            if (!builder.strip)
-        debug_info: {
-            // We fully resolve all paths at this point to avoid lack of
-            // source line info in stack traces or lack of debugging
-            // information which, if relative paths were used, would be
-            // very location dependent.
-            // TODO: the only concern I have with this is WASI as either host or target, should
-            // we leave the paths as relative then?
-            // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
-            // a particular directory, and then the directory path is specified elsewhere.
-            // In the compiler frontend we have it stored correctly in this
-            // way already, but here we throw all that sweet information
-            // into the garbage can by converting into absolute paths. What
-            // a terrible tragedy.
-            const compile_unit_dir = blk: {
-                if (comp.zcu) |zcu| m: {
-                    const d = try zcu.main_mod.root.joinString(arena, "");
-                    if (d.len == 0) break :m;
-                    if (std.fs.path.isAbsolute(d)) break :blk d;
-                    break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-                }
-                break :blk try std.process.getCwdAlloc(arena);
-            };
+            if (!builder.strip) debug_info: {
+                // We fully resolve all paths at this point to avoid lack of
+                // source line info in stack traces or lack of debugging
+                // information which, if relative paths were used, would be
+                // very location dependent.
+                // TODO: the only concern I have with this is WASI as either host or target, should
+                // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
+                const compile_unit_dir = blk: {
+                    if (comp.zcu) |zcu| m: {
+                        const d = try zcu.main_mod.root.joinString(arena, "");
+                        if (d.len == 0) break :m;
+                        if (std.fs.path.isAbsolute(d)) break :blk d;
+                        break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
+                    }
+                    break :blk try std.process.getCwdAlloc(arena);
+                };
 
-            const debug_file = try builder.debugFile(
-                try builder.metadataString(comp.root_name),
-                try builder.metadataString(compile_unit_dir),
-            );
+                const debug_file = try builder.debugFile(
+                    try builder.metadataString(comp.root_name),
+                    try builder.metadataString(compile_unit_dir),
+                );
 
-            const debug_enums_fwd_ref = try builder.debugForwardReference();
-            const debug_globals_fwd_ref = try builder.debugForwardReference();
+                const debug_enums_fwd_ref = try builder.debugForwardReference();
+                const debug_globals_fwd_ref = try builder.debugForwardReference();
 
-            const debug_compile_unit = try builder.debugCompileUnit(
-                debug_file,
-                // Don't use the version string here; LLVM misparses it when it
-                // includes the git revision.
-                try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
-                    build_options.semver.major,
-                    build_options.semver.minor,
-                    build_options.semver.patch,
-                }),
-                debug_enums_fwd_ref,
-                debug_globals_fwd_ref,
-                .{ .optimized = comp.root_mod.optimize_mode != .Debug },
-            );
+                const debug_compile_unit = try builder.debugCompileUnit(
+                    debug_file,
+                    // Don't use the version string here; LLVM misparses it when it
+                    // includes the git revision.
+                    try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
+                        build_options.semver.major,
+                        build_options.semver.minor,
+                        build_options.semver.patch,
+                    }),
+                    debug_enums_fwd_ref,
+                    debug_globals_fwd_ref,
+                    .{ .optimized = comp.root_mod.optimize_mode != .Debug },
+                );
 
-            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-            break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-        } else .{.none} ** 3;
+                try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+                break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
+            } else .{.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -1138,14 +850,17 @@ pub const Object = struct {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_error,
                     try o.builder.metadataString("Code Model"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
-                        .tiny => 0,
-                        .small => 1,
-                        .kernel => 2,
-                        .medium => 3,
-                        .large => 4,
-                        else => unreachable,
-                    }))),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(
+                        i32,
+                        switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
+                            .default => unreachable,
+                            .tiny => 0,
+                            .small => 1,
+                            .kernel => 2,
+                            .medium => 3,
+                            .large => 4,
+                        },
+                    ))),
                 ));
             }
 
@@ -1219,7 +934,10 @@ pub const Object = struct {
                 }
             }
 
-            const bitcode = try o.builder.toBitcode(o.gpa);
+            const bitcode = try o.builder.toBitcode(o.gpa, .{
+                .name = "zig",
+                .version = build_options.semver,
+            });
             defer o.gpa.free(bitcode);
             o.builder.clearAndFree();
 
@@ -1294,7 +1012,7 @@ pub const Object = struct {
         else
             .Static;
 
-        const code_model: llvm.CodeModel = switch (comp.root_mod.code_model) {
+        const code_model: llvm.CodeModel = switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
             .default => .Default,
             .tiny => .Tiny,
             .small => .Small,
@@ -1303,7 +1021,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.abi.float() == .hard)
             .Hard
         else
             .Soft;
@@ -1335,7 +1053,6 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
@@ -1343,6 +1060,9 @@ pub const Object = struct {
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
             .bitcode_filename = null,
+
+            // `.coverage` value is only used when `.sancov` is enabled.
+            .sancov = options.fuzz or comp.config.san_cov_trace_pc_guard,
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
@@ -1350,7 +1070,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = options.fuzz,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
@@ -1446,6 +1166,19 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.optforfuzzing);
             try attributes.addFnAttr(.skipprofile, &o.builder);
             try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
+        }
+
+        const disable_intrinsics = func_analysis.disable_intrinsics or owner_mod.no_builtin;
+        if (disable_intrinsics) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -1751,6 +1484,7 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+            .disable_intrinsics = disable_intrinsics,
         };
         defer fg.deinit();
         deinit_wip = false;
@@ -2759,9 +2493,9 @@ pub const Object = struct {
 
                 const full_fields: [2]Builder.Metadata =
                     if (layout.tag_align.compare(.gte, layout.payload_align))
-                    .{ debug_tag_type, debug_payload_type }
-                else
-                    .{ debug_payload_type, debug_tag_type };
+                        .{ debug_tag_type, debug_payload_type }
+                    else
+                        .{ debug_payload_type, debug_tag_type };
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
@@ -2941,7 +2675,7 @@ pub const Object = struct {
             function_index.setLinkage(.internal, &o.builder);
             function_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         } else {
-            if (target.isWasm()) {
+            if (target.cpu.arch.isWasm()) {
                 try attributes.addFnAttr(.{ .string = .{
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(nav.name.toSlice(ip)),
@@ -3130,17 +2864,6 @@ pub const Object = struct {
                 &o.builder,
             );
         }
-        if (owner_mod.no_builtin) {
-            // The intent here is for compiler-rt and libc functions to not generate
-            // infinite recursion. For example, if we are compiling the memcpy function,
-            // and llvm detects that the body is equivalent to memcpy, it may replace the
-            // body of memcpy with a call to memcpy, which would then cause a stack
-            // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
-            } }, &o.builder);
-        }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
@@ -3158,7 +2881,7 @@ pub const Object = struct {
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
-        if (target.floatAbi() == .soft) {
+        if (target.abi.float() == .soft) {
             // `use-soft-float` means "use software routines for floating point computations". In
             // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
             // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
@@ -4551,11 +4274,11 @@ pub const Object = struct {
             // instruction is followed by a `wrap_optional`, it will return this value
             // verbatim, and the result should test as non-null.
             switch (zcu.getTarget().ptrBitWidth()) {
-            16 => 0xaaaa,
-            32 => 0xaaaaaaaa,
-            64 => 0xaaaaaaaa_aaaaaaaa,
-            else => unreachable,
-        };
+                16 => 0xaaaa,
+                32 => 0xaaaaaaaa,
+                64 => 0xaaaaaaaa_aaaaaaaa,
+                else => unreachable,
+            };
         const llvm_usize = try o.lowerType(Type.usize);
         const llvm_ptr_ty = try o.lowerType(ptr_ty);
         return o.builder.castConst(.inttoptr, try o.builder.intConst(llvm_usize, int), llvm_ptr_ty);
@@ -4832,7 +4555,7 @@ pub const NavGen = struct {
             const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                     if (lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
@@ -4918,6 +4641,8 @@ pub const FuncGen = struct {
     switch_dispatch_info: std.AutoHashMapUnmanaged(Air.Inst.Index, SwitchDispatchInfo),
 
     sync_scope: Builder.SyncScope,
+
+    disable_intrinsics: bool,
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
@@ -5154,7 +4879,6 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .int_from_bool  => try self.airIntFromBool(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -5162,11 +4886,11 @@ pub const FuncGen = struct {
                 .try_cold       => try self.airTry(body[i..], true),
                 .try_ptr        => try self.airTryPtr(inst, false),
                 .try_ptr_cold   => try self.airTryPtr(inst, true),
-                .intcast        => try self.airIntCast(inst),
+                .intcast        => try self.airIntCast(inst, false),
+                .intcast_safe   => try self.airIntCast(inst, true),
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
@@ -5445,7 +5169,7 @@ pub const FuncGen = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        if (self.ng.ownerModule().no_builtin) {
+        if (self.disable_intrinsics) {
             try attributes.addFnAttr(.nobuiltin, &o.builder);
         }
 
@@ -5772,6 +5496,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    self.disable_intrinsics,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5822,6 +5547,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
+                self.disable_intrinsics,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -5903,7 +5629,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -5914,7 +5640,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{src_list.typeOfWip(&self.wip)}, &.{src_list}, "");
         return .none;
     }
 
@@ -5928,7 +5654,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -6570,7 +6296,7 @@ pub const FuncGen = struct {
             // Workaround for:
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
-            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+            if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -9246,20 +8972,110 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
+    fn airIntCast(fg: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
+        const o = fg.ng.object;
         const zcu = o.pt.zcu;
-        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const dest_ty = self.typeOfIndex(inst);
+        const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+        const dest_ty = fg.typeOfIndex(inst);
         const dest_llvm_ty = try o.lowerType(dest_ty);
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_ty = self.typeOf(ty_op.operand);
+        const operand = try fg.resolveInst(ty_op.operand);
+        const operand_ty = fg.typeOf(ty_op.operand);
         const operand_info = operand_ty.intInfo(zcu);
 
-        return self.wip.conv(switch (operand_info.signedness) {
+        const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
+
+        safety: {
+            if (!safety) break :safety;
+            const dest_scalar = dest_ty.scalarType(zcu);
+            const operand_scalar = operand_ty.scalarType(zcu);
+
+            const dest_info = dest_ty.intInfo(zcu);
+
+            const have_min_check, const have_max_check = c: {
+                const dest_pos_bits = dest_info.bits - @intFromBool(dest_info.signedness == .signed);
+                const operand_pos_bits = operand_info.bits - @intFromBool(operand_info.signedness == .signed);
+
+                const dest_allows_neg = dest_info.signedness == .signed and dest_info.bits > 0;
+                const operand_maybe_neg = operand_info.signedness == .signed and operand_info.bits > 0;
+
+                break :c .{
+                    operand_maybe_neg and (!dest_allows_neg or dest_info.bits < operand_info.bits),
+                    dest_pos_bits < operand_pos_bits,
+                };
+            };
+
+            if (!have_min_check and !have_max_check) break :safety;
+
+            const operand_llvm_ty = try o.lowerType(operand_ty);
+            const operand_scalar_llvm_ty = try o.lowerType(operand_scalar);
+
+            const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+            assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
+
+            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
+                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
+                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
+                break :id .{ .cast_truncated_data, .cast_truncated_data };
+            };
+
+            if (have_min_check) {
+                const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const min_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, min_const_scalar) else min_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .gte, operand_ty, operand, min_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMinFail");
+                const ok_block = try fg.wip.block(1, "IntMinOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(min_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+
+            if (have_max_check) {
+                const max_const_scalar = try maxIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const max_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, max_const_scalar) else max_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .lte, operand_ty, operand, max_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMaxFail");
+                const ok_block = try fg.wip.block(1, "IntMaxOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(max_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+        }
+
+        const result = try fg.wip.conv(switch (operand_info.signedness) {
             .signed => .signed,
             .unsigned => .unsigned,
         }, operand, dest_llvm_ty, "");
+
+        if (safety and dest_is_enum and !dest_ty.isNonexhaustiveEnum(zcu)) {
+            const llvm_fn = try fg.getIsNamedEnumValueFunction(dest_ty);
+            const is_valid_enum_val = try fg.wip.call(
+                .normal,
+                .fastcc,
+                .none,
+                llvm_fn.typeOf(&o.builder),
+                llvm_fn.toValue(&o.builder),
+                &.{result},
+                "",
+            );
+            const fail_block = try fg.wip.block(1, "ValidEnumFail");
+            const ok_block = try fg.wip.block(1, "ValidEnumOk");
+            _ = try fg.wip.brCond(is_valid_enum_val, ok_block, fail_block, .none);
+            fg.wip.cursor = .{ .block = fail_block };
+            try fg.buildSimplePanic(.invalid_enum_value);
+            fg.wip.cursor = .{ .block = ok_block };
+        }
+
+        return result;
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9344,16 +9160,6 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        const ptr_ty = self.typeOf(un_op);
-        const operand_ptr = try self.sliceOrArrayPtr(operand, ptr_ty);
-        const dest_llvm_ty = try o.lowerType(self.typeOfIndex(inst));
-        return self.wip.cast(.ptrtoint, operand_ptr, dest_llvm_ty, "");
-    }
-
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9383,6 +9189,10 @@ pub const FuncGen = struct {
 
         if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
+        }
+
+        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+            return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
@@ -9459,7 +9269,7 @@ pub const FuncGen = struct {
 
         if (llvm_dest_ty.isStruct(&o.builder) or
             ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
-            operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
+                operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
         {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values or vectors with padding bits.
@@ -9471,12 +9281,6 @@ pub const FuncGen = struct {
         }
 
         return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
-    }
-
-    fn airIntFromBool(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        return operand;
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9657,6 +9461,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                self.disable_intrinsics,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -9725,7 +9530,7 @@ pub const FuncGen = struct {
         _ = inst;
         const o = self.ng.object;
         const llvm_usize = try o.lowerType(Type.usize);
-        if (!target_util.supportsReturnAddress(o.pt.zcu.getTarget())) {
+        if (!target_util.supportsReturnAddress(o.pt.zcu.getTarget(), self.ng.ownerModule().optimize_mode)) {
             // https://github.com/ziglang/zig/issues/11946
             return o.builder.intValue(llvm_usize, 0);
         }
@@ -9949,7 +9754,7 @@ pub const FuncGen = struct {
         // of the length. This means we need to emit a check where we skip the memset when the length
         // is 0 as we allow for undefined pointers in 0-sized slices.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.isWasm() and
+        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
             ptr_ty.isSlice(zcu) and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
 
@@ -9964,9 +9769,22 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
@@ -9983,9 +9801,22 @@ pub const FuncGen = struct {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.disable_intrinsics,
+                    );
                 }
                 return .none;
             }
@@ -10000,9 +9831,22 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                try self.safeWasmMemset(
+                    dest_ptr,
+                    fill_byte,
+                    len,
+                    dest_ptr_align,
+                    access_kind,
+                );
             } else {
-                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.disable_intrinsics,
+                );
             }
             return .none;
         }
@@ -10054,6 +9898,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
+                self.disable_intrinsics,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10081,7 +9926,14 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+        _ = try self.wip.callMemSet(
+            dest_ptr,
+            dest_ptr_align,
+            fill_byte,
+            len,
+            access_kind,
+            self.disable_intrinsics,
+        );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -10106,7 +9958,7 @@ pub const FuncGen = struct {
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
         // We only have to do this for slices as arrays will have a valid pointer.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.isWasm() and
+        if (o.target.cpu.arch.isWasm() and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
             dest_ptr_ty.isSlice(zcu))
         {
@@ -10123,6 +9975,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
+                self.disable_intrinsics,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10136,6 +9989,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
+            self.disable_intrinsics,
         );
         return .none;
     }
@@ -11269,6 +11123,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
+            fg.disable_intrinsics,
         );
         return result_ptr;
     }
@@ -11436,6 +11291,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
+            self.disable_intrinsics,
         );
     }
 
@@ -11691,16 +11547,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .x86_interrupt => .x86_intrcc,
         .aarch64_vfabi => .aarch64_vector_pcs,
         .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
-        .arm_apcs => .arm_apcscc,
         .arm_aapcs => .arm_aapcscc,
-        .arm_aapcs_vfp => if (target.os.tag != .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
-        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
+        .arm_aapcs_vfp => .arm_aapcs_vfpcc,
         .riscv64_lp64_v => .riscv_vectorcallcc,
         .riscv32_ilp32_v => .riscv_vectorcallcc,
         .avr_builtin => .avr_builtincc,
@@ -11744,7 +11592,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .powerpc_sysv_altivec,
         .powerpc_aix,
         .powerpc_aix_altivec,
-        .wasm_watc,
+        .wasm_mvp,
         .arc_sysv,
         .avr_gnu,
         .bpf_std,
@@ -11757,8 +11605,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
-        .propeller1_sysv,
-        .propeller2_sysv,
+        .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
         .ve_sysv,
@@ -11922,12 +11769,12 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
-        .wasm_watc => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -11942,7 +11789,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
 }
 
 fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: std.Target) bool {
-    const class = x86_64_abi.classifySystemV(ty, zcu, target, .ret);
+    const class = x86_64_abi.classifySystemV(ty, zcu, &target, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
     return false;
@@ -11977,7 +11824,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12007,7 +11854,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                 return o.builder.structType(.normal, types[0..types_len]);
             },
         },
-        .wasm_watc => {
+        .wasm_mvp => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
             }
@@ -12052,7 +11899,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
         return o.lowerType(return_type);
     }
     const target = zcu.getTarget();
-    const classes = x86_64_abi.classifySystemV(return_type, zcu, target, .ret);
+    const classes = x86_64_abi.classifySystemV(return_type, zcu, &target, .ret);
     if (classes[0] == .memory) return .void;
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
@@ -12226,7 +12073,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
+            .arm_aapcs, .arm_aapcs_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
@@ -12272,7 +12119,7 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
-            .wasm_watc => {
+            .wasm_mvp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (isScalar(zcu, ty)) {
@@ -12330,7 +12177,7 @@ const ParamTypeIterator = struct {
         const zcu = it.object.pt.zcu;
         const ip = &zcu.intern_pool;
         const target = zcu.getTarget();
-        const classes = x86_64_abi.classifySystemV(ty, zcu, target, .arg);
+        const classes = x86_64_abi.classifySystemV(ty, zcu, &target, .arg);
         if (classes[0] == .memory) {
             it.zig_index += 1;
             it.llvm_index += 1;
@@ -12457,7 +12304,7 @@ fn ccAbiPromoteInt(
             else => null,
         },
         else => switch (target.cpu.arch) {
-            .riscv64 => switch (int_info.bits) {
+            .loongarch64, .riscv64 => switch (int_info.bits) {
                 0...16 => int_info.signedness,
                 32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
                 17...31, 33...63 => int_info.signedness,
@@ -12630,7 +12477,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12657,7 +12504,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12947,9 +12794,46 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable,
     }
+}
+
+fn minIntConst(b: *Builder, min_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = min_ty.intInfo(zcu);
+    if (info.signedness == .unsigned or info.bits == 0) {
+        return b.intConst(as_ty, 0);
+    }
+    if (std.math.cast(u6, info.bits - 1)) |shift| {
+        const min_val: i64 = @as(i64, std.math.minInt(i64)) >> (63 - shift);
+        return b.intConst(as_ty, min_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
+}
+
+fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = max_ty.intInfo(zcu);
+    switch (info.bits) {
+        0 => return b.intConst(as_ty, 0),
+        1 => switch (info.signedness) {
+            .signed => return b.intConst(as_ty, 0),
+            .unsigned => return b.intConst(as_ty, 1),
+        },
+        else => {},
+    }
+    const unsigned_bits = switch (info.signedness) {
+        .unsigned => info.bits,
+        .signed => info.bits - 1,
+    };
+    if (std.math.cast(u6, unsigned_bits)) |shift| {
+        const max_val: u64 = (@as(u64, 1) << shift) - 1;
+        return b.intConst(as_ty, max_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
 }

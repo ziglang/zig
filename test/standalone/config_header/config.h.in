@@ -1,0 +1,21 @@
+/* Some Comment */
+
+int foo();
+
+#undef SOME_NO
+#undef SOME_TRUE
+#undef SOME_FALSE
+#undef SOME_ZERO
+#undef SOME_ONE
+#undef SOME_TEN
+#undef SOME_ENUM
+#undef SOME_ENUM_LITERAL
+#undef SOME_STRING
+
+// Used twice
+#undef SOME_TRUE
+
+#undef PREFIX_SPACE
+#undef	PREFIX_TAB
+#undef POSTFIX_SPACE 
+#undef POSTFIX_TAB	

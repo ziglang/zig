@@ -3,6 +3,8 @@
 gpa: Allocator,
 tree: Ast,
 
+options: Options,
+
 nodes: std.MultiArrayList(Zoir.Node.Repr),
 extra: std.ArrayListUnmanaged(u32),
 limbs: std.ArrayListUnmanaged(std.math.big.Limb),
@@ -12,12 +14,21 @@ string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.d
 compile_errors: std.ArrayListUnmanaged(Zoir.CompileError),
 error_notes: std.ArrayListUnmanaged(Zoir.CompileError.Note),
 
-pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zoir {
+pub const Options = struct {
+    /// When false, string literals are not parsed. `string_literal` nodes will contain empty
+    /// strings, and errors that normally occur during string parsing will not be raised.
+    ///
+    /// `parseStrLit` and `strLitSizeHint` may be used to parse string literals after the fact.
+    parse_str_lits: bool = true,
+};
+
+pub fn generate(gpa: Allocator, tree: Ast, options: Options) Allocator.Error!Zoir {
     assert(tree.mode == .zon);
 
     var zg: ZonGen = .{
         .gpa = gpa,
         .tree = tree,
+        .options = options,
         .nodes = .empty,
         .extra = .empty,
         .limbs = .empty,
@@ -37,7 +48,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zoir {
     }
 
     if (tree.errors.len == 0) {
-        const root_ast_node = tree.nodes.items(.data)[0].lhs;
+        const root_ast_node = tree.rootDecls()[0];
         try zg.nodes.append(gpa, undefined); // index 0; root node
         try zg.expr(root_ast_node, .root);
     } else {
@@ -86,11 +97,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zoir {
 fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator.Error!void {
     const gpa = zg.gpa;
     const tree = zg.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
 
-    switch (node_tags[node]) {
+    switch (tree.nodeTag(node)) {
         .root => unreachable,
         .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
@@ -162,7 +170,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .bool_not,
         .bit_not,
         .negation_wrap,
-        => try zg.addErrorTok(main_tokens[node], "operator '{s}' is not allowed in ZON", .{tree.tokenSlice(main_tokens[node])}),
+        => try zg.addErrorTok(tree.nodeMainToken(node), "operator '{s}' is not allowed in ZON", .{tree.tokenSlice(tree.nodeMainToken(node))}),
 
         .error_union,
         .merge_error_sets,
@@ -240,17 +248,27 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .slice_sentinel,
         => try zg.addErrorNode(node, "slice operator is not allowed in ZON", .{}),
 
-        .deref, .address_of => try zg.addErrorTok(main_tokens[node], "pointers are not available in ZON", .{}),
-        .unwrap_optional => try zg.addErrorTok(main_tokens[node], "optionals are not available in ZON", .{}),
+        .deref, .address_of => try zg.addErrorTok(tree.nodeMainToken(node), "pointers are not available in ZON", .{}),
+        .unwrap_optional => try zg.addErrorTok(tree.nodeMainToken(node), "optionals are not available in ZON", .{}),
         .error_value => try zg.addErrorNode(node, "errors are not available in ZON", .{}),
 
-        .array_access => try zg.addErrorTok(node, "array indexing is not allowed in ZON", .{}),
+        .array_access => try zg.addErrorNode(node, "array indexing is not allowed in ZON", .{}),
 
         .block_two,
         .block_two_semicolon,
         .block,
         .block_semicolon,
-        => try zg.addErrorNode(node, "blocks are not allowed in ZON", .{}),
+        => {
+            var buffer: [2]Ast.Node.Index = undefined;
+            const statements = tree.blockStatements(&buffer, node).?;
+            if (statements.len == 0) {
+                try zg.addErrorNodeNotes(node, "void literals are not available in ZON", .{}, &.{
+                    try zg.errNoteNode(node, "void union payloads can be represented by enum literals", .{}),
+                });
+            } else {
+                try zg.addErrorNode(node, "blocks are not allowed in ZON", .{});
+            }
+        },
 
         .array_init_one,
         .array_init_one_comma,
@@ -264,9 +282,9 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             var buf: [2]Ast.Node.Index = undefined;
 
             const type_node = if (tree.fullArrayInit(&buf, node)) |full|
-                full.ast.type_expr
+                full.ast.type_expr.unwrap().?
             else if (tree.fullStructInit(&buf, node)) |full|
-                full.ast.type_expr
+                full.ast.type_expr.unwrap().?
             else
                 unreachable;
 
@@ -276,18 +294,18 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         },
 
         .grouped_expression => {
-            try zg.addErrorTokNotes(main_tokens[node], "expression grouping is not allowed in ZON", .{}, &.{
-                try zg.errNoteTok(main_tokens[node], "these parentheses are always redundant", .{}),
+            try zg.addErrorTokNotes(tree.nodeMainToken(node), "expression grouping is not allowed in ZON", .{}, &.{
+                try zg.errNoteTok(tree.nodeMainToken(node), "these parentheses are always redundant", .{}),
             });
-            return zg.expr(node_datas[node].lhs, dest_node);
+            return zg.expr(tree.nodeData(node).node_and_token[0], dest_node);
         },
 
         .negation => {
-            const child_node = node_datas[node].lhs;
-            switch (node_tags[child_node]) {
+            const child_node = tree.nodeData(node).node;
+            switch (tree.nodeTag(child_node)) {
                 .number_literal => return zg.numberLiteral(child_node, node, dest_node, .negative),
                 .identifier => {
-                    const child_ident = tree.tokenSlice(main_tokens[child_node]);
+                    const child_ident = tree.tokenSlice(tree.nodeMainToken(child_node));
                     if (mem.eql(u8, child_ident, "inf")) {
                         zg.setNode(dest_node, .{
                             .tag = .neg_inf,
@@ -299,7 +317,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
                 },
                 else => {},
             }
-            try zg.addErrorTok(main_tokens[node], "expected number or 'inf' after '-'", .{});
+            try zg.addErrorTok(tree.nodeMainToken(node), "expected number or 'inf' after '-'", .{});
         },
         .number_literal => try zg.numberLiteral(node, node, dest_node, .positive),
         .char_literal => try zg.charLiteral(node, dest_node),
@@ -307,7 +325,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .identifier => try zg.identifier(node, dest_node),
 
         .enum_literal => {
-            const str_index = zg.identAsString(main_tokens[node]) catch |err| switch (err) {
+            const str_index = zg.identAsString(tree.nodeMainToken(node)) catch |err| switch (err) {
                 error.BadString => undefined, // doesn't matter, there's an error
                 error.OutOfMemory => |e| return e,
             };
@@ -345,7 +363,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullArrayInit(&buf, node).?;
             assert(full.ast.elements.len != 0); // Otherwise it would be a struct init
-            assert(full.ast.type_expr == 0); // The tag was `array_init_dot_*`
+            assert(full.ast.type_expr == .none); // The tag was `array_init_dot_*`
 
             const first_elem: u32 = @intCast(zg.nodes.len);
             try zg.nodes.resize(gpa, zg.nodes.len + full.ast.elements.len);
@@ -374,7 +392,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullStructInit(&buf, node).?;
-            assert(full.ast.type_expr == 0); // The tag was `struct_init_dot_*`
+            assert(full.ast.type_expr == .none); // The tag was `struct_init_dot_*`
 
             if (full.ast.fields.len == 0) {
                 zg.setNode(dest_node, .{
@@ -403,68 +421,58 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
                 .ast_node = node,
             });
 
+            // For short initializers, track the names on the stack rather than going through gpa.
+            var sfba_state = std.heap.stackFallback(256, gpa);
+            const sfba = sfba_state.get();
+            var field_names: std.AutoHashMapUnmanaged(Zoir.NullTerminatedString, Ast.TokenIndex) = .empty;
+            defer field_names.deinit(sfba);
+
+            var reported_any_duplicate = false;
+
             for (full.ast.fields, names_start.., first_elem..) |elem_node, extra_name_idx, elem_dest_node| {
                 const name_token = tree.firstToken(elem_node) - 2;
-                zg.extra.items[extra_name_idx] = @intFromEnum(zg.identAsString(name_token) catch |err| switch (err) {
-                    error.BadString => undefined, // doesn't matter, there's an error
+                if (zg.identAsString(name_token)) |name_str| {
+                    zg.extra.items[extra_name_idx] = @intFromEnum(name_str);
+                    const gop = try field_names.getOrPut(sfba, name_str);
+                    if (gop.found_existing and !reported_any_duplicate) {
+                        reported_any_duplicate = true;
+                        const earlier_token = gop.value_ptr.*;
+                        try zg.addErrorTokNotes(earlier_token, "duplicate struct field name", .{}, &.{
+                            try zg.errNoteTok(name_token, "duplicate name here", .{}),
+                        });
+                    }
+                    gop.value_ptr.* = name_token;
+                } else |err| switch (err) {
+                    error.BadString => {}, // there's an error, so it's fine to not populate `zg.extra`
                     error.OutOfMemory => |e| return e,
-                });
+                }
                 try zg.expr(elem_node, @enumFromInt(elem_dest_node));
             }
         },
     }
 }
 
-fn parseStrLit(zg: *ZonGen, token: Ast.TokenIndex, offset: u32) !u32 {
-    const raw_string = zg.tree.tokenSlice(token)[offset..];
-    const start = zg.string_bytes.items.len;
-    switch (try std.zig.string_literal.parseWrite(zg.string_bytes.writer(zg.gpa), raw_string)) {
-        .success => return @intCast(start),
-        .failure => |err| {
-            try zg.lowerStrLitError(err, token, raw_string, offset);
-            return error.BadString;
-        },
-    }
-}
-
-fn parseMultilineStrLit(zg: *ZonGen, node: Ast.Node.Index) !u32 {
-    const gpa = zg.gpa;
-    const tree = zg.tree;
-    const string_bytes = &zg.string_bytes;
-
-    const first_tok, const last_tok = bounds: {
-        const node_data = tree.nodes.items(.data)[node];
-        break :bounds .{ node_data.lhs, node_data.rhs };
-    };
-
-    const str_index: u32 = @intCast(string_bytes.items.len);
-
-    // First line: do not append a newline.
-    {
-        const line_bytes = tree.tokenSlice(first_tok)[2..];
-        try string_bytes.appendSlice(gpa, line_bytes);
-    }
-    // Following lines: each line prepends a newline.
-    for (first_tok + 1..last_tok + 1) |tok_idx| {
-        const line_bytes = tree.tokenSlice(@intCast(tok_idx))[2..];
-        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
-        string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
-    }
-
-    return @intCast(str_index);
-}
-
 fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) !u32 {
     const tree = zg.tree;
-    assert(tree.tokens.items(.tag)[ident_token] == .identifier);
+    assert(tree.tokenTag(ident_token) == .identifier);
     const ident_name = tree.tokenSlice(ident_token);
     if (!mem.startsWith(u8, ident_name, "@")) {
         const start = zg.string_bytes.items.len;
         try zg.string_bytes.appendSlice(zg.gpa, ident_name);
         return @intCast(start);
     } else {
-        const start = try zg.parseStrLit(ident_token, 1);
+        const offset = 1;
+        const start: u32 = @intCast(zg.string_bytes.items.len);
+        const raw_string = zg.tree.tokenSlice(ident_token)[offset..];
+        try zg.string_bytes.ensureUnusedCapacity(zg.gpa, raw_string.len);
+        switch (try std.zig.string_literal.parseWrite(zg.string_bytes.writer(zg.gpa), raw_string)) {
+            .success => {},
+            .failure => |err| {
+                try zg.lowerStrLitError(err, ident_token, raw_string, offset);
+                return error.BadString;
+            },
+        }
+
         const slice = zg.string_bytes.items[start..];
         if (mem.indexOfScalar(u8, slice, 0) != null) {
             try zg.addErrorTok(ident_token, "identifier cannot contain null bytes", .{});
@@ -477,19 +485,87 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) !u32 {
     }
 }
 
+/// Estimates the size of a string node without parsing it.
+pub fn strLitSizeHint(tree: Ast, node: Ast.Node.Index) usize {
+    switch (tree.nodeTag(node)) {
+        // Parsed string literals are typically around the size of the raw strings.
+        .string_literal => {
+            const token = tree.nodeMainToken(node);
+            const raw_string = tree.tokenSlice(token);
+            return raw_string.len;
+        },
+        // Multiline string literal lengths can be computed exactly.
+        .multiline_string_literal => {
+            const first_tok, const last_tok = tree.nodeData(node).token_and_token;
+
+            var size = tree.tokenSlice(first_tok)[2..].len;
+            for (first_tok + 1..last_tok + 1) |tok_idx| {
+                size += 1; // Newline
+                size += tree.tokenSlice(@intCast(tok_idx))[2..].len;
+            }
+            return size;
+        },
+        else => unreachable,
+    }
+}
+
+/// Parses the given node as a string literal.
+pub fn parseStrLit(
+    tree: Ast,
+    node: Ast.Node.Index,
+    writer: anytype,
+) error{OutOfMemory}!std.zig.string_literal.Result {
+    switch (tree.nodeTag(node)) {
+        .string_literal => {
+            const token = tree.nodeMainToken(node);
+            const raw_string = tree.tokenSlice(token);
+            return std.zig.string_literal.parseWrite(writer, raw_string);
+        },
+        .multiline_string_literal => {
+            const first_tok, const last_tok = tree.nodeData(node).token_and_token;
+
+            // First line: do not append a newline.
+            {
+                const line_bytes = tree.tokenSlice(first_tok)[2..];
+                try writer.writeAll(line_bytes);
+            }
+
+            // Following lines: each line prepends a newline.
+            for (first_tok + 1..last_tok + 1) |tok_idx| {
+                const line_bytes = tree.tokenSlice(@intCast(tok_idx))[2..];
+                try writer.writeByte('\n');
+                try writer.writeAll(line_bytes);
+            }
+
+            return .success;
+        },
+        // Node must represent a string
+        else => unreachable,
+    }
+}
+
 const StringLiteralResult = union(enum) {
     nts: Zoir.NullTerminatedString,
     slice: struct { start: u32, len: u32 },
 };
 
 fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) !StringLiteralResult {
+    if (!zg.options.parse_str_lits) return .{ .slice = .{ .start = 0, .len = 0 } };
+
     const gpa = zg.gpa;
     const string_bytes = &zg.string_bytes;
-    const str_index = switch (zg.tree.nodes.items(.tag)[str_node]) {
-        .string_literal => try zg.parseStrLit(zg.tree.nodes.items(.main_token)[str_node], 0),
-        .multiline_string_literal => try zg.parseMultilineStrLit(str_node),
-        else => unreachable,
-    };
+    const str_index: u32 = @intCast(zg.string_bytes.items.len);
+    const size_hint = strLitSizeHint(zg.tree, str_node);
+    try string_bytes.ensureUnusedCapacity(zg.gpa, size_hint);
+    switch (try parseStrLit(zg.tree, str_node, zg.string_bytes.writer(zg.gpa))) {
+        .success => {},
+        .failure => |err| {
+            const token = zg.tree.nodeMainToken(str_node);
+            const raw_string = zg.tree.tokenSlice(token);
+            try zg.lowerStrLitError(err, token, raw_string, 0);
+            return error.BadString;
+        },
+    }
     const key: []const u8 = string_bytes.items[str_index..];
     if (std.mem.indexOfScalar(u8, key, 0) != null) return .{ .slice = .{
         .start = str_index,
@@ -532,7 +608,7 @@ fn identAsString(zg: *ZonGen, ident_token: Ast.TokenIndex) !Zoir.NullTerminatedS
 
 fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index, dest_node: Zoir.Node.Index, sign: enum { negative, positive }) !void {
     const tree = zg.tree;
-    const num_token = tree.nodes.items(.main_token)[num_node];
+    const num_token = tree.nodeMainToken(num_node);
     const num_bytes = tree.tokenSlice(num_token);
 
     switch (std.zig.parseNumberLiteral(num_bytes)) {
@@ -540,7 +616,7 @@ fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index
             if (unsigned_num == 0 and sign == .negative) {
                 try zg.addErrorTokNotes(num_token, "integer literal '-0' is ambiguous", .{}, &.{
                     try zg.errNoteTok(num_token, "use '0' for an integer zero", .{}),
-                    try zg.errNoteTok(num_token, "use '-0.0' for a flaoting-point signed zero", .{}),
+                    try zg.errNoteTok(num_token, "use '-0.0' for a floating-point signed zero", .{}),
                 });
                 return;
             }
@@ -636,8 +712,8 @@ fn setBigIntLiteralNode(zg: *ZonGen, dest_node: Zoir.Node.Index, src_node: Ast.N
 
 fn charLiteral(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) !void {
     const tree = zg.tree;
-    assert(tree.nodes.items(.tag)[node] == .char_literal);
-    const main_token = tree.nodes.items(.main_token)[node];
+    assert(tree.nodeTag(node) == .char_literal);
+    const main_token = tree.nodeMainToken(node);
     const slice = tree.tokenSlice(main_token);
     switch (std.zig.parseCharLiteral(slice)) {
         .success => |codepoint| zg.setNode(dest_node, .{
@@ -651,8 +727,8 @@ fn charLiteral(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) !v
 
 fn identifier(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) !void {
     const tree = zg.tree;
-    assert(tree.nodes.items(.tag)[node] == .identifier);
-    const main_token = tree.nodes.items(.main_token)[node];
+    assert(tree.nodeTag(node) == .identifier);
+    const main_token = tree.nodeMainToken(node);
     const ident = tree.tokenSlice(main_token);
 
     const tag: Zoir.Node.Repr.Tag = t: {
@@ -679,8 +755,20 @@ fn setNode(zg: *ZonGen, dest: Zoir.Node.Index, repr: Zoir.Node.Repr) void {
     zg.nodes.set(@intFromEnum(dest), repr);
 }
 
-fn lowerStrLitError(zg: *ZonGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, raw_string: []const u8, offset: u32) Allocator.Error!void {
-    return err.lower(raw_string, offset, ZonGen.addErrorTokOff, .{ zg, token });
+fn lowerStrLitError(
+    zg: *ZonGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    raw_string: []const u8,
+    offset: u32,
+) Allocator.Error!void {
+    return ZonGen.addErrorTokOff(
+        zg,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn lowerNumberError(zg: *ZonGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) Allocator.Error!void {
@@ -723,8 +811,8 @@ fn errNoteNode(zg: *ZonGen, node: Ast.Node.Index, comptime format: []const u8, a
 
     return .{
         .msg = @enumFromInt(message_idx),
-        .token = Zoir.CompileError.invalid_token,
-        .node_or_offset = node,
+        .token = .none,
+        .node_or_offset = @intFromEnum(node),
     };
 }
 
@@ -736,33 +824,33 @@ fn errNoteTok(zg: *ZonGen, tok: Ast.TokenIndex, comptime format: []const u8, arg
 
     return .{
         .msg = @enumFromInt(message_idx),
-        .token = tok,
+        .token = .fromToken(tok),
         .node_or_offset = 0,
     };
 }
 
 fn addErrorNode(zg: *ZonGen, node: Ast.Node.Index, comptime format: []const u8, args: anytype) Allocator.Error!void {
-    return zg.addErrorInner(Zoir.CompileError.invalid_token, node, format, args, &.{});
+    return zg.addErrorInner(.none, @intFromEnum(node), format, args, &.{});
 }
 fn addErrorTok(zg: *ZonGen, tok: Ast.TokenIndex, comptime format: []const u8, args: anytype) Allocator.Error!void {
-    return zg.addErrorInner(tok, 0, format, args, &.{});
+    return zg.addErrorInner(.fromToken(tok), 0, format, args, &.{});
 }
 fn addErrorNodeNotes(zg: *ZonGen, node: Ast.Node.Index, comptime format: []const u8, args: anytype, notes: []const Zoir.CompileError.Note) Allocator.Error!void {
-    return zg.addErrorInner(Zoir.CompileError.invalid_token, node, format, args, notes);
+    return zg.addErrorInner(.none, @intFromEnum(node), format, args, notes);
 }
 fn addErrorTokNotes(zg: *ZonGen, tok: Ast.TokenIndex, comptime format: []const u8, args: anytype, notes: []const Zoir.CompileError.Note) Allocator.Error!void {
-    return zg.addErrorInner(tok, 0, format, args, notes);
+    return zg.addErrorInner(.fromToken(tok), 0, format, args, notes);
 }
 fn addErrorTokOff(zg: *ZonGen, tok: Ast.TokenIndex, offset: u32, comptime format: []const u8, args: anytype) Allocator.Error!void {
-    return zg.addErrorInner(tok, offset, format, args, &.{});
+    return zg.addErrorInner(.fromToken(tok), offset, format, args, &.{});
 }
 fn addErrorTokNotesOff(zg: *ZonGen, tok: Ast.TokenIndex, offset: u32, comptime format: []const u8, args: anytype, notes: []const Zoir.CompileError.Note) Allocator.Error!void {
-    return zg.addErrorInner(tok, offset, format, args, notes);
+    return zg.addErrorInner(.fromToken(tok), offset, format, args, notes);
 }
 
 fn addErrorInner(
     zg: *ZonGen,
-    token: Ast.TokenIndex,
+    token: Ast.OptionalTokenIndex,
     node_or_offset: u32,
     comptime format: []const u8,
     args: anytype,

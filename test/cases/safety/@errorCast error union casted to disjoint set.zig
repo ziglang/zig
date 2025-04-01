@@ -16,5 +16,5 @@ fn foo() anyerror!i32 {
     return error.Bar;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

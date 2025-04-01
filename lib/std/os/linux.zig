@@ -305,6 +305,13 @@ pub const MAP = switch (native_arch) {
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
+pub const MREMAP = packed struct(u32) {
+    MAYMOVE: bool = false,
+    FIXED: bool = false,
+    DONTUNMAP: bool = false,
+    _: u29 = 0,
+};
+
 pub const O = switch (native_arch) {
     .x86_64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -475,22 +482,22 @@ pub const O = switch (native_arch) {
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
+/// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
     .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
 };
 
-comptime {
-    const root = @import("root");
-    // Export this only when building executable, otherwise it is overriding
-    // the libc implementation
-    if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
-        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
-    }
-}
-
 pub const getauxval = if (extern_getauxval) struct {
+    comptime {
+        const root = @import("root");
+        // Export this only when building an executable, otherwise it is overriding
+        // the libc implementation
+        if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+            @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        }
+    }
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
@@ -608,11 +615,11 @@ pub inline fn vfork() usize {
     return @call(.always_inline, syscall0, .{.vfork});
 }
 
-pub fn futimens(fd: i32, times: *const [2]timespec) usize {
+pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
     return utimensat(fd, null, times, 0);
 }
 
-pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, flags: u32) usize {
+pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
 }
 
@@ -854,7 +861,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -862,7 +869,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
@@ -892,10 +899,6 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
-        // Make sure the offset is also specified in multiples of page size
-        if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @bitCast(-@as(isize, @intFromEnum(E.INVAL)));
-
         return syscall6(
             .mmap2,
             @intFromPtr(address),
@@ -932,6 +935,17 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
 
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(.mprotect, @intFromPtr(address), length, protection);
+}
+
+pub fn mremap(old_addr: ?[*]const u8, old_len: usize, new_len: usize, flags: MREMAP, new_addr: ?[*]const u8) usize {
+    return syscall5(
+        .mremap,
+        @intFromPtr(old_addr),
+        old_len,
+        new_len,
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_addr),
+    );
 }
 
 pub const MSF = struct {
@@ -1878,6 +1892,17 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     }
 }
 
+pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
+    return syscall5(
+        .recvmmsg,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(msgvec),
+        vlen,
+        flags,
+        @intFromPtr(timeout),
+    );
+}
+
 pub fn recvfrom(
     fd: i32,
     noalias buf: [*]u8,
@@ -2204,7 +2229,7 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+pub fn timerfd_create(clockid: timerfd_clockid_t, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
         @intFromEnum(clockid),
@@ -3597,6 +3622,30 @@ pub const TCP = struct {
     pub const REPAIR_OFF_NO_WP = -1;
 };
 
+pub const UDP = struct {
+    /// Never send partially complete segments
+    pub const CORK = 1;
+    /// Set the socket to accept encapsulated packets
+    pub const ENCAP = 100;
+    /// Disable sending checksum for UDP6X
+    pub const NO_CHECK6_TX = 101;
+    /// Disable accepting checksum for UDP6
+    pub const NO_CHECK6_RX = 102;
+    /// Set GSO segmentation size
+    pub const SEGMENT = 103;
+    /// This socket can receive UDP GRO packets
+    pub const GRO = 104;
+};
+
+pub const UDP_ENCAP = struct {
+    pub const ESPINUDP_NON_IKE = 1;
+    pub const ESPINUDP = 2;
+    pub const L2TPINUDP = 3;
+    pub const GTP0 = 4;
+    pub const GTP1U = 5;
+    pub const RXRPC = 6;
+};
+
 pub const PF = struct {
     pub const UNSPEC = 0;
     pub const LOCAL = 1;
@@ -4685,8 +4734,35 @@ pub const clockid_t = enum(u32) {
     BOOTTIME = 7,
     REALTIME_ALARM = 8,
     BOOTTIME_ALARM = 9,
-    SGI_CYCLE = 10,
-    TAI = 11,
+    // In the linux kernel header file (time.h) is the following note:
+    // * The driver implementing this got removed. The clock ID is kept as a
+    // * place holder. Do not reuse!
+    // Therefore, calling clock_gettime() with these IDs will result in an error.
+    //
+    // Some backgrond:
+    // - SGI_CYCLE was for Silicon Graphics (SGI) workstations,
+    // which are probably no longer in use, so it makes sense to disable
+    // - TAI_CLOCK was designed as CLOCK_REALTIME(UTC) + tai_offset,
+    // but tai_offset was always 0 in the kernel.
+    // So there is no point in using this clock.
+    // SGI_CYCLE = 10,
+    // TAI = 11,
+    _,
+};
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
     _,
 };
 
@@ -5730,6 +5806,9 @@ pub const IORING_OP = enum(u8) {
     FUTEX_WAITV,
     FIXED_FD_INSTALL,
     FTRUNCATE,
+    BIND,
+    LISTEN,
+    RECV_ZC,
 
     _,
 };
@@ -5787,6 +5866,11 @@ pub const IORING_RECV_MULTISHOT = 1 << 1;
 pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
 /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
 pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
+/// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
+/// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
+/// The buffers be contigious from the starting buffer ID.
+/// Used with IOSQE_BUFFER_SELECT.
+pub const IORING_RECVSEND_BUNDLE = 1 << 4;
 /// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
 pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
 
@@ -5849,6 +5933,8 @@ pub const IORING_CQE_F_MORE = 1 << 1;
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 /// Set for notification CQEs. Can be used to distinct them from sends.
 pub const IORING_CQE_F_NOTIF = 1 << 3;
+/// If set, the buffer ID set in the completion will get more completions.
+pub const IORING_CQE_F_BUF_MORE = 1 << 4;
 
 pub const IORING_CQE_BUFFER_SHIFT = 16;
 
@@ -6054,26 +6140,32 @@ pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
 pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
-
     resv: u8,
-
     /// IO_URING_OP_* flags
     flags: u16,
-
     resv2: u32,
+
+    pub fn is_supported(self: @This()) bool {
+        return self.flags & IO_URING_OP_SUPPORTED != 0;
+    }
 };
 
 pub const io_uring_probe = extern struct {
-    /// last opcode supported
+    /// Last opcode supported
     last_op: IORING_OP,
-
-    /// Number of io_uring_probe_op following
+    /// Length of ops[] array below
     ops_len: u8,
-
     resv: u16,
     resv2: [3]u32,
+    ops: [256]io_uring_probe_op,
 
-    // Followed by up to `ops_len` io_uring_probe_op structures
+    /// Is the operation supported on the running kernel.
+    pub fn is_supported(self: @This(), op: IORING_OP) bool {
+        const i = @intFromEnum(op);
+        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
+            return false;
+        return self.ops[i].is_supported();
+    }
 };
 
 pub const io_uring_restriction = extern struct {
@@ -6109,6 +6201,13 @@ pub const IORING_RESTRICTION = enum(u16) {
     _,
 };
 
+pub const IO_URING_SOCKET_OP = enum(u16) {
+    SIOCIN = 0,
+    SIOCOUTQ = 1,
+    GETSOCKOPT = 2,
+    SETSOCKOPT = 3,
+};
+
 pub const io_uring_buf = extern struct {
     addr: u64,
     len: u32,
@@ -6128,8 +6227,15 @@ pub const io_uring_buf_reg = extern struct {
     ring_addr: u64,
     ring_entries: u32,
     bgid: u16,
-    pad: u16,
+    flags: Flags,
     resv: [3]u64,
+
+    pub const Flags = packed struct {
+        _0: u1 = 0,
+        /// Incremental buffer consumption.
+        inc: bool,
+        _: u14 = 0,
+    };
 };
 
 pub const io_uring_getevents_arg = extern struct {

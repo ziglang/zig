@@ -211,13 +211,24 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             root.main();
             return 0;
         },
-        usize => {
-            return root.main();
-        },
         uefi.Status => {
             return @intFromEnum(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
+        uefi.Error!void => {
+            root.main() catch |err| switch (err) {
+                error.Unexpected => @panic("EfiMain: unexpected error"),
+                else => {
+                    const status = uefi.Status.fromError(@errorCast(err));
+                    return @intFromEnum(status);
+                },
+            };
+
+            return 0;
+        },
+        else => @compileError(
+            "expected return type of main to be 'void', 'noreturn', " ++
+                "'uefi.Status', or 'uefi.Error!void'",
+        ),
     }
 }
 
@@ -576,7 +587,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
                 if (phdr.p_memsz == 0) break;
-                assert(phdr.p_memsz % std.mem.page_size == 0);
+                assert(phdr.p_memsz % std.heap.page_size_min == 0);
 
                 // Silently fail if we are unable to get limits.
                 const limits = std.posix.getrlimit(.STACK) catch break;

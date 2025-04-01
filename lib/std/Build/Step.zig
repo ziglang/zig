@@ -764,8 +764,8 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
             .file_open, .file_stat, .file_read, .file_hash => |op| {
                 const pp = man.files.keys()[op.file_index].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                return s.fail("failed to check cache: '{s}{s}' {s} {s}", .{
-                    prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
+                return s.fail("failed to check cache: '{s}{c}{s}' {s} {s}", .{
+                    prefix, std.fs.path.sep, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
                 });
             },
         },

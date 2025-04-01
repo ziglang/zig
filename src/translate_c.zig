@@ -1964,7 +1964,14 @@ fn transImplicitCastExpr(
                 return maybeSuppressResult(c, result_used, sub_expr_node);
             }
 
-            const addr = try Tag.address_of.create(c.arena, sub_expr_node);
+            const index_val = try Tag.integer_literal.create(c.arena, "0");
+            const index = try Tag.as.create(c.arena, .{
+                .lhs = try Tag.type.create(c.arena, "usize"),
+                .rhs = try Tag.int_cast.create(c.arena, index_val),
+            });
+            const array0_node = try Tag.array_access.create(c.arena, .{ .lhs = sub_expr_node, .rhs = index });
+            // Convert array to pointer by expression: addr = &sub_expr[0]
+            const addr = try Tag.address_of.create(c.arena, array0_node);
             const casted = try transCPtrCast(c, scope, expr.getBeginLoc(), dest_type, src_type, addr);
             return maybeSuppressResult(c, result_used, casted);
         },
@@ -2570,9 +2577,9 @@ fn transInitListExprRecord(
     // Unions and Structs are both represented as RecordDecl
     const record_ty = ty.getAsRecordType() orelse
         blk: {
-        is_union_type = true;
-        break :blk ty.getAsUnionType();
-    } orelse unreachable;
+            is_union_type = true;
+            break :blk ty.getAsUnionType();
+        } orelse unreachable;
     const record_decl = record_ty.getDecl();
     const record_def = record_decl.getDefinition() orelse
         unreachable;
@@ -4006,7 +4013,7 @@ fn transCPtrCast(
     if (!src_ty.isArrayType() and ((src_child_type.isConstQualified() and
         !child_type.isConstQualified()) or
         (src_child_type.isVolatileQualified() and
-        !child_type.isVolatileQualified())))
+            !child_type.isVolatileQualified())))
     {
         return removeCVQualifiers(c, dst_type_node, expr);
     } else {
@@ -4092,8 +4099,8 @@ fn transFloatingLiteralQuad(c: *Context, expr: *const clang.FloatingLiteral, use
             false;
         break :fmt_decimal if (could_roundtrip) try c.arena.dupe(u8, temp_str) else null;
     }
-    // otherwise, fall back to the hexadecimal format
-    orelse try std.fmt.allocPrint(c.arena, "{x}", .{quad});
+        // otherwise, fall back to the hexadecimal format
+        orelse try std.fmt.allocPrint(c.arena, "{x}", .{quad});
 
     var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
@@ -5080,15 +5087,14 @@ fn finishTransFnProto(
         const is_noalias = param_qt.isRestrictQualified();
 
         const param_name: ?[]const u8 =
-            if (fn_decl) |decl|
-        blk: {
-            const param = decl.getParamDecl(@as(c_uint, @intCast(i)));
-            const param_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(param)).getName_bytes_begin());
-            if (param_name.len < 1)
-                break :blk null;
+            if (fn_decl) |decl| blk: {
+                const param = decl.getParamDecl(@as(c_uint, @intCast(i)));
+                const param_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(param)).getName_bytes_begin());
+                if (param_name.len < 1)
+                    break :blk null;
 
-            break :blk param_name;
-        } else null;
+                break :blk param_name;
+            } else null;
         const type_node = try transQualType(c, scope, param_qt, source_loc);
 
         fn_params.addOneAssumeCapacity().* = .{

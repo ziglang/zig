@@ -13,12 +13,12 @@ comptime {
     }
 }
 
-pub fn __udivti3(a: u128, b: u128) callconv(.C) u128 {
+pub fn __udivti3(a: u128, b: u128) callconv(.c) u128 {
     return udivmod(u128, a, b, null);
 }
 
 const v2u64 = @Vector(2, u64);
 
-fn __udivti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+fn __udivti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.c) v2u64 {
     return @bitCast(udivmod(u128, @bitCast(a), @bitCast(b), null));
 }

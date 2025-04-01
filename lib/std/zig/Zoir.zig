@@ -10,6 +10,31 @@ string_bytes: []u8,
 compile_errors: []Zoir.CompileError,
 error_notes: []Zoir.CompileError.Note,
 
+/// The data stored at byte offset 0 when ZOIR is stored in a file.
+pub const Header = extern struct {
+    nodes_len: u32,
+    extra_len: u32,
+    limbs_len: u32,
+    string_bytes_len: u32,
+    compile_errors_len: u32,
+    error_notes_len: u32,
+
+    /// We could leave this as padding, however it triggers a Valgrind warning because
+    /// we read and write undefined bytes to the file system. This is harmless, but
+    /// it's essentially free to have a zero field here and makes the warning go away,
+    /// making it more likely that following Valgrind warnings will be taken seriously.
+    unused: u64 = 0,
+
+    stat_inode: std.fs.File.INode,
+    stat_size: u64,
+    stat_mtime: i128,
+
+    comptime {
+        // Check that `unused` is working as expected
+        assert(std.meta.hasUniqueRepresentation(Header));
+    }
+};
+
 pub fn hasCompileErrors(zoir: Zoir) bool {
     if (zoir.compile_errors.len > 0) {
         assert(zoir.nodes.len == 0);
@@ -54,7 +79,7 @@ pub const Node = union(enum) {
     /// A floating-point literal.
     float_literal: f128,
     /// A Unicode codepoint literal.
-    char_literal: u32,
+    char_literal: u21,
     /// An enum literal. The string is the literal, i.e. `foo` for `.foo`.
     enum_literal: NullTerminatedString,
     /// A string literal.
@@ -96,7 +121,7 @@ pub const Node = union(enum) {
                 } } },
                 .float_literal_small => .{ .float_literal = @as(f32, @bitCast(repr.data)) },
                 .float_literal => .{ .float_literal = @bitCast(zoir.extra[repr.data..][0..4].*) },
-                .char_literal => .{ .char_literal = repr.data },
+                .char_literal => .{ .char_literal = @intCast(repr.data) },
                 .enum_literal => .{ .enum_literal = @enumFromInt(repr.data) },
                 .string_literal => .{ .string_literal = s: {
                     const start, const len = zoir.extra[repr.data..][0..2].*;
@@ -203,8 +228,8 @@ pub const NullTerminatedString = enum(u32) {
 
 pub const CompileError = extern struct {
     msg: NullTerminatedString,
-    token: Ast.TokenIndex,
-    /// If `token == invalid_token`, this is an `Ast.Node.Index`.
+    token: Ast.OptionalTokenIndex,
+    /// If `token == .none`, this is an `Ast.Node.Index`.
     /// Otherwise, this is a byte offset into `token`.
     node_or_offset: u32,
 
@@ -218,13 +243,11 @@ pub const CompileError = extern struct {
 
     pub const Note = extern struct {
         msg: NullTerminatedString,
-        token: Ast.TokenIndex,
-        /// If `token == invalid_token`, this is an `Ast.Node.Index`.
+        token: Ast.OptionalTokenIndex,
+        /// If `token == .none`, this is an `Ast.Node.Index`.
         /// Otherwise, this is a byte offset into `token`.
         node_or_offset: u32,
     };
-
-    pub const invalid_token: Ast.TokenIndex = std.math.maxInt(Ast.TokenIndex);
 
     comptime {
         assert(std.meta.hasUniqueRepresentation(CompileError));

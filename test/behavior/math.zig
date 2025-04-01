@@ -67,6 +67,7 @@ test "@clz" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testClz();
     try comptime testClz();
@@ -153,6 +154,7 @@ test "@ctz" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCtz();
     try comptime testCtz();
@@ -197,6 +199,7 @@ test "@ctz vectors" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCtzVectors();
     try comptime testCtzVectors();
@@ -396,6 +399,7 @@ fn not(comptime T: type, a: T) T {
 
 test "binary not" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(not(u0, 0) == 0);
     try expect(not(u1, 0) == 1);
@@ -474,6 +478,7 @@ test "division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testIntDivision();
     try comptime testIntDivision();
@@ -527,7 +532,7 @@ fn testIntDivision() !void {
     try expect(mod(i64, -14, 12) == 10);
     try expect(mod(i16, -2, 12) == 10);
     try expect(mod(i16, -118, 12) == 2);
-    try expect(mod(i8, -2, 12) == 10); // TODO: fails in x86_64
+    try expect(mod(i8, -2, 12) == 10);
 
     try expect(rem(i64, -118, 12) == -10);
     try expect(rem(i32, 10, 12) == 10);
@@ -676,6 +681,8 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testSignedNegationWrappingEval(minInt(i16));
     try comptime testSignedNegationWrappingEval(minInt(i16));
 }
@@ -778,6 +785,63 @@ fn should_not_be_zero(x: f128) !void {
     try expect(x != 0.0);
 }
 
+test "umax wrapped squaring" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    {
+        var x: u4 = maxInt(u4);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u8 = maxInt(u8);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u12 = maxInt(u12);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u16 = maxInt(u16);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u24 = maxInt(u24);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u32 = maxInt(u32);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u48 = maxInt(u48);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u64 = maxInt(u64);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u96 = maxInt(u96);
+        x *%= x;
+        try expect(x == 1);
+    }
+    {
+        var x: u128 = maxInt(u128);
+        x *%= x;
+        try expect(x == 1);
+    }
+}
+
 test "128-bit multiplication" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -837,7 +901,6 @@ test "@addWithOverflow > 64 bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     try testAddWithOverflow(u65, 4, 105, 109, 0);
@@ -919,6 +982,7 @@ test "extensive @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMulWithOverflow(u5, 3, 10, 30, 0);
     try testMulWithOverflow(u5, 3, 11, 1, 1);
@@ -1201,12 +1265,6 @@ test "allow signed integer division/remainder when values are comptime-known and
 
     try expect(5 % 3 == 2);
     try expect(-6 % 3 == 0);
-
-    var undef: i32 = undefined;
-    _ = &undef;
-    if (0 % undef != 0) {
-        @compileError("0 as numerator should return comptime zero independent of denominator");
-    }
 }
 
 test "quad hex float literal parsing accurate" {
@@ -1560,6 +1618,7 @@ test "vector integer addition" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1583,7 +1642,7 @@ test "NaN comparison" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testNanEqNan(f16);
     try testNanEqNan(f32);
@@ -1625,6 +1684,8 @@ test "vector comparison" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_x86_64 and
         !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx2)) return error.SkipZigTest;
 
@@ -1721,6 +1782,7 @@ test "@clz works on both vector and scalar inputs" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u32 = 0x1;
     _ = &x;
@@ -1739,7 +1801,7 @@ test "runtime comparison to NaN is comptime-known" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     const S = struct {
         fn doTheTest(comptime F: type, x: F) void {
@@ -1770,7 +1832,7 @@ test "runtime int comparison to inf is comptime-known" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     const S = struct {
         fn doTheTest(comptime F: type, x: u32) void {
@@ -1792,4 +1854,135 @@ test "runtime int comparison to inf is comptime-known" {
     comptime S.doTheTest(f32, 123);
     comptime S.doTheTest(f64, 123);
     comptime S.doTheTest(f128, 123);
+}
+
+test "float divide by zero" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(comptime F: type, zero: F, one: F) !void {
+            try expect(math.isPositiveInf(@divTrunc(one, zero)));
+            try expect(math.isPositiveInf(@divFloor(one, zero)));
+
+            try expect(math.isNan(@rem(one, zero)));
+            try expect(math.isNan(@mod(one, zero)));
+        }
+    };
+
+    try S.doTheTest(f16, 0, 1);
+    comptime S.doTheTest(f16, 0, 1) catch unreachable;
+
+    try S.doTheTest(f32, 0, 1);
+    comptime S.doTheTest(f32, 0, 1) catch unreachable;
+
+    try S.doTheTest(f64, 0, 1);
+    comptime S.doTheTest(f64, 0, 1) catch unreachable;
+
+    try S.doTheTest(f80, 0, 1);
+    comptime S.doTheTest(f80, 0, 1) catch unreachable;
+
+    try S.doTheTest(f128, 0, 1);
+    comptime S.doTheTest(f128, 0, 1) catch unreachable;
+}
+
+test "partially-runtime integer vector division would be illegal if vector elements were reordered" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var lhs: @Vector(2, i8) = .{ -128, 5 };
+    const rhs: @Vector(2, i8) = .{ 1, -1 };
+
+    const expected: @Vector(2, i8) = .{ -128, -5 };
+
+    lhs = lhs; // suppress error
+
+    const trunc = @divTrunc(lhs, rhs);
+    try expect(trunc[0] == expected[0]);
+    try expect(trunc[1] == expected[1]);
+
+    const floor = @divFloor(lhs, rhs);
+    try expect(floor[0] == expected[0]);
+    try expect(floor[1] == expected[1]);
+
+    const exact = @divExact(lhs, rhs);
+    try expect(exact[0] == expected[0]);
+    try expect(exact[1] == expected[1]);
+}
+
+test "float vector division of comptime zero by runtime nan is nan" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    const ct_zero: @Vector(1, f32) = .{0};
+    var rt_nan: @Vector(1, f32) = .{math.nan(f32)};
+
+    rt_nan = rt_nan; // suppress error
+
+    try expect(math.isNan((@divTrunc(ct_zero, rt_nan))[0]));
+    try expect(math.isNan((@divFloor(ct_zero, rt_nan))[0]));
+    try expect(math.isNan((ct_zero / rt_nan)[0]));
+}
+
+test "float vector multiplication of comptime zero by runtime nan is nan" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ct_zero: @Vector(1, f32) = .{0};
+    var rt_nan: @Vector(1, f32) = .{math.nan(f32)};
+
+    rt_nan = rt_nan; // suppress error
+
+    try expect(math.isNan((ct_zero * rt_nan)[0]));
+    try expect(math.isNan((rt_nan * ct_zero)[0]));
+}
+
+test "comptime float vector division of zero by nan is nan" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ct_zero: @Vector(1, f32) = .{0};
+    const ct_nan: @Vector(1, f32) = .{math.nan(f32)};
+
+    comptime assert(math.isNan((@divTrunc(ct_zero, ct_nan))[0]));
+    comptime assert(math.isNan((@divFloor(ct_zero, ct_nan))[0]));
+    comptime assert(math.isNan((ct_zero / ct_nan)[0]));
+}
+
+test "comptime float vector multiplication of zero by nan is nan" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ct_zero: @Vector(1, f32) = .{0};
+    const ct_nan: @Vector(1, f32) = .{math.nan(f32)};
+
+    comptime assert(math.isNan((ct_zero * ct_nan)[0]));
+    comptime assert(math.isNan((ct_nan * ct_zero)[0]));
 }
