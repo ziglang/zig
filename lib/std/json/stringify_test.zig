@@ -415,6 +415,15 @@ test "comptime stringify" {
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
     }, .{}, 8) catch unreachable;
+
+    const MyStruct2 = struct {
+        type: type,
+    };
+    comptime testStringifyMaxDepth("[{\"type\":\"u1\"},{\"type\":\"[]const u8\"},{\"type\":\"anyopaque\"}]", [_]MyStruct2{
+        MyStruct2{ .type = u1 },
+        MyStruct2{ .type = []const u8 },
+        MyStruct2{ .type = anyopaque },
+    }, .{}, null) catch unreachable;
 }
 
 test "print" {
