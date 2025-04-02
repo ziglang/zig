@@ -479,6 +479,30 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+pub const DefaultAllocator = struct {
+    var debug_allocator: DebugAllocator(.{}) = .init;
+
+    pub const allocator = impl.gpa;
+    const impl: struct {
+        gpa: std.mem.Allocator,
+        debug: bool,
+    } = if (builtin.os.tag == .wasi)
+        .{ .gpa = wasm_allocator, .debug = false }
+    else if (builtin.link_libc)
+        .{ .gpa = c_allocator, .debug = false }
+    else switch (builtin.mode) {
+        .Debug => .{ .gpa = debug_allocator.allocator(), .debug = true },
+        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => if (builtin.single_threaded)
+            .{ .gpa = debug_allocator.allocator(), .debug = true }
+        else
+            .{ .gpa = smp_allocator, .debug = false },
+    };
+
+    pub fn deinit() Check {
+        return if (impl.debug) debug_allocator.deinit() else .ok;
+    }
+};
+
 test c_allocator {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
@@ -524,6 +548,18 @@ test PageAllocator {
     }
 }
 
+test DefaultAllocator {
+    try testAllocator(DefaultAllocator.allocator);
+    try testAllocatorAligned(DefaultAllocator.allocator);
+    if (!builtin.target.cpu.arch.isWasm()) {
+        try testAllocatorLargeAlignment(DefaultAllocator.allocator);
+        try testAllocatorAlignedShrink(DefaultAllocator.allocator);
+    }
+    // Only ensure deinit is semantically analyzed since calling it would modify global state and
+    // unintentionally break other tests using DefaultAllocator.
+    _ = DefaultAllocator.deinit;
+}
+
 test ArenaAllocator {
     var arena_allocator = ArenaAllocator.init(page_allocator);
     defer arena_allocator.deinit();
@@ -535,7 +571,7 @@ test ArenaAllocator {
     try testAllocatorAlignedShrink(allocator);
 }
 
-test "StackFallbackAllocator" {
+test StackFallbackAllocator {
     {
         var stack_allocator = stackFallback(4096, std.testing.allocator);
         try testAllocator(stack_allocator.get());
