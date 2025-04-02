@@ -316,7 +316,6 @@ pub const File = extern struct {
         read = @bitCast(Bits{ .read = true }),
         read_write = @bitCast(Bits{ .read = true, .write = true }),
         read_write_create = @bitCast(Bits{ .read = true, .write = true, .create = true }),
-        _,
     };
 
     pub const Attributes = packed struct(u64) {
