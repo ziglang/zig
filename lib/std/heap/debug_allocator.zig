@@ -281,6 +281,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             allocated_count: SlotIndex,
             freed_count: SlotIndex,
             prev: ?*BucketHeader,
+            next: ?*BucketHeader,
             canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
@@ -782,7 +783,11 @@ pub fn DebugAllocator(comptime config: Config) type {
                 .allocated_count = 1,
                 .freed_count = 0,
                 .prev = self.buckets[size_class_index],
+                .next = null,
             };
+            if (self.buckets[size_class_index]) |old_head| {
+                old_head.next = bucket;
+            }
             self.buckets[size_class_index] = bucket;
 
             if (!config.backing_allocator_zeroes) {
@@ -935,24 +940,17 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
             bucket.freed_count += 1;
             if (bucket.freed_count == bucket.allocated_count) {
-                var optional_next_bucket: ?*BucketHeader = null;
-                var optional_target_bucket = self.buckets[size_class_index];
+                if (bucket.prev) |prev| {
+                    prev.next = bucket.next;
+                }
 
-                const removed_bucket = while (optional_target_bucket) |target_bucket| : ({
-                    optional_next_bucket = target_bucket;
-                    optional_target_bucket = target_bucket.prev;
-                }) {
-                    if (target_bucket == bucket) {
-                        if (optional_next_bucket) |next_bucket| {
-                            next_bucket.prev = target_bucket.prev;
-                        } else {
-                            self.buckets[size_class_index] = target_bucket.prev;
-                        }
-
-                        break true;
-                    }
-                } else false;
-                if (!removed_bucket) @panic("Invalid free");
+                if (bucket.next) |next| {
+                    assert(self.buckets[size_class_index] != bucket);
+                    next.prev = bucket.prev;
+                } else {
+                    assert(self.buckets[size_class_index] == bucket);
+                    self.buckets[size_class_index] = bucket.prev;
+                }
 
                 if (!config.never_unmap) {
                     const page: [*]align(page_size) u8 = @ptrFromInt(page_addr);
