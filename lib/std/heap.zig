@@ -488,11 +488,11 @@ pub const DefaultAllocator = struct {
         debug: bool,
     } = if (builtin.os.tag == .wasi)
         .{ .gpa = wasm_allocator, .debug = false }
-    else if (builtin.link_libc)
-        .{ .gpa = c_allocator, .debug = false }
     else switch (builtin.mode) {
         .Debug => .{ .gpa = debug_allocator.allocator(), .debug = true },
-        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => if (builtin.single_threaded)
+        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => if (builtin.link_libc)
+            .{ .gpa = c_allocator, .debug = false }
+        else if (builtin.single_threaded)
             .{ .gpa = debug_allocator.allocator(), .debug = true }
         else
             .{ .gpa = smp_allocator, .debug = false },
