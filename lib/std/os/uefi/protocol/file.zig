@@ -9,14 +9,14 @@ const Error = Status.Error;
 
 pub const File = extern struct {
     revision: u64,
-    _open: *const fn (*const File, **File, [*:0]const u16, u64, u64) callconv(cc) Status,
+    _open: *const fn (*const File, **File, [*:0]const u16, OpenMode, Attributes) callconv(cc) Status,
     _close: *const fn (*File) callconv(cc) Status,
     _delete: *const fn (*File) callconv(cc) Status,
     _read: *const fn (*File, *usize, [*]u8) callconv(cc) Status,
     _write: *const fn (*File, *usize, [*]const u8) callconv(cc) Status,
     _get_position: *const fn (*const File, *u64) callconv(cc) Status,
     _set_position: *const fn (*File, u64) callconv(cc) Status,
-    _get_info: *const fn (*const File, *align(8) const Guid, *const usize, [*]u8) callconv(cc) Status,
+    _get_info: *const fn (*const File, *align(8) const Guid, *usize, ?[*]u8) callconv(cc) Status,
     _set_info: *const fn (*File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
     _flush: *const fn (*File) callconv(cc) Status,
 
@@ -57,7 +57,6 @@ pub const File = extern struct {
         NoMedia,
         DeviceError,
         VolumeCorrupted,
-        BufferTooSmall,
     };
     pub const SetInfoError = uefi.UnexpectedError || error{
         Unsupported,
@@ -112,8 +111,8 @@ pub const File = extern struct {
             self,
             &new,
             file_name,
-            @intFromEnum(mode),
-            @bitCast(create_attributes),
+            mode,
+            create_attributes,
         )) {
             .success => return new,
             .not_found => return Error.NotFound,
@@ -216,21 +215,29 @@ pub const File = extern struct {
         try self.setPosition(pos);
     }
 
+    /// If the underlying function returns `.buffer_too_small`, then this function
+    /// returns `.{ len, null }`. Otherwise, the 2nd value of the tuple contains
+    /// the casted reference from the buffer.
     pub fn getInfo(
         self: *const File,
         comptime info: std.meta.Tag(Info),
-    ) GetInfoError!std.meta.TagPayload(Info, info) {
+        buffer: ?[]u8,
+    ) GetInfoError!struct { usize, ?*std.meta.TagPayload(Info, info) } {
         const InfoType = std.meta.TagPayload(Info, info);
 
-        var val: InfoType = undefined;
-        var len: usize = @sizeOf(InfoType);
-        switch (self._get_info(self, &InfoType.guid, &len, @ptrCast(&val))) {
-            .success => return val,
+        var len = if (buffer) |b| b.len else 0;
+        switch (self._get_info(
+            self,
+            &InfoType.guid,
+            &len,
+            if (buffer) |b| b else null,
+        )) {
+            .success => return .{ len, @as(*InfoType, @ptrCast(buffer.ptr)) },
+            .buffer_too_small => return .{ len, null },
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
             .device_error => return Error.DeviceError,
             .volume_corrupted => return Error.VolumeCorrupted,
-            .buffer_too_small => return Error.BufferTooSmall,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -240,8 +247,21 @@ pub const File = extern struct {
         comptime info: std.meta.Tag(Info),
         data: *const std.meta.TagPayload(Info, info),
     ) SetInfoError!void {
-        const InfoType = @TypeOf(data);
-        switch (self._set_info(self, &InfoType.guid, @sizeOf(InfoType), @ptrCast(data))) {
+        const InfoType = std.meta.TagPayload(Info, info);
+
+        var attached_str_len: usize = 0;
+        const attached_str: [*:0]const u16 = switch (info) {
+            .file => data.getFileName(),
+            inline .file_system, .volume_label => data.getVolumeLabel(),
+        };
+
+        while (attached_str[attached_str_len] != 0) : (attached_str_len += 1) {}
+
+        // add the length (not +1 for sentinel) because `@sizeOf(InfoType)`
+        // already contains the first utf16 char
+        const len = @sizeOf(InfoType) + (attached_str_len * 2);
+
+        switch (self._set_info(self, &InfoType.guid, len, @ptrCast(data))) {
             .success => {},
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
@@ -268,11 +288,20 @@ pub const File = extern struct {
     }
 
     pub const OpenMode = enum(u64) {
-        read = 0x0000000000000001,
-        // implies read
-        write = 0x0000000000000002,
-        // implies read+write
-        create = 0x8000000000000000,
+        pub const Bits = packed struct(u64) {
+            // 0x0000000000000001
+            read: bool = false,
+            // 0x0000000000000002
+            write: bool = false,
+            _pad: u61 = 0,
+            // 0x8000000000000000
+            create: bool = false,
+        };
+
+        read = @bitCast(Bits{ .read = true }),
+        read_write = @bitCast(Bits{ .read = true, .write = true }),
+        read_write_create = @bitCast(Bits{ .read = true, .write = true, .create = true }),
+        _,
     };
 
     pub const Attributes = packed struct(u64) {
