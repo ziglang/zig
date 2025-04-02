@@ -146,7 +146,7 @@ pub fn getExternalExecutor(
             }
             return bad_result;
         },
-        .macos => {
+        .driverkit, .macos => {
             if (options.allow_darling) {
                 // This check can be loosened once darling adds a QEMU-based emulation
                 // layer for non-host architectures:
