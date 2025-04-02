@@ -1566,7 +1566,6 @@ fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError
         error.FileLocksNotSupported => unreachable, // locking folders is not supported
         error.WouldBlock => unreachable, // can't happen for directories
         error.FileBusy => unreachable, // can't happen for directories
-        error.ProcessNotFound => unreachable, // can't happen for directories
         else => |e| return e,
     };
     return Dir{ .fd = fd };
