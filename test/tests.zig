@@ -1827,7 +1827,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .zig_lib_dir = b.path("lib"),
         });
         these_tests.linkage = test_target.linkage;
-        if (options.no_builtin) these_tests.no_builtin = true;
+        if (options.no_builtin) these_tests.root_module.no_builtin = false;
         if (options.build_options) |build_options| {
             these_tests.root_module.addOptions("build_options", build_options);
         }
