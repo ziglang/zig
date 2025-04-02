@@ -666,7 +666,7 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
     }
 }
 
-fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition) void {
+fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.Wake) void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     _ = pool;
     comptime assert(@TypeOf(cond.state) == u64);
@@ -690,7 +690,10 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition) void {
             return;
         }
 
-        const to_wake = 1;
+        const to_wake = switch (wake) {
+            .one => 1,
+            .all => wakeable,
+        };
 
         // Reserve the amount of waiters to wake by incrementing the signals count.
         // Release barrier ensures code before the wake() happens before the signal it posted and consumed by the wait() threads.
