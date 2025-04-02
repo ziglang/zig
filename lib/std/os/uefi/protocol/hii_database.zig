@@ -26,13 +26,19 @@ pub const HiiDatabase = extern struct {
         InvalidParameter,
         NotFound,
     };
-    pub const ListPackageListsError = uefi.UnexpectedError || error{
+    pub const ActiveHandlesError = uefi.UnexpectedError || error{
         InvalidParameter,
         NotFound,
     };
-    pub const ExportPackageListError = uefi.UnexpectedError || error{
+    pub const ListPackageListsError = ActiveHandlesError || error{
+        BufferTooSmall,
+    };
+    pub const PackageListsLengthError = uefi.UnexpectedError || error{
         InvalidParameter,
         NotFound,
+    };
+    pub const ExportPackageListError = PackageListsLengthError || error{
+        BufferTooSmall,
     };
 
     /// Removes a package list from the HII database.
@@ -59,20 +65,40 @@ pub const HiiDatabase = extern struct {
         }
     }
 
-    /// Determines the handles that are currently active in the database.
-    pub fn listPackageLists(
+    pub fn activeHandles(
         self: *const HiiDatabase,
         package_type: u8,
-        package_guid: ?*const Guid,
-        handles: ?[]hii.Handle,
-    ) ListPackageListsError!struct { usize, ?[]hii.Handle } {
-        var len = if (handles) |h| h.len else 0;
+        package_guid: ?*align(8) const Guid,
+    ) ActiveHandlesError!usize {
+        var len: usize = 0;
         switch (self._list_package_lists(
             self,
             package_type,
             package_guid,
             &len,
-            if (handles) |h| h.ptr else null,
+            null,
+        )) {
+            .success, .buffer_too_small => return len,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// Determines the handles that are currently active in the database.
+    pub fn listPackageLists(
+        self: *const HiiDatabase,
+        package_type: u8,
+        package_guid: ?*align(8) const Guid,
+        handles: []hii.Handle,
+    ) ListPackageListsError!struct { usize, ?[]hii.Handle } {
+        var len = handles.len;
+        switch (self._list_package_lists(
+            self,
+            package_type,
+            package_guid,
+            &len,
+            handles.ptr,
         )) {
             .success => return .{ len, handles[0..len] },
             .buffer_too_small => return .{ len, null },
@@ -82,18 +108,38 @@ pub const HiiDatabase = extern struct {
         }
     }
 
-    /// Exports the contents of one or all package lists in the HII database into a buffer.
-    pub fn exportPackageLists(
+    pub fn packageListsLength(
         self: *const HiiDatabase,
         handle: ?hii.Handle,
-        buffer: ?[]hii.PackageList,
-    ) ExportPackageListError!struct { usize, ?[]hii.PackageList } {
-        var len = if (buffer) |b| b.len else 0;
+    ) PackageListsLengthError!usize {
+        var len: usize = 0;
         switch (self._export_package_lists(
             self,
             handle,
             &len,
-            if (buffer) |b| b.ptr else null,
+            null,
+        )) {
+            .success, .buffer_too_small => return len,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// Exports the contents of one or all package lists in the HII database into a buffer.
+    ///
+    /// To get the necessary length of the buffer, call `packageListsLength` first.
+    pub fn exportPackageLists(
+        self: *const HiiDatabase,
+        handle: ?hii.Handle,
+        buffer: []hii.PackageList,
+    ) ExportPackageListError!struct { usize, ?[]hii.PackageList } {
+        var len = buffer.len;
+        switch (self._export_package_lists(
+            self,
+            handle,
+            &len,
+            buffer.ptr,
         )) {
             .success => return .{ len, buffer[0..len] },
             .buffer_too_small => return .{ len, null },
