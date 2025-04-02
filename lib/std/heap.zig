@@ -479,29 +479,50 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
-pub const DefaultAllocator = struct {
-    var debug_allocator: DebugAllocator(.{}) = .init;
+pub const AutoAllocatorOptions = struct {
+    debug_allocator_config: DebugAllocatorConfig = .{},
+};
 
-    pub const allocator = impl.gpa;
-    const impl: struct {
-        gpa: std.mem.Allocator,
-        debug: bool,
-    } = if (builtin.os.tag == .wasi)
-        .{ .gpa = wasm_allocator, .debug = false }
+pub fn AutoAllocator(options: AutoAllocatorOptions) type {
+    const impl: enum { debug, smp, wasm, c } = if (builtin.os.tag == .wasi)
+        .wasm
     else switch (builtin.mode) {
-        .Debug => .{ .gpa = debug_allocator.allocator(), .debug = true },
+        .Debug => .debug,
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => if (builtin.link_libc)
-            .{ .gpa = c_allocator, .debug = false }
+            .c
         else if (builtin.single_threaded)
-            .{ .gpa = debug_allocator.allocator(), .debug = true }
+            .debug
         else
-            .{ .gpa = smp_allocator, .debug = false },
+            .smp,
     };
 
-    pub fn deinit() Check {
-        return if (impl.debug) debug_allocator.deinit() else .ok;
-    }
-};
+    return struct {
+        inner: switch (impl) {
+            .debug => DebugAllocator(options.debug_allocator_config),
+            else => void,
+        } = switch (impl) {
+            .debug => .init,
+            else => {},
+        },
+
+        pub fn allocator(self: *@This()) std.mem.Allocator {
+            return switch (impl) {
+                .debug => self.inner.allocator(),
+                .wasm => wasm_allocator,
+                .c => c_allocator,
+                .smp => smp_allocator,
+            };
+        }
+
+        pub fn deinit(self: *@This()) Check {
+            defer self.* = undefined;
+            return switch (impl) {
+                .debug => self.inner.deinit(),
+                else => .ok,
+            };
+        }
+    };
+}
 
 test c_allocator {
     if (builtin.link_libc) {
@@ -548,16 +569,18 @@ test PageAllocator {
     }
 }
 
-test DefaultAllocator {
-    try testAllocator(DefaultAllocator.allocator);
-    try testAllocatorAligned(DefaultAllocator.allocator);
+test AutoAllocator {
+    var ctx: AutoAllocator(.{}) = .{};
+    const allocator = ctx.allocator();
+
+    try testAllocator(allocator);
+    try testAllocatorAligned(allocator);
     if (!builtin.target.cpu.arch.isWasm()) {
-        try testAllocatorLargeAlignment(DefaultAllocator.allocator);
-        try testAllocatorAlignedShrink(DefaultAllocator.allocator);
+        try testAllocatorLargeAlignment(allocator);
+        try testAllocatorAlignedShrink(allocator);
     }
-    // Only ensure deinit is semantically analyzed since calling it would modify global state and
-    // unintentionally break other tests using DefaultAllocator.
-    _ = DefaultAllocator.deinit;
+
+    try testing.expectEqual(.ok, ctx.deinit());
 }
 
 test ArenaAllocator {

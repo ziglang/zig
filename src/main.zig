@@ -168,15 +168,19 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-var debug_allocator: std.heap.DebugAllocator(.{
+const debug_allocator_config: std.heap.DebugAllocatorConfig = .{
     .stack_trace_frames = build_options.mem_leak_frames,
-}) = .init;
+};
+var auto_allocator: std.heap.AutoAllocator(.{ .debug_allocator_config = debug_allocator_config }) = .{};
+var debug_allocator: std.heap.DebugAllocator(debug_allocator_config) = .init;
 
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const gpa = std.heap.DefaultAllocator.allocator;
-    defer _ = std.heap.DefaultAllocator.deinit();
+    const gpa_instance = if (build_options.debug_gpa) &debug_allocator else &auto_allocator;
+    const gpa = gpa_instance.allocator();
+    defer _ = gpa_instance.deinit();
+
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
