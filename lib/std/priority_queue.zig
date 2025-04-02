@@ -20,7 +20,6 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         items: []T,
         cap: usize,
-        //allocator: Allocator,
         context: Context,
 
         /// Initialize and return an empty priority queue.
@@ -28,7 +27,6 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             return Self{
                 .items = &[_]T{},
                 .cap = 0,
-                //.allocator = allocator,
                 .context = context,
             };
         }
@@ -162,7 +160,6 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             var self = Self{
                 .items = items,
                 .cap = items.len,
-                //.allocator = allocator,
                 .context = context,
             };
 
