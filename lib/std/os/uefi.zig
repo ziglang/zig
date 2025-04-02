@@ -46,7 +46,7 @@ pub const EventType = packed struct(u32) {
     /// This event should not be combined with any other event types. This event
     /// type is functionally equivalent to the EFI_EVENT_GROUP_EXIT_BOOT_SERVICES
     /// event group.
-    pub const signal_exit_boot_services = Type{
+    pub const signal_exit_boot_services: EventType = .{
         .signal = true,
         .lo_context = 1,
     };
@@ -55,7 +55,7 @@ pub const EventType = packed struct(u32) {
     /// is performed. This event type is a composite of EVT_NOTIFY_SIGNAL,
     /// EVT_RUNTIME, and EVT_RUNTIME_CONTEXT and should not be combined with
     /// any other event types.
-    pub const signal_virtual_address_change = Type{
+    pub const signal_virtual_address_change: EventType = .{
         .runtime = true,
         .hi_context = 0x20000,
         .signal = true,
