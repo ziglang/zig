@@ -100,7 +100,7 @@ pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
@@ -148,7 +148,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             result[0] = .integer;
             return result;
         },
-        .float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target.*)) {
             16 => {
                 if (ctx == .field) {
                     result[0] = .memory;
@@ -330,7 +330,7 @@ fn classifySystemVStruct(
     starting_byte_offset: u64,
     loaded_struct: InternPool.LoadedStructType,
     zcu: *Zcu,
-    target: std.Target,
+    target: *const std.Target,
 ) u64 {
     const ip = &zcu.intern_pool;
     var byte_offset = starting_byte_offset;
@@ -379,7 +379,7 @@ fn classifySystemVUnion(
     starting_byte_offset: u64,
     loaded_union: InternPool.LoadedUnionType,
     zcu: *Zcu,
-    target: std.Target,
+    target: *const std.Target,
 ) u64 {
     const ip = &zcu.intern_pool;
     for (0..loaded_union.field_types.len) |field_index| {

@@ -4,6 +4,7 @@ const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// EDID information for an active video output device
 pub const Active = extern struct {
@@ -37,17 +38,27 @@ pub const Discovered = extern struct {
 
 /// Override EDID information
 pub const Override = extern struct {
-    _get_edid: *const fn (*const Override, Handle, *Attributes, *usize, *?[*]u8) callconv(cc) Status,
+    _get_edid: *const fn (*const Override, *const Handle, *Attributes, *usize, *?[*]u8) callconv(cc) Status,
+
+    pub const GetEdidError = uefi.UnexpectedError || error{
+        Unsupported,
+    };
 
     /// Returns policy information and potentially a replacement EDID for the specified video output device.
-    pub fn getEdid(
-        self: *const Override,
-        handle: Handle,
-        attributes: *Attributes,
-        edid_size: *usize,
-        edid: *?[*]u8,
-    ) Status {
-        return self._get_edid(self, handle, attributes, edid_size, edid);
+    pub fn getEdid(self: *const Override, handle: Handle) GetEdidError!Edid {
+        var size: usize = undefined;
+        var ptr: ?[*]u8 = undefined;
+        var attributes: Attributes = undefined;
+        switch (self._get_edid(self, &handle, &attributes, &size, &ptr)) {
+            .success => {},
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+
+        return .{
+            .attributes = attributes,
+            .edid = if (ptr) |p| p[0..size] else null,
+        };
     }
 
     pub const guid align(8) = Guid{
@@ -57,6 +68,11 @@ pub const Override = extern struct {
         .clock_seq_high_and_reserved = 0xa9,
         .clock_seq_low = 0x22,
         .node = [_]u8{ 0xf4, 0x58, 0xfe, 0x04, 0x0b, 0xd5 },
+    };
+
+    pub const Edid = struct {
+        attributes: Attributes,
+        edid: ?[]u8,
     };
 
     pub const Attributes = packed struct(u32) {

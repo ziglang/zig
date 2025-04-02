@@ -9,7 +9,5 @@ export fn a() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :8:7: error: cannot assign to constant
+// :8:5: error: cannot assign to constant

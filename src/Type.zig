@@ -3505,7 +3505,7 @@ pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Zcu.LazySrcLoc {
             },
             else => return null,
         },
-        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
+        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(.zero),
     };
 }
 
@@ -3589,7 +3589,10 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    const zir = file.zir.?;
+    const zir = switch (file.getMode()) {
+        .zig => file.zir.?,
+        .zon => return 0,
+    };
     const inst = zir.instructions.get(@intFromEnum(info.inst));
     return switch (inst.tag) {
         .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
@@ -4201,6 +4204,10 @@ pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_senti
 
 pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };
 pub const vector_32_i8: Type = .{ .ip_index = .vector_32_i8_type };
+pub const vector_1_u8: Type = .{ .ip_index = .vector_1_u8_type };
+pub const vector_2_u8: Type = .{ .ip_index = .vector_2_u8_type };
+pub const vector_4_u8: Type = .{ .ip_index = .vector_4_u8_type };
+pub const vector_8_u8: Type = .{ .ip_index = .vector_8_u8_type };
 pub const vector_16_u8: Type = .{ .ip_index = .vector_16_u8_type };
 pub const vector_32_u8: Type = .{ .ip_index = .vector_32_u8_type };
 pub const vector_8_i16: Type = .{ .ip_index = .vector_8_i16_type };

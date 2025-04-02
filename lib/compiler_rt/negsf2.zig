@@ -10,10 +10,10 @@ comptime {
     }
 }
 
-fn __negsf2(a: f32) callconv(.C) f32 {
+fn __negsf2(a: f32) callconv(.c) f32 {
     return common.fneg(a);
 }
 
-fn __aeabi_fneg(a: f32) callconv(.AAPCS) f32 {
+fn __aeabi_fneg(a: f32) callconv(.{ .arm_aapcs = .{} }) f32 {
     return common.fneg(a);
 }

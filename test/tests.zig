@@ -143,7 +143,7 @@ const test_targets = blk: {
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+int8+int16+int64+float16+float64",
+                .cpu_features = "vulkan_v1_2+int64+float16+float64",
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
@@ -1429,14 +1429,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
-
-        // TODO get compiler-rt tests passing for wasm32-wasi
-        // currently causes "LLVM ERROR: Unable to expand fixed point multiplication."
-        if (target.cpu.arch == .wasm32 and target.os.tag == .wasi and
-            mem.eql(u8, options.name, "compiler-rt"))
-        {
-            continue;
-        }
 
         // TODO get universal-libc tests passing for other self-hosted backends.
         if (target.cpu.arch != .x86_64 and

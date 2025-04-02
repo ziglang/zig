@@ -380,7 +380,7 @@ pub const FrameContext = struct {
     ///   - `error.WindowSizeUnknown` if the frame does not have a valid window
     ///     size
     ///   - `error.WindowTooLarge` if the window size is larger than
-    ///     `window_size_max`
+    ///     `window_size_max` or `std.math.intMax(usize)`
     ///   - `error.ContentSizeTooLarge` if the frame header indicates a content
     ///     size larger than `std.math.maxInt(usize)`
     pub fn init(
@@ -395,7 +395,7 @@ pub const FrameContext = struct {
         const window_size = if (window_size_raw > window_size_max)
             return error.WindowTooLarge
         else
-            @as(usize, @intCast(window_size_raw));
+            std.math.cast(usize, window_size_raw) orelse return error.WindowTooLarge;
 
         const should_compute_checksum =
             frame_header.descriptor.content_checksum_flag and verify_checksum;

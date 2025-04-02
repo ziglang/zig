@@ -114,7 +114,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLargeBss(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLinkOrder(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLdScript(b, .{ .target = gnu_target }));
-        elf_step.dependOn(testLdScriptPathError(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/23125
+        // elf_step.dependOn(testLdScriptPathError(b, .{ .target = gnu_target }));
         elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
         elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
         // https://github.com/ziglang/zig/issues/17451
@@ -931,7 +932,7 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
     const obj3 = addObject(b, opts, .{
         .name = "a_very_long_file_name_so_that_it_ends_up_in_strtab",
         .zig_source_bytes =
-        \\fn weakFoo() callconv(.C) usize {
+        \\fn weakFoo() callconv(.c) usize {
         \\    return 42;
         \\}
         \\export var strongBar: usize = 100;
