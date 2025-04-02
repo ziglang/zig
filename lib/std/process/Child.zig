@@ -824,8 +824,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // we are the parent
     errdefer comptime unreachable; // The child is forked; we must not error from now on
 
-    posix.close(err_pipe[1]); // make sure only the child holds the write end open
-    self.err_pipe = err_pipe[0];
+    if (!use_clone) {
+        posix.close(err_pipe[1]); // make sure only the child holds the write end open
+        self.err_pipe = err_pipe[0];
+    }
 
     const pid: i32 = @intCast(pid_result);
     if (self.stdin_behavior == .Pipe) {
@@ -845,9 +847,6 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     self.id = pid;
-    if (!use_clone) {
-        self.err_pipe = err_pipe;
-    }
     self.term = null;
 
     if (self.stdin_behavior == .Pipe) {
