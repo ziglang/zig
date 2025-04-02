@@ -983,7 +983,7 @@ pub const VTable = struct {
     mutexUnlock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
 
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) Cancelable!void,
-    conditionWake: *const fn (?*anyopaque, cond: *Condition) void,
+    conditionWake: *const fn (?*anyopaque, cond: *Condition, wake: Condition.Wake) void,
 
     createFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.CreateFlags) FileOpenError!fs.File,
     openFile: *const fn (?*anyopaque, dir: fs.Dir, sub_path: []const u8, flags: fs.File.OpenFlags) FileOpenError!fs.File,
@@ -1162,9 +1162,20 @@ pub const Condition = struct {
         return io.vtable.conditionWait(io.userdata, cond, mutex);
     }
 
-    pub fn wake(cond: *Condition, io: Io) void {
-        io.vtable.conditionWake(io.userdata, cond);
+    pub fn signal(cond: *Condition, io: Io) void {
+        io.vtable.conditionWake(io.userdata, cond, .one);
     }
+
+    pub fn broadcast(cond: *Condition, io: Io) void {
+        io.vtable.conditionWake(io.userdata, cond, .all);
+    }
+
+    pub const Wake = enum {
+        /// wake up only one thread
+        one,
+        /// wake up all thread
+        all,
+    };
 };
 
 pub const TypeErasedQueue = struct {
@@ -1216,7 +1227,7 @@ pub const TypeErasedQueue = struct {
             remaining = remaining[copy_len..];
             getter.data.remaining = getter.data.remaining[copy_len..];
             if (getter.data.remaining.len == 0) {
-                getter.data.condition.wake(io);
+                getter.data.condition.signal(io);
                 continue;
             }
             q.getters.prepend(getter);
@@ -1299,7 +1310,7 @@ pub const TypeErasedQueue = struct {
                 putter.data.remaining = putter.data.remaining[copy_len..];
                 remaining = remaining[copy_len..];
                 if (putter.data.remaining.len == 0) {
-                    putter.data.condition.wake(io);
+                    putter.data.condition.signal(io);
                 } else {
                     assert(remaining.len == 0);
                     q.putters.prepend(putter);
@@ -1332,7 +1343,7 @@ pub const TypeErasedQueue = struct {
             putter.data.remaining = putter.data.remaining[copy_len..];
             q.put_index += copy_len;
             if (putter.data.remaining.len == 0) {
-                putter.data.condition.wake(io);
+                putter.data.condition.signal(io);
                 continue;
             }
             const second_available = q.buffer[0..q.get_index];
@@ -1341,7 +1352,7 @@ pub const TypeErasedQueue = struct {
             putter.data.remaining = putter.data.remaining[copy_len..];
             q.put_index = copy_len;
             if (putter.data.remaining.len == 0) {
-                putter.data.condition.wake(io);
+                putter.data.condition.signal(io);
                 continue;
             }
             q.putters.prepend(putter);
