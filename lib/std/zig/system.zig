@@ -125,6 +125,10 @@ pub fn getExternalExecutor(
         };
     }
 
+    if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
+        return Executor{ .wasmtime = "wasmtime" };
+    }
+
     switch (candidate.os.tag) {
         .windows => {
             if (options.allow_wine) {
@@ -139,15 +143,6 @@ pub fn getExternalExecutor(
                     else => false,
                 };
                 return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
-            }
-            return bad_result;
-        },
-        .wasi => {
-            if (options.allow_wasmtime) {
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wasmtime = "wasmtime" },
-                    else => return bad_result,
-                }
             }
             return bad_result;
         },
