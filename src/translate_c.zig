@@ -1964,7 +1964,14 @@ fn transImplicitCastExpr(
                 return maybeSuppressResult(c, result_used, sub_expr_node);
             }
 
-            const addr = try Tag.address_of.create(c.arena, sub_expr_node);
+            const index_val = try Tag.integer_literal.create(c.arena, "0");
+            const index = try Tag.as.create(c.arena, .{
+                .lhs = try Tag.type.create(c.arena, "usize"),
+                .rhs = try Tag.int_cast.create(c.arena, index_val),
+            });
+            const array0_node = try Tag.array_access.create(c.arena, .{ .lhs = sub_expr_node, .rhs = index });
+            // Convert array to pointer by expression: addr = &sub_expr[0]
+            const addr = try Tag.address_of.create(c.arena, array0_node);
             const casted = try transCPtrCast(c, scope, expr.getBeginLoc(), dest_type, src_type, addr);
             return maybeSuppressResult(c, result_used, casted);
         },
