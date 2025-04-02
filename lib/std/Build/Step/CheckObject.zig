@@ -2012,7 +2012,7 @@ const ElfDumper = struct {
 
             for (ctx.phdrs, 0..) |phdr, phndx| {
                 try writer.print("phdr {d}\n", .{phndx});
-                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("type {s}\n", .{phdr.p_type});
                 try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
                 try writer.print("paddr {x}\n", .{phdr.p_paddr});
                 try writer.print("offset {x}\n", .{phdr.p_offset});
@@ -2370,40 +2370,6 @@ const ElfDumper = struct {
             } else "UNKNOWN",
         };
         try writer.writeAll(name);
-    }
-
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
-        return .{ .data = ph_type };
-    }
-
-    fn formatPhType(
-        ph_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const p_type = switch (ph_type) {
-            elf.PT_NULL => "NULL",
-            elf.PT_LOAD => "LOAD",
-            elf.PT_DYNAMIC => "DYNAMIC",
-            elf.PT_INTERP => "INTERP",
-            elf.PT_NOTE => "NOTE",
-            elf.PT_SHLIB => "SHLIB",
-            elf.PT_PHDR => "PHDR",
-            elf.PT_TLS => "TLS",
-            elf.PT_NUM => "NUM",
-            elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
-            elf.PT_GNU_STACK => "GNU_STACK",
-            elf.PT_GNU_RELRO => "GNU_RELRO",
-            else => if (elf.PT_LOOS <= ph_type and ph_type < elf.PT_HIOS) {
-                return try writer.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
-            } else if (elf.PT_LOPROC <= ph_type and ph_type < elf.PT_HIPROC) {
-                return try writer.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
-            } else "UNKNOWN",
-        };
-        try writer.writeAll(p_type);
     }
 };
 
