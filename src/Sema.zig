@@ -28473,6 +28473,14 @@ fn elemPtrOneLayerOnly(
             try sema.checkLogicalPtrOperation(block, src, indexable_ty);
             const result_ty = try indexable_ty.elemPtrType(null, pt);
 
+            try sema.validateRuntimeElemAccess(block, elem_index_src, result_ty, indexable_ty, indexable_src);
+            try sema.validateRuntimeValue(block, indexable_src, indexable);
+
+            if (!try result_ty.childType(zcu).hasRuntimeBitsIgnoreComptimeSema(pt)) {
+                // zero-bit child type; just bitcast the pointer
+                return block.addBitCast(result_ty, indexable);
+            }
+
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
         .one => {
@@ -28944,6 +28952,11 @@ fn elemPtrSlice(
         };
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
         try sema.addSafetyCheckIndexOob(block, src, elem_index, len_inst, cmp_op);
+    }
+    if (!try slice_ty.childType(zcu).hasRuntimeBitsIgnoreComptimeSema(pt)) {
+        // zero-bit child type; just extract the pointer and bitcast it
+        const slice_ptr = try block.addTyOp(.slice_ptr, slice_ty.slicePtrFieldType(zcu), slice);
+        return block.addBitCast(elem_ptr_ty, slice_ptr);
     }
     return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
