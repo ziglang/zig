@@ -281,6 +281,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             allocated_count: SlotIndex,
             freed_count: SlotIndex,
             prev: ?*BucketHeader,
+            next: ?*BucketHeader,
             canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
@@ -782,7 +783,11 @@ pub fn DebugAllocator(comptime config: Config) type {
                 .allocated_count = 1,
                 .freed_count = 0,
                 .prev = self.buckets[size_class_index],
+                .next = null,
             };
+            if (self.buckets[size_class_index]) |old_head| {
+                old_head.next = bucket;
+            }
             self.buckets[size_class_index] = bucket;
 
             if (!config.backing_allocator_zeroes) {
@@ -935,9 +940,18 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
             bucket.freed_count += 1;
             if (bucket.freed_count == bucket.allocated_count) {
-                if (self.buckets[size_class_index] == bucket) {
-                    self.buckets[size_class_index] = null;
+                if (bucket.prev) |prev| {
+                    prev.next = bucket.next;
                 }
+
+                if (bucket.next) |next| {
+                    assert(self.buckets[size_class_index] != bucket);
+                    next.prev = bucket.prev;
+                } else {
+                    assert(self.buckets[size_class_index] == bucket);
+                    self.buckets[size_class_index] = bucket.prev;
+                }
+
                 if (!config.never_unmap) {
                     const page: [*]align(page_size) u8 = @ptrFromInt(page_addr);
                     self.backing_allocator.rawFree(page[0..page_size], page_align, @returnAddress());
