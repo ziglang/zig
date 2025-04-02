@@ -146,7 +146,7 @@ pub fn clone() callconv(.naked) usize {
         \\  movl 24(%%ebp),%%edx
         \\  movl 28(%%ebp),%%esi
         \\  movl 32(%%ebp),%%edi
-        \\  movl $120,%%eax // SYS_clone
+        \\  movl $120,%%eax
         \\  int $128
         \\  testl %%eax,%%eax
         \\  jz 1f
@@ -167,7 +167,7 @@ pub fn clone() callconv(.naked) usize {
         \\  popl %%eax
         \\  calll *%%eax
         \\  movl %%eax,%%ebx
-        \\  movl $1,%%eax // SYS_exit
+        \\  movl $1,%%eax
         \\  int $128
     );
 }
@@ -180,7 +180,7 @@ pub fn clone3() callconv(.Naked) usize {
         \\  movl 16(%%esp),%%ecx
         \\  movl 20(%%esp),%%edx
         \\  movl 24(%%esp),%%esi
-        \\  movl $435,%%eax // SYS_clone3
+        \\  movl $435,%%eax
         \\  int $128
         \\  testl %%eax,%%eax
         \\  jz 1f
@@ -197,7 +197,7 @@ pub fn clone3() callconv(.Naked) usize {
         \\  pushl %%esi
         \\  calll *%%edx
         \\  movl %%eax,%%ebx
-        \\  movl $1,%%eax // SYS_exit
+        \\  movl $1,%%eax
         \\  int $128
     );
 }

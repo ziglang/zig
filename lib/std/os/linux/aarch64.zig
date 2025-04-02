@@ -115,7 +115,7 @@ pub fn clone() callconv(.naked) usize {
         \\      mov x2,x4
         \\      mov x3,x5
         \\      mov x4,x6
-        \\      mov x8,#220 // SYS_clone
+        \\      mov x8,#220
         \\      svc #0
         \\
         \\      cbz x0,1f
@@ -134,14 +134,14 @@ pub fn clone() callconv(.naked) usize {
         \\
         \\      ldp x1,x0,[sp],#16
         \\      blr x1
-        \\      mov x8,#93 // SYS_exit
+        \\      mov x8,#93
         \\      svc #0
     );
 }
 
 pub fn clone3() callconv(.Naked) usize {
     asm volatile (
-        \\      mov x8,#435 // SYS_clone3
+        \\      mov x8,#435
         \\      svc #0
         \\
         \\      cbz x0,1f
@@ -153,7 +153,7 @@ pub fn clone3() callconv(.Naked) usize {
         \\
         \\      mov x0,x3
         \\      blr x2
-        \\      mov x8,#93 // SYS_exit
+        \\      mov x8,#93
         \\      svc #0
     );
 }

@@ -103,7 +103,7 @@ pub fn syscall6(
 
 pub fn clone() callconv(.naked) usize {
     asm volatile (
-        \\      movl $56,%%eax // SYS_clone
+        \\      movl $56,%%eax
         \\      movq %%rdi,%%r11
         \\      movq %%rdx,%%rdi
         \\      movq %%r8,%%rdx
@@ -129,7 +129,7 @@ pub fn clone() callconv(.naked) usize {
         \\      popq %%rdi
         \\      callq *%%r9
         \\      movl %%eax,%%edi
-        \\      movl $60,%%eax // SYS_exit
+        \\      movl $60,%%eax
         \\      syscall
         \\
     );
@@ -137,7 +137,7 @@ pub fn clone() callconv(.naked) usize {
 
 pub fn clone3() callconv(.Naked) usize {
     asm volatile (
-        \\      movl $435,%%eax // SYS_clone3
+        \\      movl $435,%%eax
         \\      movq %%rcx,%%r8
         \\      syscall
         \\      testq %%rax,%%rax
@@ -150,7 +150,7 @@ pub fn clone3() callconv(.Naked) usize {
         \\      movq %%r8,%%rdi
         \\      callq *%%rdx
         \\      movl %%eax,%%edi
-        \\      movl $60,%%eax // SYS_exit
+        \\      movl $60,%%eax
         \\      syscall
         \\
     );
