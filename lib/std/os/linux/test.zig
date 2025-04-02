@@ -297,6 +297,136 @@ test "futex v1" {
     }
 }
 
+comptime {
+    std.debug.assert(2 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = .U32, .private = false })));
+    std.debug.assert(128 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = @enumFromInt(0), .private = true })));
+}
+
+test "futex2_waitv" {
+    const locks = [_]std.atomic.Value(u32){
+        std.atomic.Value(u32).init(1),
+        std.atomic.Value(u32).init(1),
+        std.atomic.Value(u32).init(1),
+    };
+
+    const futexes = [_]linux.futex2_waitone{
+        .{
+            .val = 1,
+            .uaddr = @intFromPtr(&locks[0].raw),
+            .flags = .{ .size = .U32, .private = true },
+        },
+        .{
+            .val = 1,
+            .uaddr = @intFromPtr(&locks[1].raw),
+            .flags = .{ .size = .U32, .private = true },
+        },
+        .{
+            .val = 1,
+            .uaddr = @intFromPtr(&locks[2].raw),
+            .flags = .{ .size = .U32, .private = true },
+        },
+    };
+
+    const timeout = linux.kernel_timespec{ .sec = 0, .nsec = 2 }; // absolute timeout, so this is 1970...
+    const rc = linux.futex2_waitv(&futexes, futexes.len, .{}, &timeout, .MONOTONIC);
+    switch (linux.E.init(rc)) {
+        .NOSYS => return error.SkipZigTest, // futex2_waitv added in kernel v5.16
+        else => |err| try expectEqual(.TIMEDOUT, err),
+    }
+}
+
+// Futex v2 API is only supported on recent kernels (v6.7), so skip tests if the syscalls
+// return ENOSYS.
+fn futex2_skip_if_unsupported() !void {
+    const lock: u32 = 0;
+    const rc = linux.futex2_wake(&lock, 0, 1, .{ .size = .U32, .private = true });
+    if (linux.E.init(rc) == .NOSYS) {
+        return error.SkipZigTest;
+    }
+}
+
+test "futex2_wait" {
+    var lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+    var rc: usize = 0;
+    const mask = 0x1;
+
+    try futex2_skip_if_unsupported();
+
+    // The API for 8,16,64 bit futexes is defined, but as of kernel v6.14
+    // (at least) they're not implemented.
+    if (false) {
+        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U8, .private = true }, null, .MONOTONIC);
+        try expectEqual(.INVAL, linux.E.init(rc));
+
+        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U16, .private = true }, null, .MONOTONIC);
+        try expectEqual(.INVAL, linux.E.init(rc));
+
+        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U64, .private = true }, null, .MONOTONIC);
+        try expectEqual(.INVAL, linux.E.init(rc));
+    }
+
+    const flags = linux.FUTEX2_FLAGS{ .size = .U32, .private = true };
+    // no-wait, lock state mismatch
+    rc = linux.futex2_wait(&lock.raw, 2, mask, flags, null, .MONOTONIC);
+    try expectEqual(.AGAIN, linux.E.init(rc));
+
+    // hit timeout on wait
+    rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .MONOTONIC);
+    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+
+    // timeout is absolute
+    {
+        var curr: linux.timespec = undefined;
+        rc = linux.clock_gettime(.MONOTONIC, &curr); // gettime() uses platform timespec
+        try expectEqual(0, rc);
+
+        // ... but futex2_wait always uses 64-bit timespec
+        var timeout: linux.kernel_timespec = .{
+            .sec = curr.sec,
+            .nsec = curr.nsec + 2,
+        };
+        rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &timeout, .MONOTONIC);
+        try expectEqual(.TIMEDOUT, linux.E.init(rc));
+    }
+
+    rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .REALTIME);
+    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+}
+
+test "futex2_wake" {
+    var lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+
+    try futex2_skip_if_unsupported();
+
+    const rc = linux.futex2_wake(&lock.raw, 0xFF, 1, .{ .size = .U32, .private = true });
+    try expectEqual(0, rc);
+}
+
+test "futex2_requeue" {
+    try futex2_skip_if_unsupported();
+
+    const locks = [_]std.atomic.Value(u32){
+        std.atomic.Value(u32).init(1),
+        std.atomic.Value(u32).init(1),
+    };
+
+    const futexes = [_]linux.futex2_waitone{
+        .{
+            .val = 1,
+            .uaddr = @intFromPtr(&locks[0].raw),
+            .flags = .{ .size = .U32, .private = true },
+        },
+        .{
+            .val = 1,
+            .uaddr = @intFromPtr(&locks[1].raw),
+            .flags = .{ .size = .U32, .private = true },
+        },
+    };
+
+    const rc = linux.futex2_requeue(&futexes, .{}, 2, 2);
+    try expectEqual(0, rc);
+}
+
 test {
     _ = linux.IoUring;
 }
