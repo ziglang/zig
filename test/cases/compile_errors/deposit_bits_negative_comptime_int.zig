@@ -9,4 +9,4 @@ export fn entry() void {
 // is_test=true
 //
 // :4:33: error: use of negative value '-1'
-// :4:17: note: parameters to @depositBits must be positive
+// :4:17: note: parameters to @depositBits must be non-negative
