@@ -34,10 +34,10 @@ pub const BootServices = extern struct {
     hdr: TableHeader,
 
     /// Raises a task's priority level and returns its previous level.
-    _aiseTpl: *const fn (new_tpl: usize) callconv(cc) usize,
+    _raiseTpl: *const fn (new_tpl: usize) callconv(cc) usize,
 
     /// Restores a task's priority level to its previous value.
-    _estoreTpl: *const fn (old_tpl: usize) callconv(cc) void,
+    _restoreTpl: *const fn (old_tpl: usize) callconv(cc) void,
 
     /// Allocates memory pages from the system.
     _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) u8) callconv(cc) Status,
@@ -46,7 +46,7 @@ pub const BootServices = extern struct {
     _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
-    _getMemoryMap: *const fn (mmap_size: *usize, mmap: [*]MemoryDescriptor, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
+    _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
 
     /// Allocates pool memory.
     _allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
@@ -479,8 +479,7 @@ pub const BootServices = extern struct {
     pub fn installProtocolInterface(
         self: *BootServices,
         handle: ?Handle,
-        Interface: type,
-        interface: *const Interface,
+        interface: anytype,
     ) InstallProtocolInterfacesError!Handle {
         return self.installProtocolInterfaces(handle, .{
             interface,
@@ -509,7 +508,6 @@ pub const BootServices = extern struct {
     pub fn uninstallProtocolInterface(
         self: *BootServices,
         handle: Handle,
-        Interface: type,
         interface: *const Interface,
     ) UninstallProtocolInterfacesError!void {
         return self.uninstallProtocolInterfaces(handle, .{
@@ -683,7 +681,11 @@ pub const BootServices = extern struct {
             else => |exit_code| exit_code,
         };
 
-        if (exit_data_size == 0) return error.Unexpected;
+        if (exit_data_size == 0) return .{
+            .code = exit_code,
+            .description = null,
+            .data = null,
+        };
 
         const description: [*:0]const u16 = @ptrCast(exit_data);
         var description_len: usize = 0;
@@ -734,9 +736,10 @@ pub const BootServices = extern struct {
     }
 
     pub fn stall(self: *const BootServices, microseconds: usize) uefi.UnexpectedError!void {
-        const status = self._stall(microseconds);
-        if (status != .success)
-            return uefi.unexpectedStatus(status);
+        switch (self._stall(microseconds)) {
+            .success => {},
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub fn setWatchdogTimer(
@@ -1018,8 +1021,8 @@ pub const BootServices = extern struct {
 
     pub const ImageExitData = struct {
         code: Status,
-        description: [:0]const u16,
-        data: []const u16,
+        description: ?[:0]const u16,
+        data: ?[]const u16,
     };
 };
 
