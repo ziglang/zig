@@ -156,7 +156,7 @@ pub fn getExternalExecutor(
                 // This check can be loosened once darling adds a QEMU-based emulation
                 // layer for non-host architectures:
                 // https://github.com/darlinghq/darling/issues/863
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
                 return Executor{ .darling = "darling" };
