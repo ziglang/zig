@@ -15,7 +15,7 @@ const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
 
-const use_clone = native_os == .linux and builtin.zig_backend != .stage2_c;
+const use_clone = native_os == .linux;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
