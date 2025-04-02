@@ -673,12 +673,34 @@ pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
     }
 }
 
-pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*const timespec) usize {
-    return syscall4(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)), @intFromPtr(timeout));
+// The 4th parameter to the v1 futex syscall can either be an optional
+// pointer to a timespec, or a uint32, depending on which "op" is being
+// performed.
+pub const futex_param4 = extern union {
+    timeout: ?*const timespec,
+    /// On all platforms only the bottom 32-bits of `val2` are relevant.
+    /// This is 64-bit to match the pointer in the union.
+    val2: usize,
+};
+
+/// The futex v1 syscall, see also the newer the futex2_{wait,wakeup,requeue,waitv} syscalls.
+///
+/// The futex_op parameter is a sub-command and flags.  The sub-command
+/// defines which of the subsequent paramters are relevant.
+pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
+    return syscall6(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(val2timeout.timeout), @intFromPtr(uaddr2), val3);
 }
 
-pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
-    return syscall3(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)));
+/// Three-argument variation of the v1 futex call.  Only suitable for a
+/// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
+pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
+    return syscall3(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val);
+}
+
+/// Four-argument variation on the v1 futex call.  Only suitable for
+/// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
+pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+    return syscall4(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(timeout));
 }
 
 /// Given an array of `futex_waitv`, wait on each uaddr.
@@ -3385,29 +3407,6 @@ pub const FALLOC = struct {
     pub const FL_UNSHARE_RANGE = 0x40;
 };
 
-pub const FUTEX = struct {
-    pub const WAIT = 0;
-    pub const WAKE = 1;
-    pub const FD = 2;
-    pub const REQUEUE = 3;
-    pub const CMP_REQUEUE = 4;
-    pub const WAKE_OP = 5;
-    pub const LOCK_PI = 6;
-    pub const UNLOCK_PI = 7;
-    pub const TRYLOCK_PI = 8;
-    pub const WAIT_BITSET = 9;
-    pub const WAKE_BITSET = 10;
-    pub const WAIT_REQUEUE_PI = 11;
-    pub const CMP_REQUEUE_PI = 12;
-
-    pub const PRIVATE_FLAG = 128;
-
-    pub const CLOCK_REALTIME = 256;
-
-    /// Max numbers of elements in a `futex_waitv` array.
-    pub const WAITV_MAX = 128;
-};
-
 pub const FUTEX2 = struct {
     pub const SIZE_U8 = 0x00;
     pub const SIZE_U16 = 0x01;
@@ -3417,6 +3416,69 @@ pub const FUTEX2 = struct {
 
     pub const PRIVATE = FUTEX.PRIVATE_FLAG;
 };
+
+// Futex v1 API commands.  See futex man page for each command's
+// interpretation of the futex arguments.
+pub const FUTEX_COMMAND = enum(u7) {
+    WAIT = 0,
+    WAKE = 1,
+    FD = 2,
+    REQUEUE = 3,
+    CMP_REQUEUE = 4,
+    WAKE_OP = 5,
+    LOCK_PI = 6,
+    UNLOCK_PI = 7,
+    TRYLOCK_PI = 8,
+    WAIT_BITSET = 9,
+    WAKE_BITSET = 10,
+    WAIT_REQUEUE_PI = 11,
+    CMP_REQUEUE_PI = 12,
+};
+
+/// Futex v1 API command and flags for the `futex_op` parameter
+pub const FUTEX_OP = packed struct(u32) {
+    cmd: FUTEX_COMMAND,
+    private: bool,
+    realtime: bool = false, // realtime clock vs. monotonic clock
+    _reserved: u23 = 0,
+};
+
+/// Futex v1 FUTEX_WAKE_OP `val3` operation:
+pub const FUTEX_WAKE_OP = packed struct(u32) {
+    cmd: FUTEX_WAKE_OP_CMD,
+    /// From C API `FUTEX_OP_ARG_SHIFT`:  Use (1 << oparg) as operand
+    arg_shift: bool = false,
+    cmp: FUTEX_WAKE_OP_CMP,
+    oparg: u12,
+    cmdarg: u12,
+};
+
+/// Futex v1 cmd for FUTEX_WAKE_OP `val3` command.
+pub const FUTEX_WAKE_OP_CMD = enum(u3) {
+    /// uaddr2 = oparg
+    SET = 0,
+    /// uaddr2 += oparg
+    ADD = 1,
+    /// uaddr2 |= oparg
+    OR = 2,
+    /// uaddr2 &= ~oparg
+    ANDN = 3,
+    /// uaddr2 ^= oparg
+    XOR = 4,
+};
+
+/// Futex v1 comparison op for FUTEX_WAKE_OP `val3` cmp
+pub const FUTEX_WAKE_OP_CMP = enum(u4) {
+    EQ = 0,
+    NE = 1,
+    LT = 2,
+    LE = 3,
+    GT = 4,
+    GE = 5,
+};
+
+/// Max numbers of elements in a `futex_waitv` array.
+pub const FUTEX2_WAITV_MAX = 128;
 
 pub const PROT = struct {
     /// page can not be accessed
