@@ -1,12 +1,10 @@
-//! The simplest way to parse ZON at runtime is to use `fromSlice`. See also `fromSliceFlat`.
+//! The simplest way to parse ZON at runtime is to use `fromSlice`/`fromSliceAlloc`.
 //!
 //! Note that if you need to parse ZON at compile time, you may use `@import`.
 //!
 //! Parsing from individual Zoir nodes is also available:
-//! * `fromZoir`
-//! * `fromZoirFlat`
-//! * `fromZoirNode`
-//! * `fromZoirNodeFlat`
+//! * `fromZoir`/`fromZoirAlloc`
+//! * `fromZoirNode`/`fromZoirNodeAlloc`
 //!
 //! For lower level control over parsing, see `std.zig.Zoir`.
 
@@ -279,7 +277,25 @@ pub const Diagnostics = struct {
 ///
 /// When the parser returns `error.ParseZon`, it will also store a human readable explanation in
 /// `diag` if non null. If diag is not null, it must be initialized to `.{}`.
+///
+/// Asserts at compile time that the result type doesn't contain pointers. As such, the result
+/// doesn't need to be freed.
+///
+/// An allocator is still required for temporary allocations made during parsing.
 pub fn fromSlice(
+    T: type,
+    gpa: Allocator,
+    source: [:0]const u8,
+    diag: ?*Diagnostics,
+    options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    comptime assert(!requiresAllocator(T));
+    return fromSliceAlloc(T, gpa, source, diag, options);
+}
+
+/// Like `fromSlice`, but the result may contain pointers. To automatically free the result, see
+/// `free`.
+pub fn fromSliceAlloc(
     /// The type to deserialize into. May not be or contain any of the following types:
     /// * Any comptime-only type, except in a comptime field
     /// * `type`
@@ -310,53 +326,26 @@ pub fn fromSlice(
     defer if (diag == null) zoir.deinit(gpa);
 
     if (diag) |s| s.* = .{};
-    return fromZoir(T, gpa, ast, zoir, diag, options);
-}
-
-/// Like `fromSlice`, but asserts at compile time that the result type doesn't contain pointers. As
-/// such, the result doesn't need to be freed.
-///
-/// An allocator is still required for temporary allocations made during parsing.
-pub fn fromSliceFlat(
-    T: type,
-    gpa: Allocator,
-    source: [:0]const u8,
-    status: ?*Status,
-    options: Options,
-) error{ OutOfMemory, ParseZon }!T {
-    comptime assert(!requiresAllocator(T));
-    return fromSlice(T, gpa, source, status, options);
+    return fromZoirAlloc(T, gpa, ast, zoir, diag, options);
 }
 
 /// Like `fromSlice`, but operates on `Zoir` instead of ZON source.
 pub fn fromZoir(
     T: type,
-    gpa: Allocator,
     ast: Ast,
     zoir: Zoir,
     diag: ?*Diagnostics,
-    options: Options,
-) error{ OutOfMemory, ParseZon }!T {
-    return fromZoirNode(T, gpa, ast, zoir, .root, diag, options);
-}
-
-/// Like `fromSliceFlat`, but operates on `Zoir` instead of ZON source.
-pub fn fromZoirFlat(
-    T: type,
-    ast: Ast,
-    zoir: Zoir,
-    status: ?*Status,
     options: Options,
 ) error{ParseZon}!T {
     comptime assert(!requiresAllocator(T));
     var buf: [0]u8 = .{};
     var failing_allocator = std.heap.FixedBufferAllocator.init(&buf);
-    return fromZoir(
+    return fromZoirAlloc(
         T,
         failing_allocator.allocator(),
         ast,
         zoir,
-        status,
+        diag,
         options,
     ) catch |err| switch (err) {
         error.OutOfMemory => unreachable, // Checked by comptime assertion above
@@ -364,8 +353,46 @@ pub fn fromZoirFlat(
     };
 }
 
+/// Like `fromSliceAlloc`, but operates on `Zoir` instead of ZON source.
+pub fn fromZoirAlloc(
+    T: type,
+    gpa: Allocator,
+    ast: Ast,
+    zoir: Zoir,
+    diag: ?*Diagnostics,
+    options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    return fromZoirNodeAlloc(T, gpa, ast, zoir, .root, diag, options);
+}
+
 /// Like `fromZoir`, but the parse starts at `node` instead of root.
 pub fn fromZoirNode(
+    T: type,
+    ast: Ast,
+    zoir: Zoir,
+    node: Zoir.Node.Index,
+    diag: ?*Diagnostics,
+    options: Options,
+) error{ParseZon}!T {
+    comptime assert(!requiresAllocator(T));
+    var buf: [0]u8 = .{};
+    var failing_allocator = std.heap.FixedBufferAllocator.init(&buf);
+    return fromZoirNodeAlloc(
+        T,
+        failing_allocator.allocator(),
+        ast,
+        zoir,
+        node,
+        diag,
+        options,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => unreachable, // Checked by comptime assertion above
+        else => |e| return e,
+    };
+}
+
+/// Like `fromZoirAlloc`, but the parse starts at `node` instead of root.
+pub fn fromZoirNodeAlloc(
     T: type,
     gpa: Allocator,
     ast: Ast,
@@ -395,32 +422,6 @@ pub fn fromZoirNode(
     };
 
     return parser.parseExpr(T, node);
-}
-
-/// Like `fromZoirFlat`, but the parse starts at `node` instead of root.
-pub fn fromZoirNodeFlat(
-    T: type,
-    ast: Ast,
-    zoir: Zoir,
-    node: Zoir.Node.Index,
-    status: ?*Status,
-    options: Options,
-) error{ParseZon}!T {
-    comptime assert(!requiresAllocator(T));
-    var buf: [0]u8 = .{};
-    var failing_allocator = std.heap.FixedBufferAllocator.init(&buf);
-    return fromZoirNode(
-        T,
-        failing_allocator.allocator(),
-        ast,
-        zoir,
-        node,
-        status,
-        options,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => unreachable, // Checked by comptime assertion above
-        else => |e| return e,
-    };
 }
 
 /// Frees ZON values.
@@ -1364,7 +1365,7 @@ test "std.zon ast errors" {
     defer diag.deinit(gpa);
     try std.testing.expectError(
         error.ParseZon,
-        fromSlice(struct {}, gpa, ".{.x = 1 .y = 2}", &diag, .{}),
+        fromSliceAlloc(struct {}, gpa, ".{.x = 1 .y = 2}", &diag, .{}),
     );
     try std.testing.expectFmt("1:13: error: expected ',' after initializer\n", "{}", .{diag});
 }
@@ -1372,7 +1373,7 @@ test "std.zon ast errors" {
 test "std.zon comments" {
     const gpa = std.testing.allocator;
 
-    try std.testing.expectEqual(@as(u8, 10), fromSlice(u8, gpa,
+    try std.testing.expectEqual(@as(u8, 10), fromSliceAlloc(u8, gpa,
         \\// comment
         \\10 // comment
         \\// comment
@@ -1380,8 +1381,8 @@ test "std.zon comments" {
 
     {
         var diag: Diagnostics = .{};
-        defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa,
+        defer status.deinit(gpa);
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa,
             \\//! comment
             \\10 // comment
             \\// comment
@@ -1401,8 +1402,8 @@ test "std.zon failure/oom formatting" {
         .resize_fail_index = 0,
     });
     var diag: Diagnostics = .{};
-    defer diag.deinit(gpa);
-    try std.testing.expectError(error.OutOfMemory, fromSlice(
+    defer status.deinit(gpa);
+    try std.testing.expectError(error.OutOfMemory, fromSliceAlloc(
         []const u8,
         failing_allocator.allocator(),
         "\"foo\"",
@@ -1412,10 +1413,10 @@ test "std.zon failure/oom formatting" {
     try std.testing.expectFmt("", "{}", .{diag});
 }
 
-test "std.zon fromSlice syntax error" {
+test "std.zon fromSliceAlloc syntax error" {
     try std.testing.expectError(
         error.ParseZon,
-        fromSlice(u8, std.testing.allocator, ".{", null, .{}),
+        fromSliceAlloc(u8, std.testing.allocator, ".{", null, .{}),
     );
 }
 
@@ -1424,17 +1425,17 @@ test "std.zon optional" {
 
     // Basic usage
     {
-        const none = try fromSlice(?u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(?u32, gpa, "null", null, .{});
         try std.testing.expect(none == null);
-        const some = try fromSlice(?u32, gpa, "1", null, .{});
+        const some = try fromSliceAlloc(?u32, gpa, "1", null, .{});
         try std.testing.expect(some.? == 1);
     }
 
     // Deep free
     {
-        const none = try fromSlice(?[]const u8, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(?[]const u8, gpa, "null", null, .{});
         try std.testing.expect(none == null);
-        const some = try fromSlice(?[]const u8, gpa, "\"foo\"", null, .{});
+        const some = try fromSliceAlloc(?[]const u8, gpa, "\"foo\"", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqualStrings("foo", some.?);
     }
@@ -1448,18 +1449,18 @@ test "std.zon unions" {
         const Tagged = union(enum) { x: f32, @"y y": bool, z, @"z z" };
         const Untagged = union { x: f32, @"y y": bool, z: void, @"z z": void };
 
-        const tagged_x = try fromSlice(Tagged, gpa, ".{.x = 1.5}", null, .{});
+        const tagged_x = try fromSliceAlloc(Tagged, gpa, ".{.x = 1.5}", null, .{});
         try std.testing.expectEqual(Tagged{ .x = 1.5 }, tagged_x);
-        const tagged_y = try fromSlice(Tagged, gpa, ".{.@\"y y\" = true}", null, .{});
+        const tagged_y = try fromSliceAlloc(Tagged, gpa, ".{.@\"y y\" = true}", null, .{});
         try std.testing.expectEqual(Tagged{ .@"y y" = true }, tagged_y);
-        const tagged_z_shorthand = try fromSlice(Tagged, gpa, ".z", null, .{});
+        const tagged_z_shorthand = try fromSliceAlloc(Tagged, gpa, ".z", null, .{});
         try std.testing.expectEqual(@as(Tagged, .z), tagged_z_shorthand);
-        const tagged_zz_shorthand = try fromSlice(Tagged, gpa, ".@\"z z\"", null, .{});
+        const tagged_zz_shorthand = try fromSliceAlloc(Tagged, gpa, ".@\"z z\"", null, .{});
         try std.testing.expectEqual(@as(Tagged, .@"z z"), tagged_zz_shorthand);
 
-        const untagged_x = try fromSlice(Untagged, gpa, ".{.x = 1.5}", null, .{});
+        const untagged_x = try fromSliceAlloc(Untagged, gpa, ".{.x = 1.5}", null, .{});
         try std.testing.expect(untagged_x.x == 1.5);
-        const untagged_y = try fromSlice(Untagged, gpa, ".{.@\"y y\" = true}", null, .{});
+        const untagged_y = try fromSliceAlloc(Untagged, gpa, ".{.@\"y y\" = true}", null, .{});
         try std.testing.expect(untagged_y.@"y y");
     }
 
@@ -1467,10 +1468,10 @@ test "std.zon unions" {
     {
         const Union = union(enum) { bar: []const u8, baz: bool };
 
-        const noalloc = try fromSlice(Union, gpa, ".{.baz = false}", null, .{});
+        const noalloc = try fromSliceAlloc(Union, gpa, ".{.baz = false}", null, .{});
         try std.testing.expectEqual(Union{ .baz = false }, noalloc);
 
-        const alloc = try fromSlice(Union, gpa, ".{.bar = \"qux\"}", null, .{});
+        const alloc = try fromSliceAlloc(Union, gpa, ".{.bar = \"qux\"}", null, .{});
         defer free(gpa, alloc);
         try std.testing.expectEqualDeep(Union{ .bar = "qux" }, alloc);
     }
@@ -1482,7 +1483,7 @@ test "std.zon unions" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Union, gpa, ".{.z=2.5}", &diag, .{}),
+            fromSliceAlloc(Union, gpa, ".{.z=2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:4: error: unexpected field 'z'
@@ -1501,7 +1502,7 @@ test "std.zon unions" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Union, gpa, ".{.x=1}", &diag, .{}),
+            fromSliceAlloc(Union, gpa, ".{.x=1}", &diag, .{}),
         );
         try std.testing.expectFmt("1:6: error: expected type 'void'\n", "{}", .{diag});
     }
@@ -1513,7 +1514,7 @@ test "std.zon unions" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Union, gpa, ".{.x = 1.5, .y = true}", &diag, .{}),
+            fromSliceAlloc(Union, gpa, ".{.x = 1.5, .y = true}", &diag, .{}),
         );
         try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
     }
@@ -1525,7 +1526,7 @@ test "std.zon unions" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Union, gpa, ".{}", &diag, .{}),
+            fromSliceAlloc(Union, gpa, ".{}", &diag, .{}),
         );
         try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
     }
@@ -1535,7 +1536,7 @@ test "std.zon unions" {
         const Union = union { x: void };
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".x", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Union, gpa, ".x", &diag, .{}));
         try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
     }
 
@@ -1544,7 +1545,7 @@ test "std.zon unions" {
         const Union = union(enum) { x: void };
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".y", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Union, gpa, ".y", &diag, .{}));
         try std.testing.expectFmt(
             \\1:2: error: unexpected field 'y'
             \\1:2: note: supported: 'x'
@@ -1560,7 +1561,7 @@ test "std.zon unions" {
         const Union = union(enum) { x: f32 };
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".x", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Union, gpa, ".x", &diag, .{}));
         try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
     }
 }
@@ -1575,16 +1576,16 @@ test "std.zon structs" {
         const Vec2 = struct { x: f32, y: f32 };
         const Vec3 = struct { x: f32, y: f32, z: f32 };
 
-        const zero = try fromSlice(Vec0, gpa, ".{}", null, .{});
+        const zero = try fromSliceAlloc(Vec0, gpa, ".{}", null, .{});
         try std.testing.expectEqual(Vec0{}, zero);
 
-        const one = try fromSlice(Vec1, gpa, ".{.x = 1.2}", null, .{});
+        const one = try fromSliceAlloc(Vec1, gpa, ".{.x = 1.2}", null, .{});
         try std.testing.expectEqual(Vec1{ .x = 1.2 }, one);
 
-        const two = try fromSlice(Vec2, gpa, ".{.x = 1.2, .y = 3.4}", null, .{});
+        const two = try fromSliceAlloc(Vec2, gpa, ".{.x = 1.2, .y = 3.4}", null, .{});
         try std.testing.expectEqual(Vec2{ .x = 1.2, .y = 3.4 }, two);
 
-        const three = try fromSlice(Vec3, gpa, ".{.x = 1.2, .y = 3.4, .z = 5.6}", null, .{});
+        const three = try fromSliceAlloc(Vec3, gpa, ".{.x = 1.2, .y = 3.4, .z = 5.6}", null, .{});
         try std.testing.expectEqual(Vec3{ .x = 1.2, .y = 3.4, .z = 5.6 }, three);
     }
 
@@ -1592,7 +1593,7 @@ test "std.zon structs" {
     {
         const Foo = struct { bar: []const u8, baz: []const []const u8 };
 
-        const parsed = try fromSlice(
+        const parsed = try fromSliceAlloc(
             Foo,
             gpa,
             ".{.bar = \"qux\", .baz = .{\"a\", \"b\"}}",
@@ -1610,7 +1611,7 @@ test "std.zon structs" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Vec2, gpa, ".{.x=1.5, .z=2.5}", &diag, .{}),
+            fromSliceAlloc(Vec2, gpa, ".{.x=1.5, .z=2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:12: error: unexpected field 'z'
@@ -1629,7 +1630,7 @@ test "std.zon structs" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Vec2, gpa, ".{.x=1.5, .x=2.5, .x=3.5}", &diag, .{}),
+            fromSliceAlloc(Vec2, gpa, ".{.x=1.5, .x=2.5, .x=3.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:4: error: duplicate struct field name
@@ -1641,7 +1642,7 @@ test "std.zon structs" {
     // Ignore unknown fields
     {
         const Vec2 = struct { x: f32, y: f32 = 2.0 };
-        const parsed = try fromSlice(Vec2, gpa, ".{ .x = 1.0, .z = 3.0 }", null, .{
+        const parsed = try fromSliceAlloc(Vec2, gpa, ".{ .x = 1.0, .z = 3.0 }", null, .{
             .ignore_unknown_fields = true,
         });
         try std.testing.expectEqual(Vec2{ .x = 1.0, .y = 2.0 }, parsed);
@@ -1654,7 +1655,7 @@ test "std.zon structs" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Vec2, gpa, ".{.x=1.5, .z=2.5}", &diag, .{}),
+            fromSliceAlloc(Vec2, gpa, ".{.x=1.5, .z=2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:4: error: unexpected field 'x'
@@ -1670,7 +1671,7 @@ test "std.zon structs" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Vec2, gpa, ".{.x=1.5}", &diag, .{}),
+            fromSliceAlloc(Vec2, gpa, ".{.x=1.5}", &diag, .{}),
         );
         try std.testing.expectFmt("1:2: error: missing required field y\n", "{}", .{diag});
     }
@@ -1678,14 +1679,14 @@ test "std.zon structs" {
     // Default field
     {
         const Vec2 = struct { x: f32, y: f32 = 1.5 };
-        const parsed = try fromSlice(Vec2, gpa, ".{.x = 1.2}", null, .{});
+        const parsed = try fromSliceAlloc(Vec2, gpa, ".{.x = 1.2}", null, .{});
         try std.testing.expectEqual(Vec2{ .x = 1.2, .y = 1.5 }, parsed);
     }
 
     // Comptime field
     {
         const Vec2 = struct { x: f32, comptime y: f32 = 1.5 };
-        const parsed = try fromSlice(Vec2, gpa, ".{.x = 1.2}", null, .{});
+        const parsed = try fromSliceAlloc(Vec2, gpa, ".{.x = 1.2}", null, .{});
         try std.testing.expectEqual(Vec2{ .x = 1.2, .y = 1.5 }, parsed);
     }
 
@@ -1694,7 +1695,7 @@ test "std.zon structs" {
         const Vec2 = struct { x: f32, comptime y: f32 = 1.5 };
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        const parsed = fromSlice(Vec2, gpa, ".{.x = 1.2, .y = 1.5}", &diag, .{});
+        const parsed = fromSliceAlloc(Vec2, gpa, ".{.x = 1.2, .y = 1.5}", &diag, .{});
         try std.testing.expectError(error.ParseZon, parsed);
         try std.testing.expectFmt(
             \\1:18: error: cannot initialize comptime field
@@ -1706,14 +1707,14 @@ test "std.zon structs" {
     // incorrect way that broke for enum values)
     {
         const Vec0 = struct { x: enum { x } };
-        const parsed = try fromSlice(Vec0, gpa, ".{ .x = .x }", null, .{});
+        const parsed = try fromSliceAlloc(Vec0, gpa, ".{ .x = .x }", null, .{});
         try std.testing.expectEqual(Vec0{ .x = .x }, parsed);
     }
 
     // Enum field and struct field with @
     {
         const Vec0 = struct { @"x x": enum { @"x x" } };
-        const parsed = try fromSlice(Vec0, gpa, ".{ .@\"x x\" = .@\"x x\" }", null, .{});
+        const parsed = try fromSliceAlloc(Vec0, gpa, ".{ .@\"x x\" = .@\"x x\" }", null, .{});
         try std.testing.expectEqual(Vec0{ .@"x x" = .@"x x" }, parsed);
     }
 
@@ -1723,7 +1724,7 @@ test "std.zon structs" {
         {
             var diag: Diagnostics = .{};
             defer diag.deinit(gpa);
-            const parsed = fromSlice(struct {}, gpa, "Empty{}", &diag, .{});
+            const parsed = fromSliceAlloc(struct {}, gpa, "Empty{}", &diag, .{});
             try std.testing.expectError(error.ParseZon, parsed);
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
@@ -1736,7 +1737,7 @@ test "std.zon structs" {
         {
             var diag: Diagnostics = .{};
             defer diag.deinit(gpa);
-            const parsed = fromSlice([3]u8, gpa, "[3]u8{1, 2, 3}", &diag, .{});
+            const parsed = fromSliceAlloc([3]u8, gpa, "[3]u8{1, 2, 3}", &diag, .{});
             try std.testing.expectError(error.ParseZon, parsed);
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
@@ -1749,7 +1750,7 @@ test "std.zon structs" {
         {
             var diag: Diagnostics = .{};
             defer diag.deinit(gpa);
-            const parsed = fromSlice([]u8, gpa, "[]u8{1, 2, 3}", &diag, .{});
+            const parsed = fromSliceAlloc([]u8, gpa, "[]u8{1, 2, 3}", &diag, .{});
             try std.testing.expectError(error.ParseZon, parsed);
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
@@ -1762,7 +1763,7 @@ test "std.zon structs" {
         {
             var diag: Diagnostics = .{};
             defer diag.deinit(gpa);
-            const parsed = fromSlice(
+            const parsed = fromSliceAlloc(
                 struct { u8, u8, u8 },
                 gpa,
                 "Tuple{1, 2, 3}",
@@ -1781,7 +1782,7 @@ test "std.zon structs" {
         {
             var diag: Diagnostics = .{};
             defer diag.deinit(gpa);
-            const parsed = fromSlice(struct {}, gpa, ".{ .x = Tuple{1, 2, 3} }", &diag, .{});
+            const parsed = fromSliceAlloc(struct {}, gpa, ".{ .x = Tuple{1, 2, 3} }", &diag, .{});
             try std.testing.expectError(error.ParseZon, parsed);
             try std.testing.expectFmt(
                 \\1:9: error: types are not available in ZON
@@ -1802,23 +1803,23 @@ test "std.zon tuples" {
         const Tuple2 = struct { f32, bool };
         const Tuple3 = struct { f32, bool, u8 };
 
-        const zero = try fromSlice(Tuple0, gpa, ".{}", null, .{});
+        const zero = try fromSliceAlloc(Tuple0, gpa, ".{}", null, .{});
         try std.testing.expectEqual(Tuple0{}, zero);
 
-        const one = try fromSlice(Tuple1, gpa, ".{1.2}", null, .{});
+        const one = try fromSliceAlloc(Tuple1, gpa, ".{1.2}", null, .{});
         try std.testing.expectEqual(Tuple1{1.2}, one);
 
-        const two = try fromSlice(Tuple2, gpa, ".{1.2, true}", null, .{});
+        const two = try fromSliceAlloc(Tuple2, gpa, ".{1.2, true}", null, .{});
         try std.testing.expectEqual(Tuple2{ 1.2, true }, two);
 
-        const three = try fromSlice(Tuple3, gpa, ".{1.2, false, 3}", null, .{});
+        const three = try fromSliceAlloc(Tuple3, gpa, ".{1.2, false, 3}", null, .{});
         try std.testing.expectEqual(Tuple3{ 1.2, false, 3 }, three);
     }
 
     // Deep free
     {
         const Tuple = struct { []const u8, []const u8 };
-        const parsed = try fromSlice(Tuple, gpa, ".{\"hello\", \"world\"}", null, .{});
+        const parsed = try fromSliceAlloc(Tuple, gpa, ".{\"hello\", \"world\"}", null, .{});
         defer free(gpa, parsed);
         try std.testing.expectEqualDeep(Tuple{ "hello", "world" }, parsed);
     }
@@ -1830,7 +1831,7 @@ test "std.zon tuples" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Tuple, gpa, ".{0.5, true, 123}", &diag, .{}),
+            fromSliceAlloc(Tuple, gpa, ".{0.5, true, 123}", &diag, .{}),
         );
         try std.testing.expectFmt("1:14: error: index 2 outside of tuple length 2\n", "{}", .{diag});
     }
@@ -1842,7 +1843,7 @@ test "std.zon tuples" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Tuple, gpa, ".{0.5}", &diag, .{}),
+            fromSliceAlloc(Tuple, gpa, ".{0.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: missing tuple field with index 1\n",
@@ -1858,7 +1859,7 @@ test "std.zon tuples" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Tuple, gpa, ".{.foo = 10.0}", &diag, .{}),
+            fromSliceAlloc(Tuple, gpa, ".{.foo = 10.0}", &diag, .{}),
         );
         try std.testing.expectFmt("1:2: error: expected tuple\n", "{}", .{diag});
     }
@@ -1870,7 +1871,7 @@ test "std.zon tuples" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Struct, gpa, ".{10.0}", &diag, .{}),
+            fromSliceAlloc(Struct, gpa, ".{10.0}", &diag, .{}),
         );
         try std.testing.expectFmt("1:2: error: expected struct\n", "{}", .{diag});
     }
@@ -1878,7 +1879,7 @@ test "std.zon tuples" {
     // Comptime field
     {
         const Vec2 = struct { f32, comptime f32 = 1.5 };
-        const parsed = try fromSlice(Vec2, gpa, ".{ 1.2 }", null, .{});
+        const parsed = try fromSliceAlloc(Vec2, gpa, ".{ 1.2 }", null, .{});
         try std.testing.expectEqual(Vec2{ 1.2, 1.5 }, parsed);
     }
 
@@ -1887,7 +1888,7 @@ test "std.zon tuples" {
         const Vec2 = struct { f32, comptime f32 = 1.5 };
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        const parsed = fromSlice(Vec2, gpa, ".{ 1.2, 1.5}", &diag, .{});
+        const parsed = fromSliceAlloc(Vec2, gpa, ".{ 1.2, 1.5}", &diag, .{});
         try std.testing.expectError(error.ParseZon, parsed);
         try std.testing.expectFmt(
             \\1:9: error: cannot initialize comptime field
@@ -1906,49 +1907,49 @@ test "std.zon arrays and slices" {
     {
         // Arrays
         {
-            const zero = try fromSlice([0]u8, gpa, ".{}", null, .{});
+            const zero = try fromSliceAlloc([0]u8, gpa, ".{}", null, .{});
             try std.testing.expectEqualSlices(u8, &@as([0]u8, .{}), &zero);
 
-            const one = try fromSlice([1]u8, gpa, ".{'a'}", null, .{});
+            const one = try fromSliceAlloc([1]u8, gpa, ".{'a'}", null, .{});
             try std.testing.expectEqualSlices(u8, &@as([1]u8, .{'a'}), &one);
 
-            const two = try fromSlice([2]u8, gpa, ".{'a', 'b'}", null, .{});
+            const two = try fromSliceAlloc([2]u8, gpa, ".{'a', 'b'}", null, .{});
             try std.testing.expectEqualSlices(u8, &@as([2]u8, .{ 'a', 'b' }), &two);
 
-            const two_comma = try fromSlice([2]u8, gpa, ".{'a', 'b',}", null, .{});
+            const two_comma = try fromSliceAlloc([2]u8, gpa, ".{'a', 'b',}", null, .{});
             try std.testing.expectEqualSlices(u8, &@as([2]u8, .{ 'a', 'b' }), &two_comma);
 
-            const three = try fromSlice([3]u8, gpa, ".{'a', 'b', 'c'}", null, .{});
+            const three = try fromSliceAlloc([3]u8, gpa, ".{'a', 'b', 'c'}", null, .{});
             try std.testing.expectEqualSlices(u8, &.{ 'a', 'b', 'c' }, &three);
 
-            const sentinel = try fromSlice([3:'z']u8, gpa, ".{'a', 'b', 'c'}", null, .{});
+            const sentinel = try fromSliceAlloc([3:'z']u8, gpa, ".{'a', 'b', 'c'}", null, .{});
             const expected_sentinel: [3:'z']u8 = .{ 'a', 'b', 'c' };
             try std.testing.expectEqualSlices(u8, &expected_sentinel, &sentinel);
         }
 
         // Slice literals
         {
-            const zero = try fromSlice([]const u8, gpa, ".{}", null, .{});
+            const zero = try fromSliceAlloc([]const u8, gpa, ".{}", null, .{});
             defer free(gpa, zero);
             try std.testing.expectEqualSlices(u8, @as([]const u8, &.{}), zero);
 
-            const one = try fromSlice([]u8, gpa, ".{'a'}", null, .{});
+            const one = try fromSliceAlloc([]u8, gpa, ".{'a'}", null, .{});
             defer free(gpa, one);
             try std.testing.expectEqualSlices(u8, &.{'a'}, one);
 
-            const two = try fromSlice([]const u8, gpa, ".{'a', 'b'}", null, .{});
+            const two = try fromSliceAlloc([]const u8, gpa, ".{'a', 'b'}", null, .{});
             defer free(gpa, two);
             try std.testing.expectEqualSlices(u8, &.{ 'a', 'b' }, two);
 
-            const two_comma = try fromSlice([]const u8, gpa, ".{'a', 'b',}", null, .{});
+            const two_comma = try fromSliceAlloc([]const u8, gpa, ".{'a', 'b',}", null, .{});
             defer free(gpa, two_comma);
             try std.testing.expectEqualSlices(u8, &.{ 'a', 'b' }, two_comma);
 
-            const three = try fromSlice([]u8, gpa, ".{'a', 'b', 'c'}", null, .{});
+            const three = try fromSliceAlloc([]u8, gpa, ".{'a', 'b', 'c'}", null, .{});
             defer free(gpa, three);
             try std.testing.expectEqualSlices(u8, &.{ 'a', 'b', 'c' }, three);
 
-            const sentinel = try fromSlice([:'z']const u8, gpa, ".{'a', 'b', 'c'}", null, .{});
+            const sentinel = try fromSliceAlloc([:'z']const u8, gpa, ".{'a', 'b', 'c'}", null, .{});
             defer free(gpa, sentinel);
             const expected_sentinel: [:'z']const u8 = &.{ 'a', 'b', 'c' };
             try std.testing.expectEqualSlices(u8, expected_sentinel, sentinel);
@@ -1959,7 +1960,7 @@ test "std.zon arrays and slices" {
     {
         // Arrays
         {
-            const parsed = try fromSlice([1][]const u8, gpa, ".{\"abc\"}", null, .{});
+            const parsed = try fromSliceAlloc([1][]const u8, gpa, ".{\"abc\"}", null, .{});
             defer free(gpa, parsed);
             const expected: [1][]const u8 = .{"abc"};
             try std.testing.expectEqualDeep(expected, parsed);
@@ -1967,7 +1968,7 @@ test "std.zon arrays and slices" {
 
         // Slice literals
         {
-            const parsed = try fromSlice([]const []const u8, gpa, ".{\"abc\"}", null, .{});
+            const parsed = try fromSliceAlloc([]const []const u8, gpa, ".{\"abc\"}", null, .{});
             defer free(gpa, parsed);
             const expected: []const []const u8 = &.{"abc"};
             try std.testing.expectEqualDeep(expected, parsed);
@@ -1978,7 +1979,7 @@ test "std.zon arrays and slices" {
     {
         // Arrays
         {
-            const sentinel = try fromSlice([1:2]u8, gpa, ".{1}", null, .{});
+            const sentinel = try fromSliceAlloc([1:2]u8, gpa, ".{1}", null, .{});
             try std.testing.expectEqual(@as(usize, 1), sentinel.len);
             try std.testing.expectEqual(@as(u8, 1), sentinel[0]);
             try std.testing.expectEqual(@as(u8, 2), sentinel[1]);
@@ -1986,7 +1987,7 @@ test "std.zon arrays and slices" {
 
         // Slice literals
         {
-            const sentinel = try fromSlice([:2]align(4) u8, gpa, ".{1}", null, .{});
+            const sentinel = try fromSliceAlloc([:2]align(4) u8, gpa, ".{1}", null, .{});
             defer free(gpa, sentinel);
             try std.testing.expectEqual(@as(usize, 1), sentinel.len);
             try std.testing.expectEqual(@as(u8, 1), sentinel[0]);
@@ -2000,7 +2001,7 @@ test "std.zon arrays and slices" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([0]u8, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
+            fromSliceAlloc([0]u8, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:3: error: index 0 outside of array of length 0\n",
@@ -2015,7 +2016,7 @@ test "std.zon arrays and slices" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([1]u8, gpa, ".{'a', 'b'}", &diag, .{}),
+            fromSliceAlloc([1]u8, gpa, ".{'a', 'b'}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:8: error: index 1 outside of array of length 1\n",
@@ -2030,7 +2031,7 @@ test "std.zon arrays and slices" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([2]u8, gpa, ".{'a'}", &diag, .{}),
+            fromSliceAlloc([2]u8, gpa, ".{'a'}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 array elements; found 1\n",
@@ -2045,7 +2046,7 @@ test "std.zon arrays and slices" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([3]u8, gpa, ".{}", &diag, .{}),
+            fromSliceAlloc([3]u8, gpa, ".{}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: expected 3 array elements; found 0\n",
@@ -2062,7 +2063,7 @@ test "std.zon arrays and slices" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([3]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
+                fromSliceAlloc([3]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
             );
             try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{}", .{diag});
         }
@@ -2073,7 +2074,7 @@ test "std.zon arrays and slices" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
+                fromSliceAlloc([]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
             );
             try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{}", .{diag});
         }
@@ -2087,7 +2088,7 @@ test "std.zon arrays and slices" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([3]u8, gpa, "'a'", &diag, .{}),
+                fromSliceAlloc([3]u8, gpa, "'a'", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2098,7 +2099,7 @@ test "std.zon arrays and slices" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]u8, gpa, "'a'", &diag, .{}),
+                fromSliceAlloc([]u8, gpa, "'a'", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2110,7 +2111,7 @@ test "std.zon arrays and slices" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([]u8, gpa, "  &.{'a', 'b', 'c'}", &diag, .{}),
+            fromSliceAlloc([]u8, gpa, "  &.{'a', 'b', 'c'}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:3: error: pointers are not available in ZON\n",
@@ -2125,21 +2126,21 @@ test "std.zon string literal" {
 
     // Basic string literal
     {
-        const parsed = try fromSlice([]const u8, gpa, "\"abc\"", null, .{});
+        const parsed = try fromSliceAlloc([]const u8, gpa, "\"abc\"", null, .{});
         defer free(gpa, parsed);
         try std.testing.expectEqualStrings(@as([]const u8, "abc"), parsed);
     }
 
     // String literal with escape characters
     {
-        const parsed = try fromSlice([]const u8, gpa, "\"ab\\nc\"", null, .{});
+        const parsed = try fromSliceAlloc([]const u8, gpa, "\"ab\\nc\"", null, .{});
         defer free(gpa, parsed);
         try std.testing.expectEqualStrings(@as([]const u8, "ab\nc"), parsed);
     }
 
     // String literal with embedded null
     {
-        const parsed = try fromSlice([]const u8, gpa, "\"ab\\x00c\"", null, .{});
+        const parsed = try fromSliceAlloc([]const u8, gpa, "\"ab\\x00c\"", null, .{});
         defer free(gpa, parsed);
         try std.testing.expectEqualStrings(@as([]const u8, "ab\x00c"), parsed);
     }
@@ -2151,7 +2152,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]u8, gpa, "\"abcd\"", &diag, .{}),
+                fromSliceAlloc([]u8, gpa, "\"abcd\"", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2161,7 +2162,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]u8, gpa, "\\\\abcd", &diag, .{}),
+                fromSliceAlloc([]u8, gpa, "\\\\abcd", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2178,7 +2179,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([4:0]u8, gpa, "\"abcd\"", &diag, .{}),
+                fromSliceAlloc([4:0]u8, gpa, "\"abcd\"", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2188,7 +2189,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([4:0]u8, gpa, "\\\\abcd", &diag, .{}),
+                fromSliceAlloc([4:0]u8, gpa, "\\\\abcd", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2197,7 +2198,7 @@ test "std.zon string literal" {
     // Zero terminated slices
     {
         {
-            const parsed: [:0]const u8 = try fromSlice(
+            const parsed: [:0]const u8 = try fromSliceAlloc(
                 [:0]const u8,
                 gpa,
                 "\"abc\"",
@@ -2210,7 +2211,7 @@ test "std.zon string literal" {
         }
 
         {
-            const parsed: [:0]const u8 = try fromSlice(
+            const parsed: [:0]const u8 = try fromSliceAlloc(
                 [:0]const u8,
                 gpa,
                 "\\\\abc",
@@ -2230,7 +2231,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([:1]const u8, gpa, "\"foo\"", &diag, .{}),
+                fromSliceAlloc([:1]const u8, gpa, "\"foo\"", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2240,7 +2241,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([:1]const u8, gpa, "\\\\foo", &diag, .{}),
+                fromSliceAlloc([:1]const u8, gpa, "\\\\foo", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2252,7 +2253,7 @@ test "std.zon string literal" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([]const u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc([]const u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected string\n", "{}", .{diag});
     }
@@ -2263,7 +2264,7 @@ test "std.zon string literal" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([]const u8, gpa, ".{false}", &diag, .{}),
+            fromSliceAlloc([]const u8, gpa, ".{false}", &diag, .{}),
         );
         try std.testing.expectFmt("1:3: error: expected type 'u8'\n", "{}", .{diag});
     }
@@ -2274,7 +2275,7 @@ test "std.zon string literal" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([]const i8, gpa, "\"\\a\"", &diag, .{}),
+            fromSliceAlloc([]const i8, gpa, "\"\\a\"", &diag, .{}),
         );
         try std.testing.expectFmt("1:3: error: invalid escape character: 'a'\n", "{}", .{diag});
     }
@@ -2286,7 +2287,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]const i8, gpa, "\"a\"", &diag, .{}),
+                fromSliceAlloc([]const i8, gpa, "\"a\"", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2296,7 +2297,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]const i8, gpa, "\\\\a", &diag, .{}),
+                fromSliceAlloc([]const i8, gpa, "\\\\a", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2309,7 +2310,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]align(2) const u8, gpa, "\"abc\"", &diag, .{}),
+                fromSliceAlloc([]align(2) const u8, gpa, "\"abc\"", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2319,7 +2320,7 @@ test "std.zon string literal" {
             defer diag.deinit(gpa);
             try std.testing.expectError(
                 error.ParseZon,
-                fromSlice([]align(2) const u8, gpa, "\\\\abc", &diag, .{}),
+                fromSliceAlloc([]align(2) const u8, gpa, "\\\\abc", &diag, .{}),
             );
             try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
         }
@@ -2334,7 +2335,7 @@ test "std.zon string literal" {
                 message2: String,
                 message3: String,
             };
-            const parsed = try fromSlice(S, gpa,
+            const parsed = try fromSliceAlloc(S, gpa,
                 \\.{
                 \\    .message =
                 \\        \\hello, world!
@@ -2374,12 +2375,12 @@ test "std.zon enum literals" {
     };
 
     // Tags that exist
-    try std.testing.expectEqual(Enum.foo, try fromSlice(Enum, gpa, ".foo", null, .{}));
-    try std.testing.expectEqual(Enum.bar, try fromSlice(Enum, gpa, ".bar", null, .{}));
-    try std.testing.expectEqual(Enum.baz, try fromSlice(Enum, gpa, ".baz", null, .{}));
+    try std.testing.expectEqual(Enum.foo, try fromSliceAlloc(Enum, gpa, ".foo", null, .{}));
+    try std.testing.expectEqual(Enum.bar, try fromSliceAlloc(Enum, gpa, ".bar", null, .{}));
+    try std.testing.expectEqual(Enum.baz, try fromSliceAlloc(Enum, gpa, ".baz", null, .{}));
     try std.testing.expectEqual(
         Enum.@"ab\nc",
-        try fromSlice(Enum, gpa, ".@\"ab\\nc\"", null, .{}),
+        try fromSliceAlloc(Enum, gpa, ".@\"ab\\nc\"", null, .{}),
     );
 
     // Bad tag
@@ -2388,7 +2389,7 @@ test "std.zon enum literals" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Enum, gpa, ".qux", &diag, .{}),
+            fromSliceAlloc(Enum, gpa, ".qux", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:2: error: unexpected enum literal 'qux'
@@ -2406,7 +2407,7 @@ test "std.zon enum literals" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Enum, gpa, ".@\"foobarbaz\"", &diag, .{}),
+            fromSliceAlloc(Enum, gpa, ".@\"foobarbaz\"", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:2: error: unexpected enum literal 'foobarbaz'
@@ -2424,7 +2425,7 @@ test "std.zon enum literals" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Enum, gpa, "true", &diag, .{}),
+            fromSliceAlloc(Enum, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected enum literal\n", "{}", .{diag});
     }
@@ -2435,7 +2436,7 @@ test "std.zon enum literals" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(Enum, gpa, ".@\"\\x00\"", &diag, .{}),
+            fromSliceAlloc(Enum, gpa, ".@\"\\x00\"", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: identifier cannot contain null bytes\n",
@@ -2458,7 +2459,7 @@ test "std.zon parse bool" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(bool, gpa, " foo", &diag, .{}),
+            fromSliceAlloc(bool, gpa, " foo", &diag, .{}),
         );
         try std.testing.expectFmt(
             \\1:2: error: invalid expression
@@ -2470,7 +2471,7 @@ test "std.zon parse bool" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(bool, gpa, "123", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(bool, gpa, "123", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'bool'\n", "{}", .{diag});
     }
 }
@@ -2500,42 +2501,42 @@ test "std.zon parse int" {
     const gpa = std.testing.allocator;
 
     // Test various numbers and types
-    try std.testing.expectEqual(@as(u8, 10), try fromSlice(u8, gpa, "10", null, .{}));
-    try std.testing.expectEqual(@as(i16, 24), try fromSlice(i16, gpa, "24", null, .{}));
-    try std.testing.expectEqual(@as(i14, -4), try fromSlice(i14, gpa, "-4", null, .{}));
-    try std.testing.expectEqual(@as(i32, -123), try fromSlice(i32, gpa, "-123", null, .{}));
+    try std.testing.expectEqual(@as(u8, 10), try fromSliceAlloc(u8, gpa, "10", null, .{}));
+    try std.testing.expectEqual(@as(i16, 24), try fromSliceAlloc(i16, gpa, "24", null, .{}));
+    try std.testing.expectEqual(@as(i14, -4), try fromSliceAlloc(i14, gpa, "-4", null, .{}));
+    try std.testing.expectEqual(@as(i32, -123), try fromSliceAlloc(i32, gpa, "-123", null, .{}));
 
     // Test limits
-    try std.testing.expectEqual(@as(i8, 127), try fromSlice(i8, gpa, "127", null, .{}));
-    try std.testing.expectEqual(@as(i8, -128), try fromSlice(i8, gpa, "-128", null, .{}));
+    try std.testing.expectEqual(@as(i8, 127), try fromSliceAlloc(i8, gpa, "127", null, .{}));
+    try std.testing.expectEqual(@as(i8, -128), try fromSliceAlloc(i8, gpa, "-128", null, .{}));
 
     // Test characters
-    try std.testing.expectEqual(@as(u8, 'a'), try fromSlice(u8, gpa, "'a'", null, .{}));
-    try std.testing.expectEqual(@as(u8, 'z'), try fromSlice(u8, gpa, "'z'", null, .{}));
+    try std.testing.expectEqual(@as(u8, 'a'), try fromSliceAlloc(u8, gpa, "'a'", null, .{}));
+    try std.testing.expectEqual(@as(u8, 'z'), try fromSliceAlloc(u8, gpa, "'z'", null, .{}));
 
     // Test big integers
     try std.testing.expectEqual(
         @as(u65, 36893488147419103231),
-        try fromSlice(u65, gpa, "36893488147419103231", null, .{}),
+        try fromSliceAlloc(u65, gpa, "36893488147419103231", null, .{}),
     );
     try std.testing.expectEqual(
         @as(u65, 36893488147419103231),
-        try fromSlice(u65, gpa, "368934_881_474191032_31", null, .{}),
+        try fromSliceAlloc(u65, gpa, "368934_881_474191032_31", null, .{}),
     );
 
     // Test big integer limits
     try std.testing.expectEqual(
         @as(i66, 36893488147419103231),
-        try fromSlice(i66, gpa, "36893488147419103231", null, .{}),
+        try fromSliceAlloc(i66, gpa, "36893488147419103231", null, .{}),
     );
     try std.testing.expectEqual(
         @as(i66, -36893488147419103232),
-        try fromSlice(i66, gpa, "-36893488147419103232", null, .{}),
+        try fromSliceAlloc(i66, gpa, "-36893488147419103232", null, .{}),
     );
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(
             i66,
             gpa,
             "36893488147419103232",
@@ -2551,7 +2552,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(
             i66,
             gpa,
             "-36893488147419103233",
@@ -2566,75 +2567,75 @@ test "std.zon parse int" {
     }
 
     // Test parsing whole number floats as integers
-    try std.testing.expectEqual(@as(i8, -1), try fromSlice(i8, gpa, "-1.0", null, .{}));
-    try std.testing.expectEqual(@as(i8, 123), try fromSlice(i8, gpa, "123.0", null, .{}));
+    try std.testing.expectEqual(@as(i8, -1), try fromSliceAlloc(i8, gpa, "-1.0", null, .{}));
+    try std.testing.expectEqual(@as(i8, 123), try fromSliceAlloc(i8, gpa, "123.0", null, .{}));
 
     // Test non-decimal integers
-    try std.testing.expectEqual(@as(i16, 0xff), try fromSlice(i16, gpa, "0xff", null, .{}));
-    try std.testing.expectEqual(@as(i16, -0xff), try fromSlice(i16, gpa, "-0xff", null, .{}));
-    try std.testing.expectEqual(@as(i16, 0o77), try fromSlice(i16, gpa, "0o77", null, .{}));
-    try std.testing.expectEqual(@as(i16, -0o77), try fromSlice(i16, gpa, "-0o77", null, .{}));
-    try std.testing.expectEqual(@as(i16, 0b11), try fromSlice(i16, gpa, "0b11", null, .{}));
-    try std.testing.expectEqual(@as(i16, -0b11), try fromSlice(i16, gpa, "-0b11", null, .{}));
+    try std.testing.expectEqual(@as(i16, 0xff), try fromSliceAlloc(i16, gpa, "0xff", null, .{}));
+    try std.testing.expectEqual(@as(i16, -0xff), try fromSliceAlloc(i16, gpa, "-0xff", null, .{}));
+    try std.testing.expectEqual(@as(i16, 0o77), try fromSliceAlloc(i16, gpa, "0o77", null, .{}));
+    try std.testing.expectEqual(@as(i16, -0o77), try fromSliceAlloc(i16, gpa, "-0o77", null, .{}));
+    try std.testing.expectEqual(@as(i16, 0b11), try fromSliceAlloc(i16, gpa, "0b11", null, .{}));
+    try std.testing.expectEqual(@as(i16, -0b11), try fromSliceAlloc(i16, gpa, "-0b11", null, .{}));
 
     // Test non-decimal big integers
-    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSliceAlloc(
         u65,
         gpa,
         "0x1ffffffffffffffff",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "0x1ffffffffffffffff",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "-0x1ffffffffffffffff",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSliceAlloc(
         u65,
         gpa,
         "0o3777777777777777777777",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "0o3777777777777777777777",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "-0o3777777777777777777777",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(u65, 0x1ffffffffffffffff), try fromSliceAlloc(
         u65,
         gpa,
         "0b11111111111111111111111111111111111111111111111111111111111111111",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, 0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "0b11111111111111111111111111111111111111111111111111111111111111111",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(i66, -0x1ffffffffffffffff), try fromSliceAlloc(
         i66,
         gpa,
         "-0b11111111111111111111111111111111111111111111111111111111111111111",
@@ -2646,7 +2647,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "32a32", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "32a32", &diag, .{}));
         try std.testing.expectFmt(
             "1:3: error: invalid digit 'a' for decimal base\n",
             "{}",
@@ -2658,7 +2659,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "true", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "true", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'u8'\n", "{}", .{diag});
     }
 
@@ -2666,7 +2667,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "256", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "256", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
             "{}",
@@ -2678,7 +2679,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "-129", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "-129", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'i8' cannot represent value\n",
             "{}",
@@ -2690,7 +2691,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "-1", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "-1", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
             "{}",
@@ -2702,7 +2703,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "1.5", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "1.5", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
             "{}",
@@ -2714,7 +2715,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "-1.0", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "-1.0", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
             "{}",
@@ -2726,7 +2727,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "-0", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "-0", &diag, .{}));
         try std.testing.expectFmt(
             \\1:2: error: integer literal '-0' is ambiguous
             \\1:2: note: use '0' for an integer zero
@@ -2739,7 +2740,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-0", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(f32, gpa, "-0", &diag, .{}));
         try std.testing.expectFmt(
             \\1:2: error: integer literal '-0' is ambiguous
             \\1:2: note: use '0' for an integer zero
@@ -2750,15 +2751,15 @@ test "std.zon parse int" {
 
     // Negative float 0 is allowed
     try std.testing.expect(
-        std.math.isNegativeZero(try fromSlice(f32, gpa, "-0.0", null, .{})),
+        std.math.isNegativeZero(try fromSliceAlloc(f32, gpa, "-0.0", null, .{})),
     );
-    try std.testing.expect(std.math.isPositiveZero(try fromSlice(f32, gpa, "0.0", null, .{})));
+    try std.testing.expect(std.math.isPositiveZero(try fromSliceAlloc(f32, gpa, "0.0", null, .{})));
 
     // Double negation is not allowed
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "--2", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "--2", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
             "{}",
@@ -2771,7 +2772,7 @@ test "std.zon parse int" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(f32, gpa, "--2.0", &diag, .{}),
+            fromSliceAlloc(f32, gpa, "--2.0", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
@@ -2784,7 +2785,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "0xg", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "0xg", &diag, .{}));
         try std.testing.expectFmt("1:3: error: invalid digit 'g' for hex base\n", "{}", .{diag});
     }
 
@@ -2792,7 +2793,7 @@ test "std.zon parse int" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "0123", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa, "0123", &diag, .{}));
         try std.testing.expectFmt(
             \\1:1: error: number '0123' has leading zero
             \\1:1: note: use '0o' prefix for octal literals
@@ -2807,7 +2808,7 @@ test "std.zon negative char" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-'a'", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(f32, gpa, "-'a'", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
             "{}",
@@ -2817,7 +2818,7 @@ test "std.zon negative char" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i16, gpa, "-'a'", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i16, gpa, "-'a'", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
             "{}",
@@ -2830,44 +2831,44 @@ test "std.zon parse float" {
     const gpa = std.testing.allocator;
 
     // Test decimals
-    try std.testing.expectEqual(@as(f16, 0.5), try fromSlice(f16, gpa, "0.5", null, .{}));
+    try std.testing.expectEqual(@as(f16, 0.5), try fromSliceAlloc(f16, gpa, "0.5", null, .{}));
     try std.testing.expectEqual(
         @as(f32, 123.456),
-        try fromSlice(f32, gpa, "123.456", null, .{}),
+        try fromSliceAlloc(f32, gpa, "123.456", null, .{}),
     );
     try std.testing.expectEqual(
         @as(f64, -123.456),
-        try fromSlice(f64, gpa, "-123.456", null, .{}),
+        try fromSliceAlloc(f64, gpa, "-123.456", null, .{}),
     );
-    try std.testing.expectEqual(@as(f128, 42.5), try fromSlice(f128, gpa, "42.5", null, .{}));
+    try std.testing.expectEqual(@as(f128, 42.5), try fromSliceAlloc(f128, gpa, "42.5", null, .{}));
 
     // Test whole numbers with and without decimals
-    try std.testing.expectEqual(@as(f16, 5.0), try fromSlice(f16, gpa, "5.0", null, .{}));
-    try std.testing.expectEqual(@as(f16, 5.0), try fromSlice(f16, gpa, "5", null, .{}));
-    try std.testing.expectEqual(@as(f32, -102), try fromSlice(f32, gpa, "-102.0", null, .{}));
-    try std.testing.expectEqual(@as(f32, -102), try fromSlice(f32, gpa, "-102", null, .{}));
+    try std.testing.expectEqual(@as(f16, 5.0), try fromSliceAlloc(f16, gpa, "5.0", null, .{}));
+    try std.testing.expectEqual(@as(f16, 5.0), try fromSliceAlloc(f16, gpa, "5", null, .{}));
+    try std.testing.expectEqual(@as(f32, -102), try fromSliceAlloc(f32, gpa, "-102.0", null, .{}));
+    try std.testing.expectEqual(@as(f32, -102), try fromSliceAlloc(f32, gpa, "-102", null, .{}));
 
     // Test characters and negated characters
-    try std.testing.expectEqual(@as(f32, 'a'), try fromSlice(f32, gpa, "'a'", null, .{}));
-    try std.testing.expectEqual(@as(f32, 'z'), try fromSlice(f32, gpa, "'z'", null, .{}));
+    try std.testing.expectEqual(@as(f32, 'a'), try fromSliceAlloc(f32, gpa, "'a'", null, .{}));
+    try std.testing.expectEqual(@as(f32, 'z'), try fromSliceAlloc(f32, gpa, "'z'", null, .{}));
 
     // Test big integers
     try std.testing.expectEqual(
         @as(f32, 36893488147419103231),
-        try fromSlice(f32, gpa, "36893488147419103231", null, .{}),
+        try fromSliceAlloc(f32, gpa, "36893488147419103231", null, .{}),
     );
     try std.testing.expectEqual(
         @as(f32, -36893488147419103231),
-        try fromSlice(f32, gpa, "-36893488147419103231", null, .{}),
+        try fromSliceAlloc(f32, gpa, "-36893488147419103231", null, .{}),
     );
-    try std.testing.expectEqual(@as(f128, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(f128, 0x1ffffffffffffffff), try fromSliceAlloc(
         f128,
         gpa,
         "0x1ffffffffffffffff",
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(f32, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(f32, 0x1ffffffffffffffff), try fromSliceAlloc(
         f32,
         gpa,
         "0x1ffffffffffffffff",
@@ -2878,33 +2879,33 @@ test "std.zon parse float" {
     // Exponents, underscores
     try std.testing.expectEqual(
         @as(f32, 123.0E+77),
-        try fromSlice(f32, gpa, "12_3.0E+77", null, .{}),
+        try fromSliceAlloc(f32, gpa, "12_3.0E+77", null, .{}),
     );
 
     // Hexadecimal
     try std.testing.expectEqual(
         @as(f32, 0x103.70p-5),
-        try fromSlice(f32, gpa, "0x103.70p-5", null, .{}),
+        try fromSliceAlloc(f32, gpa, "0x103.70p-5", null, .{}),
     );
     try std.testing.expectEqual(
         @as(f32, -0x103.70),
-        try fromSlice(f32, gpa, "-0x103.70", null, .{}),
+        try fromSliceAlloc(f32, gpa, "-0x103.70", null, .{}),
     );
     try std.testing.expectEqual(
         @as(f32, 0x1234_5678.9ABC_CDEFp-10),
-        try fromSlice(f32, gpa, "0x1234_5678.9ABC_CDEFp-10", null, .{}),
+        try fromSliceAlloc(f32, gpa, "0x1234_5678.9ABC_CDEFp-10", null, .{}),
     );
 
     // inf, nan
-    try std.testing.expect(std.math.isPositiveInf(try fromSlice(f32, gpa, "inf", null, .{})));
-    try std.testing.expect(std.math.isNegativeInf(try fromSlice(f32, gpa, "-inf", null, .{})));
-    try std.testing.expect(std.math.isNan(try fromSlice(f32, gpa, "nan", null, .{})));
+    try std.testing.expect(std.math.isPositiveInf(try fromSliceAlloc(f32, gpa, "inf", null, .{})));
+    try std.testing.expect(std.math.isNegativeInf(try fromSliceAlloc(f32, gpa, "-inf", null, .{})));
+    try std.testing.expect(std.math.isNan(try fromSliceAlloc(f32, gpa, "nan", null, .{})));
 
     // Negative nan not allowed
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-nan", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(f32, gpa, "-nan", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
             "{}",
@@ -2916,7 +2917,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "nan", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "nan", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
     }
 
@@ -2924,7 +2925,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "nan", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "nan", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
     }
 
@@ -2932,7 +2933,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "inf", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "inf", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
     }
 
@@ -2940,7 +2941,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "-inf", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(i8, gpa, "-inf", &diag, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
     }
 
@@ -2948,7 +2949,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "foo", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(f32, gpa, "foo", &diag, .{}));
         try std.testing.expectFmt(
             \\1:1: error: invalid expression
             \\1:1: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
@@ -2960,7 +2961,7 @@ test "std.zon parse float" {
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
-        try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-foo", &diag, .{}));
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(f32, gpa, "-foo", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
             "{}",
@@ -2974,7 +2975,7 @@ test "std.zon parse float" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(f32, gpa, "\"foo\"", &diag, .{}),
+            fromSliceAlloc(f32, gpa, "\"foo\"", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type 'f32'\n", "{}", .{diag});
     }
@@ -2988,7 +2989,7 @@ test "std.zon free on error" {
             y: []const u8,
             z: bool,
         };
-        try std.testing.expectError(error.ParseZon, fromSlice(Struct, std.testing.allocator,
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Struct, std.testing.allocator,
             \\.{
             \\    .x = "hello",
             \\    .y = "world",
@@ -3004,7 +3005,7 @@ test "std.zon free on error" {
             []const u8,
             bool,
         };
-        try std.testing.expectError(error.ParseZon, fromSlice(Struct, std.testing.allocator,
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Struct, std.testing.allocator,
             \\.{
             \\    "hello",
             \\    "world",
@@ -3019,7 +3020,7 @@ test "std.zon free on error" {
             x: []const u8,
             y: bool,
         };
-        try std.testing.expectError(error.ParseZon, fromSlice(Struct, std.testing.allocator,
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(Struct, std.testing.allocator,
             \\.{
             \\    .x = "hello",
             \\}
@@ -3028,7 +3029,7 @@ test "std.zon free on error" {
 
     // Test freeing partially allocated arrays
     {
-        try std.testing.expectError(error.ParseZon, fromSlice(
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(
             [3][]const u8,
             std.testing.allocator,
             \\.{
@@ -3044,7 +3045,7 @@ test "std.zon free on error" {
 
     // Test freeing partially allocated slices
     {
-        try std.testing.expectError(error.ParseZon, fromSlice(
+        try std.testing.expectError(error.ParseZon, fromSliceAlloc(
             [][]const u8,
             std.testing.allocator,
             \\.{
@@ -3062,13 +3063,13 @@ test "std.zon free on error" {
     // unions.
     try std.testing.expectEqual(
         @as(f32, 1.5),
-        (try fromSlice(union { x: f32 }, std.testing.allocator, ".{ .x = 1.5 }", null, .{})).x,
+        (try fromSliceAlloc(union { x: f32 }, std.testing.allocator, ".{ .x = 1.5 }", null, .{})).x,
     );
 
     // We can also parse types that can't be freed if it's impossible for an error to occur after
     // the allocation, as is the case here.
     {
-        const result = try fromSlice(
+        const result = try fromSliceAlloc(
             union { x: []const u8 },
             std.testing.allocator,
             ".{ .x = \"foo\" }",
@@ -3087,7 +3088,7 @@ test "std.zon free on error" {
             union { x: []const u8 },
             bool,
         };
-        const result = try fromSlice(
+        const result = try fromSliceAlloc(
             S,
             std.testing.allocator,
             ".{ .{ .x = \"foo\" }, true }",
@@ -3105,7 +3106,7 @@ test "std.zon free on error" {
             a: union { x: []const u8 },
             b: bool,
         };
-        const result = try fromSlice(
+        const result = try fromSliceAlloc(
             S,
             std.testing.allocator,
             ".{ .a = .{ .x = \"foo\" }, .b = true }",
@@ -3122,7 +3123,7 @@ test "std.zon free on error" {
     // Again but for arrays.
     {
         const S = [2]union { x: []const u8 };
-        const result = try fromSlice(
+        const result = try fromSliceAlloc(
             S,
             std.testing.allocator,
             ".{ .{ .x = \"foo\" }, .{ .x = \"bar\" } }",
@@ -3140,7 +3141,7 @@ test "std.zon free on error" {
     // Again but for slices.
     {
         const S = []union { x: []const u8 };
-        const result = try fromSlice(
+        const result = try fromSliceAlloc(
             S,
             std.testing.allocator,
             ".{ .{ .x = \"foo\" }, .{ .x = \"bar\" } }",
@@ -3166,37 +3167,37 @@ test "std.zon vector" {
     // Passing cases
     try std.testing.expectEqual(
         @Vector(0, bool){},
-        try fromSlice(@Vector(0, bool), gpa, ".{}", null, .{}),
+        try fromSliceAlloc(@Vector(0, bool), gpa, ".{}", null, .{}),
     );
     try std.testing.expectEqual(
         @Vector(3, bool){ true, false, true },
-        try fromSlice(@Vector(3, bool), gpa, ".{true, false, true}", null, .{}),
+        try fromSliceAlloc(@Vector(3, bool), gpa, ".{true, false, true}", null, .{}),
     );
 
     try std.testing.expectEqual(
         @Vector(0, f32){},
-        try fromSlice(@Vector(0, f32), gpa, ".{}", null, .{}),
+        try fromSliceAlloc(@Vector(0, f32), gpa, ".{}", null, .{}),
     );
     try std.testing.expectEqual(
         @Vector(3, f32){ 1.5, 2.5, 3.5 },
-        try fromSlice(@Vector(3, f32), gpa, ".{1.5, 2.5, 3.5}", null, .{}),
+        try fromSliceAlloc(@Vector(3, f32), gpa, ".{1.5, 2.5, 3.5}", null, .{}),
     );
 
     try std.testing.expectEqual(
         @Vector(0, u8){},
-        try fromSlice(@Vector(0, u8), gpa, ".{}", null, .{}),
+        try fromSliceAlloc(@Vector(0, u8), gpa, ".{}", null, .{}),
     );
     try std.testing.expectEqual(
         @Vector(3, u8){ 2, 4, 6 },
-        try fromSlice(@Vector(3, u8), gpa, ".{2, 4, 6}", null, .{}),
+        try fromSliceAlloc(@Vector(3, u8), gpa, ".{2, 4, 6}", null, .{}),
     );
 
     {
         try std.testing.expectEqual(
             @Vector(0, *const u8){},
-            try fromSlice(@Vector(0, *const u8), gpa, ".{}", null, .{}),
+            try fromSliceAlloc(@Vector(0, *const u8), gpa, ".{}", null, .{}),
         );
-        const pointers = try fromSlice(@Vector(3, *const u8), gpa, ".{2, 4, 6}", null, .{});
+        const pointers = try fromSliceAlloc(@Vector(3, *const u8), gpa, ".{2, 4, 6}", null, .{});
         defer free(gpa, pointers);
         try std.testing.expectEqualDeep(@Vector(3, *const u8){ &2, &4, &6 }, pointers);
     }
@@ -3204,9 +3205,9 @@ test "std.zon vector" {
     {
         try std.testing.expectEqual(
             @Vector(0, ?*const u8){},
-            try fromSlice(@Vector(0, ?*const u8), gpa, ".{}", null, .{}),
+            try fromSliceAlloc(@Vector(0, ?*const u8), gpa, ".{}", null, .{}),
         );
-        const pointers = try fromSlice(@Vector(3, ?*const u8), gpa, ".{2, null, 6}", null, .{});
+        const pointers = try fromSliceAlloc(@Vector(3, ?*const u8), gpa, ".{2, null, 6}", null, .{});
         defer free(gpa, pointers);
         try std.testing.expectEqualDeep(@Vector(3, ?*const u8){ &2, null, &6 }, pointers);
     }
@@ -3217,7 +3218,7 @@ test "std.zon vector" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(@Vector(2, f32), gpa, ".{0.5}", &diag, .{}),
+            fromSliceAlloc(@Vector(2, f32), gpa, ".{0.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 vector elements; found 1\n",
@@ -3232,7 +3233,7 @@ test "std.zon vector" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(@Vector(2, f32), gpa, ".{0.5, 1.5, 2.5}", &diag, .{}),
+            fromSliceAlloc(@Vector(2, f32), gpa, ".{0.5, 1.5, 2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 vector elements; found 3\n",
@@ -3247,7 +3248,7 @@ test "std.zon vector" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(@Vector(3, f32), gpa, ".{0.5, true, 2.5}", &diag, .{}),
+            fromSliceAlloc(@Vector(3, f32), gpa, ".{0.5, true, 2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
             "1:8: error: expected type 'f32'\n",
@@ -3262,7 +3263,7 @@ test "std.zon vector" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(@Vector(3, u8), gpa, "true", &diag, .{}),
+            fromSliceAlloc(@Vector(3, u8), gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type '@Vector(3, u8)'\n", "{}", .{diag});
     }
@@ -3273,7 +3274,7 @@ test "std.zon vector" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(@Vector(3, *u8), gpa, ".{1, true, 3}", &diag, .{}),
+            fromSliceAlloc(@Vector(3, *u8), gpa, ".{1, true, 3}", &diag, .{}),
         );
         try std.testing.expectFmt("1:6: error: expected type 'u8'\n", "{}", .{diag});
     }
@@ -3284,77 +3285,77 @@ test "std.zon add pointers" {
 
     // Primitive with varying levels of pointers
     {
-        const result = try fromSlice(*u32, gpa, "10", null, .{});
+        const result = try fromSliceAlloc(*u32, gpa, "10", null, .{});
         defer free(gpa, result);
         try std.testing.expectEqual(@as(u32, 10), result.*);
     }
 
     {
-        const result = try fromSlice(**u32, gpa, "10", null, .{});
+        const result = try fromSliceAlloc(**u32, gpa, "10", null, .{});
         defer free(gpa, result);
         try std.testing.expectEqual(@as(u32, 10), result.*.*);
     }
 
     {
-        const result = try fromSlice(***u32, gpa, "10", null, .{});
+        const result = try fromSliceAlloc(***u32, gpa, "10", null, .{});
         defer free(gpa, result);
         try std.testing.expectEqual(@as(u32, 10), result.*.*.*);
     }
 
     // Primitive optional with varying levels of pointers
     {
-        const some = try fromSlice(?*u32, gpa, "10", null, .{});
+        const some = try fromSliceAlloc(?*u32, gpa, "10", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqual(@as(u32, 10), some.?.*);
 
-        const none = try fromSlice(?*u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(?*u32, gpa, "null", null, .{});
         defer free(gpa, none);
         try std.testing.expectEqual(null, none);
     }
 
     {
-        const some = try fromSlice(*?u32, gpa, "10", null, .{});
+        const some = try fromSliceAlloc(*?u32, gpa, "10", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqual(@as(u32, 10), some.*.?);
 
-        const none = try fromSlice(*?u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(*?u32, gpa, "null", null, .{});
         defer free(gpa, none);
         try std.testing.expectEqual(null, none.*);
     }
 
     {
-        const some = try fromSlice(?**u32, gpa, "10", null, .{});
+        const some = try fromSliceAlloc(?**u32, gpa, "10", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqual(@as(u32, 10), some.?.*.*);
 
-        const none = try fromSlice(?**u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(?**u32, gpa, "null", null, .{});
         defer free(gpa, none);
         try std.testing.expectEqual(null, none);
     }
 
     {
-        const some = try fromSlice(*?*u32, gpa, "10", null, .{});
+        const some = try fromSliceAlloc(*?*u32, gpa, "10", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqual(@as(u32, 10), some.*.?.*);
 
-        const none = try fromSlice(*?*u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(*?*u32, gpa, "null", null, .{});
         defer free(gpa, none);
         try std.testing.expectEqual(null, none.*);
     }
 
     {
-        const some = try fromSlice(**?u32, gpa, "10", null, .{});
+        const some = try fromSliceAlloc(**?u32, gpa, "10", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqual(@as(u32, 10), some.*.*.?);
 
-        const none = try fromSlice(**?u32, gpa, "null", null, .{});
+        const none = try fromSliceAlloc(**?u32, gpa, "null", null, .{});
         defer free(gpa, none);
         try std.testing.expectEqual(null, none.*.*);
     }
 
     // Pointer to an array
     {
-        const result = try fromSlice(*[3]u8, gpa, ".{ 1, 2, 3 }", null, .{});
+        const result = try fromSliceAlloc(*[3]u8, gpa, ".{ 1, 2, 3 }", null, .{});
         defer free(gpa, result);
         try std.testing.expectEqual([3]u8{ 1, 2, 3 }, result.*);
     }
@@ -3377,7 +3378,7 @@ test "std.zon add pointers" {
             .f2 = &null,
         };
 
-        const found = try fromSlice(?*Outer, gpa,
+        const found = try fromSliceAlloc(?*Outer, gpa,
             \\.{
             \\    .f1 = .{
             \\        .f1 = null,
@@ -3397,7 +3398,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type '?u8'\n", "{}", .{diag});
     }
@@ -3407,7 +3408,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const f32, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const f32, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type '?f32'\n", "{}", .{diag});
     }
@@ -3417,7 +3418,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const @Vector(3, u8), gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const @Vector(3, u8), gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type '?@Vector(3, u8)'\n", "{}", .{diag});
     }
@@ -3427,7 +3428,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const bool, gpa, "10", &diag, .{}),
+            fromSliceAlloc(*const ?*const bool, gpa, "10", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected type '?bool'\n", "{}", .{diag});
     }
@@ -3437,7 +3438,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const struct { a: i32 }, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const struct { a: i32 }, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional struct\n", "{}", .{diag});
     }
@@ -3447,7 +3448,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const struct { i32 }, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const struct { i32 }, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional tuple\n", "{}", .{diag});
     }
@@ -3457,7 +3458,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const union { x: void }, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const union { x: void }, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional union\n", "{}", .{diag});
     }
@@ -3467,7 +3468,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const [3]u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const [3]u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
     }
@@ -3477,7 +3478,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(?[3]u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(?[3]u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
     }
@@ -3487,7 +3488,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const []u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const []u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
     }
@@ -3497,7 +3498,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(?[]u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(?[]u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
     }
@@ -3507,7 +3508,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const []const u8, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const []const u8, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional string\n", "{}", .{diag});
     }
@@ -3517,7 +3518,7 @@ test "std.zon add pointers" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice(*const ?*const enum { foo }, gpa, "true", &diag, .{}),
+            fromSliceAlloc(*const ?*const enum { foo }, gpa, "true", &diag, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional enum literal\n", "{}", .{diag});
     }
@@ -3547,12 +3548,12 @@ test "std.zon stop on node" {
     }
 }
 
-test "std.zon flat" {
+test "std.zon no alloc" {
     const gpa = std.testing.allocator;
 
     try std.testing.expectEqual(
         [3]u8{ 1, 2, 3 },
-        try fromSliceFlat([3]u8, gpa, ".{ 1, 2, 3 }", null, .{}),
+        try fromSlice([3]u8, gpa, ".{ 1, 2, 3 }", null, .{}),
     );
 
     const Nested = struct { u8, u8, struct { u8, u8 } };
@@ -3565,11 +3566,11 @@ test "std.zon flat" {
 
     try std.testing.expectEqual(
         Nested{ 1, 2, .{ 3, 4 } },
-        try fromZoirFlat(Nested, ast, zoir, null, .{}),
+        try fromZoir(Nested, ast, zoir, null, .{}),
     );
 
     try std.testing.expectEqual(
         Nested{ 1, 2, .{ 3, 4 } },
-        try fromZoirNodeFlat(Nested, ast, zoir, .root, null, .{}),
+        try fromZoirNode(Nested, ast, zoir, .root, null, .{}),
     );
 }
