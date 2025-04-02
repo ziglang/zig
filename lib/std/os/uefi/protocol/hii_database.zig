@@ -133,7 +133,7 @@ pub const HiiDatabase = extern struct {
         self: *const HiiDatabase,
         handle: ?hii.Handle,
         buffer: []hii.PackageList,
-    ) ExportPackageListError!struct { usize, ?[]hii.PackageList } {
+    ) ExportPackageListError![]hii.PackageList {
         var len = buffer.len;
         switch (self._export_package_lists(
             self,
@@ -141,8 +141,8 @@ pub const HiiDatabase = extern struct {
             &len,
             buffer.ptr,
         )) {
-            .success => return .{ len, buffer[0..len] },
-            .buffer_too_small => return .{ len, null },
+            .success => return buffer[0..len],
+            .buffer_too_small => return Error.BufferTooSmall,
             .invalid_parameter => return Error.InvalidParameter,
             .not_found => return Error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
