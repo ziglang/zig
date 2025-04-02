@@ -222,8 +222,8 @@ pub const File = extern struct {
         self: *const File,
         comptime info: std.meta.Tag(Info),
         buffer: ?[]u8,
-    ) GetInfoError!struct { usize, ?*std.meta.TagPayload(Info, info) } {
-        const InfoType = std.meta.TagPayload(Info, info);
+    ) GetInfoError!struct { usize, @FieldType(Info, @tagName(info)) } {
+        const InfoType = @FieldType(Info, @tagName(info));
 
         var len = if (buffer) |b| b.len else 0;
         switch (self._get_info(
@@ -245,17 +245,15 @@ pub const File = extern struct {
     pub fn setInfo(
         self: *File,
         comptime info: std.meta.Tag(Info),
-        data: *const std.meta.TagPayload(Info, info),
+        data: *const @FieldType(Info, @tagName(info)),
     ) SetInfoError!void {
-        const InfoType = std.meta.TagPayload(Info, info);
+        const InfoType = @FieldType(Info, @tagName(info));
 
-        var attached_str_len: usize = 0;
         const attached_str: [*:0]const u16 = switch (info) {
             .file => data.getFileName(),
             inline .file_system, .volume_label => data.getVolumeLabel(),
         };
-
-        while (attached_str[attached_str_len] != 0) : (attached_str_len += 1) {}
+        const attached_str_len = std.mem.sliceTo(attached_str, 0).len;
 
         // add the length (not +1 for sentinel) because `@sizeOf(InfoType)`
         // already contains the first utf16 char
