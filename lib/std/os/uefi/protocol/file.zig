@@ -52,11 +52,14 @@ pub const File = extern struct {
         AccessDenied,
         VolumeFull,
     };
-    pub const GetInfoError = uefi.UnexpectedError || error{
+    pub const GetInfoSizeError = uefi.UnexpectedError || error{
         Unsupported,
         NoMedia,
         DeviceError,
         VolumeCorrupted,
+    };
+    pub const GetInfoError = GetInfoSizeError || error{
+        BufferTooSmall,
     };
     pub const SetInfoError = uefi.UnexpectedError || error{
         Unsupported,
@@ -215,25 +218,39 @@ pub const File = extern struct {
         try self.setPosition(pos);
     }
 
-    /// If the underlying function returns `.buffer_too_small`, then this function
-    /// returns `.{ len, null }`. Otherwise, the 2nd value of the tuple contains
-    /// the casted reference from the buffer.
+    pub fn getInfoSize(self: *const File, comptime info: std.meta.Tag(Info)) GetInfoError!usize {
+        const InfoType = @FieldType(Info, @tagName(info));
+
+        var len: usize = 0;
+        switch (self._get_info(self, &InfoType.guid, &len, null)) {
+            .success, .buffer_too_small => return len,
+            .unsupported => return Error.Unsupported,
+            .no_media => return Error.NoMedia,
+            .device_error => return Error.DeviceError,
+            .volume_corrupted => return Error.VolumeCorrupted,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// If `buffer` is too small to contain all of the info, this function returns
+    /// `Error.BufferTooSmall`. You should call `getInfoSize` first to determine
+    /// how big the buffer should be to safely call this function.
     pub fn getInfo(
         self: *const File,
         comptime info: std.meta.Tag(Info),
-        buffer: ?[]u8,
+        buffer: []u8,
     ) GetInfoError!struct { usize, @FieldType(Info, @tagName(info)) } {
         const InfoType = @FieldType(Info, @tagName(info));
 
-        var len = if (buffer) |b| b.len else 0;
+        var len = buffer.len;
         switch (self._get_info(
             self,
             &InfoType.guid,
             &len,
-            if (buffer) |b| b else null,
+            buffer.ptr,
         )) {
-            .success => return .{ len, @as(*InfoType, @ptrCast(buffer.ptr)) },
-            .buffer_too_small => return .{ len, null },
+            .success => return @as(*InfoType, @ptrCast(buffer.ptr)),
+            .buffer_too_small => return Error.BufferTooSmall,
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
             .device_error => return Error.DeviceError,
