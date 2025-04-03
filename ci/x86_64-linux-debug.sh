@@ -70,8 +70,29 @@ stage3-debug/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml
 
+# Ensure that stage3 used as cc can build zig2.
+mkdir ../build-zig2
+cd ../build-zig2
+
+export CC="$PWD/../build-debug/stage3-debug/bin/zig cc -target $TARGET -mcpu=$MCPU"
+export CXX="$PWD/../build-debug/stage3-debug/bin/zig c++ -target $TARGET -mcpu=$MCPU"
+
+cmake .. \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON \
+  -GNinja
+
+unset CC
+unset CXX
+
+ninja zig2
+
 # Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-debug/bin/zig build update-zig1
+../build-debug/stage3-debug/bin/zig build update-zig1
 
 mkdir ../build-new
 cd ../build-new
