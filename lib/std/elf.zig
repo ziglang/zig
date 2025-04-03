@@ -5,278 +5,82 @@ const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const native_endian = @import("builtin").target.cpu.arch.endian();
+const Endian = std.builtin.Endian;
 
-pub const AT_NULL = 0;
-pub const AT_IGNORE = 1;
-pub const AT_EXECFD = 2;
-pub const AT_PHDR = 3;
-pub const AT_PHENT = 4;
-pub const AT_PHNUM = 5;
-pub const AT_PAGESZ = 6;
-pub const AT_BASE = 7;
-pub const AT_FLAGS = 8;
-pub const AT_ENTRY = 9;
-pub const AT_NOTELF = 10;
-pub const AT_UID = 11;
-pub const AT_EUID = 12;
-pub const AT_GID = 13;
-pub const AT_EGID = 14;
-pub const AT_CLKTCK = 17;
-pub const AT_PLATFORM = 15;
-pub const AT_HWCAP = 16;
-pub const AT_FPUCW = 18;
-pub const AT_DCACHEBSIZE = 19;
-pub const AT_ICACHEBSIZE = 20;
-pub const AT_UCACHEBSIZE = 21;
-pub const AT_IGNOREPPC = 22;
-pub const AT_SECURE = 23;
-pub const AT_BASE_PLATFORM = 24;
-pub const AT_RANDOM = 25;
-pub const AT_HWCAP2 = 26;
-pub const AT_EXECFN = 31;
-pub const AT_SYSINFO = 32;
-pub const AT_SYSINFO_EHDR = 33;
-pub const AT_L1I_CACHESHAPE = 34;
-pub const AT_L1D_CACHESHAPE = 35;
-pub const AT_L2_CACHESHAPE = 36;
-pub const AT_L3_CACHESHAPE = 37;
-pub const AT_L1I_CACHESIZE = 40;
-pub const AT_L1I_CACHEGEOMETRY = 41;
-pub const AT_L1D_CACHESIZE = 42;
-pub const AT_L1D_CACHEGEOMETRY = 43;
-pub const AT_L2_CACHESIZE = 44;
-pub const AT_L2_CACHEGEOMETRY = 45;
-pub const AT_L3_CACHESIZE = 46;
-pub const AT_L3_CACHEGEOMETRY = 47;
+pub const MAGIC = "\x7fELF";
 
-pub const DT_NULL = 0;
-pub const DT_NEEDED = 1;
-pub const DT_PLTRELSZ = 2;
-pub const DT_PLTGOT = 3;
-pub const DT_HASH = 4;
-pub const DT_STRTAB = 5;
-pub const DT_SYMTAB = 6;
-pub const DT_RELA = 7;
-pub const DT_RELASZ = 8;
-pub const DT_RELAENT = 9;
-pub const DT_STRSZ = 10;
-pub const DT_SYMENT = 11;
-pub const DT_INIT = 12;
-pub const DT_FINI = 13;
-pub const DT_SONAME = 14;
-pub const DT_RPATH = 15;
-pub const DT_SYMBOLIC = 16;
-pub const DT_REL = 17;
-pub const DT_RELSZ = 18;
-pub const DT_RELENT = 19;
-pub const DT_PLTREL = 20;
-pub const DT_DEBUG = 21;
-pub const DT_TEXTREL = 22;
-pub const DT_JMPREL = 23;
-pub const DT_BIND_NOW = 24;
-pub const DT_INIT_ARRAY = 25;
-pub const DT_FINI_ARRAY = 26;
-pub const DT_INIT_ARRAYSZ = 27;
-pub const DT_FINI_ARRAYSZ = 28;
-pub const DT_RUNPATH = 29;
-pub const DT_FLAGS = 30;
-pub const DT_ENCODING = 32;
-pub const DT_PREINIT_ARRAY = 32;
-pub const DT_PREINIT_ARRAYSZ = 33;
-pub const DT_SYMTAB_SHNDX = 34;
-pub const DT_RELRSZ = 35;
-pub const DT_RELR = 36;
-pub const DT_RELRENT = 37;
-pub const DT_NUM = 38;
-pub const DT_LOOS = 0x6000000d;
-pub const DT_HIOS = 0x6ffff000;
-pub const DT_LOPROC = 0x70000000;
-pub const DT_HIPROC = 0x7fffffff;
-pub const DT_PROCNUM = DT_MIPS_NUM;
-
-pub const DT_VALRNGLO = 0x6ffffd00;
-pub const DT_GNU_PRELINKED = 0x6ffffdf5;
-pub const DT_GNU_CONFLICTSZ = 0x6ffffdf6;
-pub const DT_GNU_LIBLISTSZ = 0x6ffffdf7;
-pub const DT_CHECKSUM = 0x6ffffdf8;
-pub const DT_PLTPADSZ = 0x6ffffdf9;
-pub const DT_MOVEENT = 0x6ffffdfa;
-pub const DT_MOVESZ = 0x6ffffdfb;
-pub const DT_FEATURE_1 = 0x6ffffdfc;
-pub const DT_POSFLAG_1 = 0x6ffffdfd;
-
-pub const DT_SYMINSZ = 0x6ffffdfe;
-pub const DT_SYMINENT = 0x6ffffdff;
-pub const DT_VALRNGHI = 0x6ffffdff;
-pub const DT_VALNUM = 12;
-
-pub const DT_ADDRRNGLO = 0x6ffffe00;
-pub const DT_GNU_HASH = 0x6ffffef5;
-pub const DT_TLSDESC_PLT = 0x6ffffef6;
-pub const DT_TLSDESC_GOT = 0x6ffffef7;
-pub const DT_GNU_CONFLICT = 0x6ffffef8;
-pub const DT_GNU_LIBLIST = 0x6ffffef9;
-pub const DT_CONFIG = 0x6ffffefa;
-pub const DT_DEPAUDIT = 0x6ffffefb;
-pub const DT_AUDIT = 0x6ffffefc;
-pub const DT_PLTPAD = 0x6ffffefd;
-pub const DT_MOVETAB = 0x6ffffefe;
-pub const DT_SYMINFO = 0x6ffffeff;
-pub const DT_ADDRRNGHI = 0x6ffffeff;
-pub const DT_ADDRNUM = 11;
-
-pub const DT_VERSYM = 0x6ffffff0;
-
-pub const DT_RELACOUNT = 0x6ffffff9;
-pub const DT_RELCOUNT = 0x6ffffffa;
-
-pub const DT_FLAGS_1 = 0x6ffffffb;
-pub const DT_VERDEF = 0x6ffffffc;
-
-pub const DT_VERDEFNUM = 0x6ffffffd;
-pub const DT_VERNEED = 0x6ffffffe;
-
-pub const DT_VERNEEDNUM = 0x6fffffff;
-pub const DT_VERSIONTAGNUM = 16;
-
-pub const DT_AUXILIARY = 0x7ffffffd;
-pub const DT_FILTER = 0x7fffffff;
-pub const DT_EXTRANUM = 3;
-
-pub const DT_SPARC_REGISTER = 0x70000001;
-pub const DT_SPARC_NUM = 2;
-
-pub const DT_MIPS_RLD_VERSION = 0x70000001;
-pub const DT_MIPS_TIME_STAMP = 0x70000002;
-pub const DT_MIPS_ICHECKSUM = 0x70000003;
-pub const DT_MIPS_IVERSION = 0x70000004;
-pub const DT_MIPS_FLAGS = 0x70000005;
-pub const DT_MIPS_BASE_ADDRESS = 0x70000006;
-pub const DT_MIPS_MSYM = 0x70000007;
-pub const DT_MIPS_CONFLICT = 0x70000008;
-pub const DT_MIPS_LIBLIST = 0x70000009;
-pub const DT_MIPS_LOCAL_GOTNO = 0x7000000a;
-pub const DT_MIPS_CONFLICTNO = 0x7000000b;
-pub const DT_MIPS_LIBLISTNO = 0x70000010;
-pub const DT_MIPS_SYMTABNO = 0x70000011;
-pub const DT_MIPS_UNREFEXTNO = 0x70000012;
-pub const DT_MIPS_GOTSYM = 0x70000013;
-pub const DT_MIPS_HIPAGENO = 0x70000014;
-pub const DT_MIPS_RLD_MAP = 0x70000016;
-pub const DT_MIPS_DELTA_CLASS = 0x70000017;
-pub const DT_MIPS_DELTA_CLASS_NO = 0x70000018;
-
-pub const DT_MIPS_DELTA_INSTANCE = 0x70000019;
-pub const DT_MIPS_DELTA_INSTANCE_NO = 0x7000001a;
-
-pub const DT_MIPS_DELTA_RELOC = 0x7000001b;
-pub const DT_MIPS_DELTA_RELOC_NO = 0x7000001c;
-
-pub const DT_MIPS_DELTA_SYM = 0x7000001d;
-
-pub const DT_MIPS_DELTA_SYM_NO = 0x7000001e;
-
-pub const DT_MIPS_DELTA_CLASSSYM = 0x70000020;
-
-pub const DT_MIPS_DELTA_CLASSSYM_NO = 0x70000021;
-
-pub const DT_MIPS_CXX_FLAGS = 0x70000022;
-pub const DT_MIPS_PIXIE_INIT = 0x70000023;
-pub const DT_MIPS_SYMBOL_LIB = 0x70000024;
-pub const DT_MIPS_LOCALPAGE_GOTIDX = 0x70000025;
-pub const DT_MIPS_LOCAL_GOTIDX = 0x70000026;
-pub const DT_MIPS_HIDDEN_GOTIDX = 0x70000027;
-pub const DT_MIPS_PROTECTED_GOTIDX = 0x70000028;
-pub const DT_MIPS_OPTIONS = 0x70000029;
-pub const DT_MIPS_INTERFACE = 0x7000002a;
-pub const DT_MIPS_DYNSTR_ALIGN = 0x7000002b;
-pub const DT_MIPS_INTERFACE_SIZE = 0x7000002c;
-pub const DT_MIPS_RLD_TEXT_RESOLVE_ADDR = 0x7000002d;
-
-pub const DT_MIPS_PERF_SUFFIX = 0x7000002e;
-
-pub const DT_MIPS_COMPACT_SIZE = 0x7000002f;
-pub const DT_MIPS_GP_VALUE = 0x70000030;
-pub const DT_MIPS_AUX_DYNAMIC = 0x70000031;
-
-pub const DT_MIPS_PLTGOT = 0x70000032;
-
-pub const DT_MIPS_RWPLT = 0x70000034;
-pub const DT_MIPS_RLD_MAP_REL = 0x70000035;
-pub const DT_MIPS_NUM = 0x36;
-
-pub const DT_ALPHA_PLTRO = (DT_LOPROC + 0);
-pub const DT_ALPHA_NUM = 1;
-
-pub const DT_PPC_GOT = (DT_LOPROC + 0);
-pub const DT_PPC_OPT = (DT_LOPROC + 1);
-pub const DT_PPC_NUM = 2;
-
-pub const DT_PPC64_GLINK = (DT_LOPROC + 0);
-pub const DT_PPC64_OPD = (DT_LOPROC + 1);
-pub const DT_PPC64_OPDSZ = (DT_LOPROC + 2);
-pub const DT_PPC64_OPT = (DT_LOPROC + 3);
-pub const DT_PPC64_NUM = 4;
-
-pub const DT_IA_64_PLT_RESERVE = (DT_LOPROC + 0);
-pub const DT_IA_64_NUM = 1;
-
-pub const DT_NIOS2_GP = 0x70000002;
-
-pub const DF_ORIGIN = 0x00000001;
-pub const DF_SYMBOLIC = 0x00000002;
-pub const DF_TEXTREL = 0x00000004;
-pub const DF_BIND_NOW = 0x00000008;
-pub const DF_STATIC_TLS = 0x00000010;
-
-pub const DF_1_NOW = 0x00000001;
-pub const DF_1_GLOBAL = 0x00000002;
-pub const DF_1_GROUP = 0x00000004;
-pub const DF_1_NODELETE = 0x00000008;
-pub const DF_1_LOADFLTR = 0x00000010;
-pub const DF_1_INITFIRST = 0x00000020;
-pub const DF_1_NOOPEN = 0x00000040;
-pub const DF_1_ORIGIN = 0x00000080;
-pub const DF_1_DIRECT = 0x00000100;
-pub const DF_1_TRANS = 0x00000200;
-pub const DF_1_INTERPOSE = 0x00000400;
-pub const DF_1_NODEFLIB = 0x00000800;
-pub const DF_1_NODUMP = 0x00001000;
-pub const DF_1_CONFALT = 0x00002000;
-pub const DF_1_ENDFILTEE = 0x00004000;
-pub const DF_1_DISPRELDNE = 0x00008000;
-pub const DF_1_DISPRELPND = 0x00010000;
-pub const DF_1_NODIRECT = 0x00020000;
-pub const DF_1_IGNMULDEF = 0x00040000;
-pub const DF_1_NOKSYMS = 0x00080000;
-pub const DF_1_NOHDR = 0x00100000;
-pub const DF_1_EDITED = 0x00200000;
-pub const DF_1_NORELOC = 0x00400000;
-pub const DF_1_SYMINTPOSE = 0x00800000;
-pub const DF_1_GLOBAUDIT = 0x01000000;
-pub const DF_1_SINGLETON = 0x02000000;
-pub const DF_1_STUB = 0x04000000;
-pub const DF_1_PIE = 0x08000000;
-
-pub const Versym = packed struct(u16) {
-    VERSION: u15,
-    HIDDEN: bool,
-
-    pub const LOCAL: Versym = @bitCast(@intFromEnum(VER_NDX.LOCAL));
-    pub const GLOBAL: Versym = @bitCast(@intFromEnum(VER_NDX.GLOBAL));
+pub const DF = packed struct(u5) {
+    origin: bool = false,
+    symbolic: bool = false,
+    textrel: bool = false,
+    bind_now: bool = false,
+    static_tls: bool = false,
 };
 
-pub const VER_NDX = enum(u16) {
+pub const DF1 = packed struct(u28) {
+    now: bool = false,
+    global: bool = false,
+    group: bool = false,
+    nodelete: bool = false,
+    loadfltr: bool = false,
+    initfirst: bool = false,
+    noopen: bool = false,
+    origin: bool = false,
+    direct: bool = false,
+    trans: bool = false,
+    interpose: bool = false,
+    nodeflib: bool = false,
+    nodump: bool = false,
+    confalt: bool = false,
+    endfiltee: bool = false,
+    dispreldne: bool = false,
+    disprelpnd: bool = false,
+    nodirect: bool = false,
+    ignmuldef: bool = false,
+    noksyms: bool = false,
+    nohdr: bool = false,
+    edited: bool = false,
+    symintpose: bool = false,
+    globaudit: bool = false,
+    singleton: bool = false,
+    stub: bool = false,
+    pie: bool = false,
+};
+
+pub const Versym = packed struct(u16) {
+    version: u15,
+    hidden: bool,
+
+    pub const local: Versym = .fromIndex(.local);
+    pub const global: Versym = .fromIndex(.global);
+
+    pub fn fromIndex(index: VersionIndex) Versym {
+        const idx = @intFromEnum(index);
+        return @bitCast(idx);
+    }
+
+    pub fn toIndex(symbol: Versym) VersionIndex {
+        const sym: u16 = @bitCast(symbol);
+        return @enumFromInt(sym);
+    }
+};
+
+pub const VersionIndex = enum(u16) {
+    const Reserve = EnumRange(VersionIndex, .loreserve, .hireserve);
+    pub const ReserveRange = Reserve.Range;
+    pub const reserve = Reserve.fromInt;
+    pub const getReserve = Reserve.toInt;
+
     /// Symbol is local
-    LOCAL = 0,
+    local = 0,
     /// Symbol is global
-    GLOBAL = 1,
-    /// Beginning of reserved entries
-    LORESERVE = 0xff00,
-    /// Symbol is to be eliminated
-    ELIMINATE = 0xff01,
-    UNSPECIFIED = 0xffff,
+    global = 1,
+    loreserve = 0xff00,
+    hireserve = 0xffff,
     _,
+
+    /// Symbol is to be eliminated
+    pub const eliminate = reserve(0x01);
 };
 
 /// Version definition of the file itself
@@ -284,169 +88,318 @@ pub const VER_FLG_BASE = 1;
 /// Weak version identifier
 pub const VER_FLG_WEAK = 2;
 
-/// Program header table entry unused
-pub const PT_NULL = 0;
-/// Loadable program segment
-pub const PT_LOAD = 1;
-/// Dynamic linking information
-pub const PT_DYNAMIC = 2;
-/// Program interpreter
-pub const PT_INTERP = 3;
-/// Auxiliary information
-pub const PT_NOTE = 4;
-/// Reserved
-pub const PT_SHLIB = 5;
-/// Entry for header table itself
-pub const PT_PHDR = 6;
-/// Thread-local storage segment
-pub const PT_TLS = 7;
-/// Number of defined types
-pub const PT_NUM = 8;
-/// Start of OS-specific
-pub const PT_LOOS = 0x60000000;
-/// GCC .eh_frame_hdr segment
-pub const PT_GNU_EH_FRAME = 0x6474e550;
-/// Indicates stack executability
-pub const PT_GNU_STACK = 0x6474e551;
-/// Read-only after relocation
-pub const PT_GNU_RELRO = 0x6474e552;
-pub const PT_LOSUNW = 0x6ffffffa;
-/// Sun specific segment
-pub const PT_SUNWBSS = 0x6ffffffa;
-/// Stack segment
-pub const PT_SUNWSTACK = 0x6ffffffb;
-pub const PT_HISUNW = 0x6fffffff;
-/// End of OS-specific
-pub const PT_HIOS = 0x6fffffff;
-/// Start of processor-specific
-pub const PT_LOPROC = 0x70000000;
-/// End of processor-specific
-pub const PT_HIPROC = 0x7fffffff;
+pub const PT = enum(Word) {
+    const Os = EnumRange(PT, .LOOS, .HIOS);
+    pub const OsRange = Os.Range;
+    pub const os = Os.fromInt;
+    pub const getOs = Os.toInt;
 
-/// Section header table entry unused
-pub const SHT_NULL = 0;
-/// Program data
-pub const SHT_PROGBITS = 1;
-/// Symbol table
-pub const SHT_SYMTAB = 2;
-/// String table
-pub const SHT_STRTAB = 3;
-/// Relocation entries with addends
-pub const SHT_RELA = 4;
-/// Symbol hash table
-pub const SHT_HASH = 5;
-/// Dynamic linking information
-pub const SHT_DYNAMIC = 6;
-/// Notes
-pub const SHT_NOTE = 7;
-/// Program space with no data (bss)
-pub const SHT_NOBITS = 8;
-/// Relocation entries, no addends
-pub const SHT_REL = 9;
-/// Reserved
-pub const SHT_SHLIB = 10;
-/// Dynamic linker symbol table
-pub const SHT_DYNSYM = 11;
-/// Array of constructors
-pub const SHT_INIT_ARRAY = 14;
-/// Array of destructors
-pub const SHT_FINI_ARRAY = 15;
-/// Array of pre-constructors
-pub const SHT_PREINIT_ARRAY = 16;
-/// Section group
-pub const SHT_GROUP = 17;
-/// Extended section indices
-pub const SHT_SYMTAB_SHNDX = 18;
-/// Start of OS-specific
-pub const SHT_LOOS = 0x60000000;
-/// LLVM address-significance table
-pub const SHT_LLVM_ADDRSIG = 0x6fff4c03;
-/// GNU hash table
-pub const SHT_GNU_HASH = 0x6ffffff6;
-/// GNU version definition table
-pub const SHT_GNU_VERDEF = 0x6ffffffd;
-/// GNU needed versions table
-pub const SHT_GNU_VERNEED = 0x6ffffffe;
-/// GNU symbol version table
-pub const SHT_GNU_VERSYM = 0x6fffffff;
-/// End of OS-specific
-pub const SHT_HIOS = 0x6fffffff;
-/// Start of processor-specific
-pub const SHT_LOPROC = 0x70000000;
-/// Unwind information
-pub const SHT_X86_64_UNWIND = 0x70000001;
-/// End of processor-specific
-pub const SHT_HIPROC = 0x7fffffff;
-/// Start of application-specific
-pub const SHT_LOUSER = 0x80000000;
-/// End of application-specific
-pub const SHT_HIUSER = 0xffffffff;
+    const Proc = EnumRange(PT, .LOPROC, .HIPROC);
+    pub const ProcRange = Proc.Range;
+    pub const proc = Proc.fromInt;
+    pub const getProc = Proc.toInt;
 
-// Note type for .note.gnu.build_id
-pub const NT_GNU_BUILD_ID = 3;
+    /// Program header table entry unused
+    NULL = 0,
+    /// Loadable program segment
+    LOAD = 1,
+    /// Dynamic linking information
+    DYNAMIC = 2,
+    /// Program interpreter
+    INTERP = 3,
+    /// Auxiliary information
+    NOTE = 4,
+    /// Reserved
+    SHLIB = 5,
+    /// Entry for header table itself
+    PHDR = 6,
+    /// Thread-local storage segment
+    TLS = 7,
+    /// Start of OS-specific
+    LOOS = 0x60000000,
+    /// End of OS-specific
+    HIOS = 0x6fffffff,
+    /// Start of processor-specific
+    LOPROC = 0x70000000,
+    /// End of processor-specific
+    HIPROC = 0x7fffffff,
+    _,
 
-/// Local symbol
-pub const STB_LOCAL = 0;
-/// Global symbol
-pub const STB_GLOBAL = 1;
-/// Weak symbol
-pub const STB_WEAK = 2;
-/// Number of defined types
-pub const STB_NUM = 3;
-/// Start of OS-specific
-pub const STB_LOOS = 10;
-/// Unique symbol
-pub const STB_GNU_UNIQUE = 10;
-/// End of OS-specific
-pub const STB_HIOS = 12;
-/// Start of processor-specific
-pub const STB_LOPROC = 13;
-/// End of processor-specific
-pub const STB_HIPROC = 15;
+    /// GCC .eh_frame_hdr segment
+    pub const GNU_EH_FRAME = os(0x474e550);
+    /// Indicates stack executability
+    pub const GNU_STACK = os(0x474e551);
+    /// Read-only after relocation
+    pub const GNU_RELRO = os(0x474e552);
+    pub const LOSUNW = os(0xffffffa);
+    /// Sun specific segment
+    pub const SUNWBSS = os(0xffffffa);
+    /// Stack segment
+    pub const SUNWSTACK = os(0xffffffb);
+    pub const HISUNW = os(0xfffffff);
+};
 
-pub const STB_MIPS_SPLIT_COMMON = 13;
+pub const SHT = enum(Word) {
+    const Os = EnumRange(SHT, .LOOS, .HIOS);
+    pub const OsRange = Os.Range;
+    pub const os = Os.fromInt;
+    pub const getOs = Os.toInt;
 
-/// Symbol type is unspecified
-pub const STT_NOTYPE = 0;
-/// Symbol is a data object
-pub const STT_OBJECT = 1;
-/// Symbol is a code object
-pub const STT_FUNC = 2;
-/// Symbol associated with a section
-pub const STT_SECTION = 3;
-/// Symbol's name is file name
-pub const STT_FILE = 4;
-/// Symbol is a common data object
-pub const STT_COMMON = 5;
-/// Symbol is thread-local data object
-pub const STT_TLS = 6;
-/// Number of defined types
-pub const STT_NUM = 7;
-/// Start of OS-specific
-pub const STT_LOOS = 10;
-/// Symbol is indirect code object
-pub const STT_GNU_IFUNC = 10;
-/// End of OS-specific
-pub const STT_HIOS = 12;
-/// Start of processor-specific
-pub const STT_LOPROC = 13;
-/// End of processor-specific
-pub const STT_HIPROC = 15;
+    const Proc = EnumRange(SHT, .LOPROC, .HIPROC);
+    pub const ProcRange = Proc.Range;
+    pub const proc = Proc.fromInt;
+    pub const getProc = Proc.toInt;
 
-pub const STT_SPARC_REGISTER = 13;
+    const User = EnumRange(SHT, .LOUSER, .HIUSER);
+    pub const UserRange = User.Range;
+    pub const user = User.fromInt;
+    pub const getUser = User.toInt;
 
-pub const STT_PARISC_MILLICODE = 13;
+    /// Section header table entry unused
+    NULL = 0,
+    /// Program data
+    PROGBITS = 1,
+    /// Symbol table
+    SYMTAB = 2,
+    /// String table
+    STRTAB = 3,
+    /// Relocation entries with addends
+    RELA = 4,
+    /// Symbol hash table
+    HASH = 5,
+    /// Dynamic linking information
+    DYNAMIC = 6,
+    /// Notes
+    NOTE = 7,
+    /// Program space with no data (bss)
+    NOBITS = 8,
+    /// Relocation entries, no addends
+    REL = 9,
+    /// Reserved
+    SHLIB = 10,
+    /// Dynamic linker symbol table
+    DYNSYM = 11,
+    /// Array of constructors
+    INIT_ARRAY = 14,
+    /// Array of destructors
+    FINI_ARRAY = 15,
+    /// Array of pre-constructors
+    PREINIT_ARRAY = 16,
+    /// Section group
+    GROUP = 17,
+    /// Extended section indices
+    SYMTAB_SHNDX = 18,
+    /// Start of OS-specific
+    LOOS = 0x60000000,
+    /// End of OS-specific
+    HIOS = 0x6fffffff,
+    /// Start of processor-specific
+    LOPROC = 0x70000000,
+    /// End of processor-specific
+    HIPROC = 0x7fffffff,
+    /// Start of application-specific
+    LOUSER = 0x80000000,
+    /// End of application-specific
+    HIUSER = 0xffffffff,
+    _,
 
-pub const STT_HP_OPAQUE = (STT_LOOS + 0x1);
-pub const STT_HP_STUB = (STT_LOOS + 0x2);
+    /// LLVM address-significance table
+    pub const LLVM_ADDRSIG = os(0xfff4c03);
+    /// GNU hash table
+    pub const GNU_HASH = os(0xffffff6);
+    /// GNU version definition table
+    pub const GNU_VERDEF = os(0xffffffd);
+    /// GNU needed versions table
+    pub const GNU_VERNEED = os(0xffffffe);
+    /// GNU symbol version table
+    pub const GNU_VERSYM = os(0xfffffff);
+    /// Unwind information
+    pub const X86_64_UNWIND = proc(0x1);
 
-pub const STT_ARM_TFUNC = STT_LOPROC;
-pub const STT_ARM_16BIT = STT_HIPROC;
+    pub fn format(
+        sh_type: SHT,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const name = switch (sh_type) {
+            .NULL,
+            .PROGBITS,
+            .SYMTAB,
+            .STRTAB,
+            .RELA,
+            .HASH,
+            .DYNAMIC,
+            .NOTE,
+            .NOBITS,
+            .REL,
+            .SHLIB,
+            .DYNSYM,
+            .INIT_ARRAY,
+            .FINI_ARRAY,
+            .PREINIT_ARRAY,
+            .GROUP,
+            .SYMTAB_SHNDX,
+            => @tagName(sh_type),
 
-pub const MAGIC = "\x7fELF";
+            LLVM_ADDRSIG => "LLVM_ADDRSIG",
+            GNU_HASH => "GNU_HASH",
+            GNU_VERDEF => "GNU_VERDEF",
+            GNU_VERNEED => "GNU_VERNEED",
+            GNU_VERSYM => "GNU_VERSYM",
+            X86_64_UNWIND => "X86_64_UNWIND",
+
+            else => name: {
+                if (sh_type.getOs()) |osval|
+                    try writer.print("OS(0x{X})", .{osval})
+                else if (sh_type.getProc()) |procval|
+                    try writer.print("PROC(0x{X})", .{procval})
+                else
+                    break :name "UNKNOWN";
+                return;
+            },
+        };
+
+        try writer.writeAll(name);
+    }
+};
+
+pub const NT = enum(u32) {
+    _,
+
+    pub fn of(value: u32) NT {
+        return @enumFromInt(value);
+    }
+
+    // Note type for .note.gnu.build_id
+    pub const GNU_BUILD_ID: NT = .of(3);
+};
+
+pub const STB = enum(u4) {
+    const Os = EnumRange(STB, .LOOS, .HIOS);
+    pub const OsRange = Os.Range;
+    pub const os = Os.fromInt;
+    pub const getOs = Os.toInt;
+
+    const Proc = EnumRange(STB, .LOPROC, .HIPROC);
+    pub const ProcRange = Proc.Range;
+    pub const proc = Proc.fromInt;
+    pub const getProc = Proc.toInt;
+
+    /// Local symbol
+    LOCAL = 0,
+    /// Global symbol
+    GLOBAL = 1,
+    /// Weak symbol
+    WEAK = 2,
+    /// Start of OS-specific
+    LOOS = 10,
+    /// End of OS-specific
+    HIOS = 12,
+    /// Start of processor-specific
+    LOPROC = 13,
+    /// End of processor-specific
+    HIPROC = 15,
+    _,
+
+    /// Unique symbol
+    pub const GNU_UNIQUE = os(0);
+    pub const MIPS_SPLIT_COMMON = proc(0);
+};
+
+pub const STT = enum(u4) {
+    const Os = EnumRange(STT, .LOOS, .HIOS);
+    pub const OsRange = Os.Range;
+    pub const os = Os.fromInt;
+    pub const getOs = Os.toInt;
+
+    const Proc = EnumRange(STT, .LOPROC, .HIPROC);
+    pub const ProcRange = Proc.Range;
+    pub const proc = Proc.fromInt;
+    pub const getProc = Proc.toInt;
+
+    /// Symbol type is unspecified
+    NOTYPE = 0,
+    /// Symbol is a data object
+    OBJECT = 1,
+    /// Symbol is a code object
+    FUNC = 2,
+    /// Symbol associated with a section
+    SECTION = 3,
+    /// Symbol's name is file name
+    FILE = 4,
+    /// Symbol is a common data object
+    COMMON = 5,
+    /// Symbol is thread-local data object
+    TLS = 6,
+    /// Start of OS-specific
+    LOOS = 10,
+    /// End of OS-specific
+    HIOS = 12,
+    /// Start of processor-specific
+    LOPROC = 13,
+    /// End of processor-specific
+    HIPROC = 15,
+    _,
+
+    /// Symbol is indirect code object
+    pub const GNU_IFUNC = os(0x0);
+
+    pub const SPARC_REGISTER = proc(0x0);
+
+    pub const PARISC_MILLICODE = proc(0x0);
+
+    pub const HP_OPAQUE = os(0x1);
+    pub const HP_STUB = os(0x2);
+
+    pub const ARM_TFUNC = proc(0x0);
+    pub const ARM_16BIT = proc(0x2);
+
+    pub fn format(
+        st_type: STT,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const name = switch (st_type) {
+            .NOTYPE,
+            .OBJECT,
+            .FUNC,
+            .SECTION,
+            .FILE,
+            .COMMON,
+            .TLS,
+            => @tagName(st_type),
+
+            GNU_IFUNC => "GNU_IFUNC",
+
+            else => name: {
+                if (st_type.getOs()) |osval|
+                    try writer.print("OS({d})", .{osval})
+                else if (st_type.getProc()) |procval|
+                    try writer.print("PROC({d})", .{procval})
+                else
+                    break :name "UNKNOWN";
+                return;
+            },
+        };
+
+        try writer.writeAll(name);
+    }
+};
 
 /// File types
 pub const ET = enum(u16) {
+    const Os = EnumRange(ET, .LOOS, .HIOS);
+    pub const OsRange = Os.Range;
+    pub const os = Os.fromInt;
+    pub const getOs = Os.toInt;
+
+    const Proc = EnumRange(ET, .LOOS, .HIOS);
+    pub const ProcRange = Proc.Range;
+    pub const proc = Proc.fromInt;
+    pub const getProc = Proc.toInt;
+
     /// No file type
     NONE = 0,
 
@@ -462,25 +415,18 @@ pub const ET = enum(u16) {
     /// Core file
     CORE = 4,
 
+    LOOS = 0xfe00,
+    HIOS = 0xfeff,
+    LOPROC = 0xff00,
+    HIPROC = 0xffff,
+
     _,
-
-    /// Beginning of OS-specific codes
-    pub const LOOS = 0xfe00;
-
-    /// End of OS-specific codes
-    pub const HIOS = 0xfeff;
-
-    /// Beginning of processor-specific codes
-    pub const LOPROC = 0xff00;
-
-    /// End of processor-specific codes
-    pub const HIPROC = 0xffff;
 };
 
 /// All integers are native endian.
 pub const Header = struct {
     is_64: bool,
-    endian: std.builtin.Endian,
+    endian: Endian,
     os_abi: OSABI,
     abi_version: u8,
     type: ET,
@@ -494,52 +440,89 @@ pub const Header = struct {
     shnum: u16,
     shstrndx: u16,
 
-    pub fn program_header_iterator(self: Header, parse_source: anytype) ProgramHeaderIterator(@TypeOf(parse_source)) {
-        return ProgramHeaderIterator(@TypeOf(parse_source)){
-            .elf_header = self,
-            .parse_source = parse_source,
-        };
+    pub fn programHeaders(
+        self: *const Header,
+        parse_source: anytype,
+    ) ProgramHeaders(@TypeOf(parse_source)) {
+        return .new(self, parse_source);
     }
 
-    pub fn section_header_iterator(self: Header, parse_source: anytype) SectionHeaderIterator(@TypeOf(parse_source)) {
-        return SectionHeaderIterator(@TypeOf(parse_source)){
-            .elf_header = self,
-            .parse_source = parse_source,
-        };
+    pub fn sectionHeaders(
+        self: *const Header,
+        parse_source: anytype,
+    ) SectionHeaders(@TypeOf(parse_source)) {
+        return .new(self, parse_source);
+    }
+
+    pub fn symbolTable(
+        self: *const Header,
+        symtab_header: *const elf64.Shdr,
+        parse_source: anytype,
+    ) SymbolTable(@TypeOf(parse_source)) {
+        return .new(self, symtab_header, parse_source);
+    }
+
+    pub fn findSymbolTable(
+        self: *const Header,
+        parse_source: anytype,
+    ) !?SymbolTable(@TypeOf(parse_source)) {
+        var sheaders = self.sectionHeaders(parse_source).iterator();
+        const symtab_header = while (try sheaders.next()) |shdr| {
+            if (shdr.sh_type == .SYMTAB) break shdr;
+        } else return null;
+        return self.symbolTable(&symtab_header, parse_source);
+    }
+
+    pub fn stringTable(
+        self: *const Header,
+        strtab_header: *const elf64.Shdr,
+        parse_source: anytype,
+    ) StringTable(@TypeOf(parse_source)) {
+        _ = self;
+        return .new(strtab_header, parse_source);
+    }
+
+    pub fn sectionNames(
+        self: *const Header,
+        parse_source: anytype,
+    ) !?StringTable(@TypeOf(parse_source)) {
+        const sheaders = self.sectionHeaders(parse_source);
+        const shstr_tab = try sheaders.get(self.shstrndx) orelse return null;
+        return self.stringTable(&shstr_tab, parse_source);
     }
 
     pub fn read(parse_source: anytype) !Header {
-        var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
+        var hdr_buf: [@sizeOf(elf64.Ehdr)]u8 align(@alignOf(elf64.Ehdr)) = undefined;
         try parse_source.seekableStream().seekTo(0);
         try parse_source.reader().readNoEof(&hdr_buf);
         return Header.parse(&hdr_buf);
     }
 
-    pub fn parse(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
-        const hdr32 = @as(*const Elf32_Ehdr, @ptrCast(hdr_buf));
-        const hdr64 = @as(*const Elf64_Ehdr, @ptrCast(hdr_buf));
-        if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
-        if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
+    pub fn parse(hdr_buf: *align(@alignOf(elf64.Ehdr)) const [@sizeOf(elf64.Ehdr)]u8) !Header {
+        const hdr32 = @as(*const elf32.Ehdr, @ptrCast(hdr_buf));
+        const hdr64 = @as(*const elf64.Ehdr, @ptrCast(hdr_buf));
+        if (!mem.eql(u8, hdr32.e_ident.magic(), MAGIC)) return error.InvalidElfMagic;
+        if (hdr32.e_ident.ei_version != .CURRENT) return error.InvalidElfVersion;
 
-        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
-            ELFCLASS32 => false,
-            ELFCLASS64 => true,
+        const is_64 = switch (hdr32.e_ident.ei_class) {
+            .@"32" => false,
+            .@"64" => true,
             else => return error.InvalidElfClass,
         };
 
-        const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
-            ELFDATA2LSB => .little,
-            ELFDATA2MSB => .big,
+        const endian: Endian = switch (hdr32.e_ident.ei_data) {
+            .LSB => .little,
+            .MSB => .big,
             else => return error.InvalidElfEndian,
         };
         const need_bswap = endian != native_endian;
 
         // Converting integers to exhaustive enums using `@enumFromInt` could cause a panic.
         comptime assert(!@typeInfo(OSABI).@"enum".is_exhaustive);
-        const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
+        const os_abi: OSABI = hdr32.e_ident.ei_osabi;
 
         // The meaning of this value depends on `os_abi` so just make it available as `u8`.
-        const abi_version = hdr32.e_ident[EI_ABIVERSION];
+        const abi_version = hdr32.e_ident.ei_abiversion;
 
         const @"type" = if (need_bswap) blk: {
             comptime assert(!@typeInfo(ET).@"enum".is_exhaustive);
@@ -572,43 +555,56 @@ pub const Header = struct {
     }
 };
 
-pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
+pub fn ProgramHeaders(ParseSource: type) type {
     return struct {
-        elf_header: Header,
-        parse_source: ParseSource,
-        index: usize = 0,
+        const PHeaders = @This();
 
-        pub fn next(self: *@This()) !?Elf64_Phdr {
-            if (self.index >= self.elf_header.phnum) return null;
-            defer self.index += 1;
+        len: u16,
+        _parse_source: ParseSource,
+        _phoff: u64,
+        _is_64: bool,
+        _endian: Endian,
 
-            if (self.elf_header.is_64) {
-                var phdr: Elf64_Phdr = undefined;
-                const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
-                try self.parse_source.seekableStream().seekTo(offset);
-                try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+        pub fn new(header: *const Header, parse_source: ParseSource) PHeaders {
+            return .{
+                .len = header.phnum,
+                ._parse_source = parse_source,
+                ._phoff = header.phoff,
+                ._is_64 = header.is_64,
+                ._endian = header.endian,
+            };
+        }
+
+        pub fn get(self: *const PHeaders, index: u16) !?elf64.Phdr {
+            if (index >= self.len) return null;
+
+            if (self._is_64) {
+                var phdr: elf64.Phdr = undefined;
+                const offset = self._phoff + @sizeOf(@TypeOf(phdr)) * index;
+                try self._parse_source.seekableStream().seekTo(offset);
+                try self._parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
                 // ELF endianness matches native endianness.
-                if (self.elf_header.endian == native_endian) return phdr;
+                if (self._endian == native_endian) return phdr;
 
                 // Convert fields to native endianness.
-                mem.byteSwapAllFields(Elf64_Phdr, &phdr);
+                mem.byteSwapAllFields(elf64.Phdr, &phdr);
                 return phdr;
             }
 
-            var phdr: Elf32_Phdr = undefined;
-            const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
-            try self.parse_source.seekableStream().seekTo(offset);
-            try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+            var phdr: elf32.Phdr = undefined;
+            const offset = self._phoff + @sizeOf(@TypeOf(phdr)) * index;
+            try self._parse_source.seekableStream().seekTo(offset);
+            try self._parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
             // ELF endianness does NOT match native endianness.
-            if (self.elf_header.endian != native_endian) {
+            if (self._endian != native_endian) {
                 // Convert fields to native endianness.
-                mem.byteSwapAllFields(Elf32_Phdr, &phdr);
+                mem.byteSwapAllFields(elf32.Phdr, &phdr);
             }
 
             // Convert 32-bit header to 64-bit.
-            return Elf64_Phdr{
+            return elf64.Phdr{
                 .p_type = phdr.p_type,
                 .p_offset = phdr.p_offset,
                 .p_vaddr = phdr.p_vaddr,
@@ -619,49 +615,79 @@ pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
                 .p_align = phdr.p_align,
             };
         }
+
+        pub fn iterator(self: PHeaders) Iterator {
+            return .{ .pheaders = self };
+        }
+
+        pub const Iterator = struct {
+            pheaders: PHeaders,
+            index: u16 = 0,
+
+            pub fn next(self: *Iterator) !?elf64.Phdr {
+                const result = try self.pheaders.get(self.index) orelse return null;
+                self.index += 1;
+                return result;
+            }
+        };
     };
 }
 
-pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
+pub fn SectionHeaders(ParseSource: type) type {
     return struct {
-        elf_header: Header,
-        parse_source: ParseSource,
-        index: usize = 0,
+        const SHeaders = @This();
 
-        pub fn next(self: *@This()) !?Elf64_Shdr {
-            if (self.index >= self.elf_header.shnum) return null;
-            defer self.index += 1;
+        len: u16,
+        _parse_source: ParseSource,
+        _shoff: u64,
+        _is_64: bool,
+        _endian: Endian,
 
-            if (self.elf_header.is_64) {
-                var shdr: Elf64_Shdr = undefined;
-                const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
-                try self.parse_source.seekableStream().seekTo(offset);
-                try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+        pub fn new(header: *const Header, parse_source: ParseSource) SHeaders {
+            return .{
+                .len = header.shnum,
+                ._parse_source = parse_source,
+                ._shoff = header.shoff,
+                ._is_64 = header.is_64,
+                ._endian = header.endian,
+            };
+        }
+
+        pub fn get(self: *const SHeaders, index: u16) !?elf64.Shdr {
+            if (index >= self.len) return null;
+
+            if (self._is_64) {
+                var shdr: elf64.Shdr = undefined;
+                const offset = self._shoff + @sizeOf(@TypeOf(shdr)) * index;
+                try self._parse_source.seekableStream().seekTo(offset);
+                try self._parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
                 // ELF endianness matches native endianness.
-                if (self.elf_header.endian == native_endian) return shdr;
+                if (self._endian == native_endian) return shdr;
 
                 // Convert fields to native endianness.
-                mem.byteSwapAllFields(Elf64_Shdr, &shdr);
+                mem.byteSwapAllFields(elf64.Shdr, &shdr);
                 return shdr;
             }
 
-            var shdr: Elf32_Shdr = undefined;
-            const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
-            try self.parse_source.seekableStream().seekTo(offset);
-            try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+            var shdr: elf32.Shdr = undefined;
+            const offset = self._shoff + @sizeOf(@TypeOf(shdr)) * index;
+            try self._parse_source.seekableStream().seekTo(offset);
+            try self._parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
             // ELF endianness does NOT match native endianness.
-            if (self.elf_header.endian != native_endian) {
+            if (self._endian != native_endian) {
                 // Convert fields to native endianness.
-                mem.byteSwapAllFields(Elf32_Shdr, &shdr);
+                mem.byteSwapAllFields(elf32.Shdr, &shdr);
             }
 
+            const sh_flags_orig: Word = @bitCast(shdr.sh_flags);
+            const sh_flags: Xword = @intCast(sh_flags_orig);
             // Convert 32-bit header to 64-bit.
-            return Elf64_Shdr{
+            return elf64.Shdr{
                 .sh_name = shdr.sh_name,
                 .sh_type = shdr.sh_type,
-                .sh_flags = shdr.sh_flags,
+                .sh_flags = @bitCast(sh_flags),
                 .sh_addr = shdr.sh_addr,
                 .sh_offset = shdr.sh_offset,
                 .sh_size = shdr.sh_size,
@@ -670,6 +696,150 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
                 .sh_addralign = shdr.sh_addralign,
                 .sh_entsize = shdr.sh_entsize,
             };
+        }
+
+        pub fn iterator(self: SHeaders) Iterator {
+            return .{ .sheaders = self };
+        }
+
+        pub const Iterator = struct {
+            sheaders: SHeaders,
+            index: u16 = 0,
+
+            pub fn next(self: *Iterator) !?elf64.Shdr {
+                const shdr = try self.sheaders.get(self.index) orelse return null;
+                self.index += 1;
+                return shdr;
+            }
+        };
+    };
+}
+
+pub fn SymbolTable(ParseSource: type) type {
+    return struct {
+        const SymTab = @This();
+
+        len: u64,
+        string_table_index: u32,
+        last_local_symbol: ?u32,
+        _parse_source: ParseSource,
+        _shoff: u64,
+        _entsize: u64,
+        _is_64: bool,
+        _endian: Endian,
+
+        pub fn new(
+            elf_header: *const Header,
+            symtab_header: *const elf64.Shdr,
+            parse_source: ParseSource,
+        ) SymTab {
+            return .{
+                .string_table_index = symtab_header.sh_link,
+                .last_local_symbol = if (symtab_header.sh_info > 0) symtab_header.sh_info - 1 else null,
+                .len = @divExact(symtab_header.sh_size, symtab_header.sh_entsize),
+                ._parse_source = parse_source,
+                ._shoff = symtab_header.sh_offset,
+                ._entsize = symtab_header.sh_entsize,
+                ._is_64 = elf_header.is_64,
+                ._endian = elf_header.endian,
+            };
+        }
+
+        pub fn get(self: *const SymTab, index: usize) !?elf64.Sym {
+            if (index >= self.len) return null;
+            const offset = self._shoff + self._entsize * index;
+
+            if (self._is_64) {
+                var sym: elf64.Sym = undefined;
+                try self._parse_source.seekableStream().seekTo(offset);
+                try self._parse_source.reader().readNoEof(mem.asBytes(&sym));
+
+                // ELF endianness matches native endianness.
+                if (self._endian == native_endian) return sym;
+
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(elf64.Sym, &sym);
+                return sym;
+            }
+
+            var sym: elf32.Sym = undefined;
+            try self._parse_source.seekableStream().seekTo(offset);
+            try self._parse_source.reader().readNoEof(mem.asBytes(&sym));
+
+            // ELF endianness matches native endianness.
+            if (self._endian != native_endian)
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(elf32.Sym, &sym);
+
+            return elf64.Sym{
+                .st_name = sym.st_name,
+                .st_info = sym.st_info,
+                .st_other = sym.st_other,
+                .st_shndx = sym.st_shndx,
+                .st_value = @intCast(sym.st_value),
+                .st_size = @intCast(sym.st_size),
+            };
+        }
+
+        pub fn iterator(self: SymTab) SymTab.Iterator {
+            return .{ .symtab = self };
+        }
+
+        pub const Iterator = struct {
+            symtab: SymTab,
+            index: u64 = 0,
+
+            pub fn next(self: *Iterator) !?elf64.Sym {
+                const sym = try self.symtab.get(self.index) orelse return null;
+                self.index += 1;
+                return sym;
+            }
+        };
+    };
+}
+
+pub fn StringTable(ParseSource: type) type {
+    return struct {
+        const StrTab = @This();
+
+        len: u64,
+        _parse_source: ParseSource,
+        _shoff: u64,
+
+        pub fn new(
+            strtab_header: *const elf64.Shdr,
+            parse_source: ParseSource,
+        ) StrTab {
+            return .{
+                .len = strtab_header.sh_size,
+                ._parse_source = parse_source,
+                ._shoff = strtab_header.sh_offset,
+            };
+        }
+
+        pub fn get(
+            self: *const StrTab,
+            strndx: usize,
+            buffer: []u8,
+        ) !?[:0]u8 {
+            if (strndx == 0) return null;
+            var stream = std.io.fixedBufferStream(buffer);
+            try self._parse_source.seekableStream().seekTo(self._shoff + strndx);
+            try self._parse_source.reader().streamUntilDelimiter(stream.writer(), 0, self.len);
+            buffer[stream.pos] = 0;
+            return buffer[0..stream.pos :0];
+        }
+
+        pub fn getAlloc(
+            self: *const StrTab,
+            strndx: usize,
+            alloc: std.mem.Allocator,
+        ) !?[:0]u8 {
+            if (strndx == 0) return null;
+            var bytes: std.ArrayListUnmanaged(u8) = .empty;
+            try self._parse_source.seekableStream().seekTo(self._shoff + strndx);
+            try self._parse_source.reader().streamUntilDelimiter(bytes.writer(alloc), 0, self.len);
+            return try bytes.toOwnedSliceSentinel(alloc, 0);
         }
     };
 }
@@ -694,223 +864,17 @@ fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     }
 }
 
-pub const ELFCLASSNONE = 0;
-pub const ELFCLASS32 = 1;
-pub const ELFCLASS64 = 2;
-pub const ELFCLASSNUM = 3;
-
-pub const ELFDATANONE = 0;
-pub const ELFDATA2LSB = 1;
-pub const ELFDATA2MSB = 2;
-pub const ELFDATANUM = 3;
-
-pub const EI_CLASS = 4;
-pub const EI_DATA = 5;
-pub const EI_VERSION = 6;
-pub const EI_OSABI = 7;
-pub const EI_ABIVERSION = 8;
-pub const EI_PAD = 9;
-
-pub const EI_NIDENT = 16;
-
 pub const Half = u16;
 pub const Word = u32;
 pub const Sword = i32;
-pub const Elf32_Xword = u64;
-pub const Elf32_Sxword = i64;
-pub const Elf64_Xword = u64;
-pub const Elf64_Sxword = i64;
-pub const Elf32_Addr = u32;
-pub const Elf64_Addr = u64;
-pub const Elf32_Off = u32;
-pub const Elf64_Off = u64;
-pub const Elf32_Section = u16;
-pub const Elf64_Section = u16;
-pub const Elf32_Ehdr = extern struct {
-    e_ident: [EI_NIDENT]u8,
-    e_type: ET,
-    e_machine: EM,
-    e_version: Word,
-    e_entry: Elf32_Addr,
-    e_phoff: Elf32_Off,
-    e_shoff: Elf32_Off,
-    e_flags: Word,
-    e_ehsize: Half,
-    e_phentsize: Half,
-    e_phnum: Half,
-    e_shentsize: Half,
-    e_shnum: Half,
-    e_shstrndx: Half,
-};
-pub const Elf64_Ehdr = extern struct {
-    e_ident: [EI_NIDENT]u8,
-    e_type: ET,
-    e_machine: EM,
-    e_version: Word,
-    e_entry: Elf64_Addr,
-    e_phoff: Elf64_Off,
-    e_shoff: Elf64_Off,
-    e_flags: Word,
-    e_ehsize: Half,
-    e_phentsize: Half,
-    e_phnum: Half,
-    e_shentsize: Half,
-    e_shnum: Half,
-    e_shstrndx: Half,
-};
-pub const Elf32_Phdr = extern struct {
-    p_type: Word,
-    p_offset: Elf32_Off,
-    p_vaddr: Elf32_Addr,
-    p_paddr: Elf32_Addr,
-    p_filesz: Word,
-    p_memsz: Word,
-    p_flags: Word,
-    p_align: Word,
-};
-pub const Elf64_Phdr = extern struct {
-    p_type: Word,
-    p_flags: Word,
-    p_offset: Elf64_Off,
-    p_vaddr: Elf64_Addr,
-    p_paddr: Elf64_Addr,
-    p_filesz: Elf64_Xword,
-    p_memsz: Elf64_Xword,
-    p_align: Elf64_Xword,
-};
-pub const Elf32_Shdr = extern struct {
-    sh_name: Word,
-    sh_type: Word,
-    sh_flags: Word,
-    sh_addr: Elf32_Addr,
-    sh_offset: Elf32_Off,
-    sh_size: Word,
-    sh_link: Word,
-    sh_info: Word,
-    sh_addralign: Word,
-    sh_entsize: Word,
-};
-pub const Elf64_Shdr = extern struct {
-    sh_name: Word,
-    sh_type: Word,
-    sh_flags: Elf64_Xword,
-    sh_addr: Elf64_Addr,
-    sh_offset: Elf64_Off,
-    sh_size: Elf64_Xword,
-    sh_link: Word,
-    sh_info: Word,
-    sh_addralign: Elf64_Xword,
-    sh_entsize: Elf64_Xword,
-};
-pub const Elf32_Chdr = extern struct {
-    ch_type: COMPRESS,
-    ch_size: Word,
-    ch_addralign: Word,
-};
-pub const Elf64_Chdr = extern struct {
-    ch_type: COMPRESS,
-    ch_reserved: Word = 0,
-    ch_size: Elf64_Xword,
-    ch_addralign: Elf64_Xword,
-};
-pub const Elf32_Sym = extern struct {
-    st_name: Word,
-    st_value: Elf32_Addr,
-    st_size: Word,
-    st_info: u8,
-    st_other: u8,
-    st_shndx: Elf32_Section,
+pub const Xword = u64;
+pub const Sxword = i64;
+pub const Section = u16;
 
-    pub inline fn st_type(self: @This()) u4 {
-        return @truncate(self.st_info);
-    }
-    pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(self.st_info >> 4);
-    }
-};
-pub const Elf64_Sym = extern struct {
-    st_name: Word,
-    st_info: u8,
-    st_other: u8,
-    st_shndx: Elf64_Section,
-    st_value: Elf64_Addr,
-    st_size: Elf64_Xword,
-
-    pub inline fn st_type(self: @This()) u4 {
-        return @truncate(self.st_info);
-    }
-    pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(self.st_info >> 4);
-    }
-};
-pub const Elf32_Syminfo = extern struct {
-    si_boundto: Half,
-    si_flags: Half,
-};
-pub const Elf64_Syminfo = extern struct {
-    si_boundto: Half,
-    si_flags: Half,
-};
-pub const Elf32_Rel = extern struct {
-    r_offset: Elf32_Addr,
-    r_info: Word,
-
-    pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(self.r_info >> 8);
-    }
-    pub inline fn r_type(self: @This()) u8 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf64_Rel = extern struct {
-    r_offset: Elf64_Addr,
-    r_info: Elf64_Xword,
-
-    pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(self.r_info >> 32);
-    }
-    pub inline fn r_type(self: @This()) u32 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf32_Rela = extern struct {
-    r_offset: Elf32_Addr,
-    r_info: Word,
-    r_addend: Sword,
-
-    pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(self.r_info >> 8);
-    }
-    pub inline fn r_type(self: @This()) u8 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf64_Rela = extern struct {
-    r_offset: Elf64_Addr,
-    r_info: Elf64_Xword,
-    r_addend: Elf64_Sxword,
-
-    pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(self.r_info >> 32);
-    }
-    pub inline fn r_type(self: @This()) u32 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf32_Relr = Word;
-pub const Elf64_Relr = Elf64_Xword;
-pub const Elf32_Dyn = extern struct {
-    d_tag: Sword,
-    d_val: Elf32_Addr,
-};
-pub const Elf64_Dyn = extern struct {
-    d_tag: Elf64_Sxword,
-    d_val: Elf64_Addr,
-};
 pub const Verdef = extern struct {
     version: Half,
     flags: Half,
-    ndx: VER_NDX,
+    ndx: VersionIndex,
     cnt: Half,
     hash: Word,
     aux: Word,
@@ -920,20 +884,6 @@ pub const Verdaux = extern struct {
     name: Word,
     next: Word,
 };
-pub const Elf32_Verneed = extern struct {
-    vn_version: Half,
-    vn_cnt: Half,
-    vn_file: Word,
-    vn_aux: Word,
-    vn_next: Word,
-};
-pub const Elf64_Verneed = extern struct {
-    vn_version: Half,
-    vn_cnt: Half,
-    vn_file: Word,
-    vn_aux: Word,
-    vn_next: Word,
-};
 pub const Vernaux = extern struct {
     hash: Word,
     flags: Half,
@@ -941,82 +891,16 @@ pub const Vernaux = extern struct {
     name: Word,
     next: Word,
 };
-pub const Elf32_auxv_t = extern struct {
-    a_type: u32,
-    a_un: extern union {
-        a_val: u32,
-    },
-};
-pub const Elf64_auxv_t = extern struct {
-    a_type: u64,
-    a_un: extern union {
-        a_val: u64,
-    },
-};
-pub const Elf32_Nhdr = extern struct {
-    n_namesz: Word,
-    n_descsz: Word,
-    n_type: Word,
-};
-pub const Elf64_Nhdr = extern struct {
-    n_namesz: Word,
-    n_descsz: Word,
-    n_type: Word,
-};
-pub const Elf32_Move = extern struct {
-    m_value: Elf32_Xword,
-    m_info: Word,
-    m_poffset: Word,
-    m_repeat: Half,
-    m_stride: Half,
-};
-pub const Elf64_Move = extern struct {
-    m_value: Elf64_Xword,
-    m_info: Elf64_Xword,
-    m_poffset: Elf64_Xword,
-    m_repeat: Half,
-    m_stride: Half,
-};
-pub const Elf32_gptab = extern union {
-    gt_header: extern struct {
-        gt_current_g_value: Word,
-        gt_unused: Word,
-    },
-    gt_entry: extern struct {
-        gt_g_value: Word,
-        gt_bytes: Word,
-    },
-};
-pub const Elf32_RegInfo = extern struct {
-    ri_gprmask: Word,
-    ri_cprmask: [4]Word,
-    ri_gp_value: Sword,
-};
 pub const Elf_Options = extern struct {
     kind: u8,
     size: u8,
-    section: Elf32_Section,
+    section: Section,
     info: Word,
 };
 pub const Elf_Options_Hw = extern struct {
     hwp_flags1: Word,
     hwp_flags2: Word,
 };
-pub const Elf32_Lib = extern struct {
-    l_name: Word,
-    l_time_stamp: Word,
-    l_checksum: Word,
-    l_version: Word,
-    l_flags: Word,
-};
-pub const Elf64_Lib = extern struct {
-    l_name: Word,
-    l_time_stamp: Word,
-    l_checksum: Word,
-    l_version: Word,
-    l_flags: Word,
-};
-pub const Elf32_Conflict = Elf32_Addr;
 pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     version: Half,
     isa_level: u8,
@@ -1031,70 +915,778 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     flags2: Word,
 };
 
+pub const ELFCLASS = enum(u8) {
+    NONE = 0,
+    @"32" = 1,
+    @"64" = 2,
+    _,
+};
+
+pub const ELFDATA = enum(u8) {
+    NONE = 0,
+    LSB = 1,
+    MSB = 2,
+    _,
+};
+
+pub const EV = enum(u8) {
+    NONE = 0,
+    CURRENT = 1,
+    _,
+};
+
+pub const EIdent = packed struct(u128) {
+    ei_magic: u32,
+    ei_class: ELFCLASS,
+    ei_data: ELFDATA,
+    ei_version: EV,
+    ei_osabi: OSABI,
+    ei_abiversion: u8,
+    _pad: u56 = 0,
+
+    pub fn magic(ei: *align(1) const EIdent) *const [4]u8 {
+        return mem.asBytes(&ei.ei_magic);
+    }
+};
+
+pub const SymInfo = packed struct(u8) {
+    type: STT = .NOTYPE,
+    bind: STB = .LOCAL,
+};
+
+pub const SHF_OSBITS = packed struct(u8) {
+    bits: u8,
+
+    /// Not to be GCed by the linker
+    ///
+    /// For os bits.
+    pub const GNU_RETAIN: SHF_OSBITS = .{ .bits = 0x2 };
+
+    /// Section contains text/data which may be replicated in other sections.
+    /// Linker must retain only one copy.
+    pub const MIPS_NODUPES: SHF_OSBITS = .{ .bits = 0x10 };
+
+    /// Linker must generate implicit hidden weak names.
+    pub const MIPS_NAMES: SHF_OSBITS = .{ .bits = 0x20 };
+
+    /// Section data local to process.
+    pub const MIPS_LOCAL: SHF_OSBITS = .{ .bits = 0x40 };
+
+    /// Do not strip this section.
+    pub const MIPS_NOSTRIP: SHF_OSBITS = .{ .bits = 0x80 };
+
+    /// Make code section unreadable when in execute-only mode
+    /// TODO: according to https://llvm.org/doxygen/namespacellvm_1_1ELF.html this should be a proc bit
+    pub const ARM_PURECODE: SHF_OSBITS = .{ .bits = 0x20 };
+};
+
+pub const SHF_PROCBITS = packed struct(u4) {
+    bits: u4,
+
+    /// This section is excluded from the final executable or shared library.
+    ///
+    /// For proc bits.
+    pub const EXCLUDE: SHF_PROCBITS = .{ .bits = 8 };
+
+    /// If an object file section does not have this flag set, then it may not hold
+    /// more than 2GB and can be freely referred to in objects using smaller code
+    /// models. Otherwise, only objects using larger code models can refer to them.
+    /// For example, a medium code model object can refer to data in a section that
+    /// sets this flag besides being able to refer to data in a section that does
+    /// not set it; likewise, a small code model object can refer only to code in a
+    /// section that does not set this flag.
+    pub const X86_64_LARGE: SHF_PROCBITS = .{ .bits = 1 };
+
+    /// All sections with the GPREL flag are grouped into a global data area
+    /// for faster accesses
+    pub const HEX_GPREL: SHF_PROCBITS = .{ .bits = 1 };
+
+    /// Section must be part of global data area.
+    pub const MIPS_GPREL: SHF_PROCBITS = .{ .bits = 1 };
+
+    /// This section should be merged.
+    pub const MIPS_MERGE: SHF_PROCBITS = .{ .bits = 2 };
+
+    /// Address size to be inferred from section entry size.
+    pub const MIPS_ADDR: SHF_PROCBITS = .{ .bits = 4 };
+
+    /// Section data is string data by default.
+    pub const MIPS_STRING: SHF_PROCBITS = .{ .bits = 8 };
+
+    /// All sections with the "d" flag are grouped together by the linker to form
+    /// the data section and the dp register is set to the start of the section by
+    /// the boot code.
+    pub const XCORE_DP_SECTION = .{ .bits = 1 };
+
+    /// All sections with the "c" flag are grouped together by the linker to form
+    /// the constant pool and the cp register is set to the start of the constant
+    /// pool by the boot code.
+    pub const XCORE_CP_SECTION = .{ .bits = 2 };
+};
+
+pub const elf32 = struct {
+    pub const Addr = u32;
+    pub const Off = u32;
+
+    pub const Ehdr = extern struct {
+        e_ident: EIdent align(1),
+        e_type: ET,
+        e_machine: EM,
+        e_version: Word,
+        e_entry: Addr,
+        e_phoff: Off,
+        e_shoff: Off,
+        e_flags: Word,
+        e_ehsize: Half,
+        e_phentsize: Half,
+        e_phnum: Half,
+        e_shentsize: Half,
+        e_shnum: Half,
+        e_shstrndx: Half,
+    };
+
+    pub const Phdr = extern struct {
+        p_type: PT,
+        p_offset: Off,
+        p_vaddr: Addr,
+        p_paddr: Addr,
+        p_filesz: Word,
+        p_memsz: Word,
+        p_flags: PF,
+        p_align: Word,
+    };
+
+    pub const SHF = packed struct(Word) {
+        /// Section data should be writable during execution.
+        write: bool = false,
+        /// Section occupies memory during program execution.
+        alloc: bool = false,
+        /// Section contains executable machine instructions.
+        execinstr: bool = false,
+        _pad0: u1 = 0,
+        /// The data in this section may be merged.
+        merge: bool = false,
+        /// The data in this section is null-terminated strings.
+        strings: bool = false,
+        /// A field in this section holds a section header table index.
+        info_link: bool = false,
+        /// Adds special ordering requirements for link editors.
+        link_order: bool = false,
+        /// This section requires special OS-specific processing to avoid incorrect
+        /// behavior.
+        os_nonconforming: bool = false,
+        /// This section is a member of a section group.
+        group: bool = false,
+        /// This section holds Thread-Local Storage.
+        tls: bool = false,
+        /// Identifies a section containing compressed data.
+        compressed: bool = false,
+        _pad1: u8 = 0,
+        os: SHF_OSBITS = .{ .bits = 0 },
+        proc: SHF_PROCBITS = .{ .bits = 0 },
+
+        pub fn format(
+            sh_flags: SHF,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            if (sh_flags.write) try writer.writeAll("W");
+            if (sh_flags.alloc) try writer.writeAll("A");
+            if (sh_flags.execinstr) try writer.writeAll("X");
+            if (sh_flags.merge) try writer.writeAll("M");
+            if (sh_flags.strings) try writer.writeAll("S");
+            if (sh_flags.info_link) try writer.writeAll("I");
+            if (sh_flags.link_order) try writer.writeAll("L");
+            if (sh_flags.execinstr) try writer.writeAll("E");
+            if (sh_flags.compressed) try writer.writeAll("C");
+            if (sh_flags.group) try writer.writeAll("G");
+            if (sh_flags.os_nonconforming) try writer.writeAll("O");
+            if (sh_flags.tls) try writer.writeAll("T");
+            if (sh_flags.os.bits != 0) try writer.print(" OS({x})", .{sh_flags.os.bits});
+            if (sh_flags.proc.bits != 0) try writer.print(" PROC({x})", .{sh_flags.proc.bits});
+        }
+    };
+
+    pub const Shdr = extern struct {
+        sh_name: Word,
+        sh_type: SHT,
+        sh_flags: SHF,
+        sh_addr: Addr,
+        sh_offset: Off,
+        sh_size: Word,
+        sh_link: Word,
+        sh_info: Word,
+        sh_addralign: Word,
+        sh_entsize: Word,
+    };
+
+    pub const Chdr = extern struct {
+        ch_type: COMPRESS,
+        ch_size: Word,
+        ch_addralign: Word,
+    };
+
+    pub const Sym = extern struct {
+        st_name: Word,
+        st_value: Addr,
+        st_size: Word,
+        st_info: SymInfo,
+        st_other: u8,
+        st_shndx: SHN,
+    };
+
+    pub const Syminfo = extern struct {
+        si_boundto: Half,
+        si_flags: Half,
+    };
+
+    pub const Rel = extern struct {
+        pub const Info = packed struct(Word) {
+            type: u8,
+            sym: u24,
+        };
+
+        r_offset: Addr,
+        r_info: Info,
+    };
+
+    pub const Rela = extern struct {
+        r_offset: Addr,
+        r_info: Rel.Info,
+        r_addend: Sword,
+    };
+
+    pub const Relr = Word;
+
+    pub const DT = enum(Sword) {
+        /// Note that this range includes the 0xd offset for .LOOS (since it's easier to compare to documentation).
+        pub const OsRange = math.IntFittingRange(0, @intFromEnum(DT.LOOS) - @intFromEnum(DT.HIOS) + 0xd);
+
+        /// Note that this function automatically subtracts 0xd from the value (since it's easier to compare to documentation).
+        pub fn os(comptime value: OsRange) DT {
+            comptime if (value < 0xd)
+                @compileError("invalid OS value");
+
+            const loos = @intFromEnum(DT.LOOS);
+            return @enumFromInt(loos + value - 0xd);
+        }
+
+        /// Note that this function automatically adds 0xd to the value (since it's easier to compare to documentation).
+        pub fn getOs(d_tag: DT) ?OsRange {
+            const as_int = @intFromEnum(d_tag);
+            const loos = @intFromEnum(DT.LOOS);
+            if (as_int < loos or as_int > @intFromEnum(DT.HIOS))
+                return null;
+            return as_int - loos + 0xd;
+        }
+
+        const Reserve = EnumRange(DT, .LOPROC, .HIPROC);
+        pub const ReserveRange = Reserve.Range;
+        pub const reserve = Reserve.fromInt;
+        pub const getReserve = Reserve.toInt;
+
+        const Proc = EnumRange(DT, .LOPROC, .HIPROC);
+        pub const ProcRange = Proc.Range;
+        pub const proc = Proc.fromInt;
+        pub const getProc = Proc.toInt;
+
+        NULL = 0,
+        NEEDED = 1,
+        PLTRELSZ = 2,
+        PLTGOT = 3,
+        HASH = 4,
+        STRTAB = 5,
+        SYMTAB = 6,
+        RELA = 7,
+        RELASZ = 8,
+        RELAENT = 9,
+        STRSZ = 10,
+        SYMENT = 11,
+        INIT = 12,
+        FINI = 13,
+        SONAME = 14,
+        RPATH = 15,
+        SYMBOLIC = 16,
+        REL = 17,
+        RELSZ = 18,
+        RELENT = 19,
+        PLTREL = 20,
+        DEBUG = 21,
+        TEXTREL = 22,
+        JMPREL = 23,
+        BIND_NOW = 24,
+        INIT_ARRAY = 25,
+        FINI_ARRAY = 26,
+        INIT_ARRAYSZ = 27,
+        FINI_ARRAYSZ = 28,
+        RUNPATH = 29,
+        FLAGS = 30,
+        PREINIT_ARRAY = 32,
+        PREINIT_ARRAYSZ = 33,
+        SYMTAB_SHNDX = 34,
+        RELRSZ = 35,
+        RELR = 36,
+        RELRENT = 37,
+        NUM = 38,
+        LOOS = 0x6000000d,
+        HIOS = 0x6fffefff,
+        LORESERVE = 0x6ffff000,
+        HIRESERVE = 0x6fffffff,
+        LOPROC = 0x70000000,
+        HIPROC = 0x7fffffff,
+        _,
+
+        pub const ENCODING: DT = @enumFromInt(32);
+        pub const PROCNUM: DT = @enumFromInt(36);
+
+        pub const VALRNGLO: DT = reserve(0xd00);
+        pub const GNU_PRELINKED: DT = reserve(0xdf5);
+        pub const GNU_CONFLICTSZ: DT = reserve(0xdf6);
+        pub const GNU_LIBLISTSZ: DT = reserve(0xdf7);
+        pub const CHECKSUM: DT = reserve(0xdf8);
+        pub const PLTPADSZ: DT = reserve(0xdf9);
+        pub const MOVEENT: DT = reserve(0xdfa);
+        pub const MOVESZ: DT = reserve(0xdfb);
+        pub const FEATURE_1: DT = reserve(0xdfc);
+        pub const POSFLAG_1: DT = reserve(0xdfd);
+
+        pub const SYMINSZ: DT = reserve(0xdfe);
+        pub const SYMINENT: DT = reserve(0xdff);
+        pub const VALRNGHI: DT = reserve(0xdff);
+        pub const VALNUM: DT = @enumFromInt(12);
+
+        pub const ADDRRNGLO: DT = reserve(0xe00);
+        pub const GNU_HASH: DT = reserve(0xef5);
+        pub const TLSDESC_PLT: DT = reserve(0xef6);
+        pub const TLSDESC_GOT: DT = reserve(0xef7);
+        pub const GNU_CONFLICT: DT = reserve(0xef8);
+        pub const GNU_LIBLIST: DT = reserve(0xef9);
+        pub const CONFIG: DT = reserve(0xefa);
+        pub const DEPAUDIT: DT = reserve(0xefb);
+        pub const AUDIT: DT = reserve(0xefc);
+        pub const PLTPAD: DT = reserve(0xefd);
+        pub const MOVETAB: DT = reserve(0xefe);
+        pub const SYMINFO: DT = reserve(0xeff);
+        pub const ADDRRNGHI: DT = reserve(0xeff);
+        pub const ADDRNUM: DT = @enumFromInt(11);
+
+        pub const VERSYM: DT = reserve(0xff0);
+
+        pub const RELACOUNT: DT = reserve(0xff9);
+        pub const RELCOUNT: DT = reserve(0xffa);
+
+        pub const FLAGS_1: DT = reserve(0xffb);
+        pub const VERDEF: DT = reserve(0xffc);
+
+        pub const VERDEFNUM: DT = reserve(0xffd);
+        pub const VERNEED: DT = reserve(0xffe);
+
+        pub const VERNEEDNUM: DT = reserve(0xfff);
+        pub const VERSIONTAGNUM: DT = @enumFromInt(16);
+
+        pub const AUXILIARY: DT = proc(0xffffffd);
+        pub const FILTER: DT = proc(0xfffffff);
+        pub const EXTRANUM: DT = @enumFromInt(3);
+
+        pub const SPARC_REGISTER: DT = proc(0x1);
+        pub const SPARC_NUM: DT = @enumFromInt(2);
+
+        pub const MIPS_RLD_VERSION: DT = proc(0x1);
+        pub const MIPS_TIME_STAMP: DT = proc(0x2);
+        pub const MIPS_ICHECKSUM: DT = proc(0x3);
+        pub const MIPS_IVERSION: DT = proc(0x4);
+        pub const MIPS_FLAGS: DT = proc(0x5);
+        pub const MIPS_BASE_ADDRESS: DT = proc(0x6);
+        pub const MIPS_MSYM: DT = proc(0x7);
+        pub const MIPS_CONFLICT: DT = proc(0x8);
+        pub const MIPS_LIBLIST: DT = proc(0x9);
+        pub const MIPS_LOCAL_GOTNO: DT = proc(0xa);
+        pub const MIPS_CONFLICTNO: DT = proc(0xb);
+        pub const MIPS_LIBLISTNO: DT = proc(0x10);
+        pub const MIPS_SYMTABNO: DT = proc(0x11);
+        pub const MIPS_UNREFEXTNO: DT = proc(0x12);
+        pub const MIPS_GOTSYM: DT = proc(0x13);
+        pub const MIPS_HIPAGENO: DT = proc(0x14);
+        pub const MIPS_RLD_MAP: DT = proc(0x16);
+        pub const MIPS_DELTA_CLASS: DT = proc(0x17);
+        pub const MIPS_DELTA_CLASS_NO: DT = proc(0x18);
+
+        pub const MIPS_DELTA_INSTANCE: DT = proc(0x19);
+        pub const MIPS_DELTA_INSTANCE_NO: DT = proc(0x1a);
+
+        pub const MIPS_DELTA_RELOC: DT = proc(0x1b);
+        pub const MIPS_DELTA_RELOC_NO: DT = proc(0x1c);
+
+        pub const MIPS_DELTA_SYM: DT = proc(0x1d);
+
+        pub const MIPS_DELTA_SYM_NO: DT = proc(0x1e);
+
+        pub const MIPS_DELTA_CLASSSYM: DT = proc(0x20);
+
+        pub const MIPS_DELTA_CLASSSYM_NO: DT = proc(0x21);
+
+        pub const MIPS_CXX_FLAGS: DT = proc(0x22);
+        pub const MIPS_PIXIE_INIT: DT = proc(0x23);
+        pub const MIPS_SYMBOL_LIB: DT = proc(0x24);
+        pub const MIPS_LOCALPAGE_GOTIDX: DT = proc(0x25);
+        pub const MIPS_LOCAL_GOTIDX: DT = proc(0x26);
+        pub const MIPS_HIDDEN_GOTIDX: DT = proc(0x27);
+        pub const MIPS_PROTECTED_GOTIDX: DT = proc(0x28);
+        pub const MIPS_OPTIONS: DT = proc(0x29);
+        pub const MIPS_INTERFACE: DT = proc(0x2a);
+        pub const MIPS_DYNSTR_ALIGN: DT = proc(0x2b);
+        pub const MIPS_INTERFACE_SIZE: DT = proc(0x2c);
+        pub const MIPS_RLD_TEXT_RESOLVE_ADDR: DT = proc(0x2d);
+
+        pub const MIPS_PERF_SUFFIX: DT = proc(0x2e);
+
+        pub const MIPS_COMPACT_SIZE: DT = proc(0x2f);
+        pub const MIPS_GP_VALUE: DT = proc(0x30);
+        pub const MIPS_AUX_DYNAMIC: DT = proc(0x31);
+
+        pub const MIPS_PLTGOT: DT = proc(0x32);
+
+        pub const MIPS_RWPLT: DT = proc(0x34);
+        pub const MIPS_RLD_MAP_REL: DT = proc(0x35);
+        pub const MIPS_NUM: DT = @enumFromInt(0x36);
+
+        pub const ALPHA_PLTRO: DT = proc(0x0);
+        pub const ALPHA_NUM: DT = @enumFromInt(1);
+
+        pub const PPC_GOT: DT = proc(0x0);
+        pub const PPC_OPT: DT = proc(0x1);
+        pub const PPC_NUM: DT = @enumFromInt(2);
+
+        pub const PPC64_GLINK: DT = proc(0x0);
+        pub const PPC64_OPD: DT = proc(0x1);
+        pub const PPC64_OPDSZ: DT = proc(0x2);
+        pub const PPC64_OPT: DT = proc(0x3);
+        pub const PPC64_NUM: DT = @enumFromInt(4);
+
+        pub const IA_64_PLT_RESERVE: DT = proc(0x0);
+        pub const IA_64_NUM: DT = @enumFromInt(1);
+
+        pub const NIOS2_GP: DT = proc(0x2);
+    };
+
+    pub const Dyn = extern struct {
+        d_tag: DT,
+        d_val: Addr,
+    };
+
+    pub const Verneed = extern struct {
+        vn_version: Half,
+        vn_cnt: Half,
+        vn_file: Word,
+        vn_aux: Word,
+        vn_next: Word,
+    };
+
+    pub const AT = enum(u32) {
+        NULL = 0,
+        IGNORE = 1,
+        EXECFD = 2,
+        PHDR = 3,
+        PHENT = 4,
+        PHNUM = 5,
+        PAGESZ = 6,
+        BASE = 7,
+        FLAGS = 8,
+        ENTRY = 9,
+        NOTELF = 10,
+        UID = 11,
+        EUID = 12,
+        GID = 13,
+        EGID = 14,
+        CLKTCK = 17,
+        PLATFORM = 15,
+        HWCAP = 16,
+        FPUCW = 18,
+        DCACHEBSIZE = 19,
+        ICACHEBSIZE = 20,
+        UCACHEBSIZE = 21,
+        IGNOREPPC = 22,
+        SECURE = 23,
+        BASE_PLATFORM = 24,
+        RANDOM = 25,
+        HWCAP2 = 26,
+        EXECFN = 31,
+        SYSINFO = 32,
+        SYSINFO_EHDR = 33,
+        L1I_CACHESHAPE = 34,
+        L1D_CACHESHAPE = 35,
+        L2_CACHESHAPE = 36,
+        L3_CACHESHAPE = 37,
+        L1I_CACHESIZE = 40,
+        L1I_CACHEGEOMETRY = 41,
+        L1D_CACHESIZE = 42,
+        L1D_CACHEGEOMETRY = 43,
+        L2_CACHESIZE = 44,
+        L2_CACHEGEOMETRY = 45,
+        L3_CACHESIZE = 46,
+        L3_CACHEGEOMETRY = 47,
+    };
+
+    pub const auxv_t = extern struct {
+        a_type: AT,
+        a_un: extern union {
+            a_val: u32,
+        },
+    };
+
+    pub const Nhdr = extern struct {
+        n_namesz: Word,
+        n_descsz: Word,
+        n_type: Word,
+    };
+
+    pub const Move = extern struct {
+        m_value: Xword,
+        m_info: Word,
+        m_poffset: Word,
+        m_repeat: Half,
+        m_stride: Half,
+    };
+
+    pub const gptab = extern union {
+        gt_header: extern struct {
+            gt_current_g_value: Word,
+            gt_unused: Word,
+        },
+        gt_entry: extern struct {
+            gt_g_value: Word,
+            gt_bytes: Word,
+        },
+    };
+
+    pub const RegInfo = extern struct {
+        ri_gprmask: Word,
+        ri_cprmask: [4]Word,
+        ri_gp_value: Sword,
+    };
+
+    pub const Lib = extern struct {
+        l_name: Word,
+        l_time_stamp: Word,
+        l_checksum: Word,
+        l_version: Word,
+        l_flags: Word,
+    };
+
+    pub const Conflict = Addr;
+};
+
+pub const elf64 = struct {
+    pub const Addr = u64;
+    pub const Off = u64;
+
+    pub const Ehdr = extern struct {
+        e_ident: EIdent align(1),
+        e_type: ET,
+        e_machine: EM,
+        e_version: Word,
+        e_entry: Addr,
+        e_phoff: Off,
+        e_shoff: Off,
+        e_flags: Word,
+        e_ehsize: Half,
+        e_phentsize: Half,
+        e_phnum: Half,
+        e_shentsize: Half,
+        e_shnum: Half,
+        e_shstrndx: Half,
+    };
+
+    pub const Phdr = extern struct {
+        p_type: PT,
+        p_flags: PF,
+        p_offset: Off,
+        p_vaddr: Addr,
+        p_paddr: Addr,
+        p_filesz: Xword,
+        p_memsz: Xword,
+        p_align: Xword,
+    };
+
+    pub const SHF = packed struct(Xword) {
+        /// Section data should be writable during execution.
+        write: bool = false,
+        /// Section occupies memory during program execution.
+        alloc: bool = false,
+        /// Section contains executable machine instructions.
+        execinstr: bool = false,
+        _pad0: u1 = 0,
+        /// The data in this section may be merged.
+        merge: bool = false,
+        /// The data in this section is null-terminated strings.
+        strings: bool = false,
+        /// A field in this section holds a section header table index.
+        info_link: bool = false,
+        /// Adds special ordering requirements for link editors.
+        link_order: bool = false,
+        /// This section requires special OS-specific processing to avoid incorrect
+        /// behavior.
+        os_nonconforming: bool = false,
+        /// This section is a member of a section group.
+        group: bool = false,
+        /// This section holds Thread-Local Storage.
+        tls: bool = false,
+        /// Identifies a section containing compressed data.
+        compressed: bool = false,
+        _pad1: u8 = 0,
+        os: SHF_OSBITS = .{ .bits = 0 },
+        proc: SHF_PROCBITS = .{ .bits = 0 },
+        _pad2: u32 = 0,
+
+        pub fn format(
+            sh_flags: SHF,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            if (sh_flags.write) try writer.writeAll("W");
+            if (sh_flags.alloc) try writer.writeAll("A");
+            if (sh_flags.execinstr) try writer.writeAll("X");
+            if (sh_flags.merge) try writer.writeAll("M");
+            if (sh_flags.strings) try writer.writeAll("S");
+            if (sh_flags.info_link) try writer.writeAll("I");
+            if (sh_flags.link_order) try writer.writeAll("L");
+            if (sh_flags.execinstr) try writer.writeAll("E");
+            if (sh_flags.compressed) try writer.writeAll("C");
+            if (sh_flags.group) try writer.writeAll("G");
+            if (sh_flags.os_nonconforming) try writer.writeAll("O");
+            if (sh_flags.tls) try writer.writeAll("T");
+            if (sh_flags.os.bits != 0) try writer.print(" OS({x})", .{sh_flags.os.bits});
+            if (sh_flags.proc.bits != 0) try writer.print(" PROC({x})", .{sh_flags.proc.bits});
+        }
+    };
+
+    pub const Shdr = extern struct {
+        sh_name: Word,
+        sh_type: SHT,
+        sh_flags: SHF,
+        sh_addr: Addr,
+        sh_offset: Off,
+        sh_size: Xword,
+        sh_link: Word,
+        sh_info: Word,
+        sh_addralign: Xword,
+        sh_entsize: Xword,
+    };
+
+    pub const Chdr = extern struct {
+        ch_type: COMPRESS,
+        ch_reserved: Word = 0,
+        ch_size: Xword,
+        ch_addralign: Xword,
+    };
+
+    pub const Sym = extern struct {
+        st_name: Word,
+        st_info: SymInfo,
+        st_other: u8,
+        st_shndx: SHN,
+        st_value: Addr,
+        st_size: Xword,
+
+        pub fn shndx(sym: Sym) std.meta.Tag(SHN) {
+            return @intFromEnum(sym.st_shndx);
+        }
+    };
+
+    pub const Syminfo = extern struct {
+        si_boundto: Half,
+        si_flags: Half,
+    };
+
+    pub const Rel = extern struct {
+        pub const Info = packed struct(Xword) {
+            type: u32,
+            sym: u32,
+        };
+
+        r_offset: Addr,
+        r_info: Info,
+    };
+
+    pub const Rela = extern struct {
+        r_offset: Addr,
+        r_info: Rel.Info,
+        r_addend: Sxword,
+    };
+
+    pub const Relr = Xword;
+
+    pub const DT = @Type(Type: {
+        var @"enum" = @typeInfo(elf32.DT).@"enum";
+        @"enum".tag_type = Sxword;
+        break :Type .{ .@"enum" = @"enum" };
+    });
+
+    pub const Dyn = extern struct {
+        d_tag: DT,
+        d_val: Addr,
+    };
+
+    pub const Verneed = extern struct {
+        vn_version: Half,
+        vn_cnt: Half,
+        vn_file: Word,
+        vn_aux: Word,
+        vn_next: Word,
+    };
+
+    pub const AT = @Type(Type: {
+        var @"enum" = @typeInfo(elf32.AT).@"enum";
+        @"enum".tag_type = u64;
+        break :Type .{ .@"enum" = @"enum" };
+    });
+
+    pub const auxv_t = extern struct {
+        a_type: AT,
+        a_un: extern union {
+            a_val: u64,
+        },
+    };
+
+    pub const Nhdr = extern struct {
+        n_namesz: Word,
+        n_descsz: Word,
+        n_type: Word,
+    };
+
+    pub const Move = extern struct {
+        m_value: Xword,
+        m_info: Xword,
+        m_poffset: Xword,
+        m_repeat: Half,
+        m_stride: Half,
+    };
+
+    pub const Lib = extern struct {
+        l_name: Word,
+        l_time_stamp: Word,
+        l_checksum: Word,
+        l_version: Word,
+        l_flags: Word,
+    };
+};
+
 comptime {
-    assert(@sizeOf(Elf32_Ehdr) == 52);
-    assert(@sizeOf(Elf64_Ehdr) == 64);
+    assert(@sizeOf(elf32.Ehdr) == 52);
+    assert(@sizeOf(elf64.Ehdr) == 64);
 
-    assert(@sizeOf(Elf32_Phdr) == 32);
-    assert(@sizeOf(Elf64_Phdr) == 56);
+    assert(@sizeOf(elf32.Phdr) == 32);
+    assert(@sizeOf(elf64.Phdr) == 56);
 
-    assert(@sizeOf(Elf32_Shdr) == 40);
-    assert(@sizeOf(Elf64_Shdr) == 64);
+    assert(@sizeOf(elf32.Shdr) == 40);
+    assert(@sizeOf(elf64.Shdr) == 64);
 }
 
-pub const Auxv = switch (@sizeOf(usize)) {
-    4 => Elf32_auxv_t,
-    8 => Elf64_auxv_t,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Ehdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Ehdr,
-    8 => Elf64_Ehdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Phdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Phdr,
-    8 => Elf64_Phdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Dyn = switch (@sizeOf(usize)) {
-    4 => Elf32_Dyn,
-    8 => Elf64_Dyn,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Rel = switch (@sizeOf(usize)) {
-    4 => Elf32_Rel,
-    8 => Elf64_Rel,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Rela = switch (@sizeOf(usize)) {
-    4 => Elf32_Rela,
-    8 => Elf64_Rela,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Relr = switch (@sizeOf(usize)) {
-    4 => Elf32_Relr,
-    8 => Elf64_Relr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Shdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Shdr,
-    8 => Elf64_Shdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Chdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Chdr,
-    8 => Elf64_Chdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Sym = switch (@sizeOf(usize)) {
-    4 => Elf32_Sym,
-    8 => Elf64_Sym,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Addr = switch (@sizeOf(usize)) {
-    4 => Elf32_Addr,
-    8 => Elf64_Addr,
+pub const native = switch (@sizeOf(usize)) {
+    4 => elf32,
+    8 => elf64,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 
@@ -1618,133 +2210,38 @@ pub const EM = enum(u16) {
 
 pub const GRP_COMDAT = 1;
 
-/// Section data should be writable during execution.
-pub const SHF_WRITE = 0x1;
+pub const PF = packed struct(Word) {
+    execute: bool = false,
+    write: bool = false,
+    read: bool = false,
+    _pad: u17 = 0,
+    /// Bits for operating system-specific semantics.
+    os: u8 = 0,
+    /// Bits for processor-specific semantics.
+    proc: u4 = 0,
+};
 
-/// Section occupies memory during program execution.
-pub const SHF_ALLOC = 0x2;
+pub const SHN = enum(Section) {
+    const Reserve = EnumRange(SHN, .LORESERVE, .HIRESERVE);
+    pub const ReserveRange = Reserve.Range;
+    pub const reserve = Reserve.fromInt;
+    pub const getReserve = Reserve.toInt;
 
-/// Section contains executable machine instructions.
-pub const SHF_EXECINSTR = 0x4;
+    /// Undefined section
+    UNDEF = 0,
+    LORESERVE = 0xff00,
+    HIRESERVE = 0xffff,
+    _,
 
-/// The data in this section may be merged.
-pub const SHF_MERGE = 0x10;
+    pub const LOPROC = reserve(0x00);
+    pub const HIPROC = reserve(0x1f);
 
-/// The data in this section is null-terminated strings.
-pub const SHF_STRINGS = 0x20;
-
-/// A field in this section holds a section header table index.
-pub const SHF_INFO_LINK = 0x40;
-
-/// Adds special ordering requirements for link editors.
-pub const SHF_LINK_ORDER = 0x80;
-
-/// This section requires special OS-specific processing to avoid incorrect
-/// behavior.
-pub const SHF_OS_NONCONFORMING = 0x100;
-
-/// This section is a member of a section group.
-pub const SHF_GROUP = 0x200;
-
-/// This section holds Thread-Local Storage.
-pub const SHF_TLS = 0x400;
-
-/// Identifies a section containing compressed data.
-pub const SHF_COMPRESSED = 0x800;
-
-/// Not to be GCed by the linker
-pub const SHF_GNU_RETAIN = 0x200000;
-
-/// This section is excluded from the final executable or shared library.
-pub const SHF_EXCLUDE = 0x80000000;
-
-/// Start of target-specific flags.
-pub const SHF_MASKOS = 0x0ff00000;
-
-/// Bits indicating processor-specific flags.
-pub const SHF_MASKPROC = 0xf0000000;
-
-/// All sections with the "d" flag are grouped together by the linker to form
-/// the data section and the dp register is set to the start of the section by
-/// the boot code.
-pub const XCORE_SHF_DP_SECTION = 0x10000000;
-
-/// All sections with the "c" flag are grouped together by the linker to form
-/// the constant pool and the cp register is set to the start of the constant
-/// pool by the boot code.
-pub const XCORE_SHF_CP_SECTION = 0x20000000;
-
-/// If an object file section does not have this flag set, then it may not hold
-/// more than 2GB and can be freely referred to in objects using smaller code
-/// models. Otherwise, only objects using larger code models can refer to them.
-/// For example, a medium code model object can refer to data in a section that
-/// sets this flag besides being able to refer to data in a section that does
-/// not set it; likewise, a small code model object can refer only to code in a
-/// section that does not set this flag.
-pub const SHF_X86_64_LARGE = 0x10000000;
-
-/// All sections with the GPREL flag are grouped into a global data area
-/// for faster accesses
-pub const SHF_HEX_GPREL = 0x10000000;
-
-/// Section contains text/data which may be replicated in other sections.
-/// Linker must retain only one copy.
-pub const SHF_MIPS_NODUPES = 0x01000000;
-
-/// Linker must generate implicit hidden weak names.
-pub const SHF_MIPS_NAMES = 0x02000000;
-
-/// Section data local to process.
-pub const SHF_MIPS_LOCAL = 0x04000000;
-
-/// Do not strip this section.
-pub const SHF_MIPS_NOSTRIP = 0x08000000;
-
-/// Section must be part of global data area.
-pub const SHF_MIPS_GPREL = 0x10000000;
-
-/// This section should be merged.
-pub const SHF_MIPS_MERGE = 0x20000000;
-
-/// Address size to be inferred from section entry size.
-pub const SHF_MIPS_ADDR = 0x40000000;
-
-/// Section data is string data by default.
-pub const SHF_MIPS_STRING = 0x80000000;
-
-/// Make code section unreadable when in execute-only mode
-pub const SHF_ARM_PURECODE = 0x2000000;
-
-/// Execute
-pub const PF_X = 1;
-
-/// Write
-pub const PF_W = 2;
-
-/// Read
-pub const PF_R = 4;
-
-/// Bits for operating system-specific semantics.
-pub const PF_MASKOS = 0x0ff00000;
-
-/// Bits for processor-specific semantics.
-pub const PF_MASKPROC = 0xf0000000;
-
-/// Undefined section
-pub const SHN_UNDEF = 0;
-/// Start of reserved indices
-pub const SHN_LORESERVE = 0xff00;
-/// Start of processor-specific
-pub const SHN_LOPROC = 0xff00;
-/// End of processor-specific
-pub const SHN_HIPROC = 0xff1f;
-pub const SHN_LIVEPATCH = 0xff20;
-/// Associated symbol is absolute
-pub const SHN_ABS = 0xfff1;
-/// Associated symbol is common
-pub const SHN_COMMON = 0xfff2;
-/// End of reserved indices
-pub const SHN_HIRESERVE = 0xffff;
+    pub const LIVEPATCH = reserve(0x20);
+    /// Associated symbol is absolute
+    pub const ABS = reserve(0xf1);
+    /// Associated symbol is common
+    pub const COMMON = reserve(0xf2);
+};
 
 // Legal values for ch_type (compression algorithm).
 pub const COMPRESS = enum(u32) {
@@ -2432,3 +2929,23 @@ pub const gnu_hash = struct {
         try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
     }
 };
+
+fn EnumRange(E: type, start: E, end: E) type {
+    const start_int = @intFromEnum(start);
+    const end_int = @intFromEnum(end);
+
+    return struct {
+        pub const Range = math.IntFittingRange(0, end_int - start_int);
+
+        pub fn toInt(value: E) ?Range {
+            const as_int = @intFromEnum(value);
+            if (as_int < start_int or as_int > end_int) return null;
+            return @truncate(as_int - start_int);
+        }
+
+        pub fn fromInt(comptime value: Range) E {
+            comptime assert(value <= end_int - start_int);
+            return @enumFromInt(start_int + value);
+        }
+    };
+}

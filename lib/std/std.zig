@@ -170,6 +170,7 @@ comptime {
 
 test {
     testing.refAllDecls(@This());
+    testing.refAllDeclsRecursive(elf);
 }
 
 comptime {
