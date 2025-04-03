@@ -125,40 +125,33 @@ pub fn getExternalExecutor(
         };
     }
 
+    if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
+        return Executor{ .wasmtime = "wasmtime" };
+    }
+
     switch (candidate.os.tag) {
         .windows => {
             if (options.allow_wine) {
-                // x86_64 wine does not support emulating aarch64-windows and
-                // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch and
-                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
-                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
-                {
-                    return bad_result;
-                }
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wine = "wine" },
-                    64 => return Executor{ .wine = "wine64" },
-                    else => return bad_result,
-                }
+                const wine_supported = switch (candidate.cpu.arch) {
+                    .thumb => switch (host.cpu.arch) {
+                        .arm, .thumb, .aarch64 => true,
+                        else => false,
+                    },
+                    .aarch64 => host.cpu.arch == .aarch64,
+                    .x86 => host.cpu.arch.isX86(),
+                    .x86_64 => host.cpu.arch == .x86_64,
+                    else => false,
+                };
+                return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
-        .wasi => {
-            if (options.allow_wasmtime) {
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wasmtime = "wasmtime" },
-                    else => return bad_result,
-                }
-            }
-            return bad_result;
-        },
-        .macos => {
+        .driverkit, .macos => {
             if (options.allow_darling) {
                 // This check can be loosened once darling adds a QEMU-based emulation
                 // layer for non-host architectures:
                 // https://github.com/darlinghq/darling/issues/863
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
                 return Executor{ .darling = "darling" };
