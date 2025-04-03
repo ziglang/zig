@@ -136,31 +136,31 @@ pub const LocateSearchType = enum(u32) {
 
 pub const LocateSearch = union(LocateSearchType) {
     all_handles,
-    by_register_notify: *anyopaque,
+    by_register_notify: uefi.EventRegistration,
     by_protocol: *align(8) const Guid,
 };
 
-pub const OpenProtocolAttributes = packed struct(u32) {
-    by_handle_protocol: bool = false,
-    get_protocol: bool = false,
-    test_protocol: bool = false,
-    by_child_controller: bool = false,
-    by_driver: bool = false,
-    exclusive: bool = false,
-    reserved: u26 = 0,
+pub const OpenProtocolAttributes = enum(u32) {
+    pub const Bits = packed struct(u32) {
+        by_handle_protocol: bool = false,
+        get_protocol: bool = false,
+        test_protocol: bool = false,
+        by_child_controller: bool = false,
+        by_driver: bool = false,
+        exclusive: bool = false,
+        reserved: u26 = 0,
+    };
+
+    by_handle_protocol = @bitCast(Bits{ .by_handle_protocol = true }),
+    get_protocol = @bitCast(Bits{ .get_protocol = true }),
+    test_protocol = @bitCast(Bits{ .test_protocol = true }),
+    by_child_controller = @bitCast(Bits{ .by_child_controller = true }),
+    by_driver = @bitCast(Bits{ .by_driver = true }),
+    by_driver_exclusive = @bitCast(Bits{ .by_driver = true, .exclusive = true }),
+    exclusive = @bitCast(Bits{ .exclusive = true }),
 };
 
-pub const OpenProtocolFlagEnum = enum(u32) {
-    by_handle_protocol = @bitCast(OpenProtocolAttributes{ .by_handle_protocol = true }),
-    get_protocol = @bitCast(OpenProtocolAttributes{ .get_protocol = true }),
-    test_protocol = @bitCast(OpenProtocolAttributes{ .test_protocol = true }),
-    by_child_controller = @bitCast(OpenProtocolAttributes{ .by_child_controller = true }),
-    by_driver = @bitCast(OpenProtocolAttributes{ .by_driver = true }),
-    by_driver_exclusive = @bitCast(OpenProtocolAttributes{ .by_driver = true, .exclusive = true }),
-    exclusive = @bitCast(OpenProtocolAttributes{ .exclusive = true }),
-};
-
-pub const OpenProtocolFlag = union(OpenProtocolFlagEnum) {
+pub const OpenProtocolFlag = union(OpenProtocolAttributes) {
     /// Used in the implementation of `handleProtocol`.
     by_handle_protocol: ?Handle,
     /// Used by a driver to get a protocol interface from a handle. Care must be
