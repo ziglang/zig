@@ -23,8 +23,13 @@ pub var handle: Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *tables.SystemTable = undefined;
 
+/// UEFI's memory interfaces exclusively act on 4096-byte pages.
+pub const Page = [4096]u8;
+
 /// A handle to an event structure.
 pub const Event = *opaque {};
+
+pub const EventRegistration = enum(usize) { _ };
 
 pub const EventType = packed struct(u32) {
     lo_context: u8 = 0,

@@ -13,23 +13,53 @@ pub const TimerDelay = enum(u32) {
 };
 
 pub const MemoryType = enum(u32) {
+    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
     reserved_memory_type,
     loader_code,
     loader_data,
     boot_services_code,
     boot_services_data,
+    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
     runtime_services_code,
+    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
     runtime_services_data,
     conventional_memory,
     unusable_memory,
+    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
     acpi_reclaim_memory,
+    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
     acpi_memory_nvs,
     memory_mapped_io,
     memory_mapped_io_port_space,
     pal_code,
     persistent_memory,
+    unaccepted_memory,
     max_memory_type,
+    // per https://github.com/tianocore/edk2/blob/59805c7697c801be8b08e5169bc2300d821c419d/MdePkg/Include/Uefi/UefiSpec.h#L191-L195
+    max_invalid_memory_type = 0x6FFFFFFF,
+    oem_start = 0x70000000,
+    oem_end = 0x7FFFFFFF,
+    vendor_start = 0x80000000,
+    vendor_end = 0xFFFFFFFF,
     _,
+
+    pub fn isInvalid(self: MemoryType) bool {
+        const as_int = @intFromEnum(self);
+        return as_int >= @intFromEnum(MemoryType.max_memory_type) and
+            as_int <= @intFromEnum(MemoryType.max_invalid_memory_type);
+    }
+
+    pub fn isOem(self: MemoryType) bool {
+        const as_int = @intFromEnum(self);
+        return as_int >= @intFromEnum(MemoryType.max_memory_type) and
+            as_int <= @intFromEnum(MemoryType.max_invalid_memory_type);
+    }
+
+    pub fn isVendor(self: MemoryType) bool {
+        const as_int = @intFromEnum(self);
+        return as_int >= @intFromEnum(MemoryType.vendor_start) and
+            as_int <= @intFromEnum(MemoryType.vendor_end);
+    }
 };
 
 pub const MemoryDescriptorAttribute = packed struct(u64) {
@@ -51,6 +81,8 @@ pub const MemoryDescriptorAttribute = packed struct(u64) {
     memory_runtime: bool,
 };
 
+pub const MemoryMapKey = enum(usize) { _ };
+
 pub const MemoryDescriptor = extern struct {
     type: MemoryType,
     physical_start: u64,
@@ -58,6 +90,70 @@ pub const MemoryDescriptor = extern struct {
     number_of_pages: u64,
     attribute: MemoryDescriptorAttribute,
 };
+
+pub const MemoryMapInfo = struct {
+    key: MemoryMapKey,
+    descriptor_size: usize,
+    descriptor_version: u32,
+    len: usize,
+};
+
+pub fn MemoryMapSlice(Buffer: type) type {
+    const Buffer_info = @typeInfo(Buffer);
+    if (Buffer_info != .pointer or Buffer_info.pointer.size != .many or
+        Buffer_info.pointer.child != u8)
+        @compileError("expected a [*]u8, got: " ++ @typeName(Buffer));
+
+    const Buffer_ptr = Buffer_info.pointer;
+
+    return struct {
+        const Self = @This();
+        const SelfPtr: type = Ptr: {
+            var Ptr_info = @typeInfo(*Self);
+            Ptr_info.pointer.is_const = Buffer_ptr.is_const;
+            break :Ptr @Type(Ptr_info);
+        };
+
+        pub const Item = @Type(.{ .pointer = .{
+            .address_space = Buffer_ptr.address_space,
+            .alignment = Buffer_ptr.alignment,
+            .child = MemoryDescriptor,
+            .is_allowzero = Buffer_ptr.is_allowzero,
+            .is_const = Buffer_ptr.is_const,
+            .is_volatile = Buffer_ptr.is_volatile,
+            .sentinel_ptr = null,
+            .size = .one,
+        } });
+
+        info: MemoryMapInfo,
+        ptr: Buffer,
+
+        pub fn iterator(self: Self) MemoryDescriptorIterator {
+            return .{ .ctx = self };
+        }
+
+        pub fn get(self: SelfPtr, index: usize) ?Item {
+            if (index >= self.info.len) return null;
+            return self.getUnchecked(index);
+        }
+
+        pub fn getUnchecked(self: SelfPtr, index: usize) Item {
+            const offset: usize = index * self.info.descriptor_size;
+            return @ptrCast(self.ptr[offset..]);
+        }
+
+        pub const MemoryDescriptorIterator = struct {
+            ctx: Self,
+            index: usize = 0,
+
+            pub fn next(self: *MemoryDescriptorIterator) ?Item {
+                const md = self.ctx.get(self.index) orelse return null;
+                self.index += 1;
+                return md;
+            }
+        };
+    };
+}
 
 pub const LocateSearchType = enum(u32) {
     all_handles,
@@ -81,6 +177,54 @@ pub const OpenProtocolAttributes = packed struct(u32) {
     reserved: u26 = 0,
 };
 
+pub const OpenProtocolFlagEnum = enum(u32) {
+    by_handle_protocol = @bitCast(OpenProtocolAttributes{ .by_handle_protocol = true }),
+    get_protocol = @bitCast(OpenProtocolAttributes{ .get_protocol = true }),
+    test_protocol = @bitCast(OpenProtocolAttributes{ .test_protocol = true }),
+    by_child_controller = @bitCast(OpenProtocolAttributes{ .by_child_controller = true }),
+    by_driver = @bitCast(OpenProtocolAttributes{ .by_driver = true }),
+    by_driver_exclusive = @bitCast(OpenProtocolAttributes{ .by_driver = true, .exclusive = true }),
+    exclusive = @bitCast(OpenProtocolAttributes{ .exclusive = true }),
+};
+
+pub const OpenProtocolFlag = union(OpenProtocolFlagEnum) {
+    /// Used in the implementation of `handleProtocol`.
+    by_handle_protocol: ?Handle,
+    /// Used by a driver to get a protocol interface from a handle. Care must be
+    /// taken when using this open mode because the driver that opens a protocol
+    /// interface in this manner will not be informed if the protocol interface
+    /// is uninstalled or reinstalled. The caller is also not required to close
+    /// the protocol interface with `closeProtocol`.
+    get_protocol: ?Handle,
+    /// Used by a driver to test for the existence of a protocol interface on a
+    /// handle. The caller only use the return status code. The caller is also
+    /// not required to close the protocol interface with `closeProtocol`.
+    test_protocol: ?Handle,
+    /// Used by bus drivers to show that a protocol interface is being used by one
+    /// of the child controllers of a bus. This information is used by
+    /// `BootServices.connectController` to recursively connect all child controllers
+    /// and by `BootServices.disconnectController` to get the list of child
+    /// controllers that a bus driver created.
+    by_child_controller: Handle,
+    /// Used by a driver to gain access to a protocol interface. When this mode
+    /// is used, the driver’s Stop() function will be called by
+    /// `BootServices.disconnectController` if the protocol interface is reinstalled
+    /// or uninstalled. Once a protocol interface is opened by a driver with this
+    /// attribute, no other drivers will be allowed to open the same protocol interface
+    /// with the `.by_driver` attribute.
+    by_driver: Handle,
+    /// Used by a driver to gain exclusive access to a protocol interface. If any
+    /// other drivers have the protocol interface opened with an attribute of
+    /// `.by_driver`, then an attempt will be made to remove them with
+    /// `BootServices.disconnectController`.
+    by_driver_exclusive: Handle,
+    /// Used by applications to gain exclusive access to a protocol interface. If
+    /// any drivers have the protocol interface opened with an attribute of
+    /// `.by_driver`, then an attempt will be made to remove them by calling the
+    /// driver’s Stop() function.
+    exclusive: ?Handle,
+};
+
 pub const ProtocolInformationEntry = extern struct {
     agent_handle: ?Handle,
     controller_handle: ?Handle,
@@ -92,10 +236,17 @@ pub const InterfaceType = enum(u32) {
     efi_native_interface,
 };
 
+pub const AllocateLocation = union(AllocateType) {
+    allocate_any_pages,
+    allocate_max_address: [*]align(4096) uefi.Page,
+    allocate_address: [*]align(4096) uefi.Page,
+};
+
 pub const AllocateType = enum(u32) {
     allocate_any_pages,
     allocate_max_address,
     allocate_address,
+    _,
 };
 
 pub const PhysicalAddress = u64;
