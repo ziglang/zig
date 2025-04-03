@@ -138,6 +138,7 @@ int main(int argc, char **argv) {
             "pub const enable_link_snapshots = false;\n"
             "pub const enable_tracy = false;\n"
             "pub const value_tracing = false;\n"
+            "pub const mem_leak_frames = 0;\n"
             "pub const skip_non_native = false;\n"
             "pub const debug_gpa = false;\n"
             "pub const dev = .core;\n"
