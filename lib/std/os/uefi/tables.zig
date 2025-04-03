@@ -51,8 +51,8 @@ pub const MemoryType = enum(u32) {
 
     pub fn isOem(self: MemoryType) bool {
         const as_int = @intFromEnum(self);
-        return as_int >= @intFromEnum(MemoryType.max_memory_type) and
-            as_int <= @intFromEnum(MemoryType.max_invalid_memory_type);
+        return as_int >= @intFromEnum(MemoryType.oem_start) and
+            as_int <= @intFromEnum(MemoryType.oem_end);
     }
 
     pub fn isVendor(self: MemoryType) bool {
@@ -100,7 +100,8 @@ pub const MemoryMapInfo = struct {
 
 pub fn MemoryMapSlice(Buffer: type) type {
     const Buffer_info = @typeInfo(Buffer);
-    if (Buffer_info != .pointer or Buffer_info.pointer.size != .many or
+    if (Buffer_info != .pointer or
+        Buffer_info.pointer.size != .many or
         Buffer_info.pointer.child != u8)
         @compileError("expected a [*]u8, got: " ++ @typeName(Buffer));
 
