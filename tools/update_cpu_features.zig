@@ -1455,6 +1455,13 @@ pub fn main() anyerror!void {
         usageAndExit(args0, 1);
     }
 
+    const zig_exe = args.next() orelse
+        usageAndExit(args0, 1);
+
+    if (std.mem.startsWith(u8, zig_exe, "-")) {
+        usageAndExit(args0, 1);
+    }
+
     const llvm_src_root = args.next() orelse
         usageAndExit(args0, 1);
 
@@ -1484,9 +1491,10 @@ pub fn main() anyerror!void {
     if (builtin.single_threaded) {
         for (targets) |target| {
             if (filter) |zig_name| if (!std.mem.eql(u8, target.zig_name, zig_name)) continue;
-            try processOneTarget(.{
+            processOneTarget(.{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
+                .zig_exe = zig_exe,
                 .zig_src_dir = zig_src_dir,
                 .root_progress = root_progress,
                 .target = target,
@@ -1502,6 +1510,7 @@ pub fn main() anyerror!void {
             const job = Job{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
+                .zig_exe = zig_exe,
                 .zig_src_dir = zig_src_dir,
                 .root_progress = root_progress,
                 .target = target,
@@ -1514,6 +1523,7 @@ pub fn main() anyerror!void {
 const Job = struct {
     llvm_tblgen_exe: []const u8,
     llvm_src_root: []const u8,
+    zig_exe: []const u8,
     zig_src_dir: std.fs.Dir,
     root_progress: std.Progress.Node,
     target: ArchTarget,
@@ -1794,6 +1804,16 @@ fn processOneTarget(job: Job) void {
     mem.sort(Feature, all_features.items, {}, featureLessThan);
     mem.sort(Cpu, all_cpus.items, {}, cpuLessThan);
 
+    if (std.mem.eql(u8, job.target.zig_name, "x86")) {
+        try processX86Enums(
+            arena,
+            job.llvm_src_root,
+            job.zig_exe,
+            job.zig_src_dir,
+            all_features.items,
+        );
+    }
+
     const render_progress = progress_node.start("rendering Zig code", 0);
 
     var target_dir = try job.zig_src_dir.openDir("lib/std/Target", .{});
@@ -1978,12 +1998,253 @@ fn processOneTarget(job: Job) void {
     render_progress.end();
 }
 
+fn processX86Enums(
+    arena: std.mem.Allocator,
+    llvm_src_root: []const u8,
+    zig_exe: []const u8,
+    zig_src_dir: fs.Dir,
+    all_features: []Feature,
+) !void {
+    const Enum = struct {
+        name: []const u8,
+        fields: []const Field,
+
+        const Field = struct {
+            name: []const u8,
+            value: ?u32 = null,
+        };
+    };
+
+    const def_file_path = try fs.path.join(arena, &.{
+        llvm_src_root,
+        "llvm/include/llvm/TargetParser/X86TargetParser.def",
+    });
+
+    const vendor_enum: Enum = blk: {
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_VENDOR(id, _1)=id"});
+
+        const enum_fields = try arena.alloc(Enum.Field, raw_enum_names.len + 2);
+
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
+            assert(mem.startsWith(u8, raw, "VENDOR_"));
+            f.* = .{ .name = try llvmEnumNameToZigName(arena, raw[7..]) };
+        }
+        enum_fields[1 + raw_enum_names.len] = .{ .name = "other" };
+
+        break :blk .{ .name = "Vendor", .fields = enum_fields };
+    };
+
+    const type_enum: Enum = blk: {
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_CPU_TYPE(id, _1)=id"});
+
+        const enum_fields = try arena.alloc(Enum.Field, raw_enum_names.len + 1);
+
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
+            f.* = .{ .name = try llvmEnumNameToZigName(arena, raw) };
+        }
+
+        break :blk .{ .name = "Type", .fields = enum_fields };
+    };
+
+    const subtype_enum: Enum = blk: {
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_CPU_SUBTYPE(id, _1)=id"});
+
+        const enum_fields = try arena.alloc(Enum.Field, raw_enum_names.len + 1);
+
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
+            f.* = .{ .name = try llvmEnumNameToZigName(arena, raw) };
+        }
+
+        break :blk .{ .name = "Subtype", .fields = enum_fields };
+    };
+
+    // The enum values are specified by their position in the big list of X86_FEATURE(...) macros.
+    // However, only the X86_FEATURE_COMPAT(...) values are used in compiler-rt for cpu detection.
+    // The order is important because it is supposed to match the gcc version of the list
+    // (https://github.com/gcc-mirror/gcc/blob/9693459e030977d6e906ea7eb587ed09ee4fddbd/gcc/common/config/i386/i386-cpuinfo.h#L154).
+    //
+    // Starting from LLVM 18, there are X86_MICROARCH_LEVEL(...) macros which also correspond to
+    // FEATURE_* values in the big enum but their value is given by the priority (last parameter in the macro).
+    const features_enum: Enum = blk: {
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{
+            "X86_FEATURE(_0,_1)=^", // Marker to indicate we should ignore this line. // TODO: make it empty and use tokenize() for lines
+            "X86_FEATURE_COMPAT(_0,name,_2)=name",
+            "X86_MICROARCH_LEVEL(_0,name,prio)=name=prio",
+        });
+
+        var enum_fields = std.ArrayList(Enum.Field).init(arena);
+
+        var i: u32 = 0;
+        for (raw_enum_names) |raw| {
+            assert(raw.len > 0);
+            switch (raw[0]) {
+                '^' => {
+                    // X86_FEATURE(...): does not contribute to compiler-rt feature enum
+                },
+                '"' => {
+                    const raw_name, const value = if (mem.indexOfScalar(u8, raw, '=')) |eq_pos| raw_blk: {
+                        // X86_MICROARCH_LEVEL(...): line is of the form `"name"=prio'
+                        assert(raw[eq_pos - 1] == '"');
+                        const value = std.fmt.parseUnsigned(u32, raw[eq_pos + 1 ..], 10) catch unreachable;
+                        break :raw_blk .{ raw[1 .. eq_pos - 1], value };
+                    } else raw_blk: {
+                        // X86_FEATURE_COMPAT(...): line is of the form `"name"'
+                        assert(raw[raw.len - 1] == '"');
+                        break :raw_blk .{ raw[1 .. raw.len - 1], i };
+                    };
+                    i = value;
+                    try enum_fields.append(.{
+                        .name = try llvmEnumNameToZigName(arena, raw_name),
+                        .value = i,
+                    });
+                },
+                else => unreachable,
+            }
+            i += 1;
+        }
+
+        break :blk .{ .name = "Feature", .fields = enum_fields.toOwnedSlice() catch unreachable };
+    };
+
+    // Check that the features match the ones that are generated from X86.td
+    {
+        const ignored_features = std.StaticStringMap(void).initComptime(.{
+            // These are unimplemented in LLVM's llvm/lib/Target/X86/X86.td.
+            .{ "avx5124vnniw", {} },
+            .{ "avx5124fmaps", {} },
+
+            // These represent aggregate microarchitecture levels and thus do not correspond to individual features.
+            .{ "x86_64", {} },
+            .{ "x86_64_v2", {} },
+            .{ "x86_64_v3", {} },
+            .{ "x86_64_v4", {} },
+            .{ "apxf", {} },
+        });
+
+        var have_missing: bool = false;
+        for (features_enum.fields) |f| {
+            if (ignored_features.has(f.name)) continue;
+
+            const found = for (all_features) |feat| {
+                if (std.mem.eql(u8, f.name, feat.zig_name)) break true;
+            } else false;
+            if (!found) {
+                have_missing = true;
+                std.debug.print("feature `{s}' missing\n", .{f.name});
+            }
+        }
+
+        if (have_missing) {
+            std.debug.print(
+                \\CPU features were present in X86TargetParser.def but not in X86.td.
+                \\This may mean:
+                \\ - ignored_features needs updating in tools/update_cpu_features.zig
+                \\ - new aggregate architecture levels need handling in lib/compiler_rt/x86_cpu_model.zig
+                \\ - some other llvm change (compiler-rt/lib/builtins/cpu_mode/x86.c, llvm/include/llvm/TargetParse/X86TargetParser.h, clang/lib/CodeGen/CGBuiltin.cpp)
+                \\
+            , .{});
+            return error.MissingCpuFeature;
+        }
+    }
+
+    var zig_enum_file = try zig_src_dir.createFile("lib/std/zig/system/x86/enums.zig", .{});
+    defer zig_enum_file.close();
+
+    var bw = std.io.bufferedWriter(zig_enum_file.writer());
+    const w = bw.writer();
+
+    try w.writeAll(
+        \\//! This file is auto-generated by tools/update_cpu_features.zig.
+        \\//!
+        \\//! If this file changes after updating LLVM, it might mean further changes/additions are
+        \\//! needed in the CPU type/subtype detection code in lib/std/zig/system/x86.zig.
+        \\
+        \\
+    );
+    for ([_]Enum{ vendor_enum, type_enum, subtype_enum, features_enum }) |en| {
+        try w.print(
+            \\pub const {s} = enum(u32) {{
+            \\
+        , .{en.name});
+        for (en.fields) |f| {
+            if (f.name.len == 0) continue;
+
+            try w.print("    {}", .{std.zig.fmtId(f.name)});
+
+            if (f.value) |v| {
+                try w.print(" = {}", .{v});
+            }
+            try w.writeAll(",\n");
+        }
+        try w.writeAll(
+            \\};
+            \\
+        );
+    }
+
+    try bw.flush();
+}
+
+// The `defines` parameter are passed to the preprocessor as a `-D`.
+// The output of the prepreocessor is split into lines and returned as an array of strings.
+fn preprocessCPUEnum(
+    arena: mem.Allocator,
+    zig_exe: []const u8,
+    def_path: []const u8,
+    defines: []const []const u8,
+) ![]const []const u8 {
+    // TODO: eventually use aro for C preprocessor?
+
+    const preprocessed = blk: {
+        const argv = argv_blk: {
+            var argv = try std.ArrayListUnmanaged([]const u8).initCapacity(arena, 6 + defines.len);
+
+            argv.appendAssumeCapacity(zig_exe);
+            argv.appendAssumeCapacity("cc");
+            argv.appendAssumeCapacity("-E"); // run preprocessor only
+            argv.appendAssumeCapacity("-P"); // remove #line markers in preprocessor output
+            argv.appendAssumeCapacity("-xc");
+            for (defines) |def| argv.appendAssumeCapacity(try mem.concat(arena, u8, &.{ "-D", def }));
+            argv.appendAssumeCapacity(def_path);
+
+            assert(argv.items.len == argv.capacity);
+            break :argv_blk argv.toOwnedSlice(arena) catch unreachable;
+        };
+
+        const result = try std.process.Child.run(.{
+            .allocator = arena,
+            .argv = argv,
+
+            .max_output_bytes = 1024 * 1024,
+        });
+        if (result.stderr.len != 0) {
+            std.debug.print("{s}\n", .{result.stderr});
+            return error.ChildError;
+        }
+        if (result.term != .Exited) return error.ChildError;
+        break :blk result.stdout;
+    };
+
+    var lines = std.ArrayList([]const u8).init(arena);
+
+    var it = mem.tokenizeScalar(u8, preprocessed, '\n');
+    while (it.next()) |line| {
+        try lines.append(line);
+    }
+
+    return try lines.toOwnedSlice();
+}
+
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
     const stderr = std.io.getStdErr();
     stderr.writer().print(
-        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
+        \\Usage: {s} /path/to/llvm-tblgen /path/to/bin/zig /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
+        \\For x86, updates lib/std/zig/system/x86/enums.zig from llvm/include/llvm/TargetParser/X86TargetParser.def.
         \\
         \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
         \\
@@ -2001,6 +2262,15 @@ fn cpuLessThan(_: void, a: Cpu, b: Cpu) bool {
 
 fn asciiLessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(a, b);
+}
+
+fn llvmEnumNameToZigName(arena: std.mem.Allocator, llvm_name: []const u8) ![]const u8 {
+    const duped = try arena.dupe(u8, llvm_name);
+    for (duped) |*byte| switch (byte.*) {
+        '-', '.' => byte.* = '_',
+        else => byte.* = std.ascii.toLower(byte.*),
+    };
+    return duped;
 }
 
 fn llvmNameToZigName(arena: mem.Allocator, llvm_name: []const u8) ![]const u8 {

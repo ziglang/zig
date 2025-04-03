@@ -243,6 +243,10 @@ comptime {
     _ = @import("compiler_rt/clear_cache.zig");
     _ = @import("compiler_rt/hexagon.zig");
 
+    if (builtin.cpu.arch.isX86()) {
+        _ = @import("compiler_rt/x86_cpu_model.zig");
+    }
+
     if (@import("builtin").object_format != .c) {
         _ = @import("compiler_rt/atomics.zig");
         _ = @import("compiler_rt/stack_probe.zig");

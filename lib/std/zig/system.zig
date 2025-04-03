@@ -4,6 +4,8 @@ pub const windows = @import("system/windows.zig");
 pub const darwin = @import("system/darwin.zig");
 pub const linux = @import("system/linux.zig");
 
+pub const x86 = @import("system/x86.zig");
+
 pub const Executor = union(enum) {
     native,
     rosetta,
@@ -1303,4 +1305,6 @@ test {
     _ = darwin;
     _ = linux;
     _ = windows;
+
+    _ = x86;
 }

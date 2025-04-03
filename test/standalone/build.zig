@@ -43,6 +43,7 @@ pub fn build(b: *std.Build) void {
         "../../tools/update_clang_options.zig",
         "../../tools/update_cpu_features.zig",
         "../../tools/update_glibc.zig",
+        "../../tools/update_x86_cpu_model_enums.zig",
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
