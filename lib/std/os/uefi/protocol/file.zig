@@ -239,7 +239,7 @@ pub const File = extern struct {
         self: *const File,
         comptime info: std.meta.Tag(Info),
         buffer: []u8,
-    ) GetInfoError!struct { usize, @FieldType(Info, @tagName(info)) } {
+    ) GetInfoError!*@FieldType(Info, @tagName(info)) {
         const InfoType = @FieldType(Info, @tagName(info));
 
         var len = buffer.len;
@@ -268,7 +268,7 @@ pub const File = extern struct {
 
         const attached_str: [*:0]const u16 = switch (info) {
             .file => data.getFileName(),
-            inline .file_system, .volume_label => data.getVolumeLabel(),
+            .file_system, .volume_label => data.getVolumeLabel(),
         };
         const attached_str_len = std.mem.sliceTo(attached_str, 0).len;
 
