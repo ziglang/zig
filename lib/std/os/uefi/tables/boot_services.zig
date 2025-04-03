@@ -1,19 +1,27 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Event = uefi.Event;
+const EventRegistration = uefi.EventRegistration;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
+const Page = uefi.Page;
+const Pages = uefi.Pages;
 const Status = uefi.Status;
 const TableHeader = uefi.tables.TableHeader;
 const DevicePathProtocol = uefi.protocol.DevicePath;
+const AllocateLocation = uefi.tables.AllocateLocation;
 const AllocateType = uefi.tables.AllocateType;
 const MemoryType = uefi.tables.MemoryType;
 const MemoryDescriptor = uefi.tables.MemoryDescriptor;
+const MemoryMapKey = uefi.tables.MemoryMapKey;
+const MemoryMapInfo = uefi.tables.MemoryMapInfo;
+const MemoryMapSlice = uefi.tables.MemoryMapSlice;
 const TimerDelay = uefi.tables.TimerDelay;
 const InterfaceType = uefi.tables.InterfaceType;
 const LocateSearch = uefi.tables.LocateSearch;
 const LocateSearchType = uefi.tables.LocateSearchType;
 const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
+const OpenProtocolFlag = uefi.tables.OpenProtocolFlag;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
 const EventNotify = uefi.tables.EventNotify;
 const cc = uefi.cc;
@@ -34,16 +42,16 @@ pub const BootServices = extern struct {
     hdr: TableHeader,
 
     /// Raises a task's priority level and returns its previous level.
-    _raiseTpl: *const fn (new_tpl: usize) callconv(cc) usize,
+    raiseTpl: *const fn (new_tpl: TaskPriorityLevel) callconv(cc) TaskPriorityLevel,
 
     /// Restores a task's priority level to its previous value.
-    _restoreTpl: *const fn (old_tpl: usize) callconv(cc) void,
+    restoreTpl: *const fn (old_tpl: TaskPriorityLevel) callconv(cc) void,
 
     /// Allocates memory pages from the system.
-    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) u8) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) Page) callconv(cc) Status,
 
     /// Frees memory pages.
-    _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
+    _freePages: *const fn (memory: [*]align(4096) Page, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
     _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
@@ -90,10 +98,10 @@ pub const BootServices = extern struct {
     _reserved: *anyopaque,
 
     /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
-    _registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: **anyopaque) callconv(cc) Status,
+    _registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: *EventRegistration) callconv(cc) Status,
 
     /// Returns an array of handles that support a specified protocol.
-    _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: [*]Handle) callconv(cc) Status,
+    _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: ?[*]Handle) callconv(cc) Status,
 
     /// Locates the handle to a device on the device path that supports the specified protocol
     _locateDevicePath: *const fn (protocols: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(cc) Status,
@@ -132,7 +140,7 @@ pub const BootServices = extern struct {
     _disconnectController: *const fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(cc) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
-    _openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
+    _openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ?**anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
     _closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
@@ -147,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: *?*anyopaque) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?EventRegistration, interface: *?*anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -182,6 +190,7 @@ pub const BootServices = extern struct {
 
     pub const GetMemoryMapError = uefi.UnexpectedError || error{
         InvalidParameter,
+        BufferTooSmall,
     };
 
     pub const AllocatePoolError = uefi.UnexpectedError || error{
@@ -219,7 +228,6 @@ pub const BootServices = extern struct {
 
     pub const HandleProtocolError = uefi.UnexpectedError || error{
         Unsupported,
-        InvalidParameter,
     };
 
     pub const RegisterProtocolNotifyError = uefi.UnexpectedError || error{
@@ -228,6 +236,7 @@ pub const BootServices = extern struct {
     };
 
     pub const LocateHandleError = uefi.UnexpectedError || error{
+        BufferTooSmall,
         NotFound,
         InvalidParameter,
     };
@@ -323,16 +332,47 @@ pub const BootServices = extern struct {
         InvalidParameter,
     };
 
+    /// Allocates pages of memory.
+    ///
+    /// This function scans the memory map to locate free pages. When it finds a
+    /// physically contiguous block of pages that is large enough and also satisfies
+    /// the allocation requirements of `alloc_type`, it changes the memory map to
+    /// indicate that the pages are now of type `mem_type`.
+    ///
+    /// In general, UEFI OS loaders and UEFI applications should allocate memory
+    /// (and pool) of type `.loader_data`. UEFI boot service drivers must allocate
+    /// memory (and pool) of type `.boot_services_data`. UREFI runtime drivers
+    /// should allocate memory (and pool) of type `.runtime_services_data`
+    /// (although such allocation can only be made during boot services time).
+    ///
+    /// Allocation requests of `.allocate_any_pages` allocate any available range
+    /// of pages that satisfies the request.
+    ///
+    /// Allocation requests of `.allocate_max_address` allocate any available range
+    /// of pages whose uppermost address is less than or equal to the address
+    /// pointed to by the input.
+    ///
+    /// Allocation requests of `.allocate_address` allocate pages at the address
+    /// pointed to by the input.
     pub fn allocatePages(
         self: *BootServices,
-        alloc_type: AllocateType,
+        location: AllocateLocation,
         mem_type: MemoryType,
         pages: usize,
-    ) AllocatePagesError![]align(4096) u8 {
-        var ptr: [*]align(4096) u8 = undefined;
+    ) AllocatePagesError![]align(4096) Page {
+        if (mem_type == .persistent_memory or
+            mem_type == .unaccepted_memory or
+            mem_type.isInvalid())
+            return Error.InvalidParameter;
+
+        var ptr: [*]align(4096) Page = switch (location) {
+            .allocate_any_pages => undefined,
+            inline .allocate_addres, .allocate_max_address => |ptr| ptr,
+            else => return Error.InvalidParameter,
+        };
 
         switch (self._allocatePages(
-            alloc_type,
+            std.meta.activeTag(location),
             mem_type,
             pages,
             &ptr,
@@ -345,7 +385,7 @@ pub const BootServices = extern struct {
         }
     }
 
-    pub fn freePages(self: *BootServices, pages: []align(4096) u8) FreePagesError!void {
+    pub fn freePages(self: *BootServices, pages: []align(4096) Page) FreePagesError!void {
         switch (self._freePages(pages.ptr, pages.len)) {
             .success => {},
             .not_found => Error.NotFound,
@@ -354,52 +394,68 @@ pub const BootServices = extern struct {
         }
     }
 
-    pub const MemoryMapKey = enum(usize) { _ };
+    pub fn getMemoryMapInfo(
+        self: *const BootServices,
+    ) uefi.UnexpectedError!MemoryMapInfo {
+        var info: MemoryMapInfo = undefined;
+        info.len = 0;
+
+        switch (self._getMemoryMap(
+            &info.len,
+            null,
+            &info.key,
+            &info.descriptor_size,
+            &info.descriptor_version,
+        )) {
+            .success, .buffer_too_small => return info,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
 
     pub fn getMemoryMap(
         self: *const BootServices,
-        buffer: []MemoryDescriptor,
-    ) GetMemoryMapError!struct {
-        /// The number of mmap descriptors. If this is less than `buffer.len`,
-        /// then this function should be called again with a buffer of this size.
-        len: usize,
-        key: MemoryMapKey,
-    } {
-        var len: usize = buffer.len * @sizeOf(MemoryDescriptor);
-        var key: MemoryMapKey = undefined;
-        var descriptor_size: usize = undefined;
-        var descriptor_version: u32 = undefined;
+        buffer: []u8,
+    ) GetMemoryMapError!MemoryMapSlice([]u8) {
+        var info: MemoryMapInfo = undefined;
+        info.len = buffer.len;
 
         switch (self._getMemoryMap(
-            &len,
-            &buffer.ptr,
-            &key,
-            &descriptor_size,
-            &descriptor_version,
+            &info.len,
+            buffer.ptr,
+            &info.key,
+            &info.descriptor_size,
+            &info.descriptor_version,
         )) {
-            .success, .buffer_too_small => return .{ .len = len, .key = key },
+            .success => return .{ .info = info, .ptr = buffer.ptr },
+            .buffer_too_small => return Error.BufferTooSmall,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
+    /// Allocates a memory region of `size` bytes from memory of type `pool_type`
+    /// and returns the allocated memory. Allocates pages from `.conventional_memory`
+    /// as needed to grow the requested pool type.
     pub fn allocatePool(
         self: *BootServices,
         pool_type: MemoryType,
         size: usize,
     ) AllocatePoolError![]align(8) u8 {
-        var buffer: [*]align(8) u8 = undefined;
+        var ptr: [*]align(8) u8 = undefined;
 
-        switch (self._allocatePool(pool_type, size, &buffer)) {
-            .success => return buffer[0..size],
+        if (pool_type == .persistent_memory or pool_type.isInvalid())
+            return Error.InvalidParameter;
+
+        switch (self._allocatePool(pool_type, size, &ptr)) {
+            .success => return ptr[0..size],
             .out_of_resources => return Error.OutOfResources,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
-    pub fn freePool(self: *BootServices, buffer: [*]align(8) u8) FreePoolError!void {
-        switch (self._freePool(buffer)) {
+    pub fn freePool(self: *BootServices, ptr: [*]align(8) u8) FreePoolError!void {
+        switch (self._freePool(ptr)) {
             .success => {},
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
@@ -427,19 +483,24 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// Cancels any previous time trigger setting for the event, and sets a new
+    /// trigger timer for the event.
+    ///
+    /// Returns `Error.InvalidParameter` if the event is not a timer event.
     pub fn setTimer(
         self: *BootServices,
         event: Event,
-        ty: TimerDelay,
+        @"type": TimerDelay,
         trigger_time: u64,
     ) SetTimerError!void {
-        switch (self._setTimer(event, ty, trigger_time)) {
+        switch (self._setTimer(event, @"type", trigger_time)) {
             .success => {},
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
+    /// Returns the event that was signaled, along with its index in the slice.
     pub fn waitForEvent(
         self: *BootServices,
         events: []const Event,
@@ -453,6 +514,16 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// If `event` is `EventType.signal`, then the event’s notification function
+    /// is scheduled to be invoked at the event’s notification task priority level.
+    /// This function may be invoked from any task priority level.
+    ///
+    /// If the supplied Event is a part of an event group, then all of the events
+    /// in the event group are also signaled and their notification functions are
+    /// scheduled.
+    ///
+    /// When signaling an event group, it is possible to create an event in the
+    /// group, signal it and then close the event to remove it from the group.
     pub fn signalEvent(self: *BootServices, event: Event) uefi.UnexpectedError!void {
         switch (self._signalEvent(event)) {
             .success => {},
@@ -467,6 +538,28 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// Checks to see whether an event is signaled.
+    ///
+    /// The underlying function is equivalent to this pseudo-code:
+    /// ```
+    /// if (event.type.signal)
+    ///     return Error.InvalidParameter;
+    ///
+    /// if (event.signaled) {
+    ///     event.signaled = false;
+    ///     return true;
+    /// }
+    ///
+    /// const notify = event.notification_function orelse return false;
+    /// notify();
+    ///
+    /// if (event.signaled) {
+    ///     event.signaled = false;
+    ///     return true;
+    /// }
+    ///
+    /// return false;
+    /// ```
     pub fn checkEvent(self: *BootServices, event: Event) CheckEventError!bool {
         switch (self._checkEvent(event)) {
             .success => return true,
@@ -476,6 +569,10 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// See `installProtocolInterfaces`.
+    ///
+    /// Does not call `self._installProtocolInterface`, because
+    /// `self._installMultipleProtocolInterfaces` performs more error checks.
     pub fn installProtocolInterface(
         self: *BootServices,
         handle: ?Handle,
@@ -486,6 +583,16 @@ pub const BootServices = extern struct {
         });
     }
 
+    /// Reinstalls a protocol interface on a device handle.
+    ///
+    /// `new` may be the same as `old`. If it is, the registered protocol notifications
+    /// occur for the handle without replacing the interface on the handle.
+    ///
+    /// Any process that has registered to wait for the installation of the interface
+    /// is notified.
+    ///
+    /// The caller is responsible for ensuring that there are no references to `old`
+    /// if it is being removed.
     pub fn reinstallProtocolInterface(
         self: *BootServices,
         handle: Handle,
@@ -496,7 +603,12 @@ pub const BootServices = extern struct {
         if (!@hasDecl(Protocol, "guid"))
             @compileError("protocol is missing guid");
 
-        switch (self._reinstallProtocolInterface(handle, &Protocol.guid, old, new)) {
+        switch (self._reinstallProtocolInterface(
+            handle,
+            &Protocol.guid,
+            old,
+            new,
+        )) {
             .success => {},
             .not_found => return Error.NotFound,
             .access_denied => return Error.AccessDenied,
@@ -505,45 +617,57 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// See `uninstallProtocolInterfaces`.
+    ///
+    /// Does not call `self._uninstallProtocolInterface`, because
+    /// `self._uninstallMultipleProtocolInterfaces` performs more error checks.
     pub fn uninstallProtocolInterface(
         self: *BootServices,
         handle: Handle,
-        interface: *const Interface,
+        interface: anytype,
     ) UninstallProtocolInterfacesError!void {
         return self.uninstallProtocolInterfaces(handle, .{
             interface,
         });
     }
 
+    /// Returns a pointer to the `Protocol` interface if it's supported by the
+    /// handle.
+    ///
+    /// Note that UEFI implementations are no longer required to implement this
+    /// function, so it's implemented using `openProtocol` instead.
     pub fn handleProtocol(
         self: *BootServices,
         handle: Handle,
         Protocol: type,
     ) HandleProtocolError!?*Protocol {
-        if (!@hasDecl(Protocol, "guid"))
-            @compileError("protocol is missing guid");
+        // per https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-handleprotocol
+        // handleProtocol is basically `openProtocol` where:
+        // 1. agent_handle is `uefi.handle` (aka handle passed to `EfiMain`)
+        // 2. controller_handle is `null`
+        // 3. attributes is `EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL`
 
-        var res: ?*Protocol = undefined;
-
-        switch (self._handleProtocol(
+        return self.openProtocol(
+            Protocol,
             handle,
-            &Protocol.guid,
-            &res,
-        )) {
-            .success => {},
-            .unsupported => return Error.Unsupported,
-            .invalid_parameter => return Error.InvalidParameter,
-            else => |status| return uefi.unexpectedStatus(status),
-        }
+            uefi.handle orelse return error.Unexpected,
+            null,
+            .{ .by_handle_protocol = true },
+        ) catch |err| switch (err) {
+            OpenProtocolError.AlreadyStarted => return uefi.unexpectedStatus(.already_started),
+            OpenProtocolError.AccessDenied => return uefi.unexpectedStatus(.access_denied),
+            OpenProtocolError.InvalidParameter => return uefi.unexpectedStatus(.invalid_parameter),
+            else => @errorCast(err),
+        };
     }
 
     pub fn registerProtocolNotify(
         self: *BootServices,
         Protocol: type,
         event: Event,
-    ) RegisterProtocolNotifyError!*anyopaque {
+    ) RegisterProtocolNotifyError!EventRegistration {
         if (!@hasDecl(Protocol, "guid"))
-            @compileError("protocol is missing guid");
+            @compileError("Protocol is missing guid");
 
         var registration: *anyopaque = undefined;
         switch (self._registerProtocolNotify(
@@ -551,50 +675,69 @@ pub const BootServices = extern struct {
             event,
             &registration,
         )) {
-            .success => return registration,
+            .success => return @bitCast(@intFromPtr(registration)),
             .out_of_resources => return Error.OutOfResources,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
-    /// Returns the number of handles in the result. If the value is greater than
-    /// `buffer.len`, then this function should be called again with a buffer of
-    /// at least this function's return value to obtain the results. The buffer
-    /// may not contain the real results in this scenario.
-    pub fn locateHandle(
-        self: *BootServices,
-        search: LocateSearch,
-        buffer: []Handle,
-    ) LocateHandleError!usize {
-        var len: usize = buffer.len * @sizeOf(Handle);
+    /// Returns the number of handles that match the given search criteria.
+    pub fn numHandles(self: *const BootServices, search: LocateSearch) !usize {
+        var len: usize = 0;
         switch (self._locateHandle(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
             if (search == .by_register_notify) search.by_register_notify else null,
             &len,
-            buffer.ptr,
+            null,
         )) {
-            .success => return len,
-            .buffer_too_small => return len,
+            .success => return @divExact(len, @sizeOf(Handle)),
+            .out_of_resources => return Error.OutOfResources,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// To determine the necessary size of `buffer`, call `numHandles` first.
+    pub fn locateHandle(
+        self: *BootServices,
+        search: LocateSearch,
+        buffer: []Handle,
+    ) LocateHandleError![]Handle {
+        var len: usize = @sizeOf(Handle) * (if (buffer) |b| b.len else 0);
+        switch (self._locateHandle(
+            std.meta.activeTag(search),
+            if (search == .by_protocol) search.by_protocol else null,
+            if (search == .by_register_notify) search.by_register_notify else null,
+            &len,
+            if (buffer) |b| b.ptr else null,
+        )) {
+            .success => return buffer[0..@divExact(len, @sizeOf(Handle))],
+            .buffer_too_small => return Error.BufferTooSmall,
             .not_found => return Error.NotFound,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
+    /// Locates all devices on `device_path` that support `Protocol`. Once the closest
+    /// match to `device_path` is found, it returns the unmatched device path and handle.
     pub fn locateDevicePath(
         self: *const BootServices,
         device_path: *const DevicePathProtocol,
+        Protocol: type,
     ) LocateHandleError!struct { *const DevicePathProtocol, Handle } {
+        if (!@hasDecl(Protocol, "guid"))
+            @compileError("Protocol is missing guid");
+
         var dev_path = device_path;
-        var handle: ?Handle = undefined;
+        var device: ?Handle = undefined;
         switch (self._locateDevicePath(
-            &DevicePathProtocol.guid,
+            &Protocol.guid,
             &dev_path,
-            &handle,
+            &device,
         )) {
-            .success => return .{ dev_path, handle.? },
+            .success => return .{ dev_path, device.? },
             .not_found => return Error.NotFound,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
@@ -700,12 +843,12 @@ pub const BootServices = extern struct {
         };
     }
 
-    pub const UnloadImageError = Status.Error;
-
+    /// The result is the exit code of the unload handler. Any error codes are
+    /// `try/catch`-able, leaving only success and warning codes as the result.
     pub fn unloadImage(
         self: *BootServices,
         image: Handle,
-    ) UnloadImageError!Status {
+    ) Status.Error!Status {
         const status = self._unloadImage(image);
         try status.err();
         return status;
@@ -803,25 +946,47 @@ pub const BootServices = extern struct {
     }
 
     /// Opens a protocol with a structure as the loaded image for a UEFI application
-    pub fn openProtocol(self: *BootServices, Protocol: type, handle: Handle) !*Protocol {
+    ///
+    /// If `flag` is `.test_protocol`, then the only valid return value is `null`,
+    /// and `Status.unsupported` is returned. Otherwise, if `_openProtocol` returns
+    /// `Status.unsupported`, then `null` is returned.
+    pub fn openProtocol(
+        self: *BootServices,
+        Protocol: type,
+        handle: Handle,
+        agent_handle: ?Handle,
+        flag: OpenProtocolFlag,
+    ) OpenProtocolError!?*Protocol {
         if (!@hasDecl(Protocol, "guid"))
             @compileError("protocol is missing guid: " ++ @typeName(Protocol));
 
-        var ptr: ?*Protocol = undefined;
+        const attributes: OpenProtocolAttributes = @bitCast(@intFromEnum(flag));
+        const controller_handle: ?Handle = controller: switch (flag) {
+            .by_handle_protocol, .get_protocol, .test_protocol => |controller| controller,
+            inline .exclusive, .by_driver, .by_driver_exclusive => |h| {
+                if (agent_handle == null) return Error.InvalidParameter;
+                break :controller h;
+            },
+            .by_child_controller => |h| {
+                if (@intFromPtr(h) == @intFromPtr(handle)) return Error.InvalidParameter;
+                if (agent_handle == null) return Error.InvalidParameter;
+                break :controller h;
+            },
+            else => return Error.InvalidParameter,
+        };
+
+        var ptr: *Protocol = undefined;
 
         switch (self._openProtocol(
             handle,
             &Protocol.guid,
-            @as(*?*anyopaque, @ptrCast(&ptr)),
-            // Invoking handle (loaded image)
-            uefi.handle,
-            // Control handle (null as not a driver)
-            null,
-            uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true },
+            @as(**anyopaque, @ptrCast(&ptr)),
+            agent_handle,
+            controller_handle,
+            attributes,
         )) {
-            .success => return ptr.?,
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
+            .success => return if (flag == .test_protocol) null else ptr,
+            .unsupported => return if (flag == .test_protocol) Error.Unsupported else null,
             .access_denied => return Error.AccessDenied,
             .already_started => return Error.AlreadyStarted,
             else => |status| return uefi.unexpectedStatus(status),
@@ -916,7 +1081,7 @@ pub const BootServices = extern struct {
     pub fn locateProtocol(
         self: *const BootServices,
         Protocol: type,
-        registration: ?*const anyopaque,
+        registration: ?EventRegistration,
     ) !?*Protocol {
         var interface: ?*Protocol = undefined;
 
@@ -1017,6 +1182,7 @@ pub const BootServices = extern struct {
         callback = 8,
         notify = 16,
         high_level = 31,
+        _,
     };
 
     pub const ImageExitData = struct {
