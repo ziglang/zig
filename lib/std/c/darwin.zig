@@ -1541,7 +1541,7 @@ pub const TCP = struct {
     pub const RXT_FINDROP = 0x100;
     /// Interval between keepalives
     pub const KEEPINTVL = 0x101;
-    /// Number of keepalives before clsoe
+    /// Number of keepalives before close
     pub const KEEPCNT = 0x102;
     /// Always ack every other packet
     pub const SENDMOREACKS = 0x103;
