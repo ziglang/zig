@@ -255,7 +255,16 @@ pub const BootServices = extern struct {
         NotFound,
     };
 
-    pub const LoadImageError = uefi.UnexpectedError || error{ NotFound, InvalidParameter, Unsupported, OutOfResources, LoadError, DeviceError, AccessDenied, SecurityViolation };
+    pub const LoadImageError = uefi.UnexpectedError || error{
+        NotFound,
+        InvalidParameter,
+        Unsupported,
+        OutOfResources,
+        LoadError,
+        DeviceError,
+        AccessDenied,
+        SecurityViolation,
+    };
 
     pub const StartImageError = uefi.UnexpectedError || error{
         InvalidParameter,
@@ -394,9 +403,7 @@ pub const BootServices = extern struct {
         }
     }
 
-    pub fn getMemoryMapInfo(
-        self: *const BootServices,
-    ) uefi.UnexpectedError!MemoryMapInfo {
+    pub fn getMemoryMapInfo(self: *const BootServices) uefi.UnexpectedError!MemoryMapInfo {
         var info: MemoryMapInfo = undefined;
         info.len = 0;
 
@@ -831,10 +838,7 @@ pub const BootServices = extern struct {
         };
 
         const description: [*:0]const u16 = @ptrCast(exit_data);
-        var description_len: usize = 0;
-        while (description[description_len] != 0) : (description_len += 1) {
-            if (description_len == exit_data_size) return error.Unexpected;
-        }
+        const description_len = std.mem.indexOfSentinel(u16, 0, description);
 
         return ImageExitData{
             .code = exit_code,
@@ -964,12 +968,14 @@ pub const BootServices = extern struct {
         const controller_handle: ?Handle = controller: switch (flag) {
             .by_handle_protocol, .get_protocol, .test_protocol => |controller| controller,
             inline .exclusive, .by_driver, .by_driver_exclusive => |h| {
-                if (agent_handle == null) return Error.InvalidParameter;
+                if (agent_handle == null)
+                    return Error.InvalidParameter;
                 break :controller h;
             },
             .by_child_controller => |h| {
-                if (@intFromPtr(h) == @intFromPtr(handle)) return Error.InvalidParameter;
-                if (agent_handle == null) return Error.InvalidParameter;
+                if (agent_handle == null or
+                    @intFromPtr(h) == @intFromPtr(handle))
+                    return Error.InvalidParameter;
                 break :controller h;
             },
             else => return Error.InvalidParameter,
