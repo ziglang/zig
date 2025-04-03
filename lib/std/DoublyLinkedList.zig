@@ -17,7 +17,6 @@ const DoublyLinkedList = @This();
 
 first: ?*Node = null,
 last: ?*Node = null,
-len: usize = 0,
 
 /// This struct contains only the prev and next pointers and not any data
 /// payload. The intended usage is to embed it intrusively into another data
@@ -39,8 +38,6 @@ pub fn insertAfter(list: *DoublyLinkedList, existing_node: *Node, new_node: *Nod
         list.last = new_node;
     }
     existing_node.next = new_node;
-
-    list.len += 1;
 }
 
 pub fn insertBefore(list: *DoublyLinkedList, existing_node: *Node, new_node: *Node) void {
@@ -55,8 +52,6 @@ pub fn insertBefore(list: *DoublyLinkedList, existing_node: *Node, new_node: *No
         list.first = new_node;
     }
     existing_node.prev = new_node;
-
-    list.len += 1;
 }
 
 /// Concatenate list2 onto the end of list1, removing all entries from the former.
@@ -69,16 +64,13 @@ pub fn concatByMoving(list1: *DoublyLinkedList, list2: *DoublyLinkedList) void {
     if (list1.last) |l1_last| {
         l1_last.next = list2.first;
         l2_first.prev = list1.last;
-        list1.len += list2.len;
     } else {
         // list1 was empty
         list1.first = list2.first;
-        list1.len = list2.len;
     }
     list1.last = list2.last;
     list2.first = null;
     list2.last = null;
-    list2.len = 0;
 }
 
 /// Insert a new node at the end of the list.
@@ -109,8 +101,6 @@ pub fn prepend(list: *DoublyLinkedList, new_node: *Node) void {
         list.last = new_node;
         new_node.prev = null;
         new_node.next = null;
-
-        list.len = 1;
     }
 }
 
@@ -134,9 +124,6 @@ pub fn remove(list: *DoublyLinkedList, node: *Node) void {
         // Last element of the list.
         list.last = node.prev;
     }
-
-    list.len -= 1;
-    assert(list.len == 0 or (list.first != null and list.last != null));
 }
 
 /// Remove and return the last node in the list.
@@ -159,28 +146,43 @@ pub fn popFirst(list: *DoublyLinkedList) ?*Node {
     return first;
 }
 
-test "basic DoublyLinkedList test" {
-    const L = DoublyLinkedList(u32);
-    var list = L{};
+/// Iterate over all nodes, returning the count.
+///
+/// This operation is O(N). Consider tracking the length separately rather than
+/// computing it.
+pub fn len(list: DoublyLinkedList) usize {
+    var count: usize = 0;
+    var it: ?*const Node = list.first;
+    while (it) |n| : (it = n.next) count += 1;
+    return count;
+}
 
-    var one = L.Node{ .data = 1 };
-    var two = L.Node{ .data = 2 };
-    var three = L.Node{ .data = 3 };
-    var four = L.Node{ .data = 4 };
-    var five = L.Node{ .data = 5 };
+test "basics" {
+    const L = struct {
+        data: u32,
+        node: DoublyLinkedList.Node = .{},
+    };
+    var list: DoublyLinkedList = .{};
 
-    list.append(&two); // {2}
-    list.append(&five); // {2, 5}
-    list.prepend(&one); // {1, 2, 5}
-    list.insertBefore(&five, &four); // {1, 2, 4, 5}
-    list.insertAfter(&two, &three); // {1, 2, 3, 4, 5}
+    var one: L = .{ .data = 1 };
+    var two: L = .{ .data = 2 };
+    var three: L = .{ .data = 3 };
+    var four: L = .{ .data = 4 };
+    var five: L = .{ .data = 5 };
+
+    list.append(&two.node); // {2}
+    list.append(&five.node); // {2, 5}
+    list.prepend(&one.node); // {1, 2, 5}
+    list.insertBefore(&five.node, &four.node); // {1, 2, 4, 5}
+    list.insertAfter(&two.node, &three.node); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
         var it = list.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            try testing.expect(node.data == index);
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == index);
             index += 1;
         }
     }
@@ -190,51 +192,56 @@ test "basic DoublyLinkedList test" {
         var it = list.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            try testing.expect(node.data == (6 - index));
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == (6 - index));
             index += 1;
         }
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
     _ = list.pop(); // {2, 3, 4}
-    list.remove(&three); // {2, 4}
+    list.remove(&three.node); // {2, 4}
 
-    try testing.expect(list.first.?.data == 2);
-    try testing.expect(list.last.?.data == 4);
-    try testing.expect(list.len == 2);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 2);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.last.?)).data == 4);
+    try testing.expect(list.len() == 2);
 }
 
-test "DoublyLinkedList concatenation" {
-    const L = DoublyLinkedList(u32);
-    var list1 = L{};
-    var list2 = L{};
+test "concatenation" {
+    const L = struct {
+        data: u32,
+        node: DoublyLinkedList.Node = .{},
+    };
+    var list1: DoublyLinkedList = .{};
+    var list2: DoublyLinkedList = .{};
 
-    var one = L.Node{ .data = 1 };
-    var two = L.Node{ .data = 2 };
-    var three = L.Node{ .data = 3 };
-    var four = L.Node{ .data = 4 };
-    var five = L.Node{ .data = 5 };
+    var one: L = .{ .data = 1 };
+    var two: L = .{ .data = 2 };
+    var three: L = .{ .data = 3 };
+    var four: L = .{ .data = 4 };
+    var five: L = .{ .data = 5 };
 
-    list1.append(&one);
-    list1.append(&two);
-    list2.append(&three);
-    list2.append(&four);
-    list2.append(&five);
+    list1.append(&one.node);
+    list1.append(&two.node);
+    list2.append(&three.node);
+    list2.append(&four.node);
+    list2.append(&five.node);
 
     list1.concatByMoving(&list2);
 
-    try testing.expect(list1.last == &five);
-    try testing.expect(list1.len == 5);
+    try testing.expect(list1.last == &five.node);
+    try testing.expect(list1.len() == 5);
     try testing.expect(list2.first == null);
     try testing.expect(list2.last == null);
-    try testing.expect(list2.len == 0);
+    try testing.expect(list2.len() == 0);
 
     // Traverse forwards.
     {
         var it = list1.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            try testing.expect(node.data == index);
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == index);
             index += 1;
         }
     }
@@ -244,7 +251,8 @@ test "DoublyLinkedList concatenation" {
         var it = list1.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            try testing.expect(node.data == (6 - index));
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == (6 - index));
             index += 1;
         }
     }
@@ -257,7 +265,8 @@ test "DoublyLinkedList concatenation" {
         var it = list2.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            try testing.expect(node.data == index);
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == index);
             index += 1;
         }
     }
@@ -267,7 +276,8 @@ test "DoublyLinkedList concatenation" {
         var it = list2.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            try testing.expect(node.data == (6 - index));
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == (6 - index));
             index += 1;
         }
     }
