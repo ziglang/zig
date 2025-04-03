@@ -86,8 +86,29 @@ echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
 diff stage3-release/bin/zig stage4-release/bin/zig
 
+# Ensure that stage3 used as cc can build zig2.
+mkdir ../build-zig2
+cd ../build-zig2
+
+export CC="$PWD/../build-release/stage3-release/bin/zig cc -target $TARGET -mcpu=$MCPU"
+export CXX="$PWD/../build-release/stage3-release/bin/zig c++ -target $TARGET -mcpu=$MCPU"
+
+cmake .. \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON \
+  -GNinja
+
+unset CC
+unset CXX
+
+ninja zig2
+
 # Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-release/bin/zig build update-zig1
+../build-release/stage3-release/bin/zig build update-zig1
 
 mkdir ../build-new
 cd ../build-new
