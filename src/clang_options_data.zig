@@ -7043,7 +7043,7 @@ joinpd1("fmsc-version="),
 .{
     .name = "fno-sanitize=",
     .syntax = .comma_joined,
-    .zig_equivalent = .other,
+    .zig_equivalent = .no_sanitize,
     .pd1 = true,
     .pd2 = false,
     .psl = false,
