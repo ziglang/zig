@@ -421,8 +421,8 @@ pub const BootServices = extern struct {
 
     pub fn getMemoryMap(
         self: *const BootServices,
-        buffer: []u8,
-    ) GetMemoryMapError!MemoryMapSlice([]u8) {
+        buffer: []align(@alignOf(MemoryDescriptor)) u8,
+    ) GetMemoryMapError!MemoryMapSlice {
         var info: MemoryMapInfo = undefined;
         info.len = buffer.len;
 

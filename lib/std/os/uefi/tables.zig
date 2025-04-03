@@ -98,63 +98,35 @@ pub const MemoryMapInfo = struct {
     len: usize,
 };
 
-pub fn MemoryMapSlice(Buffer: type) type {
-    const Buffer_info = @typeInfo(Buffer);
-    if (Buffer_info != .pointer or
-        Buffer_info.pointer.size != .many or
-        Buffer_info.pointer.child != u8)
-        @compileError("expected a [*]u8, got: " ++ @typeName(Buffer));
+pub const MemoryMapSlice = struct {
+    info: MemoryMapInfo,
+    ptr: [*]align(@alignOf(MemoryMapInfo)) u8,
 
-    const Buffer_ptr = Buffer_info.pointer;
+    pub fn iterator(self: MemoryMapSlice) MemoryDescriptorIterator {
+        return .{ .ctx = self };
+    }
 
-    return struct {
-        const Self = @This();
-        const SelfPtr: type = Ptr: {
-            var Ptr_info = @typeInfo(*Self);
-            Ptr_info.pointer.is_const = Buffer_ptr.is_const;
-            break :Ptr @Type(Ptr_info);
-        };
+    pub fn get(self: MemoryMapSlice, index: usize) ?*MemoryDescriptor {
+        if (index >= self.info.len) return null;
+        return self.getUnchecked(index);
+    }
 
-        pub const Item = @Type(.{ .pointer = .{
-            .address_space = Buffer_ptr.address_space,
-            .alignment = Buffer_ptr.alignment,
-            .child = MemoryDescriptor,
-            .is_allowzero = Buffer_ptr.is_allowzero,
-            .is_const = Buffer_ptr.is_const,
-            .is_volatile = Buffer_ptr.is_volatile,
-            .sentinel_ptr = null,
-            .size = .one,
-        } });
+    pub fn getUnchecked(self: MemoryMapSlice, index: usize) *MemoryDescriptor {
+        const offset: usize = index * self.info.descriptor_size;
+        return @ptrCast(self.ptr[offset..]);
+    }
+};
 
-        info: MemoryMapInfo,
-        ptr: Buffer,
+pub const MemoryDescriptorIterator = struct {
+    ctx: MemoryMapSlice,
+    index: usize = 0,
 
-        pub fn iterator(self: Self) MemoryDescriptorIterator {
-            return .{ .ctx = self };
-        }
-
-        pub fn get(self: SelfPtr, index: usize) ?Item {
-            if (index >= self.info.len) return null;
-            return self.getUnchecked(index);
-        }
-
-        pub fn getUnchecked(self: SelfPtr, index: usize) Item {
-            const offset: usize = index * self.info.descriptor_size;
-            return @ptrCast(self.ptr[offset..]);
-        }
-
-        pub const MemoryDescriptorIterator = struct {
-            ctx: Self,
-            index: usize = 0,
-
-            pub fn next(self: *MemoryDescriptorIterator) ?Item {
-                const md = self.ctx.get(self.index) orelse return null;
-                self.index += 1;
-                return md;
-            }
-        };
-    };
-}
+    pub fn next(self: *MemoryDescriptorIterator) ?*MemoryDescriptor {
+        const md = self.ctx.get(self.index) orelse return null;
+        self.index += 1;
+        return md;
+    }
+};
 
 pub const LocateSearchType = enum(u32) {
     all_handles,
