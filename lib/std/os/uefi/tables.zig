@@ -100,7 +100,7 @@ pub const MemoryMapInfo = struct {
 
 pub const MemoryMapSlice = struct {
     info: MemoryMapInfo,
-    ptr: [*]align(@alignOf(MemoryMapInfo)) u8,
+    ptr: [*]align(@alignOf(MemoryDescriptor)) u8,
 
     pub fn iterator(self: MemoryMapSlice) MemoryDescriptorIterator {
         return .{ .ctx = self };

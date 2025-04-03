@@ -6,6 +6,7 @@ const Time = uefi.Time;
 const TimeCapabilities = uefi.TimeCapabilities;
 const Status = uefi.Status;
 const MemoryDescriptor = uefi.tables.MemoryDescriptor;
+const MemoryMapSlice = uefi.tables.MemoryMapSlice;
 const ResetType = uefi.tables.ResetType;
 const CapsuleHeader = uefi.tables.CapsuleHeader;
 const PhysicalAddress = uefi.tables.PhysicalAddress;
@@ -39,13 +40,13 @@ pub const RuntimeServices = extern struct {
     _setVirtualAddressMap: *const fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: [*]MemoryDescriptor) callconv(cc) Status,
 
     /// Determines the new virtual address that is to be used on subsequent memory accesses.
-    _convertPointer: *const fn (debug_disposition: DebugDisposition, address: **anyopaque) callconv(cc) Status,
+    _convertPointer: *const fn (debug_disposition: DebugDisposition, address: *?*anyopaque) callconv(cc) Status,
 
     /// Returns the value of a variable.
     _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?*anyopaque) callconv(cc) Status,
 
     /// Enumerates the current variable names.
-    _getNextVariableName: *const fn (var_name_size: *usize, var_name: [*:0]u16, vendor_guid: *align(8) const Guid) callconv(cc) Status,
+    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *align(8) const Guid) callconv(cc) Status,
 
     /// Sets the value of a variable.
     _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: *anyopaque) callconv(cc) Status,
@@ -75,7 +76,6 @@ pub const RuntimeServices = extern struct {
     };
 
     pub const SetTimeError = uefi.UnexpectedError || error{
-        InvalidParameter,
         DeviceError,
         Unsupported,
     };
@@ -103,11 +103,13 @@ pub const RuntimeServices = extern struct {
         Unsupported,
     };
 
-    pub const GetVariableError = uefi.UnexpectedError || error{
-        NotFound,
-        InvalidParameter,
+    pub const GetVariableSizeError = uefi.UnexpectedError || error{
         DeviceError,
         Unsupported,
+    };
+
+    pub const GetVariableError = GetVariableSizeError || error{
+        BufferTooSmall,
     };
 
     pub const SetVariableError = uefi.UnexpectedError || error{
@@ -122,7 +124,6 @@ pub const RuntimeServices = extern struct {
 
     pub const GetNextHighMonotonicCountError = uefi.UnexpectedError || error{
         DeviceError,
-        InvalidParameter,
         Unsupported,
     };
 
@@ -143,6 +144,7 @@ pub const RuntimeServices = extern struct {
         Unsupported,
     };
 
+    /// Returns the current time and the time capabilities of the platform.
     pub fn getTime(
         self: *const RuntimeServices,
     ) GetTimeError!struct { Time, TimeCapabilities } {
@@ -160,7 +162,6 @@ pub const RuntimeServices = extern struct {
     pub fn setTime(self: *RuntimeServices, time: *const Time) SetTimeError!void {
         switch (self._setTime(time)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
@@ -212,12 +213,12 @@ pub const RuntimeServices = extern struct {
 
     pub fn setVirtualAddressMap(
         self: *RuntimeServices,
-        map: []MemoryDescriptor,
+        map: MemoryMapSlice,
     ) !void {
         switch (self._setVirtualAddressMap(
-            map.len * @sizeOf(MemoryDescriptor),
-            @sizeOf(MemoryDescriptor),
-            1,
+            map.len * map.info.descriptor_size,
+            map.info.descriptor_size,
+            map.info.descriptor_version,
             map.ptr,
         )) {
             .success => {},
@@ -230,12 +231,13 @@ pub const RuntimeServices = extern struct {
 
     pub fn convertPointer(
         self: *const RuntimeServices,
-        disposition: DebugDisposition,
-        address: *anyopaque,
-    ) ConvertPointerError!*anyopaque {
-        var addr = address;
-        switch (self._convertPointer(disposition, &addr)) {
-            .success => return addr,
+        comptime disposition: DebugDisposition,
+        cvt: @FieldType(PointerConversion, @tagName(disposition)),
+    ) ConvertPointerError!@FieldType(PointerConversion, @tagName(disposition)) {
+        var pointer = cvt;
+
+        switch (self._convertPointer(disposition, @ptrCast(&pointer))) {
+            .success => return pointer,
             .not_found => return Error.NotFound,
             .invalid_parameter => return Error.InvalidParameter,
             .unsupported => return Error.Unsupported,
@@ -243,12 +245,38 @@ pub const RuntimeServices = extern struct {
         }
     }
 
+    pub fn getVariableSize(
+        self: *const RuntimeServices,
+        name: [*:0]const u16,
+        guid: *align(8) const Guid,
+    ) GetVariableSizeError!?struct { usize, VariableAttributes } {
+        var size: usize = 0;
+        var attrs: VariableAttributes = undefined;
+
+        switch (self._getVariable(
+            name,
+            guid,
+            &attrs,
+            &size,
+            null,
+        )) {
+            .success, .buffer_too_small => return .{ size, attrs },
+            .not_found => return null,
+            .invalid_parameter => return Error.InvalidParameter,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// To determine the minimum necessary buffer size for the variable, call
+    /// `getVariableSize` first.
     pub fn getVariable(
         self: *const RuntimeServices,
         name: [*:0]const u16,
         guid: *align(8) const Guid,
         buffer: []u8,
-    ) GetVariableError!struct { usize, VariableAttributes } {
+    ) GetVariableError!struct { []u8, VariableAttributes } {
         var attrs: VariableAttributes = undefined;
         var len = buffer.len;
 
@@ -259,9 +287,9 @@ pub const RuntimeServices = extern struct {
             &len,
             buffer.ptr,
         )) {
-            .success, .buffer_too_small => return .{ len, attrs },
-            .not_found => return Error.NotFound,
-            .invalid_parameter => return Error.InvalidParameter,
+            .success => return .{ buffer[0..len], attrs },
+            .not_found => return null,
+            .buffer_too_small => return Error.BufferTooSmall,
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
@@ -309,14 +337,17 @@ pub const RuntimeServices = extern struct {
     pub fn getNextHighMonotonicCount(
         self: *const RuntimeServices,
         count: *u32,
-    ) !void {
+    ) GetNextHighMonotonicCountError!void {
         switch (self._getNextHighMonotonicCount(count)) {
             .success => {},
             .device_error => return Error.DeviceError,
-            .invalid_parameter => return Error.InvalidParameter,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
+    }
+
+    pub fn monotonicCounter(self: *const RuntimeServices) MonotonicCounter {
+        return .{ .services = self };
     }
 
     pub fn resetSystem(
@@ -412,9 +443,20 @@ pub const RuntimeServices = extern struct {
         }
     }
 
-    pub const DebugDisposition = packed struct(usize) {
-        optional_ptr: bool = false,
-        _pad: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
+    pub const DebugDisposition = enum(usize) {
+        const Bits = packed struct(usize) {
+            optional_ptr: bool = false,
+            _pad: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
+        };
+
+        pointer = @bitCast(Bits{}),
+        optional = @bitCast(Bits{ .optional_ptr = true }),
+        _,
+    };
+
+    pub const PointerConversion = union(DebugDisposition) {
+        pointer: *anyopaque,
+        optional: ?*anyopaque,
     };
 
     pub const VariableAttributes = packed struct(u32) {
@@ -430,6 +472,7 @@ pub const RuntimeServices = extern struct {
         /// structure, and potentially more structures as indicated by fields of
         /// this structure.
         enhanced_authenticated_access: bool = false,
+        _pad: u24 = 0,
     };
 
     pub const VariableAuthentication2 = extern struct {
@@ -472,7 +515,12 @@ pub const RuntimeServices = extern struct {
 
     pub const VariableNameIterator = struct {
         pub const IterateVariableNameError = uefi.UnexpectedError || error{
-            InvalidParameter,
+            BufferTooSmall,
+            DeviceError,
+            Unsupported,
+        };
+
+        pub const SizeOkError = uefi.UnexpectedError || error{
             DeviceError,
             Unsupported,
         };
@@ -481,28 +529,48 @@ pub const RuntimeServices = extern struct {
         buffer: []u16,
         guid: Guid,
 
-        /// Returns the length needed to fill the buffer with the next variable
-        /// name. If the length is greater than `buffer.len`, then `buffer` won't
-        /// contain the variable name data. Instead, a larger buffer should be
-        /// assigned to `buffer` that's big enough to contain the next variable
-        /// name. If the list is empty, returns null. If the value is less than
-        /// `buffer.len`, then it is guaranteed to be null-terminated.
+        pub fn sizeOk(self: *const VariableNameIterator) !bool {
+            var len: usize = 0;
+            switch (self.services._getNextVariableName(
+                &len,
+                null,
+                &self.guid,
+            )) {
+                .success, .buffer_too_small => return len,
+                .device_error => return Error.DeviceError,
+                .unsupported => return Error.Unsupported,
+                else => |status| return uefi.unexpectedStatus(status),
+            }
+        }
+
+        /// Call `sizeOk` to ensure that `buffer` is large enough to hold the next
+        /// variable name.
         pub fn next(
             self: *VariableNameIterator,
-        ) IterateVariableNameError!?usize {
+        ) IterateVariableNameError!?[:0]const u16 {
             var len = self.buffer.len;
             switch (self.services._getNextVariableName(
                 &len,
                 @ptrCast(self.buffer.ptr),
                 &self.guid,
             )) {
-                .success, .buffer_too_small => return len,
+                .success => return self.buffer[0..len],
                 .not_found => return null,
-                .invalid_parameter => return Error.InvalidParameter,
+                .buffer_too_small => return Error.BufferTooSmall,
                 .device_error => return Error.DeviceError,
                 .unsupported => return Error.Unsupported,
                 else => |status| return uefi.unexpectedStatus(status),
             }
+        }
+    };
+
+    pub const MonotonicCounter = struct {
+        services: *const RuntimeServices,
+        count: u32 = 0,
+
+        pub fn next(self: *MonotonicCounter) GetNextHighMonotonicCountError!u32 {
+            try self.services.getNextHighMonotonicCount(&self.count);
+            return self.count;
         }
     };
 
