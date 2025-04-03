@@ -5564,7 +5564,6 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
             error.WouldBlock => unreachable,
             error.FileBusy => unreachable, // not asking for write permissions
             error.InvalidUtf8 => unreachable, // WASI-only
-            error.ProcessNotFound => unreachable,
             else => |e| return e,
         };
         defer close(fd);
