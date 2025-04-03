@@ -116,7 +116,7 @@ pub const BootServices = extern struct {
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const anyopaque) callconv(cc) noreturn,
+    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const anyopaque) callconv(cc) noreturn,
 
     /// Unloads an image.
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
@@ -845,6 +845,24 @@ pub const BootServices = extern struct {
             .description = description[0..description_len],
             .data = exit_data[description_len + 1 .. exit_data_size],
         };
+    }
+
+    /// `data` may be a [*:0]const u16 immediately following additional data of
+    /// any format. The string is a description that the caller may use to further
+    /// indicate the reason for the image’s exit. `data` is only valid if `status`
+    /// is something other than `.success`.
+    pub fn exit(
+        self: *BootServices,
+        handle: Handle,
+        status: Status,
+        data: ?[]const u8,
+    ) noreturn {
+        self._exit(
+            handle,
+            status,
+            if (data) |d| d.len else 0,
+            if (data) |d| d.ptr else null,
+        );
     }
 
     /// The result is the exit code of the unload handler. Any error codes are
