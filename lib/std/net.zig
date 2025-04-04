@@ -785,6 +785,19 @@ fn if_nametoindex(name: []const u8) IPv6InterfaceError!u32 {
         return @as(u32, @bitCast(index));
     }
 
+    if (native_os == .windows) {
+        if (name.len >= posix.IFNAMESIZE)
+            return error.NameTooLong;
+
+        var interface_name: [posix.IFNAMESIZE:0]u8 = undefined;
+        @memcpy(interface_name[0..name.len], name);
+        interface_name[name.len] = 0;
+        const index = std.os.windows.ws2_32.if_nametoindex(@as([*:0]const u8, &interface_name));
+        if (index == 0)
+            return error.InterfaceNotFound;
+        return index;
+    }
+
     @compileError("std.net.if_nametoindex unimplemented for this OS");
 }
 
