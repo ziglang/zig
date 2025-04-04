@@ -141,7 +141,7 @@ pub fn io(el: *EventLoop) Io {
             .@"async" = @"async",
             .@"await" = @"await",
             .go = go,
-
+            .select = select,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
 
@@ -728,6 +728,13 @@ fn @"async"(
     return @ptrCast(fiber);
 }
 
+fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
+    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    _ = el;
+    _ = futures;
+    @panic("TODO");
+}
+
 const DetachedClosure = struct {
     event_loop: *EventLoop,
     fiber: *Fiber,
@@ -870,10 +877,10 @@ fn cancelRequested(userdata: ?*anyopaque) bool {
 
 fn createFile(
     userdata: ?*anyopaque,
-    dir: std.fs.Dir,
+    dir: Io.Dir,
     sub_path: []const u8,
-    flags: Io.CreateFlags,
-) Io.FileOpenError!std.fs.File {
+    flags: Io.File.CreateFlags,
+) Io.File.OpenError!Io.File {
     const el: *EventLoop = @alignCast(@ptrCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
@@ -921,7 +928,7 @@ fn createFile(
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
-        .fd = dir.fd,
+        .fd = dir.handle,
         .off = 0,
         .addr = @intFromPtr(&sub_path_c),
         .len = @intCast(flags.mode),
@@ -972,10 +979,10 @@ fn createFile(
 
 fn openFile(
     userdata: ?*anyopaque,
-    dir: std.fs.Dir,
+    dir: Io.Dir,
     sub_path: []const u8,
-    flags: Io.OpenFlags,
-) Io.FileOpenError!std.fs.File {
+    flags: Io.File.OpenFlags,
+) Io.File.OpenError!Io.File {
     const el: *EventLoop = @alignCast(@ptrCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
@@ -1029,7 +1036,7 @@ fn openFile(
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
-        .fd = dir.fd,
+        .fd = dir.handle,
         .off = 0,
         .addr = @intFromPtr(&sub_path_c),
         .len = 0,
@@ -1078,7 +1085,7 @@ fn openFile(
     }
 }
 
-fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
+fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
     const el: *EventLoop = @alignCast(@ptrCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
@@ -1114,7 +1121,7 @@ fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
     }
 }
 
-fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std.posix.off_t) Io.FilePReadError!usize {
+fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.off_t) Io.File.PReadError!usize {
     const el: *EventLoop = @alignCast(@ptrCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
@@ -1166,7 +1173,7 @@ fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std.pos
     }
 }
 
-fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offset: std.posix.off_t) Io.FilePWriteError!usize {
+fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.posix.off_t) Io.File.PWriteError!usize {
     const el: *EventLoop = @alignCast(@ptrCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
@@ -1236,7 +1243,7 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
     try fiber.enterCancelRegion(thread);
 
     const deadline_nanoseconds: i96 = switch (deadline) {
-        .nanoseconds => |nanoseconds| nanoseconds,
+        .duration => |duration| duration.nanoseconds,
         .timestamp => |timestamp| @intFromEnum(timestamp),
     };
     const timespec: std.os.linux.kernel_timespec = .{
@@ -1252,7 +1259,7 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
         .addr = @intFromPtr(&timespec),
         .len = 1,
         .rw_flags = @as(u32, switch (deadline) {
-            .nanoseconds => 0,
+            .duration => 0,
             .timestamp => std.os.linux.IORING_TIMEOUT_ABS,
         }) | @as(u32, switch (clockid) {
             .REALTIME => std.os.linux.IORING_TIMEOUT_REALTIME,
