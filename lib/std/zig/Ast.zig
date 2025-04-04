@@ -1195,6 +1195,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
                 if (extra.section_node.unwrap()) |section_node| {
                     end_offset += 1; // for the rparen
                     n = section_node;
+                } else if (extra.addrspace_node.unwrap()) |addrspace_node| {
+                    end_offset += 1; // for the rparen
+                    n = addrspace_node;
                 } else if (extra.align_node.unwrap()) |align_node| {
                     end_offset += 1; // for the rparen
                     n = align_node;

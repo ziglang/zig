@@ -6074,6 +6074,16 @@ test "zig fmt: do not canonicalize invalid cast builtins" {
     );
 }
 
+test "zig fmt: extern addrspace in struct" {
+    try testCanonical(
+        \\const namespace = struct {
+        \\    extern const num: u8 addrspace(.generic);
+        \\};
+        \\// comment
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
