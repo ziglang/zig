@@ -657,7 +657,7 @@ pub const BootServices = extern struct {
         return self.openProtocol(
             Protocol,
             handle,
-            uefi.handle orelse return error.Unexpected,
+            uefi.handle,
             null,
             .{ .by_handle_protocol = true },
         ) catch |err| switch (err) {

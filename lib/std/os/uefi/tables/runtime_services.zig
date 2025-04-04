@@ -245,6 +245,7 @@ pub const RuntimeServices = extern struct {
         }
     }
 
+    /// Returns the length of the variable's data and its attributes.
     pub fn getVariableSize(
         self: *const RuntimeServices,
         name: [*:0]const u16,
@@ -276,7 +277,7 @@ pub const RuntimeServices = extern struct {
         name: [*:0]const u16,
         guid: *align(8) const Guid,
         buffer: []u8,
-    ) GetVariableError!struct { []u8, VariableAttributes } {
+    ) GetVariableError!?struct { []u8, VariableAttributes } {
         var attrs: VariableAttributes = undefined;
         var len = buffer.len;
 
@@ -514,22 +515,21 @@ pub const RuntimeServices = extern struct {
     };
 
     pub const VariableNameIterator = struct {
-        pub const IterateVariableNameError = uefi.UnexpectedError || error{
-            BufferTooSmall,
+        pub const NextSizeError = uefi.UnexpectedError || error{
             DeviceError,
             Unsupported,
         };
 
-        pub const SizeOkError = uefi.UnexpectedError || error{
-            DeviceError,
-            Unsupported,
+        pub const IterateVariableNameError = NextSizeError || error{
+            BufferTooSmall,
+            NotFound,
         };
 
         services: *const RuntimeServices,
         buffer: []u16,
         guid: Guid,
 
-        pub fn sizeOk(self: *const VariableNameIterator) !bool {
+        pub fn nextSize(self: *const VariableNameIterator) NextSizeError!?usize {
             var len: usize = 0;
             switch (self.services._getNextVariableName(
                 &len,
@@ -537,17 +537,18 @@ pub const RuntimeServices = extern struct {
                 &self.guid,
             )) {
                 .success, .buffer_too_small => return len,
+                .not_found => return null,
                 .device_error => return Error.DeviceError,
                 .unsupported => return Error.Unsupported,
                 else => |status| return uefi.unexpectedStatus(status),
             }
         }
 
-        /// Call `sizeOk` to ensure that `buffer` is large enough to hold the next
+        /// Call `nextSize` to ensure that `buffer` is large enough to hold the next
         /// variable name.
         pub fn next(
             self: *VariableNameIterator,
-        ) IterateVariableNameError!?[:0]const u16 {
+        ) IterateVariableNameError![:0]const u16 {
             var len = self.buffer.len;
             switch (self.services._getNextVariableName(
                 &len,
@@ -555,7 +556,7 @@ pub const RuntimeServices = extern struct {
                 &self.guid,
             )) {
                 .success => return self.buffer[0..len],
-                .not_found => return null,
+                .not_found => return Error.NotFound,
                 .buffer_too_small => return Error.BufferTooSmall,
                 .device_error => return Error.DeviceError,
                 .unsupported => return Error.Unsupported,
