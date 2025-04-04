@@ -1001,7 +1001,7 @@ pub const BootServices = extern struct {
             @as(**anyopaque, @ptrCast(&ptr)),
             agent_handle,
             controller_handle,
-            attributes,
+            std.meta.activeTag(attributes),
         )) {
             .success => return if (attributes == .test_protocol) null else ptr,
             .unsupported => return if (attributes == .test_protocol) Error.Unsupported else null,
@@ -1060,14 +1060,14 @@ pub const BootServices = extern struct {
         handle: Handle,
     ) ProtocolsPerHandleError![]*align(8) const Guid {
         var guids: [*]*align(8) const Guid = undefined;
-        var guids_len: usize = undefined;
+        var len: usize = undefined;
 
         switch (self._protocolsPerHandle(
             handle,
             &guids,
-            &guids_len,
+            &len,
         )) {
-            .success => return guids[0..guids_len],
+            .success => return guids[0..len],
             .invalid_parameter => return Error.InvalidParameter,
             .out_of_resources => return Error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
@@ -1149,7 +1149,7 @@ pub const BootServices = extern struct {
             self._installMultipleProtocolInterfaces,
             args_tuple,
         )) {
-            .success => return handle.?,
+            .success => return hdl.?,
             .already_started => return Error.AlreadyStarted,
             .out_of_resources => return Error.OutOfResources,
             .invalid_parameter => return Error.InvalidParameter,
