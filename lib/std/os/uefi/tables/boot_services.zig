@@ -134,7 +134,7 @@ pub const BootServices = extern struct {
     _setWatchdogTimer: *const fn (timeout: usize, watchdog_code: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(cc) Status,
 
     /// Connects one or more drives to a controller.
-    _connectController: *const fn (controller_handle: Handle, driver_image_handle: ?[*:null]Handle, remaining_device_path: ?*const DevicePathProtocol, recursive: bool) callconv(cc) Status,
+    _connectController: *const fn (controller_handle: Handle, driver_image_handle: ?[*]Handle, remaining_device_path: ?*const DevicePathProtocol, recursive: bool) callconv(cc) Status,
 
     // Disconnects one or more drivers from a controller
     _disconnectController: *const fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(cc) Status,
@@ -155,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?EventRegistration, interface: *?*anyopaque) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const EventRegistration, interface: *?*anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -384,7 +384,7 @@ pub const BootServices = extern struct {
 
         var ptr: [*]align(4096) Page = switch (location) {
             .allocate_any_pages => undefined,
-            inline .allocate_addres, .allocate_max_address => |ptr| ptr,
+            .allocate_address, .allocate_max_address => |ptr| ptr,
             else => return Error.InvalidParameter,
         };
 
@@ -653,8 +653,8 @@ pub const BootServices = extern struct {
     /// function, so it's implemented using `openProtocol` instead.
     pub fn handleProtocol(
         self: *BootServices,
-        handle: Handle,
         Protocol: type,
+        handle: Handle,
     ) HandleProtocolError!?*Protocol {
         // per https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-handleprotocol
         // handleProtocol is basically `openProtocol` where:
@@ -665,9 +665,7 @@ pub const BootServices = extern struct {
         return self.openProtocol(
             Protocol,
             handle,
-            uefi.handle,
-            null,
-            .{ .by_handle_protocol = true },
+            .{ .by_handle_protocol = .{ .agent = uefi.handle } },
         ) catch |err| switch (err) {
             OpenProtocolError.AlreadyStarted => return uefi.unexpectedStatus(.already_started),
             OpenProtocolError.AccessDenied => return uefi.unexpectedStatus(.access_denied),
@@ -891,7 +889,7 @@ pub const BootServices = extern struct {
     ) ExitBootServicesError!void {
         switch (self._exitBootServices(image, map_key)) {
             .success => {},
-            .invalid_parameter => Error.InvalidParameter,
+            .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -935,10 +933,11 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// `driver_image` should be a null-terminated ordered list of handles.
     pub fn connectController(
         self: *BootServices,
         controller: Handle,
-        driver_image: ?[*:null]Handle,
+        driver_image: ?[*]Handle,
         remaining_device_path: ?*const DevicePathProtocol,
         recursive: bool,
     ) ConnectControllerError!void {
@@ -990,7 +989,7 @@ pub const BootServices = extern struct {
             @compileError("Protocol is missing guid: " ++ @typeName(Protocol));
 
         const agent_handle: ?Handle, const controller_handle: ?Handle = switch (attributes) {
-            else => |arg| .{ arg.agent, arg.controller },
+            inline else => |arg| .{ arg.agent, arg.controller },
         };
 
         var ptr: *Protocol = undefined;
@@ -1105,7 +1104,7 @@ pub const BootServices = extern struct {
 
         switch (self._locateProtocol(
             &Protocol.guid,
-            registration,
+            &registration,
             &interface,
         )) {
             .success => return interface,

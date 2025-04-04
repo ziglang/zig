@@ -62,7 +62,7 @@ pub const RuntimeServices = extern struct {
     /// If the payload should persist across a system reset, the reset value returned from
     /// `queryCapsuleCapabilities` must be passed into resetSystem and will cause the capsule
     /// to be processed by the firmware as part of the reset process.
-    _updateCapsule: *const fn (capsule_header_array: [*]*const CapsuleHeader, capsule_count: usize, scatter_gather_list: ?PhysicalAddress) callconv(cc) Status,
+    _updateCapsule: *const fn (capsule_header_array: [*]*const CapsuleHeader, capsule_count: usize, scatter_gather_list: PhysicalAddress) callconv(cc) Status,
 
     /// Returns if the capsule can be supported via `updateCapsule`
     _queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, reset_type: ResetType) callconv(cc) Status,
@@ -388,7 +388,7 @@ pub const RuntimeServices = extern struct {
     pub fn updateCapsule(
         self: *RuntimeServices,
         capsules: []*const CapsuleHeader,
-        scatter_gather_list: ?PhysicalAddress,
+        scatter_gather_list: PhysicalAddress,
     ) UpdateCapsuleError!void {
         switch (self._updateCapsule(
             capsules.ptr,
@@ -447,7 +447,7 @@ pub const RuntimeServices = extern struct {
     pub const DebugDisposition = enum(usize) {
         const Bits = packed struct(usize) {
             optional_ptr: bool = false,
-            _pad: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
+            _pad: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
         };
 
         pointer = @bitCast(Bits{}),
