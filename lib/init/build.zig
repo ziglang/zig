@@ -15,6 +15,10 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Standard linkage option allows the person running `zig build` to select
+    // between static or dynamic.
+    const linkage = b.standardLinkageOption(target.result);
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -48,7 +52,7 @@ pub fn build(b: *std.Build) void {
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
     const lib = b.addLibrary(.{
-        .linkage = .static,
+        .linkage = linkage,
         .name = ".NAME",
         .root_module = lib_mod,
     });
@@ -63,6 +67,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = ".NAME",
         .root_module = exe_mod,
+        .linkage = linkage,
     });
 
     // This declares intent for the executable to be installed into the
@@ -99,11 +104,15 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
     });
 
+    lib_unit_tests.linkage = linkage;
+
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
         .root_module = exe_mod,
     });
+
+    exe_unit_tests.linkage = linkage;
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
