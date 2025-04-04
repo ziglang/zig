@@ -13,7 +13,7 @@ main_fiber_buffer: [@sizeOf(Fiber) + Fiber.max_result_size]u8 align(@alignOf(Fib
 threads: Thread.List,
 detached: struct {
     mutex: std.Io.Mutex,
-    list: std.DoublyLinkedList(void),
+    list: std.DoublyLinkedList,
 },
 
 /// Empirically saw >128KB being used by the self-hosted backend to panic.
@@ -226,7 +226,6 @@ pub fn deinit(el: *EventLoop) void {
         detached.detached_queue_node = .{
             .prev = &detached.detached_queue_node,
             .next = &detached.detached_queue_node,
-            .data = {},
         };
         break :detached_future @ptrCast(detached.fiber);
     }, &.{}, .@"1");
@@ -753,7 +752,7 @@ const DetachedClosure = struct {
     event_loop: *EventLoop,
     fiber: *Fiber,
     start: *const fn (context: *const anyopaque) void,
-    detached_queue_node: std.DoublyLinkedList(void).Node,
+    detached_queue_node: std.DoublyLinkedList.Node,
 
     fn contextPointer(closure: *DetachedClosure) [*]align(Fiber.max_context_align.toByteUnits()) u8 {
         return @alignCast(@as([*]u8, @ptrCast(closure)) + @sizeOf(DetachedClosure));
@@ -818,7 +817,7 @@ fn go(
         .event_loop = event_loop,
         .fiber = fiber,
         .start = start,
-        .detached_queue_node = .{ .data = {} },
+        .detached_queue_node = .{},
     };
     {
         event_loop.detached.mutex.lock(event_loop.io()) catch |err| switch (err) {
