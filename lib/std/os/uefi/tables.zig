@@ -113,7 +113,7 @@ pub const MemoryMapSlice = struct {
 
     pub fn getUnchecked(self: MemoryMapSlice, index: usize) *MemoryDescriptor {
         const offset: usize = index * self.info.descriptor_size;
-        return @ptrCast(self.ptr[offset..]);
+        return @alignCast(@ptrCast(self.ptr[offset..]));
     }
 };
 
