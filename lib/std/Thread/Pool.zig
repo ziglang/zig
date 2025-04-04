@@ -364,7 +364,7 @@ const AsyncClosure = struct {
     context_offset: usize,
     result_offset: usize,
 
-    const done_reset_event: *std.Thread.ResetEvent = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(std.Thread.ResetEvent)));
+    const done_reset_event: *std.Thread.ResetEvent = @ptrFromInt(@alignOf(std.Thread.ResetEvent));
 
     const canceling_tid: std.Thread.Id = switch (@typeInfo(std.Thread.Id)) {
         .int => |int_info| switch (int_info.signedness) {
