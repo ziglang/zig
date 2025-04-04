@@ -58,7 +58,7 @@ pub fn sleep(nanoseconds: u64) void {
         const boot_services = std.os.uefi.system_table.boot_services.?;
         const us_from_ns = nanoseconds / std.time.ns_per_us;
         const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
+        boot_services.stall(us) catch unreachable;
         return;
     }
 
