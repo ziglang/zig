@@ -28,16 +28,16 @@ pub const RuntimeServices = extern struct {
     _getTime: *const fn (time: *Time, capabilities: ?*TimeCapabilities) callconv(cc) Status,
 
     /// Sets the current local time and date information
-    _setTime: *const fn (time: *Time) callconv(cc) Status,
+    _setTime: *const fn (time: *const Time) callconv(cc) Status,
 
     /// Returns the current wakeup alarm clock setting
     _getWakeupTime: *const fn (enabled: *bool, pending: *bool, time: *Time) callconv(cc) Status,
 
     /// Sets the system wakeup alarm clock time
-    _setWakeupTime: *const fn (enable: bool, time: ?*Time) callconv(cc) Status,
+    _setWakeupTime: *const fn (enable: bool, time: ?*const Time) callconv(cc) Status,
 
     /// Changes the runtime addressing mode of EFI firmware from physical to virtual.
-    _setVirtualAddressMap: *const fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: [*]MemoryDescriptor) callconv(cc) Status,
+    _setVirtualAddressMap: *const fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: [*]align(@alignOf(MemoryDescriptor)) u8) callconv(cc) Status,
 
     /// Determines the new virtual address that is to be used on subsequent memory accesses.
     _convertPointer: *const fn (debug_disposition: DebugDisposition, address: *?*anyopaque) callconv(cc) Status,
@@ -46,10 +46,10 @@ pub const RuntimeServices = extern struct {
     _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?*anyopaque) callconv(cc) Status,
 
     /// Enumerates the current variable names.
-    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *align(8) const Guid) callconv(cc) Status,
+    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *Guid) callconv(cc) Status,
 
     /// Sets the value of a variable.
-    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: *anyopaque) callconv(cc) Status,
+    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: [*]const u8) callconv(cc) Status,
 
     /// Return the next high 32 bits of the platform's monotonic counter
     _getNextHighMonotonicCount: *const fn (high_count: *u32) callconv(cc) Status,
@@ -65,7 +65,7 @@ pub const RuntimeServices = extern struct {
     _updateCapsule: *const fn (capsule_header_array: [*]*const CapsuleHeader, capsule_count: usize, scatter_gather_list: PhysicalAddress) callconv(cc) Status,
 
     /// Returns if the capsule can be supported via `updateCapsule`
-    _queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, reset_type: ResetType) callconv(cc) Status,
+    _queryCapsuleCapabilities: *const fn (capsule_header_array: [*]*const CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, reset_type: *ResetType) callconv(cc) Status,
 
     /// Returns information about the EFI variables
     _queryVariableInfo: *const fn (attributes: VariableAttributes, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,
@@ -216,10 +216,10 @@ pub const RuntimeServices = extern struct {
         map: MemoryMapSlice,
     ) SetVirtualAddressMapError!void {
         switch (self._setVirtualAddressMap(
-            map.len * map.info.descriptor_size,
+            map.info.len * map.info.descriptor_size,
             map.info.descriptor_size,
             map.info.descriptor_version,
-            map.ptr,
+            @ptrCast(map.ptr),
         )) {
             .success => {},
             .unsupported => return Error.Unsupported,
@@ -263,7 +263,6 @@ pub const RuntimeServices = extern struct {
         )) {
             .success, .buffer_too_small => return .{ size, attrs },
             .not_found => return null,
-            .invalid_parameter => return Error.InvalidParameter,
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
@@ -433,9 +432,9 @@ pub const RuntimeServices = extern struct {
 
         switch (self._queryVariableInfo(
             attributes,
-            &res.maximum_variable_storage_size,
+            &res.max_variable_storage_size,
             &res.remaining_variable_storage_size,
-            &res.maximum_variable_size,
+            &res.max_variable_size,
         )) {
             .success => return res,
             .invalid_parameter => return Error.InvalidParameter,
@@ -474,11 +473,6 @@ pub const RuntimeServices = extern struct {
         /// this structure.
         enhanced_authenticated_access: bool = false,
         _pad: u24 = 0,
-    };
-
-    pub const VariableAuthentication2 = extern struct {
-        timestamp: Time,
-        auth_info: uefi.WinCertificateUefiGuid,
     };
 
     pub const VariableAuthentication3 = extern struct {
@@ -529,7 +523,7 @@ pub const RuntimeServices = extern struct {
         buffer: []u16,
         guid: Guid,
 
-        pub fn nextSize(self: *const VariableNameIterator) NextSizeError!?usize {
+        pub fn nextSize(self: *VariableNameIterator) NextSizeError!?usize {
             var len: usize = 0;
             switch (self.services._getNextVariableName(
                 &len,
@@ -555,7 +549,7 @@ pub const RuntimeServices = extern struct {
                 @ptrCast(self.buffer.ptr),
                 &self.guid,
             )) {
-                .success => return self.buffer[0..len],
+                .success => return self.buffer[0 .. len - 1 :0],
                 .not_found => return Error.NotFound,
                 .buffer_too_small => return Error.BufferTooSmall,
                 .device_error => return Error.DeviceError,

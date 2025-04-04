@@ -54,7 +54,7 @@ pub const BootServices = extern struct {
     _freePages: *const fn (memory: [*]align(4096) Page, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
-    _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
+    _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]align(@alignOf(MemoryDescriptor)) u8, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
 
     /// Allocates pool memory.
     _allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
@@ -63,7 +63,7 @@ pub const BootServices = extern struct {
     _freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
 
     /// Creates an event.
-    _createEvent: *const fn (type: u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notify_ctx: ?*anyopaque, event: *Event) callconv(cc) Status,
+    _createEvent: *const fn (type: u32, notify_tpl: TaskPriorityLevel, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notify_ctx: ?*anyopaque, event: *Event) callconv(cc) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
     _setTimer: *const fn (event: Event, type: TimerDelay, trigger_time: u64) callconv(cc) Status,
@@ -110,7 +110,7 @@ pub const BootServices = extern struct {
     _installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*anyopaque) callconv(cc) Status,
 
     /// Loads an EFI image into memory.
-    _loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *?Handle) callconv(cc) Status,
+    _loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *Handle) callconv(cc) Status,
 
     /// Transfers control to a loaded image's entry point.
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
@@ -155,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const EventRegistration, interface: *?*anyopaque) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: *?*anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -405,8 +405,8 @@ pub const BootServices = extern struct {
     pub fn freePages(self: *BootServices, pages: []align(4096) Page) FreePagesError!void {
         switch (self._freePages(pages.ptr, pages.len)) {
             .success => {},
-            .not_found => Error.NotFound,
-            .invalid_parameter => Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -486,7 +486,7 @@ pub const BootServices = extern struct {
 
         switch (self._createEvent(
             @bitCast(event_type),
-            @bitCast(notify_opts.tpl),
+            notify_opts.tpl,
             notify_opts.func,
             notify_opts.ctx,
             &evt,
@@ -688,7 +688,7 @@ pub const BootServices = extern struct {
             event,
             &registration,
         )) {
-            .success => return @bitCast(@intFromPtr(registration)),
+            .success => return EventRegistration.fromPtr(registration),
             .out_of_resources => return Error.OutOfResources,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
@@ -701,7 +701,7 @@ pub const BootServices = extern struct {
         switch (self._locateHandle(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
-            if (search == .by_register_notify) search.by_register_notify else null,
+            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
             &len,
             null,
         )) {
@@ -717,13 +717,13 @@ pub const BootServices = extern struct {
         search: LocateSearch,
         buffer: []Handle,
     ) LocateHandleError![]Handle {
-        var len: usize = @sizeOf(Handle) * (if (buffer) |b| b.len else 0);
+        var len: usize = @sizeOf(Handle) * buffer.len;
         switch (self._locateHandle(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
-            if (search == .by_register_notify) search.by_register_notify else null,
+            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
             &len,
-            if (buffer) |b| b.ptr else null,
+            buffer.ptr,
         )) {
             .success => return buffer[0..@divExact(len, @sizeOf(Handle))],
             .buffer_too_small => return Error.BufferTooSmall,
@@ -901,7 +901,7 @@ pub const BootServices = extern struct {
         switch (self._getNextMonotonicCount(count)) {
             .success => {},
             .device_error => return Error.DeviceError,
-            .invalid_paramter => return Error.InvalidParameter,
+            .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1082,8 +1082,8 @@ pub const BootServices = extern struct {
 
         switch (self._locateHandleBuffer(
             std.meta.activeTag(search),
-            if (search == .by_protocol) |guid| guid else null,
-            if (search == .by_register_notify) |key| key else null,
+            if (search == .by_protocol) search.by_protocol else null,
+            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
             &len,
             &handles,
         )) {
@@ -1104,7 +1104,7 @@ pub const BootServices = extern struct {
 
         switch (self._locateProtocol(
             &Protocol.guid,
-            &registration,
+            if (registration) |reg| reg.toPtr() else null,
             &interface,
         )) {
             .success => return interface,
