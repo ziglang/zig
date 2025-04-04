@@ -1152,7 +1152,7 @@ pub const BootServices = extern struct {
 
         switch (@call(
             .auto,
-            self._uninstallMultipleProtocolInterfaces,
+            self._installMultipleProtocolInterfaces,
             args_tuple,
         )) {
             .success => return handle.?,
