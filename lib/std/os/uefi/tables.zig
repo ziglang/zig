@@ -13,21 +13,21 @@ pub const TimerDelay = enum(u32) {
 };
 
 pub const MemoryType = enum(u32) {
-    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
+    /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     reserved_memory_type,
     loader_code,
     loader_data,
     boot_services_code,
     boot_services_data,
-    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
+    /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     runtime_services_code,
-    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
+    /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     runtime_services_data,
     conventional_memory,
     unusable_memory,
-    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
+    /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     acpi_reclaim_memory,
-    /// if you're not targeting a specific implementation, use this with .allocate_any_pages
+    /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     acpi_memory_nvs,
     memory_mapped_io,
     memory_mapped_io_port_space,
