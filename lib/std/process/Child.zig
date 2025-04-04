@@ -30,7 +30,7 @@ id: Id,
 thread_handle: if (native_os == .windows) windows.HANDLE else void,
 
 /// Linux only. May be unavailable on older kernel versions.
-pid_fd: ?posix.fd_t,
+pid_fd: ?if (use_clone) posix.fd_t else void,
 
 allocator: mem.Allocator,
 
@@ -546,29 +546,6 @@ fn cleanupStreams(self: *ChildProcess) void {
         stderr.close();
         self.stderr = null;
     }
-}
-
-fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-    if (!use_clone) {
-        if (self.err_pipe) |err_pipe| {
-            defer destroyPipe(err_pipe);
-
-            // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
-            // waitpid, so this write is guaranteed to be after the child
-            // pid potentially wrote an error. This way we can do a blocking
-            // read on the error pipe and either get maxInt(ErrInt) (no error) or
-            // an error code.
-            try writeIntFd(err_pipe[1], maxInt(ErrInt));
-            const err_int = try readIntFd(err_pipe[0]);
-            // Here we potentially return the fork child's error from the parent
-            // pid.
-            if (err_int != maxInt(ErrInt)) {
-                return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
-            }
-        }
-    }
-
-    return statusToTerm(status);
 }
 
 fn statusToTerm(status: u32) Term {
