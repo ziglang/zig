@@ -10547,6 +10547,7 @@ pub extern "c" fn setregid(rgid: gid_t, egid: gid_t) c_int;
 pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
 pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
+pub extern "c" fn setsid() pid_t;
 pub extern "c" fn getuid() uid_t;
 pub extern "c" fn geteuid() uid_t;
 
@@ -10737,6 +10738,7 @@ pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub extern "c" fn getpid() pid_t;
+pub extern "c" fn getsid(pid: pid_t) pid_t;
 pub extern "c" fn getppid() pid_t;
 
 /// These are implementation defined but share identical values in at least musl and glibc:
