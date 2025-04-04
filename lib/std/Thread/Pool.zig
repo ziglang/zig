@@ -335,6 +335,7 @@ pub fn io(pool: *Pool) Io {
             .go = go,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
+            .select = select,
 
             .mutexLock = mutexLock,
             .mutexUnlock = mutexUnlock,
@@ -358,9 +359,12 @@ const AsyncClosure = struct {
     func: *const fn (context: *anyopaque, result: *anyopaque) void,
     runnable: Runnable = .{ .runFn = runFn },
     reset_event: std.Thread.ResetEvent,
+    select_condition: ?*std.Thread.ResetEvent,
     cancel_tid: std.Thread.Id,
     context_offset: usize,
     result_offset: usize,
+
+    const done_reset_event: *std.Thread.ResetEvent = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(std.Thread.ResetEvent)));
 
     const canceling_tid: std.Thread.Id = switch (@typeInfo(std.Thread.Id)) {
         .int => |int_info| switch (int_info.signedness) {
@@ -396,6 +400,17 @@ const AsyncClosure = struct {
             .acq_rel,
             .acquire,
         )) |cancel_tid| assert(cancel_tid == canceling_tid);
+
+        if (@atomicRmw(
+            ?*std.Thread.ResetEvent,
+            &closure.select_condition,
+            .Xchg,
+            done_reset_event,
+            .release,
+        )) |select_reset| {
+            assert(select_reset != done_reset_event);
+            select_reset.set();
+        }
         closure.reset_event.set();
     }
 
@@ -455,6 +470,7 @@ fn @"async"(
         .result_offset = result_offset,
         .reset_event = .{},
         .cancel_tid = 0,
+        .select_condition = null,
     };
     @memcpy(closure.contextPointer()[0..context.len], context);
     pool.run_queue.prepend(&closure.runnable.node);
@@ -720,47 +736,54 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
 
 fn createFile(
     userdata: ?*anyopaque,
-    dir: std.fs.Dir,
+    dir: Io.Dir,
     sub_path: []const u8,
-    flags: std.fs.File.CreateFlags,
-) Io.FileOpenError!std.fs.File {
+    flags: Io.File.CreateFlags,
+) Io.File.OpenError!Io.File {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
-    return dir.createFile(sub_path, flags);
+    const fs_dir: std.fs.Dir = .{ .fd = dir.handle };
+    const fs_file = try fs_dir.createFile(sub_path, flags);
+    return .{ .handle = fs_file.handle };
 }
 
 fn openFile(
     userdata: ?*anyopaque,
-    dir: std.fs.Dir,
+    dir: Io.Dir,
     sub_path: []const u8,
-    flags: std.fs.File.OpenFlags,
-) Io.FileOpenError!std.fs.File {
+    flags: Io.File.OpenFlags,
+) Io.File.OpenError!Io.File {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
-    return dir.openFile(sub_path, flags);
+    const fs_dir: std.fs.Dir = .{ .fd = dir.handle };
+    const fs_file = try fs_dir.openFile(sub_path, flags);
+    return .{ .handle = fs_file.handle };
 }
 
-fn closeFile(userdata: ?*anyopaque, file: std.fs.File) void {
+fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     _ = pool;
-    return file.close();
+    const fs_file: std.fs.File = .{ .handle = file.handle };
+    return fs_file.close();
 }
 
-fn pread(userdata: ?*anyopaque, file: std.fs.File, buffer: []u8, offset: std.posix.off_t) Io.FilePReadError!usize {
+fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.off_t) Io.File.PReadError!usize {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
+    const fs_file: std.fs.File = .{ .handle = file.handle };
     return switch (offset) {
-        -1 => file.read(buffer),
-        else => file.pread(buffer, @bitCast(offset)),
+        -1 => fs_file.read(buffer),
+        else => fs_file.pread(buffer, @bitCast(offset)),
     };
 }
 
-fn pwrite(userdata: ?*anyopaque, file: std.fs.File, buffer: []const u8, offset: std.posix.off_t) Io.FilePWriteError!usize {
+fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.posix.off_t) Io.File.PWriteError!usize {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
+    const fs_file: std.fs.File = .{ .handle = file.handle };
     return switch (offset) {
-        -1 => file.write(buffer),
-        else => file.pwrite(buffer, @bitCast(offset)),
+        -1 => fs_file.write(buffer),
+        else => fs_file.pwrite(buffer, @bitCast(offset)),
     };
 }
 
@@ -774,7 +797,7 @@ fn now(userdata: ?*anyopaque, clockid: std.posix.clockid_t) Io.ClockGetTimeError
 fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
     const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
     const deadline_nanoseconds: i96 = switch (deadline) {
-        .nanoseconds => |nanoseconds| nanoseconds,
+        .duration => |duration| duration.nanoseconds,
         .timestamp => |timestamp| @intFromEnum(timestamp),
     };
     var timespec: std.posix.timespec = .{
@@ -784,7 +807,7 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
     while (true) {
         try pool.checkCancel();
         switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clockid, .{ .ABSTIME = switch (deadline) {
-            .nanoseconds => false,
+            .duration => false,
             .timestamp => true,
         } }, &timespec, &timespec))) {
             .SUCCESS => return,
@@ -794,4 +817,36 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
             else => |err| return std.posix.unexpectedErrno(err),
         }
     }
+}
+
+fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
+    const pool: *std.Thread.Pool = @alignCast(@ptrCast(userdata));
+    _ = pool;
+
+    var reset_event: std.Thread.ResetEvent = .{};
+
+    for (futures, 0..) |future, i| {
+        const closure: *AsyncClosure = @ptrCast(@alignCast(future));
+        if (@atomicRmw(?*std.Thread.ResetEvent, &closure.select_condition, .Xchg, &reset_event, .seq_cst) == AsyncClosure.done_reset_event) {
+            for (futures[0..i]) |cleanup_future| {
+                const cleanup_closure: *AsyncClosure = @ptrCast(@alignCast(cleanup_future));
+                if (@atomicRmw(?*std.Thread.ResetEvent, &cleanup_closure.select_condition, .Xchg, null, .seq_cst) == AsyncClosure.done_reset_event) {
+                    cleanup_closure.reset_event.wait(); // Ensure no reference to our stack-allocated reset_event.
+                }
+            }
+            return i;
+        }
+    }
+
+    reset_event.wait();
+
+    var result: ?usize = null;
+    for (futures, 0..) |future, i| {
+        const closure: *AsyncClosure = @ptrCast(@alignCast(future));
+        if (@atomicRmw(?*std.Thread.ResetEvent, &closure.select_condition, .Xchg, null, .seq_cst) == AsyncClosure.done_reset_event) {
+            closure.reset_event.wait(); // Ensure no reference to our stack-allocated reset_event.
+            if (result == null) result = i; // In case multiple are ready, return first.
+        }
+    }
+    return result.?;
 }
