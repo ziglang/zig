@@ -639,7 +639,8 @@ pub fn defaultPanic(
                 // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
                 const exit_data: []u16 = uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1) catch @trap();
                 @memcpy(exit_data, exit_msg[0..exit_data.len]); // Includes null terminator.
-                bs.exit(uefi.handle, .aborted, @ptrCast(exit_data));
+                const bytes: [*]const u8 = @ptrCast(exit_data.ptr);
+                bs.exit(uefi.handle, .aborted, bytes[0 .. exit_data.len * 2]);
             }
             @trap();
         },

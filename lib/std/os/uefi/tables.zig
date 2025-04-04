@@ -160,42 +160,42 @@ pub const OpenProtocolAttributes = enum(u32) {
     exclusive = @bitCast(Bits{ .exclusive = true }),
 };
 
-pub const OpenProtocolFlag = union(OpenProtocolAttributes) {
+pub const OpenProtocolArgs = union(OpenProtocolAttributes) {
     /// Used in the implementation of `handleProtocol`.
-    by_handle_protocol: ?Handle,
+    by_handle_protocol: struct { agent: ?Handle = null, controller: ?Handle = null },
     /// Used by a driver to get a protocol interface from a handle. Care must be
     /// taken when using this open mode because the driver that opens a protocol
     /// interface in this manner will not be informed if the protocol interface
     /// is uninstalled or reinstalled. The caller is also not required to close
     /// the protocol interface with `closeProtocol`.
-    get_protocol: ?Handle,
+    get_protocol: struct { agent: ?Handle = null, controller: ?Handle = null },
     /// Used by a driver to test for the existence of a protocol interface on a
     /// handle. The caller only use the return status code. The caller is also
     /// not required to close the protocol interface with `closeProtocol`.
-    test_protocol: ?Handle,
+    test_protocol: struct { agent: ?Handle = null, controller: ?Handle = null },
     /// Used by bus drivers to show that a protocol interface is being used by one
     /// of the child controllers of a bus. This information is used by
     /// `BootServices.connectController` to recursively connect all child controllers
     /// and by `BootServices.disconnectController` to get the list of child
     /// controllers that a bus driver created.
-    by_child_controller: Handle,
+    by_child_controller: struct { agent: Handle, controller: Handle },
     /// Used by a driver to gain access to a protocol interface. When this mode
     /// is used, the driver’s Stop() function will be called by
     /// `BootServices.disconnectController` if the protocol interface is reinstalled
     /// or uninstalled. Once a protocol interface is opened by a driver with this
     /// attribute, no other drivers will be allowed to open the same protocol interface
     /// with the `.by_driver` attribute.
-    by_driver: Handle,
+    by_driver: struct { agent: Handle, controller: Handle },
     /// Used by a driver to gain exclusive access to a protocol interface. If any
     /// other drivers have the protocol interface opened with an attribute of
     /// `.by_driver`, then an attempt will be made to remove them with
     /// `BootServices.disconnectController`.
-    by_driver_exclusive: Handle,
+    by_driver_exclusive: struct { agent: Handle, controller: Handle },
     /// Used by applications to gain exclusive access to a protocol interface. If
     /// any drivers have the protocol interface opened with an attribute of
     /// `.by_driver`, then an attempt will be made to remove them by calling the
     /// driver’s Stop() function.
-    exclusive: ?Handle,
+    exclusive: struct { agent: Handle, controller: ?Handle = null },
 };
 
 pub const ProtocolInformationEntry = extern struct {

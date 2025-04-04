@@ -20,8 +20,8 @@ const TimerDelay = uefi.tables.TimerDelay;
 const InterfaceType = uefi.tables.InterfaceType;
 const LocateSearch = uefi.tables.LocateSearch;
 const LocateSearchType = uefi.tables.LocateSearchType;
+const OpenProtocolArgs = uefi.tables.OpenProtocolArgs;
 const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
-const OpenProtocolFlag = uefi.tables.OpenProtocolFlag;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
 const EventNotify = uefi.tables.EventNotify;
 const cc = uefi.cc;
@@ -235,6 +235,10 @@ pub const BootServices = extern struct {
         InvalidParameter,
     };
 
+    pub const NumHandlesError = uefi.UnexpectedError || error{
+        OutOfResources,
+    };
+
     pub const LocateHandleError = uefi.UnexpectedError || error{
         BufferTooSmall,
         NotFound,
@@ -331,7 +335,11 @@ pub const BootServices = extern struct {
         NotFound,
     };
 
-    pub const InstallProtocolInterfacesError = uefi.UnexpectedError || error{};
+    pub const InstallProtocolInterfacesError = uefi.UnexpectedError || error{
+        AlreadyStarted,
+        OutOfResources,
+        InvalidParameter,
+    };
 
     pub const UninstallProtocolInterfacesError = uefi.UnexpectedError || error{
         InvalidParameter,
@@ -664,7 +672,7 @@ pub const BootServices = extern struct {
             OpenProtocolError.AlreadyStarted => return uefi.unexpectedStatus(.already_started),
             OpenProtocolError.AccessDenied => return uefi.unexpectedStatus(.access_denied),
             OpenProtocolError.InvalidParameter => return uefi.unexpectedStatus(.invalid_parameter),
-            else => @errorCast(err),
+            else => return @errorCast(err),
         };
     }
 
@@ -690,7 +698,7 @@ pub const BootServices = extern struct {
     }
 
     /// Returns the number of handles that match the given search criteria.
-    pub fn numHandles(self: *const BootServices, search: LocateSearch) !usize {
+    pub fn numHandles(self: *const BootServices, search: LocateSearch) NumHandlesError!usize {
         var len: usize = 0;
         switch (self._locateHandle(
             std.meta.activeTag(search),
@@ -837,13 +845,13 @@ pub const BootServices = extern struct {
             .data = null,
         };
 
-        const description: [*:0]const u16 = @ptrCast(exit_data);
-        const description_len = std.mem.indexOfSentinel(u16, 0, description);
+        const description_ptr: [*:0]const u16 = @ptrCast(exit_data);
+        const description = std.mem.sliceTo(description_ptr, 0);
 
         return ImageExitData{
             .code = exit_code,
-            .description = description[0..description_len],
-            .data = exit_data[description_len + 1 .. exit_data_size],
+            .description = description,
+            .data = exit_data[description.len + 1 .. exit_data_size],
         };
     }
 
@@ -976,27 +984,13 @@ pub const BootServices = extern struct {
         self: *BootServices,
         Protocol: type,
         handle: Handle,
-        agent_handle: ?Handle,
-        flag: OpenProtocolFlag,
+        attributes: OpenProtocolArgs,
     ) OpenProtocolError!?*Protocol {
         if (!@hasDecl(Protocol, "guid"))
-            @compileError("protocol is missing guid: " ++ @typeName(Protocol));
+            @compileError("Protocol is missing guid: " ++ @typeName(Protocol));
 
-        const attributes: OpenProtocolAttributes = @bitCast(@intFromEnum(flag));
-        const controller_handle: ?Handle = controller: switch (flag) {
-            .by_handle_protocol, .get_protocol, .test_protocol => |controller| controller,
-            inline .exclusive, .by_driver, .by_driver_exclusive => |h| {
-                if (agent_handle == null)
-                    return Error.InvalidParameter;
-                break :controller h;
-            },
-            .by_child_controller => |h| {
-                if (agent_handle == null or
-                    @intFromPtr(h) == @intFromPtr(handle))
-                    return Error.InvalidParameter;
-                break :controller h;
-            },
-            else => return Error.InvalidParameter,
+        const agent_handle: ?Handle, const controller_handle: ?Handle = switch (attributes) {
+            else => |arg| .{ arg.agent, arg.controller },
         };
 
         var ptr: *Protocol = undefined;
@@ -1009,8 +1003,8 @@ pub const BootServices = extern struct {
             controller_handle,
             attributes,
         )) {
-            .success => return if (flag == .test_protocol) null else ptr,
-            .unsupported => return if (flag == .test_protocol) Error.Unsupported else null,
+            .success => return if (attributes == .test_protocol) null else ptr,
+            .unsupported => return if (attributes == .test_protocol) Error.Unsupported else null,
             .access_denied => return Error.AccessDenied,
             .already_started => return Error.AlreadyStarted,
             else => |status| return uefi.unexpectedStatus(status),
@@ -1044,7 +1038,7 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         handle: Handle,
         Protocol: type,
-    ) ![]ProtocolInformationEntry {
+    ) OpenProtocolInformationError![]ProtocolInformationEntry {
         var entries: [*]ProtocolInformationEntry = undefined;
         var len: usize = undefined;
 
@@ -1106,7 +1100,7 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         Protocol: type,
         registration: ?EventRegistration,
-    ) !?*Protocol {
+    ) LocateProtocolError!?*Protocol {
         var interface: ?*Protocol = undefined;
 
         switch (self._locateProtocol(
@@ -1185,10 +1179,10 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         data: []const u8,
     ) CalculateCrc32Error!u32 {
+        if (data.len == 0) return Error.InvalidParameter;
         var value: u32 = undefined;
         switch (self._calculateCrc32(data.ptr, data.len, &value)) {
             .success => return value,
-            .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

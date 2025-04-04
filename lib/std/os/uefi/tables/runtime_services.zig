@@ -214,7 +214,7 @@ pub const RuntimeServices = extern struct {
     pub fn setVirtualAddressMap(
         self: *RuntimeServices,
         map: MemoryMapSlice,
-    ) !void {
+    ) SetVirtualAddressMapError!void {
         switch (self._setVirtualAddressMap(
             map.len * map.info.descriptor_size,
             map.info.descriptor_size,
@@ -407,7 +407,7 @@ pub const RuntimeServices = extern struct {
     pub fn queryCapsuleCapabilities(
         self: *const RuntimeServices,
         capsules: []*const CapsuleHeader,
-    ) !struct { u64, ResetType } {
+    ) QueryCapsuleCapabilitiesError!struct { u64, ResetType } {
         var max_capsule_size: u64 = undefined;
         var reset_type: ResetType = undefined;
 
@@ -428,7 +428,7 @@ pub const RuntimeServices = extern struct {
         self: *const RuntimeServices,
         // Note: .append_write is ignored
         attributes: VariableAttributes,
-    ) !VariableInfo {
+    ) QueryVariableInfoError!VariableInfo {
         var res: VariableInfo = undefined;
 
         switch (self._queryVariableInfo(
