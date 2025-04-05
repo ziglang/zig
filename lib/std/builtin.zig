@@ -51,7 +51,7 @@ pub const StackTrace = struct {
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(.stderr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});

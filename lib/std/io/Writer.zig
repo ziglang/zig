@@ -17,7 +17,7 @@ pub const VTable = struct {
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
-    writeSplat: *const fn (ctx: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
+    writeSplat: *const fn (ctx: *anyopaque, data: []const []const u8, splat: usize) Result,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -38,7 +38,23 @@ pub const VTable = struct {
         /// zero, they can be forwarded directly to `VTable.writev`.
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize,
+    ) Result,
+};
+
+pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
+
+pub const Result = struct {
+    /// Even when a failure occurs, `Effect.written` may be nonzero, and
+    /// `Effect.end` may be true.
+    failure: anyerror!void,
+    effect: Effect,
+};
+
+pub const Effect = packed struct(usize) {
+    /// Number of bytes that were written to `writer`.
+    len: Len,
+    /// Indicates end of stream.
+    end: bool,
 };
 
 pub const Offset = enum(u64) {

@@ -9493,7 +9493,8 @@ pub fn asmValue(
 }
 
 pub fn dump(self: *Builder) void {
-    self.print(std.io.getStdErr().writer()) catch {};
+    const stderr: std.fs.File = .stderr();
+    self.print(stderr.writer().unbuffered()) catch {};
 }
 
 pub fn printToFile(self: *Builder, path: []const u8) Allocator.Error!bool {
@@ -9509,7 +9510,7 @@ pub fn printToFile(self: *Builder, path: []const u8) Allocator.Error!bool {
     return true;
 }
 
-pub fn print(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator.Error)!void {
+pub fn print(self: *Builder, writer: *std.io.BufferedWriter) (@TypeOf(writer).Error || Allocator.Error)!void {
     var bw = std.io.bufferedWriter(writer);
     try self.printUnbuffered(bw.writer());
     try bw.flush();

@@ -2677,7 +2677,7 @@ pub const LazyPath = union(enum) {
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
                         std.debug.lockStdErr();
-                        const stderr = std.io.getStdErr();
+                        const stderr: fs.File = .stderr();
                         dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
                         std.debug.unlockStdErr();
                         @panic("misconfigured build script");
@@ -2766,11 +2766,11 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    var buffered_writer = debug.lockStdErr2();
+    var buffered_writer = debug.lockStdErr2(&.{});
     defer debug.unlockStdErr();
     const w = &buffered_writer;
 
-    const stderr = io.getStdErr();
+    const stderr: fs.File = .stderr();
     try w.print(msg, args);
 
     const tty_config = std.io.tty.detectConfig(stderr);

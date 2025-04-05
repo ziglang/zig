@@ -168,6 +168,18 @@ pub const CreateFlags = struct {
     mode: Mode = default_mode,
 };
 
+pub fn stdout() File {
+    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdOutput else posix.STDOUT_FILENO };
+}
+
+pub fn stderr() File {
+    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdError else posix.STDERR_FILENO };
+}
+
+pub fn stdin() File {
+    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdInput else posix.STDIN_FILENO };
+}
+
 /// Upon success, the stream is in an uninitialized state. To continue using it,
 /// you must use the open() function.
 pub fn close(self: File) void {

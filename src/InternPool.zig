@@ -11267,8 +11267,9 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 }
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
-    const w = bw.writer();
+    var buffer: [4096]u8 = undefined;
+    var bw = std.debug.lockStdErr2(&buffer);
+    defer std.debug.unlockStdErr();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
         for (
@@ -11277,12 +11278,12 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             0..,
         ) |tag, data, index| {
             const i = Index.Unwrapped.wrap(.{ .tid = @enumFromInt(tid), .index = @intCast(index) }, ip);
-            try w.print("${d} = {s}(", .{ i, @tagName(tag) });
+            try bw.print("${d} = {s}(", .{ i, @tagName(tag) });
             switch (tag) {
                 .removed => {},
 
-                .simple_type => try w.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
-                .simple_value => try w.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
+                .simple_type => try bw.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
+                .simple_value => try bw.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
 
                 .type_int_signed,
                 .type_int_unsigned,
@@ -11355,14 +11356,14 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .func_coerced,
                 .union_value,
                 .memoized_call,
-                => try w.print("{d}", .{data}),
+                => try bw.print("{d}", .{data}),
 
                 .opt_null,
                 .type_slice,
                 .only_possible_value,
-                => try w.print("${d}", .{data}),
+                => try bw.print("${d}", .{data}),
             }
-            try w.writeAll(")\n");
+            try bw.writeAll(")\n");
         }
     }
     try bw.flush();
@@ -11376,9 +11377,6 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
-
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
-    const w = bw.writer();
 
     var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
@@ -11402,6 +11400,10 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
         }
     }
 
+    var buffer: [4096]u8 = undefined;
+    var bw = std.debug.lockStdErr2(&buffer);
+    defer std.debug.unlockStdErr();
+
     const SortContext = struct {
         values: []std.ArrayListUnmanaged(Index),
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
@@ -11413,19 +11415,19 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var it = instances.iterator();
     while (it.next()) |entry| {
         const generic_fn_owner_nav = ip.getNav(ip.funcDeclInfo(entry.key_ptr.*).owner_nav);
-        try w.print("{} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
+        try bw.print("{} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
         for (entry.value_ptr.items) |index| {
             const unwrapped_index = index.unwrap(ip);
             const func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), unwrapped_index.getData(ip));
             const owner_nav = ip.getNav(func.owner_nav);
-            try w.print("  {}: (", .{owner_nav.name.fmt(ip)});
+            try bw.print("  {}: (", .{owner_nav.name.fmt(ip)});
             for (func.comptime_args.get(ip)) |arg| {
                 if (arg != .none) {
                     const key = ip.indexToKey(arg);
-                    try w.print(" {} ", .{key});
+                    try bw.print(" {} ", .{key});
                 }
             }
-            try w.writeAll(")\n");
+            try bw.writeAll(")\n");
         }
     }
 
