@@ -221,6 +221,7 @@ pub const errors = @import("crypto/errors.zig");
 pub const tls = @import("crypto/tls.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
 pub const asn1 = @import("crypto/asn1.zig");
+pub const pem = @import("crypto/pem.zig");
 
 /// Side-channels mitigations.
 pub const SideChannelsMitigations = enum {
