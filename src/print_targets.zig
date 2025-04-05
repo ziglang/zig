@@ -15,10 +15,7 @@ pub fn cmdTargets(arena: Allocator, args: []const []const u8) anyerror!void {
     _ = args;
     const host = std.zig.resolveTargetQueryOrFatal(.{});
     var buffer: [1024]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
-        .unbuffered_writer = io.getStdOut().writer(),
-        .buffer = &buffer,
-    };
+    var bw = fs.File.stdout().writer().buffered(&buffer);
     try print(arena, &bw, host);
     try bw.flush();
 }

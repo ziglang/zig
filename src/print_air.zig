@@ -70,13 +70,13 @@ pub fn writeInst(
 }
 
 pub fn dump(pt: Zcu.PerThread, air: Air, liveness: ?Liveness) void {
-    var bw = std.debug.lockStdErr2();
+    var bw = std.debug.lockStdErr2(&.{});
     defer std.debug.unlockStdErr();
     write(&bw, pt, air, liveness);
 }
 
 pub fn dumpInst(inst: Air.Inst.Index, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) void {
-    var bw = std.debug.lockStdErr2();
+    var bw = std.debug.lockStdErr2(&.{});
     defer std.debug.unlockStdErr();
     writeInst(&bw, inst, pt, air, liveness);
 }

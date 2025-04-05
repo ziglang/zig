@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const Reader = @This();
 const assert = std.debug.assert;
 
-context: *anyopaque,
+context: ?*anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -19,8 +19,8 @@ pub const VTable = struct {
     ///
     /// If this is `null` it is equivalent to always returning
     /// `error.Unseekable`.
-    posRead: ?*const fn (ctx: *anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) anyerror!Status,
-    posReadVec: ?*const fn (ctx: *anyopaque, data: []const []u8, offset: u64) anyerror!Status,
+    posRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) Result,
+    posReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8, offset: u64) VecResult,
 
     /// Writes bytes from the internally tracked stream position to `bw`, or
     /// returns `error.Unstreamable`, indicating `posRead` should be used
@@ -37,14 +37,30 @@ pub const VTable = struct {
     ///
     /// If this is `null` it is equivalent to always returning
     /// `error.Unstreamable`.
-    streamRead: ?*const fn (ctx: *anyopaque, bw: *std.io.BufferedWriter, limit: Limit) anyerror!Status,
-    streamReadVec: ?*const fn (ctx: *anyopaque, data: []const []u8) anyerror!Status,
+    streamRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) Result,
+    streamReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8) VecResult,
 };
 
 pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
 
-pub const Status = packed struct(usize) {
-    /// Number of bytes that were written to `writer`.
+pub const VecResult = struct {
+    /// Even when a failure occurs, `Effect.written` may be nonzero, and
+    /// `Effect.end` may be true.
+    failure: anyerror!void,
+    effect: VecEffect,
+};
+
+pub const Result = struct {
+    /// Even when a failure occurs, `Effect.written` may be nonzero, and
+    /// `Effect.end` may be true.
+    failure: anyerror!void,
+    write_effect: Effect,
+    read_effect: Effect,
+};
+
+pub const Effect = packed struct(usize) {
+    /// Number of bytes that were read from the reader or written to the
+    /// writer.
     len: Len,
     /// Indicates end of stream.
     end: bool,

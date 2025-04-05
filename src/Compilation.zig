@@ -1818,7 +1818,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
                 const target = options.root_mod.resolved_target.result;
-                var stderr = std.debug.lockStdErr2();
+                var stderr = std.debug.lockStdErr2(&.{});
                 defer std.debug.unlockStdErr();
                 nosuspend {
                     stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
@@ -3875,7 +3875,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            const stderr = std.io.getStdErr().writer();
+            var stderr = std.debug.lockStdErr2(&.{});
+            defer std.debug.unlockStdErr();
             try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
             try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
@@ -6996,13 +6997,14 @@ pub fn lockAndSetMiscFailure(
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
-    std.debug.lockStdErr();
+    var stderr = std.debug.lockStdErr2(&.{});
     defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr().writer();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        nosuspend stderr.print("{s} ", .{arg}) catch return;
+    nosuspend {
+        for (argv[0 .. argv.len - 1]) |arg| {
+            stderr.print("{s} ", .{arg}) catch return;
+        }
+        stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
     }
-    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
