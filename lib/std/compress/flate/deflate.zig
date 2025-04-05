@@ -7,7 +7,7 @@ const print = std.debug.print;
 
 const Token = @import("Token.zig");
 const consts = @import("consts.zig");
-const BlockWriter = @import("block_writer.zig").BlockWriter;
+const BlockWriter = @import("BlockWriter.zig");
 const Container = @import("container.zig").Container;
 const SlidingWindow = @import("SlidingWindow.zig");
 const Lookup = @import("Lookup.zig");
@@ -53,24 +53,20 @@ const LevelArgs = struct {
 };
 
 /// Compress plain data from reader into compressed stream written to writer.
-pub fn compress(comptime container: Container, reader: anytype, writer: anytype, options: Options) !void {
-    var c = try compressor(container, writer, options);
+pub fn compress(
+    comptime container: Container,
+    reader: *std.io.BufferedReader,
+    writer: *std.io.BufferedWriter,
+    options: Options,
+) !void {
+    var c = try Compressor.init(container, writer, options);
     try c.compress(reader);
     try c.finish();
 }
 
-/// Create compressor for writer type.
-pub fn compressor(comptime container: Container, writer: anytype, options: Options) !Compressor(
-    container,
-    @TypeOf(writer),
-) {
-    return try Compressor(container, @TypeOf(writer)).init(writer, options);
-}
-
 /// Compressor type.
-pub fn Compressor(comptime container: Container, comptime WriterType: type) type {
-    const TokenWriterType = BlockWriter(WriterType);
-    return Deflate(container, WriterType, TokenWriterType);
+pub fn Compressor(comptime container: Container) type {
+    return Deflate(container, BlockWriter);
 }
 
 /// Default compression algorithm. Has two steps: tokenization and token
