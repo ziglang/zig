@@ -4,13 +4,173 @@ const math = std.math;
 const Allocator = std.mem.Allocator;
 
 pub const lzbuffer = @import("decode/lzbuffer.zig");
-pub const rangecoder = @import("decode/rangecoder.zig");
 
 const LzCircularBuffer = lzbuffer.LzCircularBuffer;
-const BitTree = rangecoder.BitTree;
-const LenDecoder = rangecoder.LenDecoder;
-const RangeDecoder = rangecoder.RangeDecoder;
 const Vec2D = @import("vec2d.zig").Vec2D;
+
+pub const RangeDecoder = struct {
+    range: u32,
+    code: u32,
+
+    pub fn init(br: *std.io.BufferedReader) !RangeDecoder {
+        const reserved = try br.takeByte();
+        if (reserved != 0) {
+            return error.CorruptInput;
+        }
+        return .{
+            .range = 0xFFFF_FFFF,
+            .code = try br.readInt(u32, .big),
+        };
+    }
+
+    pub inline fn isFinished(self: RangeDecoder) bool {
+        return self.code == 0;
+    }
+
+    inline fn normalize(self: *RangeDecoder, br: *std.io.BufferedReader) !void {
+        if (self.range < 0x0100_0000) {
+            self.range <<= 8;
+            self.code = (self.code << 8) ^ @as(u32, try br.takeByte());
+        }
+    }
+
+    inline fn getBit(self: *RangeDecoder, br: *std.io.BufferedReader) !bool {
+        self.range >>= 1;
+
+        const bit = self.code >= self.range;
+        if (bit)
+            self.code -= self.range;
+
+        try self.normalize(br);
+        return bit;
+    }
+
+    pub fn get(self: *RangeDecoder, br: *std.io.BufferedReader, count: usize) !u32 {
+        var result: u32 = 0;
+        var i: usize = 0;
+        while (i < count) : (i += 1)
+            result = (result << 1) ^ @intFromBool(try self.getBit(br));
+        return result;
+    }
+
+    pub inline fn decodeBit(self: *RangeDecoder, br: *std.io.BufferedReader, prob: *u16, update: bool) !bool {
+        const bound = (self.range >> 11) * prob.*;
+
+        if (self.code < bound) {
+            if (update)
+                prob.* += (0x800 - prob.*) >> 5;
+            self.range = bound;
+
+            try self.normalize(br);
+            return false;
+        } else {
+            if (update)
+                prob.* -= prob.* >> 5;
+            self.code -= bound;
+            self.range -= bound;
+
+            try self.normalize(br);
+            return true;
+        }
+    }
+
+    fn parseBitTree(
+        self: *RangeDecoder,
+        br: *std.io.BufferedReader,
+        num_bits: u5,
+        probs: []u16,
+        update: bool,
+    ) !u32 {
+        var tmp: u32 = 1;
+        var i: @TypeOf(num_bits) = 0;
+        while (i < num_bits) : (i += 1) {
+            const bit = try self.decodeBit(br, &probs[tmp], update);
+            tmp = (tmp << 1) ^ @intFromBool(bit);
+        }
+        return tmp - (@as(u32, 1) << num_bits);
+    }
+
+    pub fn parseReverseBitTree(
+        self: *RangeDecoder,
+        br: *std.io.BufferedReader,
+        num_bits: u5,
+        probs: []u16,
+        offset: usize,
+        update: bool,
+    ) !u32 {
+        var result: u32 = 0;
+        var tmp: usize = 1;
+        var i: @TypeOf(num_bits) = 0;
+        while (i < num_bits) : (i += 1) {
+            const bit = @intFromBool(try self.decodeBit(br, &probs[offset + tmp], update));
+            tmp = (tmp << 1) ^ bit;
+            result ^= @as(u32, bit) << i;
+        }
+        return result;
+    }
+};
+
+pub fn BitTree(comptime num_bits: usize) type {
+    return struct {
+        probs: [1 << num_bits]u16 = @splat(0x400),
+
+        const Self = @This();
+
+        pub fn parse(
+            self: *Self,
+            br: *std.io.BufferedReader,
+            decoder: *RangeDecoder,
+            update: bool,
+        ) !u32 {
+            return decoder.parseBitTree(br, num_bits, &self.probs, update);
+        }
+
+        pub fn parseReverse(
+            self: *Self,
+            br: *std.io.BufferedReader,
+            decoder: *RangeDecoder,
+            update: bool,
+        ) !u32 {
+            return decoder.parseReverseBitTree(br, num_bits, &self.probs, 0, update);
+        }
+
+        pub fn reset(self: *Self) void {
+            @memset(&self.probs, 0x400);
+        }
+    };
+}
+
+pub const LenDecoder = struct {
+    choice: u16 = 0x400,
+    choice2: u16 = 0x400,
+    low_coder: [16]BitTree(3) = @splat(.{}),
+    mid_coder: [16]BitTree(3) = @splat(.{}),
+    high_coder: BitTree(8) = .{},
+
+    pub fn decode(
+        self: *LenDecoder,
+        br: *std.io.BufferedReader,
+        decoder: *RangeDecoder,
+        pos_state: usize,
+        update: bool,
+    ) !usize {
+        if (!try decoder.decodeBit(br, &self.choice, update)) {
+            return @as(usize, try self.low_coder[pos_state].parse(br, decoder, update));
+        } else if (!try decoder.decodeBit(br, &self.choice2, update)) {
+            return @as(usize, try self.mid_coder[pos_state].parse(br, decoder, update)) + 8;
+        } else {
+            return @as(usize, try self.high_coder.parse(br, decoder, update)) + 16;
+        }
+    }
+
+    pub fn reset(self: *LenDecoder) void {
+        self.choice = 0x400;
+        self.choice2 = 0x400;
+        for (&self.low_coder) |*t| t.reset();
+        for (&self.mid_coder) |*t| t.reset();
+        self.high_coder.reset();
+    }
+};
 
 pub const Options = struct {
     unpacked_size: UnpackedSize = .read_from_header,

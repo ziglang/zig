@@ -13,9 +13,9 @@ const std = @import("../std.zig");
 // of the byte.
 
 /// Creates a bit reader which allows for reading bits from an underlying standard reader
-pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) type {
+pub fn BitReader(comptime endian: std.builtin.Endian) type {
     return struct {
-        reader: Reader,
+        reader: *std.io.BufferedReader,
         bits: u8 = 0,
         count: u4 = 0,
 
@@ -157,7 +157,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
     };
 }
 
-pub fn bitReader(comptime endian: std.builtin.Endian, reader: anytype) BitReader(endian, @TypeOf(reader)) {
+pub fn bitReader(comptime endian: std.builtin.Endian, reader: *std.io.BufferedReader) BitReader(endian) {
     return .{ .reader = reader };
 }
 

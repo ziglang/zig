@@ -5,7 +5,7 @@ const lzma = @import("../lzma.zig");
 const DecoderState = lzma.decode.DecoderState;
 const LzAccumBuffer = lzma.decode.lzbuffer.LzAccumBuffer;
 const Properties = lzma.decode.Properties;
-const RangeDecoder = lzma.decode.rangecoder.RangeDecoder;
+const RangeDecoder = lzma.decode.RangeDecoder;
 
 pub const Decoder = struct {
     lzma_state: DecoderState,
@@ -32,14 +32,14 @@ pub const Decoder = struct {
     pub fn decompress(
         self: *Decoder,
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        reader: *std.io.BufferedReader,
+        writer: *std.io.BufferedWriter,
     ) !void {
         var accum = LzAccumBuffer.init(std.math.maxInt(usize));
         defer accum.deinit(allocator);
 
         while (true) {
-            const status = try reader.readByte();
+            const status = try reader.takeByte();
 
             switch (status) {
                 0 => break,
@@ -55,8 +55,8 @@ pub const Decoder = struct {
     fn parseLzma(
         self: *Decoder,
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        br: *std.io.BufferedReader,
+        writer: *std.io.BufferedWriter,
         accum: *LzAccumBuffer,
         status: u8,
     ) !void {
@@ -97,12 +97,12 @@ pub const Decoder = struct {
         const unpacked_size = blk: {
             var tmp: u64 = status & 0x1F;
             tmp <<= 16;
-            tmp |= try reader.readInt(u16, .big);
+            tmp |= try br.takeInt(u16, .big);
             break :blk tmp + 1;
         };
 
         const packed_size = blk: {
-            const tmp: u17 = try reader.readInt(u16, .big);
+            const tmp: u17 = try br.takeInt(u16, .big);
             break :blk tmp + 1;
         };
 
@@ -114,7 +114,7 @@ pub const Decoder = struct {
             var new_props = self.lzma_state.lzma_props;
 
             if (reset.props) {
-                var props = try reader.readByte();
+                var props = try br.takeByte();
                 if (props >= 225) {
                     return error.CorruptInput;
                 }
@@ -137,10 +137,10 @@ pub const Decoder = struct {
 
         self.lzma_state.unpacked_size = unpacked_size + accum.len;
 
-        var counter = std.io.countingReader(reader);
-        const counter_reader = counter.reader();
+        var counter: std.io.CountingReader = .{ .child_reader = br.reader() };
+        var counter_reader = counter.reader().unbuffered();
 
-        var rangecoder = try RangeDecoder.init(counter_reader);
+        var rangecoder = try RangeDecoder.init(&counter_reader);
         while (try self.lzma_state.process(allocator, counter_reader, writer, accum, &rangecoder) == .continue_) {}
 
         if (counter.bytes_read != packed_size) {
@@ -150,12 +150,12 @@ pub const Decoder = struct {
 
     fn parseUncompressed(
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        reader: *std.io.BufferedReader,
+        writer: *std.io.BufferedWriter,
         accum: *LzAccumBuffer,
         reset_dict: bool,
     ) !void {
-        const unpacked_size = @as(u17, try reader.readInt(u16, .big)) + 1;
+        const unpacked_size = @as(u17, try reader.takeInt(u16, .big)) + 1;
 
         if (reset_dict) {
             try accum.reset(writer);
@@ -163,7 +163,7 @@ pub const Decoder = struct {
 
         var i: @TypeOf(unpacked_size) = 0;
         while (i < unpacked_size) : (i += 1) {
-            try accum.appendByte(allocator, try reader.readByte());
+            try accum.appendByte(allocator, try reader.takeByte());
         }
     }
 };

@@ -1613,11 +1613,11 @@ pub fn writer(file: File) std.io.Writer {
 const max_buffers_len = 16;
 
 pub fn reader_posRead(
-    context: *anyopaque,
+    context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
     offset: u64,
-) anyerror!usize {
+) std.io.Reader.Result {
     const file = opaqueToHandle(context);
     const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
     return writer.writeFile(bw, file, .init(offset), len, &.{}, 0);
