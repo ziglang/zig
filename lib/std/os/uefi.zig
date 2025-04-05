@@ -29,17 +29,7 @@ pub const Page = [4096]u8;
 /// A handle to an event structure.
 pub const Event = *opaque {};
 
-pub const EventRegistration = enum(usize) {
-    _,
-
-    pub fn fromPtr(ptr: *const anyopaque) EventRegistration {
-        return @enumFromInt(@intFromPtr(ptr));
-    }
-
-    pub fn toPtr(this: EventRegistration) *const anyopaque {
-        return @ptrFromInt(@intFromEnum(this));
-    }
-};
+pub const EventRegistration = *const anyopaque;
 
 pub const EventType = packed struct(u32) {
     lo_context: u8 = 0,

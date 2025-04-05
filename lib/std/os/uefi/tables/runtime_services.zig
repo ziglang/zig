@@ -46,7 +46,7 @@ pub const RuntimeServices = extern struct {
     _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?*anyopaque) callconv(cc) Status,
 
     /// Enumerates the current variable names.
-    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *Guid) callconv(cc) Status,
+    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *align(8) Guid) callconv(cc) Status,
 
     /// Sets the value of a variable.
     _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: [*]const u8) callconv(cc) Status,
@@ -55,7 +55,7 @@ pub const RuntimeServices = extern struct {
     _getNextHighMonotonicCount: *const fn (high_count: *u32) callconv(cc) Status,
 
     /// Resets the entire platform.
-    _resetSystem: *const fn (reset_type: ResetType, reset_status: Status, data_size: usize, reset_data: ?*const anyopaque) callconv(cc) noreturn,
+    _resetSystem: *const fn (reset_type: ResetType, reset_status: Status, data_size: usize, reset_data: ?[*]const u16) callconv(cc) noreturn,
 
     /// Passes capsules to the firmware with both virtual and physical mapping.
     /// Depending on the intended consumption, the firmware may process the capsule immediately.
@@ -336,52 +336,24 @@ pub const RuntimeServices = extern struct {
 
     pub fn getNextHighMonotonicCount(
         self: *const RuntimeServices,
-        count: *u32,
-    ) GetNextHighMonotonicCountError!void {
-        switch (self._getNextHighMonotonicCount(count)) {
-            .success => {},
+        count: u32,
+    ) GetNextHighMonotonicCountError!u32 {
+        var cnt = count;
+        switch (self._getNextHighMonotonicCount(&cnt)) {
+            .success => return cnt,
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
 
-    pub fn monotonicCounter(self: *const RuntimeServices) MonotonicCounter {
-        return .{ .services = self };
-    }
-
     pub fn resetSystem(
         self: *RuntimeServices,
         reset_type: ResetType,
         reset_status: Status,
-        data: anytype,
+        data: []const u8,
     ) noreturn {
-        const DataOptional = @TypeOf(data);
-        const DataOptional_info = @typeInfo(DataOptional);
-
-        var data_size: usize = 0;
-        var reset_data: ?*const anyopaque = null;
-        if (DataOptional_info != .optional or data != null) {
-            const DataPointer = switch (DataOptional_info) {
-                .optional => |optional| optional.child,
-                .pointer => DataOptional,
-                else => @compileError("expected optional or pointer, got " ++ @typeName(DataOptional)),
-            };
-
-            const DataPointer_info = @typeInfo(DataPointer);
-            if (DataPointer_info != .pointer)
-                @compileError("expected pointer, got " ++ @typeName(DataPointer));
-
-            data_size = @sizeOf(DataPointer_info.pointer.child);
-            reset_data = @ptrCast(data);
-        }
-
-        self._resetSystem(
-            reset_type,
-            reset_status,
-            data_size,
-            reset_data,
-        );
+        self._resetSystem(reset_type, reset_status, data.len, @ptrCast(data.ptr));
     }
 
     pub fn updateCapsule(
@@ -521,7 +493,7 @@ pub const RuntimeServices = extern struct {
 
         services: *const RuntimeServices,
         buffer: []u16,
-        guid: Guid,
+        guid: Guid align(8),
 
         pub fn nextSize(self: *VariableNameIterator) NextSizeError!?usize {
             var len: usize = 0;
@@ -538,8 +510,8 @@ pub const RuntimeServices = extern struct {
             }
         }
 
-        /// Call `nextSize` to ensure that `buffer` is large enough to hold the next
-        /// variable name.
+        /// Call `nextSize` to get the length of the next variable name and check
+        /// if `buffer` is large enough to hold the name.
         pub fn next(
             self: *VariableNameIterator,
         ) IterateVariableNameError![:0]const u16 {
@@ -556,16 +528,6 @@ pub const RuntimeServices = extern struct {
                 .unsupported => return Error.Unsupported,
                 else => |status| return uefi.unexpectedStatus(status),
             }
-        }
-    };
-
-    pub const MonotonicCounter = struct {
-        services: *const RuntimeServices,
-        count: u32 = 0,
-
-        pub fn next(self: *MonotonicCounter) GetNextHighMonotonicCountError!u32 {
-            try self.services.getNextHighMonotonicCount(&self.count);
-            return self.count;
         }
     };
 
