@@ -602,10 +602,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         },
         .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
-            if (std.os.argv.len == 0)
+            if (std.os.argv == null)
                 return error.FileNotFound;
 
-            const argv0 = mem.span(std.os.argv[0]);
+            const argv = std.os.argv.?;
+            if (argv.len == 0)
+                return error.FileNotFound;
+
+            const argv0 = mem.span(argv[0]);
             if (mem.indexOf(u8, argv0, "/") != null) {
                 // argv[0] is a path (relative or absolute): use realpath(3) directly
                 var real_path_buf: [max_path_bytes]u8 = undefined;
@@ -627,7 +631,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                     var resolved_path_buf: [max_path_bytes - 1:0]u8 = undefined;
                     const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
                         a_path,
-                        std.os.argv[0],
+                        argv[0],
                     }) catch continue;
 
                     var real_path_buf: [max_path_bytes]u8 = undefined;

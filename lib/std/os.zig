@@ -42,17 +42,15 @@ test {
 }
 
 /// See also `getenv`. Populated by startup code before main().
-/// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
-/// https://github.com/ziglang/zig/issues/4524
-pub var environ: [][*:0]u8 = undefined;
+pub var environ: ?[][*:0]u8 = null;
 
 /// Populated by startup code before main().
 /// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
 /// or `std.process.argsWithAllocator` for a cross-platform alternative.
-pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
+pub var argv: ?[][*:0]u8 = if (builtin.link_libc) null else switch (native_os) {
     .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
     .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
-    else => undefined,
+    else => null,
 };
 
 /// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
