@@ -570,10 +570,13 @@ const usage_build_generic =
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  -fallow-so-scripts             Allows .so files to be GNU ld scripts
     \\  -fno-allow-so-scripts          (default) .so files must be ELF files
-    \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
-    \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
-    \\      0x[hexstring]              Maximum 32 bytes
-    \\      none                       (default) Disable build-id
+    \\  --build-id[=style]             At a minor link-time expense, embeds a build ID in binaries
+    \\      fast                       8-byte non-cryptographic hash (COFF, ELF, WASM)
+    \\      sha1, tree                 20-byte cryptographic hash (ELF, WASM)
+    \\      md5                        16-byte cryptographic hash (ELF)
+    \\      uuid                       16-byte random UUID (ELF, WASM)
+    \\      0x[hexstring]              Constant ID, maximum 32 bytes (ELF, WASM)
+    \\      none                     (default) No build ID
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --no-eh-frame-hdr              Disable C++ exception handling by passing --no-eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
