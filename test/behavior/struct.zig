@@ -1527,7 +1527,7 @@ test "optional generic function label struct field" {
 }
 
 test "struct fields get automatically reordered" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S1 = struct {
         a: u32,
@@ -2136,4 +2136,46 @@ test "anonymous struct equivalence" {
     comptime assert(A == B);
     comptime assert(A != C);
     comptime assert(B != C);
+}
+
+test "field access through mem ptr arg" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn nestedFieldAccess(
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            ptr_struct: *const struct { field: u32 },
+        ) u32 {
+            return ptr_struct.field;
+        }
+    };
+    try expect(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x6b00a2eb },
+    ) == 0x6b00a2eb);
+    comptime assert(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x0ced271f },
+    ) == 0x0ced271f);
 }
