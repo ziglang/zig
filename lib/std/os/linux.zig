@@ -4212,6 +4212,239 @@ pub const IPV6 = struct {
     pub const FREEBIND = 78;
 };
 
+/// IEEE 802.3 Ethernet magic constants. The frame sizes omit the preamble
+/// and FCS/CRC (frame check sequence).
+pub const ETH = struct {
+    /// Octets in one ethernet addr
+    pub const ALEN = 6;
+    /// Octets in ethernet type field
+    pub const TLEN = 2;
+    /// Total octets in header
+    pub const HLEN = 14;
+    /// Min. octets in frame sans FC
+    pub const ZLEN = 60;
+    /// Max. octets in payload
+    pub const DATA_LEN = 1500;
+    /// Max. octets in frame sans FCS
+    pub const FRAME_LEN = 1514;
+    /// Octets in the FCS
+    pub const FCS_LEN = 4;
+
+    /// Min IPv4 MTU per RFC791
+    pub const MIN_MTU = 68;
+    /// 65535, same as IP_MAX_MTU
+    pub const MAX_MTU = 0xFFFF;
+
+    /// These are the defined Ethernet Protocol ID's.
+    pub const P = struct {
+        /// Ethernet Loopback packet
+        pub const LOOP = 0x0060;
+        /// Xerox PUP packet
+        pub const PUP = 0x0200;
+        /// Xerox PUP Addr Trans packet
+        pub const PUPAT = 0x0201;
+        /// TSN (IEEE 1722) packet
+        pub const TSN = 0x22F0;
+        /// ERSPAN version 2 (type III)
+        pub const ERSPAN2 = 0x22EB;
+        /// Internet Protocol packet
+        pub const IP = 0x0800;
+        /// CCITT X.25
+        pub const X25 = 0x0805;
+        /// Address Resolution packet
+        pub const ARP = 0x0806;
+        /// G8BPQ AX.25 Ethernet Packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BPQ = 0x08FF;
+        /// Xerox IEEE802.3 PUP packet
+        pub const IEEEPUP = 0x0a00;
+        /// Xerox IEEE802.3 PUP Addr Trans packet
+        pub const IEEEPUPAT = 0x0a01;
+        /// B.A.T.M.A.N.-Advanced packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BATMAN = 0x4305;
+        /// DEC Assigned proto
+        pub const DEC = 0x6000;
+        /// DEC DNA Dump/Load
+        pub const DNA_DL = 0x6001;
+        /// DEC DNA Remote Console
+        pub const DNA_RC = 0x6002;
+        /// DEC DNA Routing
+        pub const DNA_RT = 0x6003;
+        /// DEC LAT
+        pub const LAT = 0x6004;
+        /// DEC Diagnostics
+        pub const DIAG = 0x6005;
+        /// DEC Customer use
+        pub const CUST = 0x6006;
+        /// DEC Systems Comms Arch
+        pub const SCA = 0x6007;
+        /// Trans Ether Bridging
+        pub const TEB = 0x6558;
+        /// Reverse Addr Res packet
+        pub const RARP = 0x8035;
+        /// Appletalk DDP
+        pub const ATALK = 0x809B;
+        /// Appletalk AARP
+        pub const AARP = 0x80F3;
+        /// 802.1Q VLAN Extended Header
+        pub const P_8021Q = 0x8100;
+        /// ERSPAN type II
+        pub const ERSPAN = 0x88BE;
+        /// IPX over DIX
+        pub const IPX = 0x8137;
+        /// IPv6 over bluebook
+        pub const IPV6 = 0x86DD;
+        /// IEEE Pause frames. See 802.3 31B
+        pub const PAUSE = 0x8808;
+        /// Slow Protocol. See 802.3ad 43B
+        pub const SLOW = 0x8809;
+        /// Web-cache coordination protocol defined in draft-wilson-wrec-wccp-v2-00.txt
+        pub const WCCP = 0x883E;
+        /// MPLS Unicast traffic
+        pub const MPLS_UC = 0x8847;
+        /// MPLS Multicast traffic
+        pub const MPLS_MC = 0x8848;
+        /// MultiProtocol Over ATM
+        pub const ATMMPOA = 0x884c;
+        /// PPPoE discovery messages
+        pub const PPP_DISC = 0x8863;
+        /// PPPoE session messages
+        pub const PPP_SES = 0x8864;
+        /// HPNA, wlan link local tunnel
+        pub const LINK_CTL = 0x886c;
+        /// Frame-based ATM Transport over Ethernet
+        pub const ATMFATE = 0x8884;
+        /// Port Access Entity (IEEE 802.1X)
+        pub const PAE = 0x888E;
+        /// PROFINET
+        pub const PROFINET = 0x8892;
+        /// Multiple proprietary protocols
+        pub const REALTEK = 0x8899;
+        /// ATA over Ethernet
+        pub const AOE = 0x88A2;
+        /// EtherCAT
+        pub const ETHERCAT = 0x88A4;
+        /// 802.1ad Service VLAN
+        pub const @"8021AD" = 0x88A8;
+        /// 802.1 Local Experimental 1.
+        pub const @"802_EX1" = 0x88B5;
+        /// 802.11 Preauthentication
+        pub const PREAUTH = 0x88C7;
+        /// TIPC
+        pub const TIPC = 0x88CA;
+        /// Link Layer Discovery Protocol
+        pub const LLDP = 0x88CC;
+        /// Media Redundancy Protocol
+        pub const MRP = 0x88E3;
+        /// 802.1ae MACsec
+        pub const MACSEC = 0x88E5;
+        /// 802.1ah Backbone Service Tag
+        pub const @"8021AH" = 0x88E7;
+        /// 802.1Q MVRP
+        pub const MVRP = 0x88F5;
+        /// IEEE 1588 Timesync
+        pub const @"1588" = 0x88F7;
+        /// NCSI protocol
+        pub const NCSI = 0x88F8;
+        /// IEC 62439-3 PRP/HSRv0
+        pub const PRP = 0x88FB;
+        /// Connectivity Fault Management
+        pub const CFM = 0x8902;
+        /// Fibre Channel over Ethernet
+        pub const FCOE = 0x8906;
+        /// Infiniband over Ethernet
+        pub const IBOE = 0x8915;
+        /// TDLS
+        pub const TDLS = 0x890D;
+        /// FCoE Initialization Protocol
+        pub const FIP = 0x8914;
+        /// IEEE 802.21 Media Independent Handover Protocol
+        pub const @"80221" = 0x8917;
+        /// IEC 62439-3 HSRv1
+        pub const HSR = 0x892F;
+        /// Network Service Header
+        pub const NSH = 0x894F;
+        /// Ethernet loopback packet, per IEEE 802.3
+        pub const LOOPBACK = 0x9000;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ1 = 0x9100;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ2 = 0x9200;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ3 = 0x9300;
+        /// Ethertype DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const EDSA = 0xDADA;
+        /// Fake VLAN Header for DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_8021Q = 0xDADB;
+        /// A5PSW Tag Value [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_A5PSW = 0xE001;
+        /// ForCES inter-FE LFB type
+        pub const IFE = 0xED3E;
+        /// IBM af_iucv [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const AF_IUCV = 0xFBFB;
+        /// If the value in the ethernet type is more than this value then the frame is Ethernet II. Else it is 802.3
+        pub const @"802_3_MIN" = 0x0600;
+
+        // Non DIX types. Won't clash for 1500 types.
+
+        /// Dummy type for 802.3 frames
+        pub const @"802_3" = 0x0001;
+        /// Dummy protocol id for AX.25
+        pub const AX25 = 0x0002;
+        /// Every packet (be careful!!!)
+        pub const ALL = 0x0003;
+        /// 802.2 frames
+        pub const @"802_2" = 0x0004;
+        /// Internal only
+        pub const SNAP = 0x0005;
+        /// DEC DDCMP: Internal only
+        pub const DDCMP = 0x0006;
+        /// Dummy type for WAN PPP frames
+        pub const WAN_PPP = 0x0007;
+        /// Dummy type for PPP MP frames
+        pub const PPP_MP = 0x0008;
+        /// Localtalk pseudo type
+        pub const LOCALTALK = 0x0009;
+        /// CAN: Controller Area Network
+        pub const CAN = 0x000C;
+        /// CANFD: CAN flexible data rate
+        pub const CANFD = 0x000D;
+        /// CANXL: eXtended frame Length
+        pub const CANXL = 0x000E;
+        /// Dummy type for Atalk over PPP
+        pub const PPPTALK = 0x0010;
+        /// 802.2 frames
+        pub const TR_802_2 = 0x0011;
+        /// Mobitex (kaz@cafe.net)
+        pub const MOBITEX = 0x0015;
+        /// Card specific control frames
+        pub const CONTROL = 0x0016;
+        /// Linux-IrDA
+        pub const IRDA = 0x0017;
+        /// Acorn Econet
+        pub const ECONET = 0x0018;
+        /// HDLC frames
+        pub const HDLC = 0x0019;
+        /// 1A for ArcNet :-)
+        pub const ARCNET = 0x001A;
+        /// Distributed Switch Arch.
+        pub const DSA = 0x001B;
+        /// Trailer switch tagging
+        pub const TRAILER = 0x001C;
+        /// Nokia Phonet frames
+        pub const PHONET = 0x00F5;
+        /// IEEE802.15.4 frame
+        pub const IEEE802154 = 0x00F6;
+        /// ST-Ericsson CAIF protocol
+        pub const CAIF = 0x00F7;
+        /// Multiplexed DSA protocol
+        pub const XDSA = 0x00F8;
+        /// Qualcomm multiplexing and aggregation protocol
+        pub const MAP = 0x00F9;
+        /// Management component transport protocol packets
+        pub const MCTP = 0x00FA;
+    };
+};
+
 pub const MSG = struct {
     pub const OOB = 0x0001;
     pub const PEEK = 0x0002;
