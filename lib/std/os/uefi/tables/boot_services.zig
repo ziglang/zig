@@ -155,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: *?*anyopaque) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: ?*?EventRegistration) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -377,11 +377,6 @@ pub const BootServices = extern struct {
         mem_type: MemoryType,
         pages: usize,
     ) AllocatePagesError![]align(4096) Page {
-        if (mem_type == .persistent_memory or
-            mem_type == .unaccepted_memory or
-            mem_type.isInvalid())
-            return Error.InvalidParameter;
-
         var ptr: [*]align(4096) Page = switch (location) {
             .allocate_any_pages => undefined,
             .allocate_address, .allocate_max_address => |ptr| ptr,
@@ -457,9 +452,6 @@ pub const BootServices = extern struct {
         size: usize,
     ) AllocatePoolError![]align(8) u8 {
         var ptr: [*]align(8) u8 = undefined;
-
-        if (pool_type == .persistent_memory or pool_type.isInvalid())
-            return Error.InvalidParameter;
 
         switch (self._allocatePool(pool_type, size, &ptr)) {
             .success => return ptr[0..size],
@@ -682,13 +674,13 @@ pub const BootServices = extern struct {
         if (!@hasDecl(Protocol, "guid"))
             @compileError("Protocol is missing guid");
 
-        var registration: *anyopaque = undefined;
+        var registration: EventRegistration = undefined;
         switch (self._registerProtocolNotify(
             &Protocol.guid,
             event,
             &registration,
         )) {
-            .success => return EventRegistration.fromPtr(registration),
+            .success => return registration,
             .out_of_resources => return Error.OutOfResources,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
@@ -696,7 +688,7 @@ pub const BootServices = extern struct {
     }
 
     /// Returns the number of handles that match the given search criteria.
-    pub fn numHandles(self: *const BootServices, search: LocateSearch) NumHandlesError!usize {
+    pub fn locateHandleLen(self: *const BootServices, search: LocateSearch) NumHandlesError!usize {
         var len: usize = 0;
         switch (self._locateHandle(
             std.meta.activeTag(search),
@@ -711,7 +703,7 @@ pub const BootServices = extern struct {
         }
     }
 
-    /// To determine the necessary size of `buffer`, call `numHandles` first.
+    /// To determine the necessary size of `buffer`, call `locateHandleLen` first.
     pub fn locateHandle(
         self: *BootServices,
         search: LocateSearch,
@@ -853,6 +845,10 @@ pub const BootServices = extern struct {
         };
     }
 
+    pub const ExitError = uefi.UnexpectedError || error{
+        InvalidParameter,
+    };
+
     /// `data` may be a [*:0]const u16 immediately following additional data of
     /// any format. The string is a description that the caller may use to further
     /// indicate the reason for the image’s exit. `data` is only valid if `status`
@@ -862,13 +858,17 @@ pub const BootServices = extern struct {
         handle: Handle,
         status: Status,
         data: ?[]const u8,
-    ) noreturn {
-        self._exit(
+    ) ExitError!void {
+        switch (self._exit(
             handle,
             status,
             if (data) |d| d.len else 0,
-            if (data) |d| d.ptr else null,
-        );
+            if (data) |d| @ptrCast(d.ptr) else null,
+        )) {
+            .success => {},
+            .invalid_parameter => return error.InvalidParameter,
+            else => |exit_status| return uefi.unexpectedStatus(exit_status),
+        }
     }
 
     /// The result is the exit code of the unload handler. Any error codes are
@@ -937,7 +937,7 @@ pub const BootServices = extern struct {
     pub fn connectController(
         self: *BootServices,
         controller: Handle,
-        driver_image: ?[*]Handle,
+        driver_image: ?[*:null]?Handle,
         remaining_device_path: ?*const DevicePathProtocol,
         recursive: bool,
     ) ConnectControllerError!void {
@@ -992,12 +992,12 @@ pub const BootServices = extern struct {
             inline else => |arg| .{ arg.agent, arg.controller },
         };
 
-        var ptr: *Protocol = undefined;
+        var ptr: ?*Protocol = undefined;
 
         switch (self._openProtocol(
             handle,
             &Protocol.guid,
-            @as(**anyopaque, @ptrCast(&ptr)),
+            @as(*?*anyopaque, @ptrCast(&ptr)),
             agent_handle,
             controller_handle,
             std.meta.activeTag(attributes),
@@ -1104,7 +1104,7 @@ pub const BootServices = extern struct {
 
         switch (self._locateProtocol(
             &Protocol.guid,
-            if (registration) |reg| reg.toPtr() else null,
+            registration,
             &interface,
         )) {
             .success => return interface,
@@ -1178,10 +1178,10 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         data: []const u8,
     ) CalculateCrc32Error!u32 {
-        if (data.len == 0) return Error.InvalidParameter;
         var value: u32 = undefined;
         switch (self._calculateCrc32(data.ptr, data.len, &value)) {
             .success => return value,
+            .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

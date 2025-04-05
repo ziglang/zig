@@ -107,7 +107,7 @@ pub const MemoryMapSlice = struct {
     }
 
     pub fn get(self: MemoryMapSlice, index: usize) ?*MemoryDescriptor {
-        if (index >= self.info.len) return null;
+        if (index * self.info.descriptor_size >= self.info.len) return null;
         return self.getUnchecked(index);
     }
 
