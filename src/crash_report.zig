@@ -80,7 +80,7 @@ fn dumpStatusReport() !void {
     var fba = std.heap.FixedBufferAllocator.init(&crash_heap);
     const allocator = fba.allocator();
 
-    const stderr = io.getStdErr().writer();
+    const stderr = std.fs.File.stderr.writer().unbuffered();
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
@@ -271,8 +271,7 @@ const StackContext = union(enum) {
                 debug.dumpStackTraceFromBase(context);
             },
             .not_supported => {
-                const stderr = io.getStdErr().writer();
-                stderr.writeAll("Stack trace not supported on this platform.\n") catch {};
+                std.fs.File.stderr().writeAll("Stack trace not supported on this platform.\n") catch {};
             },
         }
     }
@@ -379,7 +378,7 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_mutex;
 
-        const stderr = io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer().unbuffered();
         if (builtin.single_threaded) {
             stderr.print("panic: ", .{}) catch goTo(releaseMutex, .{state});
         } else {
@@ -406,7 +405,7 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .release_mutex;
-        const stderr = io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer().unbuffered();
         stderr.writeAll("\nOriginal Error:\n") catch {};
         goTo(reportStack, .{state});
     }
@@ -477,7 +476,7 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .silent_abort;
-        const stderr = io.getStdErr().writer();
+        var stderr = std.fs.File.stderr().writer().unbuffered();
         stderr.writeAll("Aborting...\n") catch {};
         goTo(abort, .{});
     }
@@ -505,7 +504,7 @@ const PanicSwitch = struct {
                 // lower the verbosity, and restore it at the end if we don't panic.
                 state.recover_verbosity = .message_only;
 
-                const stderr = io.getStdErr().writer();
+                var stderr = std.fs.File.stderr().writer().unbuffered();
                 stderr.writeAll("\nPanicked during a panic: ") catch {};
                 stderr.writeAll(msg) catch {};
                 stderr.writeAll("\nInner panic stack:\n") catch {};
@@ -519,7 +518,7 @@ const PanicSwitch = struct {
             .message_only => {
                 state.recover_verbosity = .silent;
 
-                const stderr = io.getStdErr().writer();
+                var stderr = std.fs.File.stderr().writer().unbuffered();
                 stderr.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
                 stderr.writeAll(msg) catch {};
                 stderr.writeAll("\n") catch {};

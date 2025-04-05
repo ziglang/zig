@@ -163,13 +163,13 @@ fn prune(elf_file: *Elf) void {
 }
 
 pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
-    const stderr = std.io.getStdErr().writer();
+    var stderr = std.debug.lockStdErr2(&.{});
+    defer std.debug.unlockStdErr();
     for (elf_file.objects.items) |index| {
         const file = elf_file.file(index).?;
         for (file.atoms()) |atom_index| {
             const atom = file.atom(atom_index) orelse continue;
             if (!atom.alive)
-                // TODO should we simply print to stderr?
                 try stderr.print("link: removing unused section '{s}' in file '{}'\n", .{
                     atom.name(elf_file),
                     atom.file(elf_file).?.fmtPath(),

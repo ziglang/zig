@@ -304,7 +304,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        var stderr = std.debug.lockStdErr2();
+        var stderr = std.debug.lockStdErr2(&.{});
         defer std.debug.unlockStdErr();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
@@ -325,7 +325,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(.stderr()));
             return error.AroPreprocessorFailed;
         }
     }

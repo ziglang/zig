@@ -1643,10 +1643,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     var buffer: [4096]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
-        .unbuffered_writer = std.io.getStdOut().writer(),
-        .buffer = &buffer,
-    };
+    var bw: std.io.BufferedWriter = std.fs.File.stdout().writer().buffered(&buffer);
     for (all_files) |hashed_file| {
         try bw.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind), &hashed_file.hash, hashed_file.normalized_path,

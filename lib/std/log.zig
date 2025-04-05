@@ -47,7 +47,7 @@
 //!     // Print the message to stderr, silently ignoring any errors
 //!     std.debug.lockStdErr();
 //!     defer std.debug.unlockStdErr();
-//!     const stderr = std.io.getStdErr().writer();
+//!     const stderr = std.fs.File.stderr().writer();
 //!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
 //!
@@ -149,11 +149,7 @@ pub fn defaultLog(
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     var buffer: [1024]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
-        .unbuffered_writer = std.io.getStdErr().writer(),
-        .buffer = &buffer,
-    };
-    std.debug.lockStdErr();
+    var bw: std.io.BufferedWriter = std.debug.lockStdErr2(&buffer);
     defer std.debug.unlockStdErr();
     nosuspend {
         bw.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;

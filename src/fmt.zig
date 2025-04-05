@@ -49,7 +49,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    try std.io.getStdOut().writeAll(usage_fmt);
+                    try std.fs.File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -89,8 +89,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = std.io.getStdIn();
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, .stdin(), null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -145,7 +144,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             process.exit(code);
         }
 
-        return std.io.getStdOut().writeAll(formatted);
+        return std.fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
@@ -153,10 +152,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout: std.io.BufferedWriter = .{
-        .buffer = &stdout_buffer,
-        .unbuffered_writer = std.io.getStdOut().writer(),
-    };
+    var stdout: std.io.BufferedWriter = std.fs.File.stdout().writer().buffered(&stdout_buffer);
 
     var fmt: Fmt = .{
         .gpa = gpa,

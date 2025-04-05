@@ -48,7 +48,7 @@ pub const Color = enum {
 
     pub fn get_tty_conf(color: Color) std.io.tty.Config {
         return switch (color) {
-            .auto => std.io.tty.detectConfig(std.io.getStdErr()),
+            .auto => std.io.tty.detectConfig(.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
