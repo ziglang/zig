@@ -27,7 +27,7 @@ const TestTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     pic: ?bool = null,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
     skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile, or require a newer LLVM
@@ -119,7 +119,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
-            .strip = true,
+            .strip = .all,
         },
         // Doesn't support new liveness
         //.{
@@ -893,7 +893,7 @@ const CAbiTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     pic: ?bool = null,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
     c_defines: []const []const u8 = &.{},
 };
 
@@ -925,7 +925,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
-        .strip = true,
+        .strip = .all,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{

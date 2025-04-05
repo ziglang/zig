@@ -4028,8 +4028,10 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("--no-gc-sections");
         }
 
-        if (comp.config.debug_format == .strip) {
-            try argv.append("-s");
+        switch (comp.config.root_strip) {
+            .none => {},
+            .debug_info => try argv.append("-S"),
+            .all => try argv.append("-s"),
         }
 
         if (wasm.initial_memory) |initial_memory| {
