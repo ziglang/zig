@@ -90,13 +90,21 @@ pub const TargetMachine = opaque {
         time_report: bool,
         tsan: bool,
         sancov: bool,
-        lto: bool,
+        lto: LtoPhase,
         allow_fast_isel: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
         coverage: Coverage,
+
+        pub const LtoPhase = enum(c_int) {
+            None,
+            ThinPreLink,
+            ThinPostLink,
+            FullPreLink,
+            FullPostLink,
+        };
 
         pub const Coverage = extern struct {
             CoverageType: Coverage.Type,

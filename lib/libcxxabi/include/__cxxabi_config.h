@@ -103,4 +103,10 @@
 #define _LIBCXXABI_DTOR_FUNC
 #endif
 
+#if __cplusplus < 201103L
+#  define _LIBCXXABI_NOEXCEPT throw()
+#else
+#  define _LIBCXXABI_NOEXCEPT noexcept
+#endif
+
 #endif // ____CXXABI_CONFIG_H

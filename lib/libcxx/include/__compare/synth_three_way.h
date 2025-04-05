@@ -43,7 +43,8 @@ _LIBCPP_HIDE_FROM_ABI inline constexpr auto __synth_three_way = []<class _Tp, cl
 };
 
 template <class _Tp, class _Up = _Tp>
-using __synth_three_way_result = decltype(std::__synth_three_way(std::declval<_Tp&>(), std::declval<_Up&>()));
+using __synth_three_way_result _LIBCPP_NODEBUG =
+    decltype(std::__synth_three_way(std::declval<_Tp&>(), std::declval<_Up&>()));
 
 #endif // _LIBCPP_STD_VER >= 20
 

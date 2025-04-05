@@ -10,6 +10,8 @@
 #define _LIBCPP___UTILITY_SWAP_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_nothrow_assignable.h>
@@ -17,7 +19,6 @@
 #include <__type_traits/is_swappable.h>
 #include <__utility/declval.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -30,10 +31,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Tp>
-using __swap_result_t = __enable_if_t<is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value>;
+using __swap_result_t _LIBCPP_NODEBUG =
+    __enable_if_t<is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value>;
 #else
 template <class>
-using __swap_result_t = void;
+using __swap_result_t _LIBCPP_NODEBUG = void;
 #endif
 
 template <class _Tp>

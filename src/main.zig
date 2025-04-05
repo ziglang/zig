@@ -2217,18 +2217,19 @@ fn buildOutputType(
                         mod_opts.strip = false;
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     },
-                    .sanitize => {
+                    .sanitize, .no_sanitize => |t| {
+                        const enable = t == .sanitize;
                         var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
                         var recognized_any = false;
                         while (san_it.next()) |sub_arg| {
                             if (mem.eql(u8, sub_arg, "undefined")) {
-                                mod_opts.sanitize_c = true;
+                                mod_opts.sanitize_c = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "thread")) {
-                                mod_opts.sanitize_thread = true;
+                                mod_opts.sanitize_thread = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "fuzzer") or mem.eql(u8, sub_arg, "fuzzer-no-link")) {
-                                mod_opts.fuzz = true;
+                                mod_opts.fuzz = enable;
                                 recognized_any = true;
                             }
                         }
@@ -5904,6 +5905,7 @@ pub const ClangArgIterator = struct {
         gdwarf32,
         gdwarf64,
         sanitize,
+        no_sanitize,
         linker_script,
         dry_run,
         verbose,

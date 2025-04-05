@@ -23,7 +23,7 @@ class _LIBCPP_TEMPLATE_VIS basic_streambuf;
 
 using streambuf = basic_streambuf<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wstreambuf = basic_streambuf<wchar_t>;
 #endif
 

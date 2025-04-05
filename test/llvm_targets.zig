@@ -114,6 +114,8 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .gnuf32 },
     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .gnusf },
     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .musl },
+    // .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .muslf32 },
+    .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .muslsf },
     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .none },
     // .{ .cpu_arch = .loongarch64, .os_tag = .uefi, .abi = .none },
 

@@ -235,30 +235,34 @@ uintmax_t wcstoumax(const wchar_t* restrict nptr, wchar_t** restrict endptr, int
 
 */
 
-#include <__config>
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/inttypes.h>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 /* C99 stdlib (e.g. glibc < 2.18) does not provide format macros needed
    for C++11 unless __STDC_FORMAT_MACROS is defined
 */
-#if defined(__cplusplus) && !defined(__STDC_FORMAT_MACROS)
-#  define __STDC_FORMAT_MACROS
-#endif
+#  if defined(__cplusplus) && !defined(__STDC_FORMAT_MACROS)
+#    define __STDC_FORMAT_MACROS
+#  endif
 
-#if __has_include_next(<inttypes.h>)
-#  include_next <inttypes.h>
-#endif
+#  if __has_include_next(<inttypes.h>)
+#    include_next <inttypes.h>
+#  endif
 
-#ifdef __cplusplus
+#  ifdef __cplusplus
 
-#  include <stdint.h>
+#    include <stdint.h>
 
-#  undef imaxabs
-#  undef imaxdiv
+#    undef imaxabs
+#    undef imaxdiv
 
-#endif // __cplusplus
+#  endif // __cplusplus
+#endif   // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_INTTYPES_H

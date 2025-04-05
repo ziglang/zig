@@ -13,9 +13,11 @@ pub const Feature = enum {
     aes,
     atomics_32,
     avoid_movs_shop,
+    avoid_muls,
     avoid_partial_cpsr,
     bf16,
     big_endian_instructions,
+    branch_align_64,
     cde,
     cdecp0,
     cdecp1,
@@ -27,6 +29,7 @@ pub const Feature = enum {
     cdecp7,
     cheap_predicable_cpsr,
     clrbhb,
+    cortex_a510,
     crc,
     crypto,
     d32,
@@ -84,6 +87,7 @@ pub const Feature = enum {
     has_v9_3a,
     has_v9_4a,
     has_v9_5a,
+    has_v9_6a,
     has_v9a,
     hwdiv,
     hwdiv_arm,
@@ -93,6 +97,8 @@ pub const Feature = enum {
     lob,
     long_calls,
     loop_align,
+    m55,
+    m85,
     mclass,
     mp,
     muxed_units,
@@ -180,6 +186,7 @@ pub const Feature = enum {
     v9_3a,
     v9_4a,
     v9_5a,
+    v9_6a,
     v9a,
     vfp2,
     vfp2sp,
@@ -252,6 +259,11 @@ pub const all_features = blk: {
         .description = "Avoid movs instructions with shifter operand",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.avoid_muls)] = .{
+        .llvm_name = "avoid-muls",
+        .description = "Avoid MULS instructions for M class cores",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.avoid_partial_cpsr)] = .{
         .llvm_name = "avoid-partial-cpsr",
         .description = "Avoid CPSR partial update for OOO execution",
@@ -267,6 +279,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.big_endian_instructions)] = .{
         .llvm_name = "big-endian-instructions",
         .description = "Expect instructions to be stored big-endian.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.branch_align_64)] = .{
+        .llvm_name = "branch-align-64",
+        .description = "Prefer 64-bit alignment for branch targets",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.cde)] = .{
@@ -340,6 +357,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.clrbhb)] = .{
         .llvm_name = "clrbhb",
         .description = "Enable Clear BHB instruction",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.cortex_a510)] = .{
+        .llvm_name = "cortex-a510",
+        .description = "Cortex-A510 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.crc)] = .{
@@ -719,6 +741,13 @@ pub const all_features = blk: {
             .has_v9_4a,
         }),
     };
+    result[@intFromEnum(Feature.has_v9_6a)] = .{
+        .llvm_name = "v9.6a",
+        .description = "Support ARM v9.6a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v9_5a,
+        }),
+    };
     result[@intFromEnum(Feature.has_v9a)] = .{
         .llvm_name = "v9a",
         .description = "Support ARM v9a instructions",
@@ -769,7 +798,17 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.loop_align)] = .{
         .llvm_name = "loop-align",
-        .description = "Prefer 32-bit alignment for loops",
+        .description = "Prefer 32-bit alignment for branch targets",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.m55)] = .{
+        .llvm_name = "m55",
+        .description = "Cortex-M55 ARM processors",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.m85)] = .{
+        .llvm_name = "m85",
+        .description = "Cortex-M85 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mclass)] = .{
@@ -1524,6 +1563,22 @@ pub const all_features = blk: {
             .virtualization,
         }),
     };
+    result[@intFromEnum(Feature.v9_6a)] = .{
+        .llvm_name = "armv9.6-a",
+        .description = "ARMv96a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9_6a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
     result[@intFromEnum(Feature.v9a)] = .{
         .llvm_name = "armv9-a",
         .description = "ARMv9a architecture",
@@ -1950,6 +2005,16 @@ pub const cpu = struct {
             .vmlx_forwarding,
         }),
     };
+    pub const cortex_a510: CpuModel = .{
+        .name = "cortex_a510",
+        .llvm_name = "cortex-a510",
+        .features = featureSet(&[_]Feature{
+            .bf16,
+            .fp16fml,
+            .i8mm,
+            .v9a,
+        }),
+    };
     pub const cortex_a53: CpuModel = .{
         .name = "cortex_a53",
         .llvm_name = "cortex-a53",
@@ -2162,6 +2227,7 @@ pub const cpu = struct {
         .name = "cortex_m33",
         .llvm_name = "cortex-m33",
         .features = featureSet(&[_]Feature{
+            .avoid_muls,
             .fix_cmse_cve_2021_35465,
             .loop_align,
             .no_branch_predictor,
@@ -2218,6 +2284,7 @@ pub const cpu = struct {
             .dsp,
             .fix_cmse_cve_2021_35465,
             .loop_align,
+            .m55,
             .no_branch_predictor,
             .slowfpvmlx,
             .use_misched,
@@ -2228,6 +2295,7 @@ pub const cpu = struct {
         .name = "cortex_m7",
         .llvm_name = "cortex-m7",
         .features = featureSet(&[_]Feature{
+            .branch_align_64,
             .use_mipipeliner,
             .use_misched,
             .v7em,
@@ -2237,7 +2305,9 @@ pub const cpu = struct {
         .name = "cortex_m85",
         .llvm_name = "cortex-m85",
         .features = featureSet(&[_]Feature{
+            .branch_align_64,
             .dsp,
+            .m85,
             .use_misched,
             .v8_1m_main,
         }),
@@ -2570,6 +2640,21 @@ pub const cpu = struct {
             .no_branch_predictor,
             .use_misched,
             .v7m,
+        }),
+    };
+    pub const star_mc1: CpuModel = .{
+        .name = "star_mc1",
+        .llvm_name = "star-mc1",
+        .features = featureSet(&[_]Feature{
+            .dsp,
+            .fix_cmse_cve_2021_35465,
+            .fp_armv8d16sp,
+            .loop_align,
+            .no_branch_predictor,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .use_misched,
+            .v8m_main,
         }),
     };
     pub const strongarm: CpuModel = .{

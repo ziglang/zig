@@ -23,6 +23,7 @@ namespace __sanitizer {
 COMPILER_CHECK(errno_ENOMEM == ENOMEM);
 COMPILER_CHECK(errno_EBUSY == EBUSY);
 COMPILER_CHECK(errno_EINVAL == EINVAL);
+COMPILER_CHECK(errno_ERANGE == ERANGE);
 
 // EOWNERDEAD is not present in some older platforms.
 #if defined(EOWNERDEAD)

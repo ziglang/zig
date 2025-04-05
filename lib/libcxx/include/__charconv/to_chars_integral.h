@@ -18,14 +18,15 @@
 #include <__charconv/to_chars_result.h>
 #include <__charconv/traits.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__system_error/errc.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/make_32_64_or_128_bit.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/unreachable.h>
-#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -70,7 +71,7 @@ __to_chars_itoa(char* __first, char* __last, _Tp __value, false_type) {
     return {__last, errc::value_too_large};
 }
 
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 template <>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI to_chars_result
 __to_chars_itoa(char* __first, char* __last, __uint128_t __value, false_type) {

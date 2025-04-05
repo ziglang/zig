@@ -21,13 +21,12 @@ void __sort(RandomAccessIterator first, RandomAccessIterator last, Comp comp) {
   std::__introsort<_ClassicAlgPolicy,
                    ranges::less,
                    RandomAccessIterator,
-                   __use_branchless_sort<ranges::less, RandomAccessIterator>::value>(
-      first, last, ranges::less{}, depth_limit);
+                   __use_branchless_sort<ranges::less, RandomAccessIterator>>(first, last, ranges::less{}, depth_limit);
 }
 
 // clang-format off
 template void __sort<__less<char>&, char*>(char*, char*, __less<char>&);
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template void __sort<__less<wchar_t>&, wchar_t*>(wchar_t*, wchar_t*, __less<wchar_t>&);
 #endif
 template void __sort<__less<signed char>&, signed char*>(signed char*, signed char*, __less<signed char>&);

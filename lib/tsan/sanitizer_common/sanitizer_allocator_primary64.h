@@ -185,9 +185,10 @@ class SizeClassAllocator64 {
     // recoverable.
     if (UNLIKELY(!EnsureFreeArraySpace(region, region_beg,
                                        new_num_freed_chunks))) {
-      Report("FATAL: Internal error: %s's allocator exhausted the free list "
-             "space for size class %zd (%zd bytes).\n", SanitizerToolName,
-             class_id, ClassIdToSize(class_id));
+      Report(
+          "FATAL: Internal error: %s's allocator exhausted the free list "
+          "space for size class %zu (%zu bytes).\n",
+          SanitizerToolName, class_id, ClassIdToSize(class_id));
       Die();
     }
     for (uptr i = 0; i < n_chunks; i++)
@@ -763,8 +764,9 @@ class SizeClassAllocator64 {
     if (!region->exhausted) {
       region->exhausted = true;
       Printf("%s: Out of memory. ", SanitizerToolName);
-      Printf("The process has exhausted %zuMB for size class %zu.\n",
-             kRegionSize >> 20, ClassIdToSize(class_id));
+      Printf(
+          "The process has exhausted %zu MB for size class %zu (%zu bytes).\n",
+          kRegionSize >> 20, class_id, ClassIdToSize(class_id));
     }
     return true;
   }
