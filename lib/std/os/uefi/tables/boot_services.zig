@@ -116,7 +116,7 @@ pub const BootServices = extern struct {
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const anyopaque) callconv(cc) noreturn,
+    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const u16) callconv(cc) Status,
 
     /// Unloads an image.
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
@@ -134,13 +134,13 @@ pub const BootServices = extern struct {
     _setWatchdogTimer: *const fn (timeout: usize, watchdog_code: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(cc) Status,
 
     /// Connects one or more drives to a controller.
-    _connectController: *const fn (controller_handle: Handle, driver_image_handle: ?[*]Handle, remaining_device_path: ?*const DevicePathProtocol, recursive: bool) callconv(cc) Status,
+    _connectController: *const fn (controller_handle: Handle, driver_image_handle: ?[*:null]?Handle, remaining_device_path: ?*const DevicePathProtocol, recursive: bool) callconv(cc) Status,
 
     // Disconnects one or more drivers from a controller
     _disconnectController: *const fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(cc) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
-    _openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ?**anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
+    _openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ?*?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
     _closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
