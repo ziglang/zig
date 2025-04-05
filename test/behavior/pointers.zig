@@ -760,3 +760,23 @@ test "comptime pointer equality through distinct elements with well-defined layo
     comptime assert(buf[1] == 456);
     comptime assert(second_elem.* == 456);
 }
+
+test "pointers to elements of slice of zero-bit type" {
+    var slice: []const u0 = undefined;
+    slice = &.{ 0, 0 };
+
+    const a = &slice[0];
+    const b = &slice[1];
+
+    try expect(a == b);
+}
+
+test "pointers to elements of many-ptr to zero-bit type" {
+    var many_ptr: [*]const u0 = undefined;
+    many_ptr = &.{ 0, 0 };
+
+    const a = &many_ptr[0];
+    const b = &many_ptr[1];
+
+    try expect(a == b);
+}
