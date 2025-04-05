@@ -311,6 +311,33 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
+
+    pub fn format(
+        id: BuildId,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, id);
+        switch (id) {
+            .none, .fast, .uuid, .sha1, .md5 => {
+                try writer.writeAll(@tagName(id));
+            },
+            .hexstring => |hs| {
+                try writer.print("0x{}", .{std.fmt.fmtSliceHexLower(hs.toSlice())});
+            },
+        }
+    }
+
+    test format {
+        try std.testing.expectFmt("none", "{}", .{@as(BuildId, .none)});
+        try std.testing.expectFmt("fast", "{}", .{@as(BuildId, .fast)});
+        try std.testing.expectFmt("uuid", "{}", .{@as(BuildId, .uuid)});
+        try std.testing.expectFmt("sha1", "{}", .{@as(BuildId, .sha1)});
+        try std.testing.expectFmt("md5", "{}", .{@as(BuildId, .md5)});
+        try std.testing.expectFmt("0x", "{}", .{BuildId.initHexString("")});
+        try std.testing.expectFmt("0x1234cdef", "{}", .{BuildId.initHexString("\x12\x34\xcd\xef")});
+    }
 };
 
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
