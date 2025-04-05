@@ -179,7 +179,9 @@ pub fn main() anyerror!void {
 
     const gpa_instance = if (build_options.debug_gpa) &debug_allocator else &auto_allocator;
     const gpa = gpa_instance.allocator();
-    defer _ = gpa_instance.deinit();
+    // See #22984 - Currently it is irrelevant if we leak allocator state on exit since we are
+    // already leaking allocations. Disabling this temporarily avoids those error message.
+    // defer _ = gpa_instance.deinit();
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
