@@ -266,7 +266,8 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             // separately.".
             const ty_size = ty.abiSize(zcu);
             switch (ty.containerLayout(zcu)) {
-                .auto, .@"extern" => {},
+                .auto => unreachable,
+                .@"extern" => {},
                 .@"packed" => {
                     assert(ty_size <= 16);
                     result[0] = .integer;
@@ -345,7 +346,8 @@ fn classifySystemVStruct(
         );
         if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
@@ -353,7 +355,8 @@ fn classifySystemVStruct(
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },
@@ -386,7 +389,8 @@ fn classifySystemVUnion(
         const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
         if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
@@ -394,7 +398,8 @@ fn classifySystemVUnion(
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },
