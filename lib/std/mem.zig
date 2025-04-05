@@ -2131,6 +2131,44 @@ test writeVarPackedInt {
     try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
 }
 
+/// Returns the minimum number of bytes needed to store `num_elements`
+/// of `T` without any padding bits between elements.
+/// Uses `@bitSizeOf` to determine the width of `T`.
+pub fn packedArrayByteLen(comptime T: type, num_elements: usize) error{Overflow}!usize {
+    if (@bitSizeOf(T) == 0) return 0;
+    const extra_bits_needed = std.math.log2(@bitSizeOf(T) - 1) + 1;
+    const IntermediateInt = std.meta.Int(.unsigned, @bitSizeOf(usize) + extra_bits_needed);
+    const total_bits = @bitSizeOf(T) * @as(IntermediateInt, num_elements);
+    const byte_len = std.math.divCeil(IntermediateInt, total_bits, byte_size_in_bits) catch unreachable;
+    return std.math.cast(usize, byte_len) orelse error.Overflow;
+}
+
+test packedArrayByteLen {
+    try std.testing.expectEqual(0, try packedArrayByteLen(u0, std.math.maxInt(usize)));
+    try std.testing.expectEqual(5857, try packedArrayByteLen(u21, 2231));
+    try std.testing.expectEqual(5857, comptime packedArrayByteLen(u21, 2231) catch unreachable);
+    const S = packed struct(u21) {
+        a: u17,
+        b: u4,
+    };
+    try std.testing.expectEqual(5857, try packedArrayByteLen(S, 2231));
+    try std.testing.expectEqual(5857, comptime packedArrayByteLen(S, 2231) catch unreachable);
+
+    try std.testing.expectEqual(std.math.divCeil(usize, std.math.maxInt(usize), 2), try packedArrayByteLen(u4, std.math.maxInt(usize)));
+    try std.testing.expectEqual(switch (@bitSizeOf(usize)) {
+        32 => 3758096384,
+        64 => 16140901064495857664,
+        else => @compileError("unsupported target"),
+    }, try packedArrayByteLen(u7, std.math.maxInt(usize)));
+    try std.testing.expectEqual(std.math.maxInt(usize), try packedArrayByteLen(u8, std.math.maxInt(usize)));
+    try std.testing.expectError(error.Overflow, packedArrayByteLen(u9, std.math.maxInt(usize)));
+
+    const HalfSize = std.meta.Int(.unsigned, @bitSizeOf(usize) / 2);
+    const ExtremelyLargeType = [std.math.maxInt(HalfSize) + 2]u8;
+    try std.testing.expectEqual(std.math.maxInt(usize), packedArrayByteLen(ExtremelyLargeType, std.math.maxInt(HalfSize)));
+    try std.testing.expectEqual(error.Overflow, packedArrayByteLen(ExtremelyLargeType, std.math.maxInt(HalfSize) + 1));
+}
+
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
