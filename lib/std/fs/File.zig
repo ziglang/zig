@@ -1195,11 +1195,13 @@ pub fn readAll(self: File, buffer: []u8) ReadError!usize {
     return index;
 }
 
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
     if (is_windows) {
-        return windows.ReadFile(self.handle, buffer, offset);
+        // On Windows, this would alter the file pointer, so reset it.
+        const curr_pos = self.getPos() catch return error.Unseekable;
+        const n = try windows.ReadFile(self.handle, buffer, offset);
+        self.seekTo(curr_pos) catch return error.Unseekable;
+        return n;
     }
 
     return posix.pread(self.handle, buffer, offset);
@@ -1207,8 +1209,6 @@ pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
 /// means the file reached the end. Reaching the end of a file is not an error condition.
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
     var index: usize = 0;
     while (index != buffer.len) {
@@ -1274,14 +1274,16 @@ pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
 }
 
 /// See https://github.com/ziglang/zig/issues/7699
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!usize {
     if (is_windows) {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
+        // On Windows, this would alter the file pointer, so reset it.
+        const curr_pos = self.getPos() catch return error.Unseekable;
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.base[0..first.len], offset);
+        const n = try windows.ReadFile(self.handle, first.base[0..first.len], offset);
+        self.seekTo(curr_pos) catch return error.Unseekable;
+        return n;
     }
 
     return posix.preadv(self.handle, iovecs, offset);
@@ -1293,8 +1295,6 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying OS layer.
 /// See https://github.com/ziglang/zig/issues/7699
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn preadvAll(self: File, iovecs: []posix.iovec, offset: u64) PReadError!usize {
     if (iovecs.len == 0) return 0;
 
@@ -1334,18 +1334,18 @@ pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
     }
 }
 
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
     if (is_windows) {
-        return windows.WriteFile(self.handle, bytes, offset);
+        // On Windows, this would alter the file pointer, so reset it.
+        const curr_pos = self.getPos() catch return error.Unseekable;
+        const n = try windows.WriteFile(self.handle, bytes, offset);
+        self.seekTo(curr_pos) catch return error.Unseekable;
+        return n;
     }
 
     return posix.pwrite(self.handle, bytes, offset);
 }
 
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
     var index: usize = 0;
     while (index < bytes.len) {
@@ -1400,14 +1400,16 @@ pub fn writevAll(self: File, iovecs: []posix.iovec_const) WriteError!void {
 }
 
 /// See https://github.com/ziglang/zig/issues/7699
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError!usize {
     if (is_windows) {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
+        // On Windows, this would alter the file pointer, so reset it.
+        const curr_pos = self.getPos() catch return error.Unseekable;
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.base[0..first.len], offset);
+        const n = try windows.WriteFile(self.handle, first.base[0..first.len], offset);
+        self.seekTo(curr_pos) catch return error.Unseekable;
+        return n;
     }
 
     return posix.pwritev(self.handle, iovecs, offset);
@@ -1416,8 +1418,6 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial writes from the underlying OS layer.
 /// See https://github.com/ziglang/zig/issues/7699
-/// On Windows, this function currently does alter the file pointer.
-/// https://github.com/ziglang/zig/issues/12783
 pub fn pwritevAll(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError!void {
     if (iovecs.len == 0) return;
 
