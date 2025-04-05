@@ -863,7 +863,7 @@ pub const BootServices = extern struct {
             handle,
             status,
             if (data) |d| d.len else 0,
-            if (data) |d| @ptrCast(d.ptr) else null,
+            if (data) |d| @alignCast(@ptrCast(d.ptr)) else null,
         )) {
             .success => {},
             .invalid_parameter => return error.InvalidParameter,
