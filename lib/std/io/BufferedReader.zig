@@ -421,9 +421,9 @@ pub fn takeByte(br: *BufferedReader) anyerror!u8 {
     return buffer[seek];
 }
 
-/// Same as `readByte` except the returned byte is signed.
+/// Same as `takeByte` except the returned byte is signed.
 pub fn takeByteSigned(br: *BufferedReader) anyerror!i8 {
-    return @bitCast(try br.readByte());
+    return @bitCast(try br.takeByte());
 }
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.

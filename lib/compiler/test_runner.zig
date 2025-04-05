@@ -69,8 +69,8 @@ fn mainServer() !void {
     @disableInstrumentation();
     var server = try std.zig.Server.init(.{
         .gpa = fba.allocator(),
-        .in = std.io.getStdIn(),
-        .out = std.io.getStdOut(),
+        .in = .stdin(),
+        .out = .stdout(),
         .zig_version = builtin.zig_version_string,
     });
     defer server.deinit();
@@ -191,7 +191,7 @@ fn mainTerminal() void {
         .root_name = "Test",
         .estimated_total_items = test_fn_list.len,
     });
-    const have_tty = std.io.getStdErr().isTty();
+    const have_tty = std.fs.File.stderr().isTty();
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly

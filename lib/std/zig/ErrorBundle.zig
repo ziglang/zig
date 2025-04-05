@@ -157,13 +157,9 @@ pub const RenderOptions = struct {
 };
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
     var buffer: [256]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
-        .unbuffered_writer = std.io.getStdErr().writer(),
-        .buffer = &buffer,
-    };
+    var bw = std.debug.lockStdErr2(&buffer);
+    defer std.debug.unlockStdErr();
     renderToWriter(eb, options, &bw) catch return;
     bw.flush() catch return;
 }

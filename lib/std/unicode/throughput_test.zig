@@ -39,7 +39,7 @@ fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().writer();
 
     try stdout.print("short ASCII strings\n", .{});
     {
