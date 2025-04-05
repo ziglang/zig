@@ -353,7 +353,12 @@ pub const RuntimeServices = extern struct {
         reset_status: Status,
         data: []const u8,
     ) noreturn {
-        self._resetSystem(reset_type, reset_status, data.len, @ptrCast(data.ptr));
+        self._resetSystem(
+            reset_type,
+            reset_status,
+            data.len,
+            @alignCast(@ptrCast(data.ptr)),
+        );
     }
 
     pub fn updateCapsule(
