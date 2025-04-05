@@ -8476,18 +8476,19 @@ pub const Metadata = enum(u32) {
                     .type = []const u8,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf([]const u8),
                 };
             }
             fmt_str = fmt_str ++ "(";
             inline for (fields[2..], names) |*field, name| {
                 fmt_str = fmt_str ++ "{[" ++ name ++ "]S}";
+                const T = std.fmt.Formatter(format);
                 field.* = .{
                     .name = name,
-                    .type = std.fmt.Formatter(format),
+                    .type = T,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf(T),
                 };
             }
             fmt_str = fmt_str ++ ")\n";
