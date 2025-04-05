@@ -106,7 +106,7 @@ inline bool __do_getc(FILE* __fp, char* __pbuf) {
   *__pbuf = static_cast<char>(__c);
   return true;
 }
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 inline bool __do_getc(FILE* __fp, wchar_t* __pbuf) {
   wint_t __c = getwc(__fp);
   if (__c == WEOF)
@@ -121,7 +121,7 @@ inline bool __do_ungetc(int __c, FILE* __fp, char __dummy) {
     return false;
   return true;
 }
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 inline bool __do_ungetc(std::wint_t __c, FILE* __fp, wchar_t __dummy) {
   if (ungetwc(__c, __fp) == WEOF)
     return false;
@@ -293,7 +293,7 @@ inline bool __do_fputc(char __c, FILE* __fp) {
     return false;
   return true;
 }
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 inline bool __do_fputc(wchar_t __c, FILE* __fp) {
   // fputwc works regardless of wide/narrow mode of stdout, while
   // fwrite of wchar_t only works if the stream actually has been set

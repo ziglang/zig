@@ -31,7 +31,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#  ifndef _LIBCPP_HAS_NO_THREADS
+#  if _LIBCPP_HAS_THREADS
 
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<__thread_id, _CharT> {
@@ -71,7 +71,7 @@ public:
   __format_spec::__parser<_CharT> __parser_{.__alignment_ = __format_spec::__alignment::__right};
 };
 
-#  endif // !_LIBCPP_HAS_NO_THREADS
+#  endif // _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 

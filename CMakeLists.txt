@@ -132,9 +132,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 19)
-find_package(clang 19)
-find_package(lld 19)
+find_package(llvm 20)
+find_package(clang 20)
+find_package(lld 20)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -444,7 +444,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
-    lib/std/linked_list.zig
     lib/std/log.zig
     lib/std/macho.zig
     lib/std/math.zig
@@ -809,7 +808,7 @@ if(MSVC)
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)

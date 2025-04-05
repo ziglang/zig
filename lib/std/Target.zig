@@ -775,6 +775,8 @@ pub const Abi = enum {
     muslabi64,
     musleabi,
     musleabihf,
+    muslf32,
+    muslsf,
     muslx32,
     msvc,
     itanium,
@@ -949,6 +951,8 @@ pub const Abi = enum {
             .muslabi64,
             .musleabi,
             .musleabihf,
+            .muslf32,
+            .muslsf,
             .muslx32,
             => true,
             else => abi.isOpenHarmony(),
@@ -1919,9 +1923,9 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
-                .bpfel, .bpfeb => &bpf.cpu.v1,
+                .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
-                .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.loongarch64,
                 .m68k => &m68k.cpu.M68000,
@@ -2251,9 +2255,20 @@ pub const DynamicLinker = struct {
                         },
                     }),
 
+                    .loongarch32,
+                    .loongarch64,
+                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (abi) {
+                            .musl => "",
+                            .muslf32 => "-sp",
+                            .muslsf => "-sf",
+                            else => return none,
+                        },
+                    }),
+
                     .aarch64,
                     .aarch64_be,
-                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
                     .m68k,
                     .powerpc64,
                     .powerpc64le,

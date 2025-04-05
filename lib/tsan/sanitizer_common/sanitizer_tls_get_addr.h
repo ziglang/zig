@@ -55,10 +55,6 @@ struct DTLS {
   static_assert(sizeof(DTVBlock) <= 4096UL, "Unexpected block size");
 
   atomic_uintptr_t dtv_block;
-
-  // Auxiliary fields, don't access them outside sanitizer_tls_get_addr.cpp
-  uptr last_memalign_size;
-  uptr last_memalign_ptr;
 };
 
 template <typename Fn>

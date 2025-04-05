@@ -80,7 +80,7 @@ struct __libcpp_is_trivially_equality_comparable_impl<_Tp*, _Up*>
 };
 
 template <class _Tp, class _Up>
-using __libcpp_is_trivially_equality_comparable =
+using __libcpp_is_trivially_equality_comparable _LIBCPP_NODEBUG =
     __libcpp_is_trivially_equality_comparable_impl<__remove_cv_t<_Tp>, __remove_cv_t<_Up> >;
 
 _LIBCPP_END_NAMESPACE_STD

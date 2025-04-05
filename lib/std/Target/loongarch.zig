@@ -8,17 +8,22 @@ pub const Feature = enum {
     @"32bit",
     @"64bit",
     d,
+    div32,
     f,
     frecipe,
     la_global_with_abs,
     la_global_with_pcrel,
     la_local_with_abs,
+    lam_bh,
+    lamcas,
     lasx,
     lbt,
+    ld_seq_sa,
     lsx,
     lvz,
     prefer_w_inst,
     relax,
+    scq,
     ual,
 };
 
@@ -48,6 +53,11 @@ pub const all_features = blk: {
             .f,
         }),
     };
+    result[@intFromEnum(Feature.div32)] = .{
+        .llvm_name = "div32",
+        .description = "Assume div.w[u] and mod.w[u] can handle inputs that are not sign-extended",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.f)] = .{
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
@@ -73,6 +83,16 @@ pub const all_features = blk: {
         .description = "Expand la.local as la.abs",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.lam_bh)] = .{
+        .llvm_name = "lam-bh",
+        .description = "Support amswap[_db].{b/h} and amadd[_db].{b/h} instructions.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.lamcas)] = .{
+        .llvm_name = "lamcas",
+        .description = "Support amcas[_db].{b/h/w/d}.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.lasx)] = .{
         .llvm_name = "lasx",
         .description = "'LASX' (Loongson Advanced SIMD Extension)",
@@ -83,6 +103,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.lbt)] = .{
         .llvm_name = "lbt",
         .description = "'LBT' (Loongson Binary Translation Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ld_seq_sa)] = .{
+        .llvm_name = "ld-seq-sa",
+        .description = "Don't use load-load barrier (dbar 0x700).",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lsx)] = .{
@@ -105,6 +130,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.relax)] = .{
         .llvm_name = "relax",
         .description = "Enable Linker relaxation",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.scq)] = .{
+        .llvm_name = "scq",
+        .description = "Support sc.q instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ual)] = .{
@@ -138,6 +168,7 @@ pub const cpu = struct {
         .llvm_name = "generic-la64",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .lsx,
             .ual,
         }),
     };
@@ -157,10 +188,15 @@ pub const cpu = struct {
         .llvm_name = "la664",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .div32,
             .frecipe,
+            .lam_bh,
+            .lamcas,
             .lasx,
             .lbt,
+            .ld_seq_sa,
             .lvz,
+            .scq,
             .ual,
         }),
     };

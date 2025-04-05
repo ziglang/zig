@@ -41,7 +41,7 @@ _LIBCPP_EXPORTED_FROM_ABI size_t wcsnrtombs(
     size_t dest_remaining = dst_size_bytes - dest_converted;
 
     if (dst == nullptr) {
-      result = wcrtomb(NULL, c, ps);
+      result = wcrtomb(nullptr, c, ps);
     } else if (dest_remaining >= static_cast<size_t>(MB_CUR_MAX)) {
       // dst has enough space to translate in-place.
       result = wcrtomb(dst + dest_converted, c, ps);
@@ -82,7 +82,7 @@ _LIBCPP_EXPORTED_FROM_ABI size_t wcsnrtombs(
 
     if (c == L'\0') {
       if (dst)
-        *src = NULL;
+        *src = nullptr;
       return dest_converted;
     }
   }

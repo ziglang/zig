@@ -26,6 +26,7 @@
 #include <__iterator/iterator_traits.h>
 #include <__iterator/readable_traits.h>
 #include <__memory/addressof.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/is_pointer.h>
 #include <__utility/declval.h>
 #include <variant>
@@ -235,7 +236,7 @@ public:
     return std::__unchecked_get<_Sent>(__x.__hold_) - std::__unchecked_get<_I2>(__y.__hold_);
   }
 
-  _LIBCPP_HIDE_FROM_ABI friend constexpr iter_rvalue_reference_t<_Iter>
+  _LIBCPP_HIDE_FROM_ABI friend constexpr decltype(auto)
   iter_move(const common_iterator& __i) noexcept(noexcept(ranges::iter_move(std::declval<const _Iter&>())))
     requires input_iterator<_Iter>
   {

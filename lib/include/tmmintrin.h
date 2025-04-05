@@ -17,13 +17,21 @@
 #include <pmmintrin.h>
 
 /* Define the default attributes for the functions in this file. */
+#if defined(__EVEX512__) && !defined(__AVX10_1_512__)
 #define __DEFAULT_FN_ATTRS                                                     \
   __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("ssse3,no-evex512"), __min_vector_width__(64)))
-#define __DEFAULT_FN_ATTRS_MMX                                                 \
-  __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("mmx,ssse3,no-evex512"),                           \
-                 __min_vector_width__(64)))
+                 __target__("ssse3,no-evex512"), __min_vector_width__(128)))
+#else
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("ssse3"),          \
+                 __min_vector_width__(128)))
+#endif
+
+#define __trunc64(x)                                                           \
+  (__m64) __builtin_shufflevector((__v2di)(x), __extension__(__v2di){}, 0)
+#define __anyext128(x)                                                         \
+  (__m128i) __builtin_shufflevector((__v2si)(x), __extension__(__v2si){}, 0,   \
+                                    1, -1, -1)
 
 /// Computes the absolute value of each of the packed 8-bit signed
 ///    integers in the source operand and stores the 8-bit unsigned integer
@@ -37,10 +45,10 @@
 ///    A 64-bit vector of [8 x i8].
 /// \returns A 64-bit integer vector containing the absolute values of the
 ///    elements in the operand.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_abs_pi8(__m64 __a)
 {
-    return (__m64)__builtin_ia32_pabsb((__v8qi)__a);
+  return (__m64)__builtin_elementwise_abs((__v8qs)__a);
 }
 
 /// Computes the absolute value of each of the packed 8-bit signed
@@ -73,10 +81,10 @@ _mm_abs_epi8(__m128i __a)
 ///    A 64-bit vector of [4 x i16].
 /// \returns A 64-bit integer vector containing the absolute values of the
 ///    elements in the operand.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_abs_pi16(__m64 __a)
 {
-    return (__m64)__builtin_ia32_pabsw((__v4hi)__a);
+    return (__m64)__builtin_elementwise_abs((__v4hi)__a);
 }
 
 /// Computes the absolute value of each of the packed 16-bit signed
@@ -109,10 +117,10 @@ _mm_abs_epi16(__m128i __a)
 ///    A 64-bit vector of [2 x i32].
 /// \returns A 64-bit integer vector containing the absolute values of the
 ///    elements in the operand.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_abs_pi32(__m64 __a)
 {
-    return (__m64)__builtin_ia32_pabsd((__v2si)__a);
+    return (__m64)__builtin_elementwise_abs((__v2si)__a);
 }
 
 /// Computes the absolute value of each of the packed 32-bit signed
@@ -177,7 +185,10 @@ _mm_abs_epi32(__m128i __a)
 /// \returns A 64-bit integer vector containing the concatenated right-shifted
 ///    value.
 #define _mm_alignr_pi8(a, b, n) \
-  ((__m64)__builtin_ia32_palignr((__v8qi)(__m64)(a), (__v8qi)(__m64)(b), (n)))
+  ((__m64)__builtin_shufflevector(                                       \
+       __builtin_ia32_psrldqi128_byteshift(                              \
+           __builtin_shufflevector((__v1di)(a), (__v1di)(b), 1, 0),      \
+           (n)), __extension__ (__v2di){}, 0))
 
 /// Horizontally adds the adjacent pairs of values contained in 2 packed
 ///    128-bit vectors of [8 x i16].
@@ -242,10 +253,11 @@ _mm_hadd_epi32(__m128i __a, __m128i __b)
 ///    destination.
 /// \returns A 64-bit vector of [4 x i16] containing the horizontal sums of both
 ///    operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hadd_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phaddw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_phaddw128(
+        (__v8hi)__builtin_shufflevector(__a, __b, 0, 1), (__v8hi){}));
 }
 
 /// Horizontally adds the adjacent pairs of values contained in 2 packed
@@ -265,10 +277,11 @@ _mm_hadd_pi16(__m64 __a, __m64 __b)
 ///    destination.
 /// \returns A 64-bit vector of [2 x i32] containing the horizontal sums of both
 ///    operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hadd_pi32(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phaddd((__v2si)__a, (__v2si)__b);
+    return __trunc64(__builtin_ia32_phaddd128(
+        (__v4si)__builtin_shufflevector(__a, __b, 0, 1), (__v4si){}));
 }
 
 /// Horizontally adds, with saturation, the adjacent pairs of values contained
@@ -317,10 +330,11 @@ _mm_hadds_epi16(__m128i __a, __m128i __b)
 ///    destination.
 /// \returns A 64-bit vector of [4 x i16] containing the horizontal saturated
 ///    sums of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hadds_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phaddsw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_phaddsw128(
+        (__v8hi)__builtin_shufflevector(__a, __b, 0, 1), (__v8hi){}));
 }
 
 /// Horizontally subtracts the adjacent pairs of values contained in 2
@@ -386,10 +400,11 @@ _mm_hsub_epi32(__m128i __a, __m128i __b)
 ///    the destination.
 /// \returns A 64-bit vector of [4 x i16] containing the horizontal differences
 ///    of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hsub_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phsubw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_phsubw128(
+        (__v8hi)__builtin_shufflevector(__a, __b, 0, 1), (__v8hi){}));
 }
 
 /// Horizontally subtracts the adjacent pairs of values contained in 2
@@ -409,10 +424,11 @@ _mm_hsub_pi16(__m64 __a, __m64 __b)
 ///    the destination.
 /// \returns A 64-bit vector of [2 x i32] containing the horizontal differences
 ///    of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hsub_pi32(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phsubd((__v2si)__a, (__v2si)__b);
+    return __trunc64(__builtin_ia32_phsubd128(
+        (__v4si)__builtin_shufflevector(__a, __b, 0, 1), (__v4si){}));
 }
 
 /// Horizontally subtracts, with saturation, the adjacent pairs of values
@@ -461,10 +477,11 @@ _mm_hsubs_epi16(__m128i __a, __m128i __b)
 ///    the destination.
 /// \returns A 64-bit vector of [4 x i16] containing the horizontal saturated
 ///    differences of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_hsubs_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_phsubsw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_phsubsw128(
+        (__v8hi)__builtin_shufflevector(__a, __b, 0, 1), (__v8hi){}));
 }
 
 /// Multiplies corresponding pairs of packed 8-bit unsigned integer
@@ -525,10 +542,11 @@ _mm_maddubs_epi16(__m128i __a, __m128i __b)
 ///    \a R1 := (\a __a2 * \a __b2) + (\a __a3 * \a __b3) \n
 ///    \a R2 := (\a __a4 * \a __b4) + (\a __a5 * \a __b5) \n
 ///    \a R3 := (\a __a6 * \a __b6) + (\a __a7 * \a __b7)
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_maddubs_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_pmaddubsw((__v8qi)__a, (__v8qi)__b);
+    return __trunc64(__builtin_ia32_pmaddubsw128((__v16qi)__anyext128(__a),
+                                                 (__v16qi)__anyext128(__b)));
 }
 
 /// Multiplies packed 16-bit signed integer values, truncates the 32-bit
@@ -565,10 +583,11 @@ _mm_mulhrs_epi16(__m128i __a, __m128i __b)
 ///    A 64-bit vector of [4 x i16] containing one of the source operands.
 /// \returns A 64-bit vector of [4 x i16] containing the rounded and scaled
 ///    products of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_mulhrs_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_pmulhrsw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_pmulhrsw128((__v8hi)__anyext128(__a),
+                                                (__v8hi)__anyext128(__b)));
 }
 
 /// Copies the 8-bit integers from a 128-bit integer vector to the
@@ -614,12 +633,15 @@ _mm_shuffle_epi8(__m128i __a, __m128i __b)
 ///    1: Clear the corresponding byte in the destination. \n
 ///    0: Copy the selected source byte to the corresponding byte in the
 ///    destination. \n
-///    Bits [3:0] select the source byte to be copied.
+///    Bits [2:0] select the source byte to be copied.
 /// \returns A 64-bit integer vector containing the copied or cleared values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_shuffle_pi8(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_pshufb((__v8qi)__a, (__v8qi)__b);
+    return __trunc64(__builtin_ia32_pshufb128(
+        (__v16qi)__builtin_shufflevector(
+            (__v2si)(__a), __extension__ (__v2si){}, 0, 1, 0, 1),
+        (__v16qi)__anyext128(__b)));
 }
 
 /// For each 8-bit integer in the first source operand, perform one of
@@ -720,10 +742,11 @@ _mm_sign_epi32(__m128i __a, __m128i __b)
 ///    A 64-bit integer vector containing control bytes corresponding to
 ///    positions in the destination.
 /// \returns A 64-bit integer vector containing the resultant values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_sign_pi8(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_psignb((__v8qi)__a, (__v8qi)__b);
+    return __trunc64(__builtin_ia32_psignb128((__v16qi)__anyext128(__a),
+                                              (__v16qi)__anyext128(__b)));
 }
 
 /// For each 16-bit integer in the first source operand, perform one of
@@ -746,10 +769,11 @@ _mm_sign_pi8(__m64 __a, __m64 __b)
 ///    A 64-bit integer vector containing control words corresponding to
 ///    positions in the destination.
 /// \returns A 64-bit integer vector containing the resultant values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_sign_pi16(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_psignw((__v4hi)__a, (__v4hi)__b);
+    return __trunc64(__builtin_ia32_psignw128((__v8hi)__anyext128(__a),
+                                              (__v8hi)__anyext128(__b)));
 }
 
 /// For each 32-bit integer in the first source operand, perform one of
@@ -772,13 +796,15 @@ _mm_sign_pi16(__m64 __a, __m64 __b)
 ///    A 64-bit integer vector containing two control doublewords corresponding
 ///    to positions in the destination.
 /// \returns A 64-bit integer vector containing the resultant values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
+static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_sign_pi32(__m64 __a, __m64 __b)
 {
-    return (__m64)__builtin_ia32_psignd((__v2si)__a, (__v2si)__b);
+    return __trunc64(__builtin_ia32_psignd128((__v4si)__anyext128(__a),
+                                              (__v4si)__anyext128(__b)));
 }
 
+#undef __anyext128
+#undef __trunc64
 #undef __DEFAULT_FN_ATTRS
-#undef __DEFAULT_FN_ATTRS_MMX
 
 #endif /* __TMMINTRIN_H */

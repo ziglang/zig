@@ -24,21 +24,25 @@ Types:
 
 */
 
-#include <__config>
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/stddef.h>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 // Note: This include is outside of header guards because we sometimes get included multiple times
 //       with different defines and the underlying <stddef.h> will know how to deal with that.
-#include_next <stddef.h>
+#  include_next <stddef.h>
 
-#ifndef _LIBCPP_STDDEF_H
-#  define _LIBCPP_STDDEF_H
+#  ifndef _LIBCPP_STDDEF_H
+#    define _LIBCPP_STDDEF_H
 
-#  ifdef __cplusplus
+#    ifdef __cplusplus
 typedef decltype(nullptr) nullptr_t;
-#  endif
+#    endif
+#  endif // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STDDEF_H

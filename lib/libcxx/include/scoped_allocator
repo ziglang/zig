@@ -109,32 +109,35 @@ template <class OuterA1, class OuterA2, class... InnerAllocs>
 
 */
 
-#include <__config>
-#include <__memory/allocator_traits.h>
-#include <__memory/uses_allocator_construction.h>
-#include <__type_traits/common_type.h>
-#include <__type_traits/enable_if.h>
-#include <__type_traits/integral_constant.h>
-#include <__type_traits/is_constructible.h>
-#include <__type_traits/remove_reference.h>
-#include <__utility/declval.h>
-#include <__utility/forward.h>
-#include <__utility/move.h>
-#include <__utility/pair.h>
-#include <__utility/piecewise_construct.h>
-#include <tuple>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/scoped_allocator>
+#else
+#  include <__config>
+#  include <__memory/allocator_traits.h>
+#  include <__memory/uses_allocator_construction.h>
+#  include <__type_traits/common_type.h>
+#  include <__type_traits/enable_if.h>
+#  include <__type_traits/integral_constant.h>
+#  include <__type_traits/is_constructible.h>
+#  include <__type_traits/remove_reference.h>
+#  include <__utility/declval.h>
+#  include <__utility/forward.h>
+#  include <__utility/move.h>
+#  include <__utility/pair.h>
+#  include <__utility/piecewise_construct.h>
+#  include <tuple>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_CXX03_LANG)
+#  if !defined(_LIBCPP_CXX03_LANG)
 
 // scoped_allocator_adaptor
 
@@ -389,10 +392,10 @@ public:
     return _Base::outer_allocator();
   }
 
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n) {
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n) {
     return allocator_traits<outer_allocator_type>::allocate(outer_allocator(), __n);
   }
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n, const_void_pointer __hint) {
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n, const_void_pointer __hint) {
     return allocator_traits<outer_allocator_type>::allocate(outer_allocator(), __n, __hint);
   }
 
@@ -404,7 +407,7 @@ public:
     return allocator_traits<outer_allocator_type>::max_size(outer_allocator());
   }
 
-#  if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _Type, class... _Args>
   _LIBCPP_HIDE_FROM_ABI void construct(_Type* __ptr, _Args&&... __args) {
     using _OM = __outermost<outer_allocator_type>;
@@ -415,7 +418,7 @@ public:
         },
         std::uses_allocator_construction_args<_Type>(inner_allocator(), std::forward<_Args>(__args)...));
   }
-#  else
+#    else
   template <class _Tp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI void construct(_Tp* __p, _Args&&... __args) {
     __construct(__uses_alloc_ctor<_Tp, inner_allocator_type&, _Args...>(), __p, std::forward<_Args>(__args)...);
@@ -462,7 +465,7 @@ public:
               std::forward_as_tuple(std::forward<_Up>(__x.first)),
               std::forward_as_tuple(std::forward<_Vp>(__x.second)));
   }
-#  endif
+#    endif
 
   template <class _Tp>
   _LIBCPP_HIDE_FROM_ABI void destroy(_Tp* __p) {
@@ -522,10 +525,10 @@ private:
   friend class __scoped_allocator_storage;
 };
 
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
 template <class _OuterAlloc, class... _InnerAllocs>
 scoped_allocator_adaptor(_OuterAlloc, _InnerAllocs...) -> scoped_allocator_adaptor<_OuterAlloc, _InnerAllocs...>;
-#  endif
+#    endif
 
 template <class _OuterA1, class _OuterA2>
 inline _LIBCPP_HIDE_FROM_ABI bool
@@ -540,7 +543,7 @@ operator==(const scoped_allocator_adaptor<_OuterA1, _InnerA0, _InnerAllocs...>& 
   return __a.outer_allocator() == __b.outer_allocator() && __a.inner_allocator() == __b.inner_allocator();
 }
 
-#  if _LIBCPP_STD_VER <= 17
+#    if _LIBCPP_STD_VER <= 17
 
 template <class _OuterA1, class _OuterA2, class... _InnerAllocs>
 inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const scoped_allocator_adaptor<_OuterA1, _InnerAllocs...>& __a,
@@ -548,26 +551,27 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const scoped_allocator_adaptor<_Out
   return !(__a == __b);
 }
 
-#  endif // _LIBCPP_STD_VER <= 17
+#    endif // _LIBCPP_STD_VER <= 17
 
-#endif // !defined(_LIBCPP_CXX03_LANG)
+#  endif // !defined(_LIBCPP_CXX03_LANG)
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <climits>
-#  include <concepts>
-#  include <cstring>
-#  include <ctime>
-#  include <iterator>
-#  include <memory>
-#  include <ratio>
-#  include <stdexcept>
-#  include <type_traits>
-#  include <variant>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <climits>
+#    include <concepts>
+#    include <cstring>
+#    include <ctime>
+#    include <iterator>
+#    include <memory>
+#    include <ratio>
+#    include <stdexcept>
+#    include <type_traits>
+#    include <variant>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_SCOPED_ALLOCATOR

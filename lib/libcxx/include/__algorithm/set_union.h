@@ -12,7 +12,6 @@
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/copy.h>
-#include <__algorithm/iterator_operations.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/move.h>
@@ -39,12 +38,12 @@ struct __set_union_result {
       : __in1_(std::move(__in_iter1)), __in2_(std::move(__in_iter2)), __out_(std::move(__out_iter)) {}
 };
 
-template <class _AlgPolicy, class _Compare, class _InIter1, class _Sent1, class _InIter2, class _Sent2, class _OutIter>
+template <class _Compare, class _InIter1, class _Sent1, class _InIter2, class _Sent2, class _OutIter>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __set_union_result<_InIter1, _InIter2, _OutIter> __set_union(
     _InIter1 __first1, _Sent1 __last1, _InIter2 __first2, _Sent2 __last2, _OutIter __result, _Compare&& __comp) {
   for (; __first1 != __last1; ++__result) {
     if (__first2 == __last2) {
-      auto __ret1 = std::__copy<_AlgPolicy>(std::move(__first1), std::move(__last1), std::move(__result));
+      auto __ret1 = std::__copy(std::move(__first1), std::move(__last1), std::move(__result));
       return __set_union_result<_InIter1, _InIter2, _OutIter>(
           std::move(__ret1.first), std::move(__first2), std::move((__ret1.second)));
     }
@@ -59,7 +58,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __set_union_result<_InIter1,
       ++__first1;
     }
   }
-  auto __ret2 = std::__copy<_AlgPolicy>(std::move(__first2), std::move(__last2), std::move(__result));
+  auto __ret2 = std::__copy(std::move(__first2), std::move(__last2), std::move(__result));
   return __set_union_result<_InIter1, _InIter2, _OutIter>(
       std::move(__first1), std::move(__ret2.first), std::move((__ret2.second)));
 }
@@ -72,7 +71,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator set_union(
     _InputIterator2 __last2,
     _OutputIterator __result,
     _Compare __comp) {
-  return std::__set_union<_ClassicAlgPolicy, __comp_ref_type<_Compare> >(
+  return std::__set_union<__comp_ref_type<_Compare> >(
              std::move(__first1),
              std::move(__last1),
              std::move(__first2),
