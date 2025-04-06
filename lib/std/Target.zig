@@ -506,7 +506,7 @@ pub const Os = struct {
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
