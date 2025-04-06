@@ -78,7 +78,7 @@ pub fn isInteger(ctype: CType) bool {
 
 pub fn signedness(ctype: CType, mod: *Module) std.builtin.Signedness {
     return switch (ctype.index) {
-        .char => mod.resolved_target.result.charSignedness(),
+        .char => mod.resolved_target.result.cCharSignedness(),
         .@"signed char",
         .short,
         .int,

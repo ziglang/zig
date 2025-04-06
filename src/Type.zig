@@ -2331,7 +2331,7 @@ pub fn isInt(self: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, signed integer.
 pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .signed,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .signed,
         .isize_type, .c_short_type, .c_int_type, .c_long_type, .c_longlong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .signed,
@@ -2343,7 +2343,7 @@ pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, unsigned integer.
 pub fn isUnsignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .unsigned,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .unsigned,
         .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .unsigned,
@@ -2374,7 +2374,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
         },
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-        .c_char_type => return .{ .signedness = zcu.getTarget().charSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_char_type => return .{ .signedness = zcu.getTarget().cCharSignedness(), .bits = target.cTypeBitSize(.char) },
         .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
         .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
         .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },

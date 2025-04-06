@@ -2695,7 +2695,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-pub fn charSignedness(target: Target) std.builtin.Signedness {
+pub fn cCharSignedness(target: Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
