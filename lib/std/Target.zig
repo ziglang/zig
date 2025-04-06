@@ -512,7 +512,7 @@ pub const Os = struct {
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
