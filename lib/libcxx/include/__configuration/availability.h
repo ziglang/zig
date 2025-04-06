@@ -163,10 +163,10 @@
     __attribute__((availability(driverkit, strict, introduced = 23.0)))
 
 // LLVM 15
-#  if (defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 130400) ||   \
-      (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 160500) || \
-      (defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ < 160500) ||         \
-      (defined(__ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ < 90500) ||    \
+#  if (defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 130300) ||   \
+      (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 160300) || \
+      (defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ < 160300) ||         \
+      (defined(__ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ < 90300) ||    \
       (defined(__ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__ < 70500) ||  \
       (defined(__ENVIRONMENT_DRIVERKIT_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_DRIVERKIT_VERSION_MIN_REQUIRED__ < 220400)
 #    define _LIBCPP_INTRODUCED_IN_LLVM_15 0
@@ -174,10 +174,10 @@
 #    define _LIBCPP_INTRODUCED_IN_LLVM_15 1
 #  endif
 #  define _LIBCPP_INTRODUCED_IN_LLVM_15_ATTRIBUTE                                                                 \
-    __attribute__((availability(macos, strict, introduced = 13.4)))                                               \
-    __attribute__((availability(ios, strict, introduced = 16.5)))                                                 \
-    __attribute__((availability(tvos, strict, introduced = 16.5)))                                                \
-    __attribute__((availability(watchos, strict, introduced = 9.5)))                                              \
+    __attribute__((availability(macos, strict, introduced = 13.3)))                                               \
+    __attribute__((availability(ios, strict, introduced = 16.3)))                                                 \
+    __attribute__((availability(tvos, strict, introduced = 16.3)))                                                \
+    __attribute__((availability(watchos, strict, introduced = 9.3)))                                              \
     __attribute__((availability(bridgeos, strict, introduced = 7.5)))                                             \
     __attribute__((availability(driverkit, strict, introduced = 22.4)))
 
