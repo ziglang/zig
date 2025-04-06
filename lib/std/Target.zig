@@ -3273,6 +3273,68 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
+pub fn cMaxIntAlignment(target: std.Target) u16 {
+    return switch (target.cpu.arch) {
+        .avr => 1,
+
+        .msp430 => 2,
+
+        .xcore,
+        .propeller,
+        => 4,
+
+        .amdgcn,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .lanai,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .powerpc,
+        .powerpcle,
+        .riscv32,
+        .s390x,
+        => 8,
+
+        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+        .aarch64,
+        .aarch64_be,
+        .bpfel,
+        .bpfeb,
+        .mips64,
+        .mips64el,
+        .nvptx,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc,
+        .sparc64,
+        .wasm32,
+        .wasm64,
+        .x86,
+        .x86_64,
+        => 16,
+
+        // Below this comment are unverified but based on the fact that C requires
+        // int128_t to be 16 bytes aligned, it's a safe default.
+        .arc,
+        .csky,
+        .kalimba,
+        .loongarch32,
+        .loongarch64,
+        .m68k,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .xtensa,
+        => 16,
+    };
+}
+
 pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.os.tag) {

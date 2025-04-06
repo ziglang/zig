@@ -968,7 +968,7 @@ pub fn abiAlignmentInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(int_type.bits, target) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, int_type.bits)) };
             },
             .ptr_type, .anyframe_type => {
                 return .{ .scalar = ptrAbiAlignment(target) };
@@ -1021,7 +1021,7 @@ pub fn abiAlignmentInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(bits, target) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
             },
 
             // represents machine code; not a pointer
@@ -1034,7 +1034,7 @@ pub fn abiAlignmentInner(
 
                 .usize,
                 .isize,
-                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
+                => return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1065,7 +1065,7 @@ pub fn abiAlignmentInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target) };
+                    return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
                 },
 
                 .void,
@@ -1297,7 +1297,7 @@ pub fn abiSizeInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(int_type.bits, target) };
+                return .{ .scalar = std.zig.target.intByteSize(target, int_type.bits) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
@@ -1359,7 +1359,7 @@ pub fn abiSizeInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(bits, target) };
+                return .{ .scalar = std.zig.target.intByteSize(target, bits) };
             },
 
             .error_union_type => |error_union_type| {
@@ -1452,7 +1452,7 @@ pub fn abiSizeInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = 0 };
-                    return .{ .scalar = intAbiSize(bits, target) };
+                    return .{ .scalar = std.zig.target.intByteSize(target, bits) };
                 },
 
                 .noreturn => unreachable,
@@ -1604,100 +1604,6 @@ fn abiSizeInnerOptional(
 
 pub fn ptrAbiAlignment(target: Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
-}
-
-pub fn intAbiSize(bits: u16, target: Target) u64 {
-    return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
-}
-
-pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
-    return switch (target.cpu.arch) {
-        .x86 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => switch (target.os.tag) {
-                .uefi, .windows => .@"8",
-                else => .@"4",
-            },
-            else => .@"16",
-        },
-        .x86_64 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => .@"8",
-            else => .@"16",
-        },
-        else => return Alignment.fromByteUnits(@min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target),
-        )),
-    };
-}
-
-pub fn maxIntAlignment(target: std.Target) u16 {
-    return switch (target.cpu.arch) {
-        .avr => 1,
-
-        .msp430 => 2,
-
-        .xcore,
-        .propeller,
-        => 4,
-
-        .amdgcn,
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .lanai,
-        .hexagon,
-        .mips,
-        .mipsel,
-        .powerpc,
-        .powerpcle,
-        .riscv32,
-        .s390x,
-        => 8,
-
-        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
-        .aarch64,
-        .aarch64_be,
-        .bpfel,
-        .bpfeb,
-        .mips64,
-        .mips64el,
-        .nvptx,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .sparc,
-        .sparc64,
-        .wasm32,
-        .wasm64,
-        .x86,
-        .x86_64,
-        => 16,
-
-        // Below this comment are unverified but based on the fact that C requires
-        // int128_t to be 16 bytes aligned, it's a safe default.
-        .arc,
-        .csky,
-        .kalimba,
-        .loongarch32,
-        .loongarch64,
-        .m68k,
-        .spirv,
-        .spirv32,
-        .spirv64,
-        .ve,
-        .xtensa,
-        => 16,
-    };
 }
 
 pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
