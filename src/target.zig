@@ -172,6 +172,9 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
+        .spirv,
+        .spirv32,
+        .spirv64,
         .s390x,
         .thumb,
         .thumbeb,
@@ -186,12 +189,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .wasm64,
         .ve,
         => true,
-
-        // An LLVM backend exists but we don't currently support using it.
-        .spirv,
-        .spirv32,
-        .spirv64,
-        => false,
 
         // No LLVM backend exists.
         .kalimba,
@@ -213,7 +210,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// debug mode. A given target should only return true here if it is passing greater
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
-    _ = target;
+    if (target.cpu.arch.isSpirV()) return true;
     return false;
 }
 

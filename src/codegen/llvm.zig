@@ -12723,12 +12723,15 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmPrinter();
             llvm.LLVMInitializeLoongArchAsmParser();
         },
-
-        // We don't currently support using these backends.
         .spirv,
         .spirv32,
         .spirv64,
-        => {},
+        => {
+            llvm.LLVMInitializeSPIRVTarget();
+            llvm.LLVMInitializeSPIRVTargetInfo();
+            llvm.LLVMInitializeSPIRVTargetMC();
+            llvm.LLVMInitializeSPIRVAsmPrinter();
+        },
 
         // LLVM does does not have a backend for these.
         .kalimba,
