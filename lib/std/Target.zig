@@ -500,7 +500,7 @@ pub const Os = struct {
 
                 .dragonfly => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
                         .max = .{ .major = 6, .minor = 4, .patch = 0 },
                     },
                 },
