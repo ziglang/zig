@@ -14,6 +14,7 @@ find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
         /usr/local/llvm20/include
         /usr/local/opt/lld@20/include
         /opt/homebrew/opt/lld@20/include
+        /home/linuxbrew/.linuxbrew/opt/lld@20/include
         /mingw64/include)
 
 find_library(LLD_LIBRARY NAMES lld-20.0 lld200 lld NAMES_PER_DIR
@@ -24,6 +25,7 @@ find_library(LLD_LIBRARY NAMES lld-20.0 lld200 lld NAMES_PER_DIR
         /usr/local/llvm20/lib
         /usr/local/opt/lld@20/lib
         /opt/homebrew/opt/lld@20/lib
+        /home/linuxbrew/.linuxbrew/opt/lld@20/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -39,6 +41,7 @@ else()
                 /usr/local/llvm20/lib
                 /usr/local/opt/lld@20/lib
                 /opt/homebrew/opt/lld@20/lib
+                /home/linuxbrew/.linuxbrew/opt/lld@20/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)
