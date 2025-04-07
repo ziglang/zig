@@ -63,8 +63,8 @@ pub const APValueKind = enum(c_int) {
 };
 
 pub const APValue = extern struct {
-    Kind: APValueKind,
-    Data: if (builtin.os.tag == .windows and (builtin.abi == .msvc or builtin.abi == .itanium)) [52]u8 else [68]u8,
+    Kind: APValueKind align(if (builtin.cpu.arch == .x86 and builtin.os.tag != .windows) 4 else 8),
+    Data: if (builtin.cpu.arch == .x86 and builtin.os.tag != .windows) [44]u8 else [52]u8,
 
     pub const getKind = ZigClangAPValue_getKind;
     extern fn ZigClangAPValue_getKind(*const APValue) APValueKind;

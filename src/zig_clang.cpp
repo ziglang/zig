@@ -2329,6 +2329,7 @@ static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::Zi
 static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindOpenMPRequiredSimdAlign == clang::UnaryExprOrTypeTrait::UETT_OpenMPRequiredSimdAlign, "");
 
 static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
+static_assert(alignof(ZigClangAPValue) == alignof(clang::APValue), "");
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
