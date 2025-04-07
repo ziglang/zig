@@ -9,6 +9,7 @@
 #define ZIG_ZIG_CLANG_H
 
 #include <inttypes.h>
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -65,16 +66,18 @@ enum ZigClangAPValueKind {
     ZigClangAPValueAddrLabelDiff,
 };
 
-struct ZigClangAPValue {
+#if defined(__i386__) && !defined(_WIN32)
+#   define ZIG_CLANG_APVALUE_SIZE  44
+#   define ZIG_CLANG_APVALUE_ALIGN 4
+#else
+#   define ZIG_CLANG_APVALUE_SIZE  52
+#   define ZIG_CLANG_APVALUE_ALIGN 8
+#endif
+
+struct alignas(ZIG_CLANG_APVALUE_ALIGN) ZigClangAPValue {
     enum ZigClangAPValueKind Kind;
     // experimentally-derived size of clang::APValue::DataType
-#if defined(_WIN32) && defined(_MSC_VER)
-    char Data[52];
-#elif defined(__i386__) && !defined(_WIN32)
-    char Data[44];
-#else
-    char Data[52];
-#endif
+    char Data[ZIG_CLANG_APVALUE_SIZE];
 };
 
 struct ZigClangExprEvalResult {
