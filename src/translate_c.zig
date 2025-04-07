@@ -5226,6 +5226,7 @@ const MacroCtx = struct {
     loc: clang.SourceLocation,
     name: []const u8,
     refs_var_decl: bool = false,
+    fn_params: ?[]const ast.Payload.Param = null,
 
     fn peek(self: *MacroCtx) ?CToken.Id {
         if (self.i >= self.list.len) return null;
@@ -5297,6 +5298,15 @@ const MacroCtx = struct {
             last_is_type_kw = false;
         }
         return null;
+    }
+
+    fn checkFnParam(self: *MacroCtx, str: []const u8) bool {
+        if (self.fn_params == null) return false;
+
+        for (self.fn_params.?) |param| {
+            if (mem.eql(u8, param.name.?, str)) return true;
+        }
+        return false;
     }
 };
 
@@ -5474,10 +5484,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     defer fn_params.deinit();
 
     while (true) {
-        switch (m.peek().?) {
-            .identifier, .extended_identifier => _ = m.next(),
-            else => break,
-        }
+        if (!m.peek().?.isMacroIdentifier()) break;
+
+        _ = m.next();
 
         const mangled_name = try block_scope.makeMangledName(c, m.slice());
         try fn_params.append(.{
@@ -5489,6 +5498,8 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         if (m.peek().? != .comma) break;
         _ = m.next();
     }
+
+    m.fn_params = fn_params.items;
 
     try m.skip(c, .r_paren);
 
@@ -5905,38 +5916,41 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         .pp_num => {
             return parseCNumLit(c, m);
         },
-        .identifier, .extended_identifier => {
-            if (c.global_scope.blank_macros.contains(slice)) {
-                return parseCPrimaryExpr(c, m, scope);
-            }
-            const mangled_name = scope.getAlias(slice);
-            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
-            const identifier = try Tag.identifier.create(c.arena, mangled_name);
-            scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
-            refs_var: {
-                const ident_node = c.global_scope.sym_table.get(slice) orelse break :refs_var;
-                const var_decl_node = ident_node.castTag(.var_decl) orelse break :refs_var;
-                if (!var_decl_node.data.is_const) m.refs_var_decl = true;
-            }
-            return identifier;
-        },
         .l_paren => {
             const inner_node = try parseCExpr(c, m, scope);
 
             try m.skip(c, .r_paren);
             return inner_node;
         },
-        else => {
-            // for handling type macros (EVIL)
-            // TODO maybe detect and treat type macros as typedefs in parseCSpecifierQualifierList?
-            m.i -= 1;
-            if (try parseCTypeName(c, m, scope, true)) |type_name| {
-                return type_name;
-            }
-            try m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{tok.symbol()});
-            return error.ParseError;
-        },
+        else => {},
     }
+
+    // The C preprocessor has no knowledge of C, so C keywords aren't special in macros.
+    // Thus the current token should be treated like an identifier if its name matches a parameter.
+    if (tok == .identifier or tok == .extended_identifier or m.checkFnParam(slice)) {
+        if (c.global_scope.blank_macros.contains(slice)) {
+            return parseCPrimaryExpr(c, m, scope);
+        }
+        const mangled_name = scope.getAlias(slice);
+        if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+        const identifier = try Tag.identifier.create(c.arena, mangled_name);
+        scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+        refs_var: {
+            const ident_node = c.global_scope.sym_table.get(slice) orelse break :refs_var;
+            const var_decl_node = ident_node.castTag(.var_decl) orelse break :refs_var;
+            if (!var_decl_node.data.is_const) m.refs_var_decl = true;
+        }
+        return identifier;
+    }
+
+    // for handling type macros (EVIL)
+    // TODO maybe detect and treat type macros as typedefs in parseCSpecifierQualifierList?
+    m.i -= 1;
+    if (try parseCTypeName(c, m, scope, true)) |type_name| {
+        return type_name;
+    }
+    try m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{tok.symbol()});
+    return error.ParseError;
 }
 
 fn macroIntFromBool(c: *Context, node: Node) !Node {
@@ -6199,41 +6213,50 @@ fn parseCTypeName(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) Pa
 
 fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) ParseError!?Node {
     const tok = m.next().?;
-    switch (tok) {
-        .identifier, .extended_identifier => {
-            if (c.global_scope.blank_macros.contains(m.slice())) {
-                return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
-            }
-            const mangled_name = scope.getAlias(m.slice());
-            if (!allow_fail or c.typedefs.contains(mangled_name)) {
-                if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
-                return try Tag.identifier.create(c.arena, mangled_name);
-            }
-        },
-        .keyword_void => return try Tag.type.create(c.arena, "anyopaque"),
-        .keyword_bool => return try Tag.type.create(c.arena, "bool"),
-        .keyword_char,
-        .keyword_int,
-        .keyword_short,
-        .keyword_long,
-        .keyword_float,
-        .keyword_double,
-        .keyword_signed,
-        .keyword_unsigned,
-        .keyword_complex,
-        => {
-            m.i -= 1;
-            return try parseCNumericType(c, m);
-        },
-        .keyword_enum, .keyword_struct, .keyword_union => {
-            // struct Foo will be declared as struct_Foo by transRecordDecl
-            const slice = m.slice();
-            try m.skip(c, .identifier);
+    const slice = m.slice();
+    const mangled_name = scope.getAlias(slice);
+    if (!m.checkFnParam(mangled_name)) {
+        switch (tok) {
+            .identifier, .extended_identifier => {
+                if (c.global_scope.blank_macros.contains(m.slice())) {
+                    return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
+                }
+                if (!allow_fail or c.typedefs.contains(mangled_name)) {
+                    if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
+                    return try Tag.identifier.create(c.arena, mangled_name);
+                }
+            },
+            .keyword_void => return try Tag.type.create(c.arena, "anyopaque"),
+            .keyword_bool => return try Tag.type.create(c.arena, "bool"),
+            .keyword_char,
+            .keyword_int,
+            .keyword_short,
+            .keyword_long,
+            .keyword_float,
+            .keyword_double,
+            .keyword_signed,
+            .keyword_unsigned,
+            .keyword_complex,
+            => {
+                m.i -= 1;
+                return try parseCNumericType(c, m);
+            },
+            .keyword_enum, .keyword_struct, .keyword_union => {
+                // struct Foo will be declared as struct_Foo by transRecordDecl
+                try m.skip(c, .identifier);
 
-            const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
-            return try Tag.identifier.create(c.arena, name);
-        },
-        else => {},
+                const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
+                return try Tag.identifier.create(c.arena, name);
+            },
+            else => {},
+        }
+    } else {
+        if (allow_fail) {
+            m.i -= 1;
+            return null;
+        } else {
+            return try Tag.identifier.create(c.arena, mangled_name);
+        }
     }
 
     if (allow_fail) {
@@ -6511,7 +6534,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
 }
 
 fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    switch (m.next().?) {
+    sw: switch (m.next().?) {
         .bang => {
             const operand = try macroIntToBool(c, try parseCCastExpr(c, m, scope));
             return Tag.not.create(c.arena, operand);
@@ -6534,6 +6557,9 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             return Tag.address_of.create(c.arena, operand);
         },
         .keyword_sizeof => {
+            // 'sizeof' could be used as a parameter to a macro function.
+            if (m.checkFnParam(m.slice())) break :sw;
+
             const operand = if (m.peek().? == .l_paren) blk: {
                 _ = m.next();
                 const inner = (try parseCTypeName(c, m, scope, false)).?;
@@ -6544,6 +6570,9 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             return Tag.helpers_sizeof.create(c.arena, operand);
         },
         .keyword_alignof => {
+            // 'alignof' could be used as a parameter to a macro function.
+            if (m.checkFnParam(m.slice())) break :sw;
+
             // TODO this won't work if using <stdalign.h>'s
             // #define alignof _Alignof
             try m.skip(c, .l_paren);
@@ -6556,11 +6585,11 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             try m.fail(c, "TODO unary inc/dec expr", .{});
             return error.ParseError;
         },
-        else => {
-            m.i -= 1;
-            return try parseCPostfixExpr(c, m, scope, null);
-        },
+        else => {},
     }
+
+    m.i -= 1;
+    return try parseCPostfixExpr(c, m, scope, null);
 }
 
 fn getContainer(c: *Context, node: Node) ?Node {
