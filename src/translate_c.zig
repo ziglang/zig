@@ -6250,6 +6250,13 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
             },
             else => {},
         }
+    } else {
+        if (allow_fail) {
+            m.i -= 1;
+            return null;
+        } else {
+            return try Tag.identifier.create(c.arena, mangled_name);
+        }
     }
 
     if (allow_fail) {
