@@ -35,8 +35,6 @@ inline fn limb_set(x: []Limb, i: usize, v: Limb) void {
     }
 }
 
-// Code for bigint pdep and pext largely taken from std.math.big.int.depositBits and extractBits
-
 // Assumes that `result` is zeroed.
 inline fn pdep_bigint(result: []Limb, source: []const Limb, mask: []const Limb) void {
     var mask_limb: Limb = limb(mask, 0);
