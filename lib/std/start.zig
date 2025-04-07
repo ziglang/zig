@@ -343,7 +343,7 @@ fn _start() callconv(.naked) noreturn {
             \\ r30 = #0
             \\ r31 = #0
             \\ r0 = r29
-            \\ r29 = and(r29, #-16)
+            \\ r29 = and(r29, #-8)
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
