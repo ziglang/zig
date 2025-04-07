@@ -355,7 +355,11 @@ fn _start() callconv(.naked) noreturn {
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
             \\ suba.l %%fp, %%fp
-            \\ move.l %%sp, -(%%sp)
+            \\ move.l %%sp, %%a0
+            \\ move.l %%a0, %%d0
+            \\ and.l #-4, %%d0
+            \\ move.l %%d0, %%sp
+            \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
             ,
