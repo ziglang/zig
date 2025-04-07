@@ -168,21 +168,35 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-const debug_allocator_config: std.heap.DebugAllocatorConfig = .{
+var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = build_options.mem_leak_frames,
-};
-var auto_allocator: std.heap.AutoAllocator(.{ .debug_allocator_config = debug_allocator_config }) = .{};
-var debug_allocator: std.heap.DebugAllocator(debug_allocator_config) = .init;
+}) = .init;
 
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const gpa_instance = if (build_options.debug_gpa) &debug_allocator else &auto_allocator;
-    const gpa = gpa_instance.allocator();
-    // See #22984 - Currently it is irrelevant if we leak allocator state on exit since we are
-    // already leaking allocations. Disabling this temporarily avoids those error message.
-    // defer _ = gpa_instance.deinit();
-
+    const gpa, const is_debug = gpa: {
+        if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
+        if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
+        if (builtin.link_libc) {
+            // We would prefer to use raw libc allocator here, but cannot use
+            // it if it won't support the alignment we need.
+            if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
+                break :gpa .{ std.heap.c_allocator, false };
+            }
+            break :gpa .{ std.heap.raw_c_allocator, false };
+        }
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => if (builtin.single_threaded)
+                .{ debug_allocator.allocator(), false }
+            else
+                .{ std.heap.smp_allocator, false },
+        };
+    };
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
+    };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
