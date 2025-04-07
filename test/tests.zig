@@ -499,6 +499,33 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
