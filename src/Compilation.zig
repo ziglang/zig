@@ -1074,7 +1074,6 @@ pub const CreateOptions = struct {
     /// executable this field is ignored.
     want_compiler_rt: ?bool = null,
     want_ubsan_rt: ?bool = null,
-    want_lto: ?bool = null,
     function_sections: bool = false,
     data_sections: bool = false,
     time_report: bool = false,

@@ -66,7 +66,7 @@ san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
 
-pub const LtoMode = enum { none, full, thin };
+pub const LtoMode = std.zig.LtoMode;
 
 pub const DebugFormat = union(enum) {
     strip,
