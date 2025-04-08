@@ -698,6 +698,13 @@ add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 target_compile_features(zigcpp PRIVATE cxx_std_17)
 set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
 
+if(LLVM_LINK_MODE STREQUAL "static")
+  target_compile_definitions(zigcpp PRIVATE
+    LLVM_BUILD_STATIC
+    CLANG_BUILD_STATIC
+  )
+endif()
+
 if(NOT MSVC)
   if(MINGW)
     target_compile_options(zigcpp PRIVATE -Wno-format)
