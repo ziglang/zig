@@ -2221,7 +2221,7 @@ pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeou
         @as(usize, @intCast(maxevents)),
         @as(usize, @bitCast(@as(isize, timeout))),
         @intFromPtr(sigmask),
-        @sizeOf(sigset_t),
+        NSIG / 8,
     );
 }
 
