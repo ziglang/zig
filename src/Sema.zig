@@ -29269,7 +29269,7 @@ fn elemPtrArray(
     block: *Block,
     src: LazySrcLoc,
     array_ptr_src: LazySrcLoc,
-    array_ptr: Air.Inst.Ref,
+    array_ptr_orig: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
     elem_index: Air.Inst.Ref,
     init: bool,
@@ -29277,7 +29277,26 @@ fn elemPtrArray(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const array_ptr_ty = sema.typeOf(array_ptr);
+    const array_ptr_ty_orig = sema.typeOf(array_ptr_orig);
+
+    var ptr_info = array_ptr_ty_orig.ptrInfo(zcu);
+    const array_ptr, const array_ptr_ty = if (ptr_info.flags.size == .c) blk_outer: {
+        const array_ptr_orig_inst = array_ptr_orig.toIndex().?;
+        const air_tags = sema.air_instructions.items(.tag);
+        const array_ptr_tag = air_tags[@intFromEnum(array_ptr_orig_inst)];
+        break :blk_outer if (array_ptr_tag == .load) blk_inner: {
+            // The tag .load is conrresponds to AST node `p.*` for derefence a
+            // ponter.
+            // If the array_ptr_orig is a C pointer, and it is to be derefenced,
+            // then the pointer is same as the one size zig pointer. So we cast
+            // the C pointer to a one size zig pointer.
+            ptr_info.flags.size = .one;
+            const array_ptr_one_ty = try pt.ptrTypeSema(ptr_info);
+            const array_ptr_one = try block.addBitCast(array_ptr_one_ty, array_ptr_orig);
+            break :blk_inner .{ array_ptr_one, array_ptr_one_ty };
+        } else .{ array_ptr_orig, array_ptr_ty_orig };
+    } else .{ array_ptr_orig, array_ptr_ty_orig };
+
     const array_ty = array_ptr_ty.childType(zcu);
     const array_sent = array_ty.sentinel(zcu) != null;
     const array_len = array_ty.arrayLen(zcu);
