@@ -170,8 +170,6 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const MMAP2_UNIT = 4096;
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;

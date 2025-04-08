@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
+    .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
@@ -92,7 +93,6 @@ pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
@@ -279,7 +279,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .s390x => packed struct(u32) {
+    .hexagon, .m68k, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -333,7 +333,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -355,7 +355,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -377,7 +377,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .sparc64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -402,7 +402,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u6 = 0,
+        _27: u6 = 0,
     },
     .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -426,7 +426,7 @@ pub const O = switch (native_arch) {
         _20: u1 = 0,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -448,7 +448,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .hexagon, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -467,14 +467,35 @@ pub const O = switch (native_arch) {
         NOFOLLOW: bool = false,
         NOATIME: bool = false,
         CLOEXEC: bool = false,
-        _17: u1 = 0,
+        _20: u1 = 0,
         PATH: bool = false,
-        _: u10 = 0,
+        _22: u10 = 0,
 
         // #define O_RSYNC    04010000
         // #define O_SYNC     04010000
         // #define O_TMPFILE 020200000
         // #define O_NDELAY O_NONBLOCK
+    },
+    .m68k => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        _22: u10 = 0,
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
@@ -906,7 +927,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             prot,
             @as(u32, @bitCast(flags)),
             @bitCast(@as(isize, fd)),
-            @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
+            @truncate(@as(u64, @bitCast(offset)) / std.heap.pageSize()),
         );
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
