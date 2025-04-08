@@ -5628,6 +5628,41 @@ pub fn addCCArgs(
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
+    switch (target.os.tag) {
+        .macos => {
+            try argv.ensureUnusedCapacity(2);
+            // Pass the proper -m<os>-version-min argument for darwin.
+            const ver = target.os.version_range.semver.min;
+            argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
+                ver.major, ver.minor, ver.patch,
+            }));
+            // This avoids a warning that sometimes occurs when
+            // providing both a -target argument that contains a
+            // version as well as the -mmacosx-version-min argument.
+            // Zig provides the correct value in both places, so it
+            // doesn't matter which one gets overridden.
+            argv.appendAssumeCapacity("-Wno-overriding-option");
+        },
+        .ios => switch (target.cpu.arch) {
+            // Pass the proper -m<os>-version-min argument for darwin.
+            .x86, .x86_64 => {
+                const ver = target.os.version_range.semver.min;
+                try argv.append(try std.fmt.allocPrint(
+                    arena,
+                    "-m{s}-simulator-version-min={d}.{d}.{d}",
+                    .{ @tagName(target.os.tag), ver.major, ver.minor, ver.patch },
+                ));
+            },
+            else => {
+                const ver = target.os.version_range.semver.min;
+                try argv.append(try std.fmt.allocPrint(arena, "-m{s}-version-min={d}.{d}.{d}", .{
+                    @tagName(target.os.tag), ver.major, ver.minor, ver.patch,
+                }));
+            },
+        },
+        else => {},
+    }
+
     if (target.cpu.arch.isArm()) {
         try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
     }
@@ -5741,6 +5776,19 @@ pub fn addCCArgs(
 
         // LLVM IR files don't support these flags.
         if (ext != .ll and ext != .bc) {
+            switch (mod.optimize_mode) {
+                .Debug => {
+                    // windows c runtime requires -D_DEBUG if using debug libraries
+                    try argv.append("-D_DEBUG");
+                },
+                .ReleaseSafe => {
+                    try argv.append("-D_FORTIFY_SOURCE=2");
+                },
+                .ReleaseFast, .ReleaseSmall => {
+                    try argv.append("-DNDEBUG");
+                },
+            }
+
             if (comp.config.link_libc) {
                 if (target.isGnuLibC()) {
                     const target_version = target.os.versionRange().gnuLibCVersion().?;
@@ -5809,6 +5857,32 @@ pub fn addCCArgs(
                 try argv.appendSlice(&.{ "-F", framework_dir });
             }
         }
+    }
+
+    // Only C-family files support these flags.
+    switch (ext) {
+        .c,
+        .h,
+        .cpp,
+        .hpp,
+        .m,
+        .hm,
+        .mm,
+        .hmm,
+        => {
+            try argv.append("-fno-spell-checking");
+
+            if (target.os.tag == .windows and target.abi.isGnu()) {
+                // windows.h has files such as pshpack1.h which do #pragma packing,
+                // triggering a clang warning. So for this target, we disable this warning.
+                try argv.append("-Wno-pragma-pack");
+            }
+
+            if (mod.optimize_mode != .Debug) {
+                try argv.append("-Werror=date-time");
+            }
+        },
+        else => {},
     }
 
     // Only assembly files support these flags.
@@ -5885,7 +5959,7 @@ pub fn addCCArgs(
         else => {},
     }
 
-    // Only C-family files support these flags.
+    // Only compiled files support these flags.
     switch (ext) {
         .c,
         .h,
@@ -5895,9 +5969,9 @@ pub fn addCCArgs(
         .hm,
         .mm,
         .hmm,
+        .ll,
+        .bc,
         => {
-            try argv.append("-fno-spell-checking");
-
             if (target_util.clangSupportsTargetCpuArg(target)) {
                 if (target.cpu.model.llvm_name) |llvm_name| {
                     try argv.appendSlice(&[_][]const u8{
@@ -5924,48 +5998,6 @@ pub fn addCCArgs(
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
                     argv.appendAssumeCapacity(arg);
                 }
-            }
-
-            switch (target.os.tag) {
-                .windows => {
-                    // windows.h has files such as pshpack1.h which do #pragma packing,
-                    // triggering a clang warning. So for this target, we disable this warning.
-                    if (target.abi.isGnu()) {
-                        try argv.append("-Wno-pragma-pack");
-                    }
-                },
-                .macos => {
-                    try argv.ensureUnusedCapacity(2);
-                    // Pass the proper -m<os>-version-min argument for darwin.
-                    const ver = target.os.version_range.semver.min;
-                    argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
-                        ver.major, ver.minor, ver.patch,
-                    }));
-                    // This avoids a warning that sometimes occurs when
-                    // providing both a -target argument that contains a
-                    // version as well as the -mmacosx-version-min argument.
-                    // Zig provides the correct value in both places, so it
-                    // doesn't matter which one gets overridden.
-                    argv.appendAssumeCapacity("-Wno-overriding-option");
-                },
-                .ios => switch (target.cpu.arch) {
-                    // Pass the proper -m<os>-version-min argument for darwin.
-                    .x86, .x86_64 => {
-                        const ver = target.os.version_range.semver.min;
-                        try argv.append(try std.fmt.allocPrint(
-                            arena,
-                            "-m{s}-simulator-version-min={d}.{d}.{d}",
-                            .{ @tagName(target.os.tag), ver.major, ver.minor, ver.patch },
-                        ));
-                    },
-                    else => {
-                        const ver = target.os.version_range.semver.min;
-                        try argv.append(try std.fmt.allocPrint(arena, "-m{s}-version-min={d}.{d}.{d}", .{
-                            @tagName(target.os.tag), ver.major, ver.minor, ver.patch,
-                        }));
-                    },
-                },
-                else => {},
             }
 
             {
@@ -6028,8 +6060,6 @@ pub fn addCCArgs(
 
             switch (mod.optimize_mode) {
                 .Debug => {
-                    // windows c runtime requires -D_DEBUG if using debug libraries
-                    try argv.append("-D_DEBUG");
                     // Clang has -Og for compatibility with GCC, but currently it is just equivalent
                     // to -O1. Besides potentially impairing debugging, -O1/-Og significantly
                     // increases compile times.
@@ -6039,10 +6069,8 @@ pub fn addCCArgs(
                     // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
                     // than -O3 here.
                     try argv.append("-O2");
-                    try argv.append("-D_FORTIFY_SOURCE=2");
                 },
                 .ReleaseFast => {
-                    try argv.append("-DNDEBUG");
                     // Here we pass -O2 rather than -O3 because, although we do the equivalent of
                     // -O3 in Zig code, the justification for the difference here is that Zig
                     // has better detection and prevention of undefined behavior, so -O3 is safer for
@@ -6051,13 +6079,8 @@ pub fn addCCArgs(
                     try argv.append("-O2");
                 },
                 .ReleaseSmall => {
-                    try argv.append("-DNDEBUG");
                     try argv.append("-Os");
                 },
-            }
-
-            if (mod.optimize_mode != .Debug) {
-                try argv.append("-Werror=date-time");
             }
         },
         else => {},
