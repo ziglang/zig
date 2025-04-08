@@ -6482,6 +6482,19 @@ pub fn addCCArgs(
                 },
             }
 
+            switch (mod.optimize_mode) {
+                .Debug => {
+                    // windows c runtime requires -D_DEBUG if using debug libraries
+                    try argv.append("-D_DEBUG");
+                },
+                .ReleaseSafe => {
+                    try argv.append("-D_FORTIFY_SOURCE=2");
+                },
+                .ReleaseFast, .ReleaseSmall => {
+                    try argv.append("-DNDEBUG");
+                },
+            }
+
             if (comp.config.link_libc) {
                 if (target.isGnuLibC()) {
                     const target_version = target.os.versionRange().gnuLibCVersion().?;
