@@ -1471,7 +1471,12 @@ pub const Object = struct {
             try o.used.append(gpa, counters_variable.toConst(&o.builder));
             counters_variable.setLinkage(.private, &o.builder);
             counters_variable.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
-            counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
+
+            if (target.ofmt == .macho) {
+                counters_variable.setSection(try o.builder.string("__DATA,__sancov_cntrs"), &o.builder);
+            } else {
+                counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
+            }
 
             break :f .{
                 .counters_variable = counters_variable,
@@ -1533,7 +1538,11 @@ pub const Object = struct {
             pcs_variable.setLinkage(.private, &o.builder);
             pcs_variable.setMutability(.constant, &o.builder);
             pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
-            pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
+            if (target.ofmt == .macho) {
+                pcs_variable.setSection(try o.builder.string("__DATA,__sancov_pcs1"), &o.builder);
+            } else {
+                pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
+            }
             try pcs_variable.setInitializer(init_val, &o.builder);
         }
 
