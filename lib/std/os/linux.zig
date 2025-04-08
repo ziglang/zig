@@ -1786,25 +1786,41 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).int.bits;
 
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
+pub const sigset_t = [1024 / 32]u32;
+
+const sigset_len = @typeInfo(sigset_t).array.len;
+
+/// Empty set to initialize sigset_t instances from.
+pub const empty_sigset: sigset_t = [_]u32{0} ** sigset_len;
+
+pub const filled_sigset: sigset_t = [_]u32{0x7fff_ffff} ++ [_]u32{0} ** (sigset_len - 1);
+
+pub const all_mask: sigset_t = [_]u32{0xffff_ffff} ** sigset_len;
+
+fn sigset_bit_index(sig: usize) struct { word: usize, mask: u32 } {
+    assert(sig > 0);
+    assert(sig < NSIG);
+    const bit = sig - 1;
+    const shift = @as(u5, @truncate(bit % 32));
+    return .{
+        .word = bit / 32,
+        .mask = @as(u32, 1) << shift,
+    };
 }
 
-pub fn sigdelset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+pub fn sigaddset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] |= index.mask;
 }
 
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
-    const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
+pub fn sigdelset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] ^= index.mask;
+}
+
+pub fn sigismember(set: *const sigset_t, sig: usize) bool {
+    const index = sigset_bit_index(sig);
+    return ((set.*)[index.word] & index.mask) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -5402,10 +5418,6 @@ pub const TFD = switch (native_arch) {
 /// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
 
-pub const sigset_t = [1024 / 32]u32;
-
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
-
 const k_sigaction_funcs = struct {
     const handler = ?*align(1) const fn (i32) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
@@ -5445,10 +5457,6 @@ pub const Sigaction = extern struct {
     flags: c_uint,
     restorer: ?*const fn () callconv(.c) void = null,
 };
-
-const sigset_len = @typeInfo(sigset_t).array.len;
-pub const empty_sigset = [_]u32{0} ** sigset_len;
-pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
     pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
