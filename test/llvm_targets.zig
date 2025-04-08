@@ -71,8 +71,6 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabi },
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabihf },
 
-    .{ .cpu_arch = .armeb, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .armeb, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .armeb, .os_tag = .linux, .abi = .eabi },
@@ -257,7 +255,6 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .sparc, .os_tag = .rtems, .abi = .none },
     // .{ .cpu_arch = .sparc, .os_tag = .solaris, .abi = .none },
 
-    .{ .cpu_arch = .sparc64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .haiku, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .illumos, .abi = .none },

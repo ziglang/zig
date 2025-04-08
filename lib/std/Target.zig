@@ -500,25 +500,25 @@ pub const Os = struct {
 
                 .dragonfly => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
                         .max = .{ .major = 6, .minor = 4, .patch = 0 },
                     },
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
                 .openbsd => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 7, .minor = 5, .patch = 0 },
                         .max = .{ .major = 7, .minor = 6, .patch = 0 },
                     },
                 },

@@ -6590,7 +6590,7 @@ pub const CopyFileRangeError = error{
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
+    if (builtin.os.tag == .freebsd or
         (comptime builtin.os.tag == .linux and std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);
