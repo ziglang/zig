@@ -158,6 +158,7 @@ pub const cpu_models = struct {
             0x43 => &Cavium,
             0x46 => &Fujitsu,
             0x48 => &HiSilicon,
+            0x4e => &Nvidia,
             0x50 => &Ampere,
             0x51 => &Qualcomm,
             0x61 => &Apple,
