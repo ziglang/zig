@@ -43,12 +43,12 @@ fn add(
     switch (target.result.os.tag) {
         .windows => {
             // https://github.com/ziglang/zig/issues/8531
-            exe_cpp.want_lto = false;
+            exe_cpp.want_lto = .none;
         },
         .macos => {
             // https://github.com/ziglang/zig/issues/8680
-            exe_cpp.want_lto = false;
-            exe_c.want_lto = false;
+            exe_cpp.want_lto = .none;
+            exe_c.want_lto = .none;
         },
         else => {},
     }

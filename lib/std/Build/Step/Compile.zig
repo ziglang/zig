@@ -185,7 +185,7 @@ force_undefined_symbols: std.StringHashMap(void),
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
-want_lto: ?bool = null,
+want_lto: ?LtoMode = null,
 use_llvm: ?bool,
 use_lld: ?bool,
 
@@ -288,6 +288,12 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+};
+
+pub const LtoMode = enum {
+    none,
+    full,
+    thin,
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -1711,7 +1717,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
-    try addFlag(&zig_args, "lto", compile.want_lto);
+    
+    if (compile.want_lto) |lto| {
+        try zig_args.append(switch(lto) {
+            .full => "-flto=full",
+            .thin => "-flto=thin",
+            .none => "-fno-lto",
+        });
+    }
+    
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
