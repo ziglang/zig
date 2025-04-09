@@ -4246,8 +4246,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
         defer file.close();
 
         const path = if (std.fs.path.sep == '/') entry.path else blk: {
-            const new_path = try comp.arena.allocSentinel(u8, entry.path.len, 0);
-            @memcpy(new_path, entry.path);
+            const new_path = try comp.arena.dupe(u8, entry.path);
             for (new_path) |*byte| {
                 if (byte.* == std.fs.path.sep) {
                     byte.* = '/';
