@@ -397,7 +397,7 @@ fn loadManifest(
     color: std.zig.Color,
     required: bool,
 ) !struct { std.zig.Manifest, std.zig.Ast } {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [2 * std.fs.max_path_bytes]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&buf);
     const joined_path = root.join(fba.allocator(), std.zig.Manifest.basename) catch
         return error.NameTooLong;
@@ -412,10 +412,7 @@ fn loadManifest(
         if (!required) {
             if (err == error.FileNotFound) return error.FileNotFound;
         }
-        fatal("unable to load package manifest '{s}': {s}", .{
-            try root.joinString(allocator, joined_path.sub_path),
-            @errorName(err),
-        });
+        fatal("unable to load package manifest '{}': {s}", .{ root, @errorName(err) });
     };
     errdefer allocator.free(manifest_bytes);
 
@@ -423,7 +420,7 @@ fn loadManifest(
     errdefer ast.deinit(allocator);
 
     if (ast.errors.len > 0) {
-        const file_path = try root.joinString(allocator, joined_path.sub_path);
+        const file_path = try root.toString(fba.allocator());
         try std.zig.printAstErrorsToStderr(allocator, ast, file_path, color);
         std.process.exit(1);
     }
@@ -440,10 +437,7 @@ fn loadManifest(
         try wip_errors.init(allocator);
         defer wip_errors.deinit();
 
-        const src_path = try wip_errors.addString(try root.joinString(
-            allocator,
-            joined_path.sub_path,
-        ));
+        const src_path = try wip_errors.addString(try root.toString(fba.allocator()));
         try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
 
         var eb = try wip_errors.toOwnedBundle("");
