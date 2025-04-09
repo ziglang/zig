@@ -219,12 +219,12 @@ fn graphInner(
         try writer.writeByteNTimes(' ', longest_name - name.len);
 
         if (dep.hash) |hash|
-            try writer.print("{s}", .{hash})
+            try writer.print("    {s}", .{hash})
         else switch (dep.location) {
             .url => try writer.writeAll("(missing)"),
             .path => |p| {
                 const path = try build_root.resolvePosix(allocator, p);
-                try writer.print("{s} (local)", .{path.sub_path});
+                try writer.print("    {s} (local)", .{path.sub_path});
                 allocator.free(path.sub_path);
             },
         }
