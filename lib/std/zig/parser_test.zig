@@ -1406,6 +1406,7 @@ test "zig fmt: (off|on) can be toggled inside nested containers" {
         \\    // zig fmt: on
         \\};
         \\const a = 0;
+        \\
     );
 }
 
