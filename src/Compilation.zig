@@ -4244,7 +4244,19 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             });
         };
         defer file.close();
-        archiver.writeFile(entry.path, file) catch |err| {
+
+        const path = if (std.fs.path.sep == '/') entry.path else blk: {
+            const new_path = try comp.arena.allocSentinel(u8, entry.path.len, 0);
+            @memcpy(new_path, entry.path);
+            for (new_path) |*byte| {
+                if (byte.* == std.fs.path.sep) {
+                    byte.* = '/';
+                }
+            }
+            break :blk new_path;
+        };
+
+        archiver.writeFile(path, file) catch |err| {
             return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
                 root, entry.path, @errorName(err),
             });
