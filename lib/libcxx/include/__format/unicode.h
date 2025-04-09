@@ -54,7 +54,7 @@ struct __consume_result {
 };
 static_assert(sizeof(__consume_result) == sizeof(char32_t));
 
-#  ifndef _LIBCPP_HAS_NO_UNICODE
+#  if _LIBCPP_HAS_UNICODE
 
 /// Implements the grapheme cluster boundary rules
 ///
@@ -123,7 +123,7 @@ class __code_point_view;
 /// UTF-8 specialization.
 template <>
 class __code_point_view<char> {
-  using _Iterator = basic_string_view<char>::const_iterator;
+  using _Iterator _LIBCPP_NODEBUG = basic_string_view<char>::const_iterator;
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __code_point_view(_Iterator __first, _Iterator __last)
@@ -235,7 +235,7 @@ private:
   _Iterator __last_;
 };
 
-#    ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 _LIBCPP_HIDE_FROM_ABI constexpr bool __is_surrogate_pair_high(wchar_t __value) {
   return __value >= 0xd800 && __value <= 0xdbff;
 }
@@ -249,7 +249,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool __is_surrogate_pair_low(wchar_t __value) {
 /// - 4 UTF-32 (for example Linux)
 template <>
 class __code_point_view<wchar_t> {
-  using _Iterator = typename basic_string_view<wchar_t>::const_iterator;
+  using _Iterator _LIBCPP_NODEBUG = typename basic_string_view<wchar_t>::const_iterator;
 
 public:
   static_assert(sizeof(wchar_t) == 2 || sizeof(wchar_t) == 4, "sizeof(wchar_t) has a not implemented value");
@@ -292,7 +292,7 @@ private:
   _Iterator __first_;
   _Iterator __last_;
 };
-#    endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // State machine to implement the Extended Grapheme Cluster Boundary
 //
@@ -300,8 +300,8 @@ private:
 // This implements the extended rules see
 // https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries
 class __extended_grapheme_cluster_break {
-  using __EGC_property  = __extended_grapheme_custer_property_boundary::__property;
-  using __inCB_property = __indic_conjunct_break::__property;
+  using __EGC_property _LIBCPP_NODEBUG  = __extended_grapheme_custer_property_boundary::__property;
+  using __inCB_property _LIBCPP_NODEBUG = __indic_conjunct_break::__property;
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __extended_grapheme_cluster_break(char32_t __first_code_point)
@@ -527,7 +527,7 @@ private:
 /// Therefore only this code point is extracted.
 template <class _CharT>
 class __extended_grapheme_cluster_view {
-  using _Iterator = typename basic_string_view<_CharT>::const_iterator;
+  using _Iterator _LIBCPP_NODEBUG = typename basic_string_view<_CharT>::const_iterator;
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __extended_grapheme_cluster_view(_Iterator __first, _Iterator __last)
@@ -566,13 +566,13 @@ private:
 template <contiguous_iterator _Iterator>
 __extended_grapheme_cluster_view(_Iterator, _Iterator) -> __extended_grapheme_cluster_view<iter_value_t<_Iterator>>;
 
-#  else //  _LIBCPP_HAS_NO_UNICODE
+#  else // _LIBCPP_HAS_UNICODE
 
 // For ASCII every character is a "code point".
-// This makes it easier to write code agnostic of the _LIBCPP_HAS_NO_UNICODE define.
+// This makes it easier to write code agnostic of the _LIBCPP_HAS_UNICODE define.
 template <class _CharT>
 class __code_point_view {
-  using _Iterator = typename basic_string_view<_CharT>::const_iterator;
+  using _Iterator _LIBCPP_NODEBUG = typename basic_string_view<_CharT>::const_iterator;
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __code_point_view(_Iterator __first, _Iterator __last)
@@ -591,11 +591,11 @@ private:
   _Iterator __last_;
 };
 
-#  endif //  _LIBCPP_HAS_NO_UNICODE
+#  endif // _LIBCPP_HAS_UNICODE
 
 } // namespace __unicode
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

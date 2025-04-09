@@ -8,25 +8,138 @@
 
 #include <__assert>
 #include <__config>
+#include <__system_error/throw_system_error.h>
 #include <__verbose_abort>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string.h>
 #include <string>
 #include <system_error>
 
 #include "include/config_elast.h"
 
-#if defined(__ANDROID__)
-#  include <android/api-level.h>
+#if defined(_LIBCPP_WIN32API)
+#  include <windows.h>
+#  include <winerror.h>
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if defined(_LIBCPP_WIN32API)
+
 namespace {
-#if !defined(_LIBCPP_HAS_NO_THREADS)
+std::optional<errc> __win_err_to_errc(int err) {
+  switch (err) {
+  case ERROR_ACCESS_DENIED:
+    return errc::permission_denied;
+  case ERROR_ALREADY_EXISTS:
+    return errc::file_exists;
+  case ERROR_BAD_NETPATH:
+    return errc::no_such_file_or_directory;
+  case ERROR_BAD_PATHNAME:
+    return errc::no_such_file_or_directory;
+  case ERROR_BAD_UNIT:
+    return errc::no_such_device;
+  case ERROR_BROKEN_PIPE:
+    return errc::broken_pipe;
+  case ERROR_BUFFER_OVERFLOW:
+    return errc::filename_too_long;
+  case ERROR_BUSY:
+    return errc::device_or_resource_busy;
+  case ERROR_BUSY_DRIVE:
+    return errc::device_or_resource_busy;
+  case ERROR_CANNOT_MAKE:
+    return errc::permission_denied;
+  case ERROR_CANTOPEN:
+    return errc::io_error;
+  case ERROR_CANTREAD:
+    return errc::io_error;
+  case ERROR_CANTWRITE:
+    return errc::io_error;
+  case ERROR_CURRENT_DIRECTORY:
+    return errc::permission_denied;
+  case ERROR_DEV_NOT_EXIST:
+    return errc::no_such_device;
+  case ERROR_DEVICE_IN_USE:
+    return errc::device_or_resource_busy;
+  case ERROR_DIR_NOT_EMPTY:
+    return errc::directory_not_empty;
+  case ERROR_DIRECTORY:
+    return errc::invalid_argument;
+  case ERROR_DISK_FULL:
+    return errc::no_space_on_device;
+  case ERROR_FILE_EXISTS:
+    return errc::file_exists;
+  case ERROR_FILE_NOT_FOUND:
+    return errc::no_such_file_or_directory;
+  case ERROR_HANDLE_DISK_FULL:
+    return errc::no_space_on_device;
+  case ERROR_INVALID_ACCESS:
+    return errc::permission_denied;
+  case ERROR_INVALID_DRIVE:
+    return errc::no_such_device;
+  case ERROR_INVALID_FUNCTION:
+    return errc::function_not_supported;
+  case ERROR_INVALID_HANDLE:
+    return errc::invalid_argument;
+  case ERROR_INVALID_NAME:
+    return errc::no_such_file_or_directory;
+  case ERROR_INVALID_PARAMETER:
+    return errc::invalid_argument;
+  case ERROR_LOCK_VIOLATION:
+    return errc::no_lock_available;
+  case ERROR_LOCKED:
+    return errc::no_lock_available;
+  case ERROR_NEGATIVE_SEEK:
+    return errc::invalid_argument;
+  case ERROR_NOACCESS:
+    return errc::permission_denied;
+  case ERROR_NOT_ENOUGH_MEMORY:
+    return errc::not_enough_memory;
+  case ERROR_NOT_READY:
+    return errc::resource_unavailable_try_again;
+  case ERROR_NOT_SAME_DEVICE:
+    return errc::cross_device_link;
+  case ERROR_NOT_SUPPORTED:
+    return errc::not_supported;
+  case ERROR_OPEN_FAILED:
+    return errc::io_error;
+  case ERROR_OPEN_FILES:
+    return errc::device_or_resource_busy;
+  case ERROR_OPERATION_ABORTED:
+    return errc::operation_canceled;
+  case ERROR_OUTOFMEMORY:
+    return errc::not_enough_memory;
+  case ERROR_PATH_NOT_FOUND:
+    return errc::no_such_file_or_directory;
+  case ERROR_READ_FAULT:
+    return errc::io_error;
+  case ERROR_REPARSE_TAG_INVALID:
+    return errc::invalid_argument;
+  case ERROR_RETRY:
+    return errc::resource_unavailable_try_again;
+  case ERROR_SEEK:
+    return errc::io_error;
+  case ERROR_SHARING_VIOLATION:
+    return errc::permission_denied;
+  case ERROR_TOO_MANY_OPEN_FILES:
+    return errc::too_many_files_open;
+  case ERROR_WRITE_FAULT:
+    return errc::io_error;
+  case ERROR_WRITE_PROTECT:
+    return errc::permission_denied;
+  default:
+    return {};
+  }
+}
+} // namespace
+#endif
+
+namespace {
+#if _LIBCPP_HAS_THREADS
 
 //  GLIBC also uses 1024 as the maximum buffer size internally.
 constexpr size_t strerror_buff_size = 1024;
@@ -92,7 +205,7 @@ string do_strerror_r(int ev) {
 }
 #  endif
 
-#endif // !defined(_LIBCPP_HAS_NO_THREADS)
+#endif // _LIBCPP_HAS_THREADS
 
 string make_error_str(const error_code& ec, string what_arg) {
   if (ec) {
@@ -110,10 +223,10 @@ string make_error_str(const error_code& ec) {
   }
   return string();
 }
-} // end namespace
+} // namespace
 
 string __do_message::message(int ev) const {
-#if defined(_LIBCPP_HAS_NO_THREADS)
+#if !_LIBCPP_HAS_THREADS
   return string(::strerror(ev));
 #else
   return do_strerror_r(ev);
@@ -156,19 +269,52 @@ public:
 const char* __system_error_category::name() const noexcept { return "system"; }
 
 string __system_error_category::message(int ev) const {
-#ifdef _LIBCPP_ELAST
+#ifdef _LIBCPP_WIN32API
+  std::string result;
+  char* str               = nullptr;
+  unsigned long num_chars = ::FormatMessageA(
+      FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+      nullptr,
+      ev,
+      0,
+      reinterpret_cast<char*>(&str),
+      0,
+      nullptr);
+  auto is_whitespace = [](char ch) { return ch == '\n' || ch == '\r' || ch == ' '; };
+  while (num_chars > 0 && is_whitespace(str[num_chars - 1]))
+    --num_chars;
+
+  if (num_chars)
+    result = std::string(str, num_chars);
+  else
+    result = "Unknown error";
+
+  LocalFree(str);
+  return result;
+#else
+#  ifdef _LIBCPP_ELAST
   if (ev > _LIBCPP_ELAST)
     return string("unspecified system_category error");
-#endif // _LIBCPP_ELAST
+#  endif // _LIBCPP_ELAST
   return __do_message::message(ev);
+#endif
 }
 
 error_condition __system_error_category::default_error_condition(int ev) const noexcept {
-#ifdef _LIBCPP_ELAST
+#ifdef _LIBCPP_WIN32API
+  // Remap windows error codes to generic error codes if possible.
+  if (ev == 0)
+    return error_condition(0, generic_category());
+  if (auto maybe_errc = __win_err_to_errc(ev))
+    return error_condition(static_cast<int>(*maybe_errc), generic_category());
+  return error_condition(ev, system_category());
+#else
+#  ifdef _LIBCPP_ELAST
   if (ev > _LIBCPP_ELAST)
     return error_condition(ev, system_category());
-#endif // _LIBCPP_ELAST
+#  endif // _LIBCPP_ELAST
   return error_condition(ev, generic_category());
+#endif
 }
 
 const error_category& system_category() noexcept {
@@ -211,8 +357,8 @@ system_error::system_error(int ev, const error_category& ecat)
 system_error::~system_error() noexcept {}
 
 void __throw_system_error(int ev, const char* what_arg) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
-  std::__throw_system_error(error_code(ev, system_category()), what_arg);
+#if _LIBCPP_HAS_EXCEPTIONS
+  std::__throw_system_error(error_code(ev, generic_category()), what_arg);
 #else
   // The above could also handle the no-exception case, but for size, avoid referencing system_category() unnecessarily.
   _LIBCPP_VERBOSE_ABORT(

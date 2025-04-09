@@ -17,9 +17,11 @@
 #include <__functional/invoke.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/conjunction.h>
 #include <__type_traits/disjunction.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
@@ -71,7 +73,7 @@ struct __expected_construct_unexpected_from_invoke_tag {};
 
 template <class _Err, class _Arg>
 _LIBCPP_HIDE_FROM_ABI void __throw_bad_expected_access(_Arg&& __arg) {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
   throw bad_expected_access<_Err>(std::forward<_Arg>(__arg));
 #  else
   (void)__arg;
@@ -457,14 +459,14 @@ class expected : private __expected_base<_Tp, _Err> {
   template <class _Up, class _OtherErr>
   friend class expected;
 
-  using __base = __expected_base<_Tp, _Err>;
+  using __base _LIBCPP_NODEBUG = __expected_base<_Tp, _Err>;
 
 public:
   using value_type      = _Tp;
   using error_type      = _Err;
   using unexpected_type = unexpected<_Err>;
 
-  using __trivially_relocatable =
+  using __trivially_relocatable _LIBCPP_NODEBUG =
       __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value && __libcpp_is_trivially_relocatable<_Err>::value,
                       expected,
                       void>;
@@ -503,25 +505,24 @@ public:
 
 private:
   template <class _Up, class _OtherErr, class _UfQual, class _OtherErrQual>
-  using __can_convert =
-      _And< is_constructible<_Tp, _UfQual>,
-            is_constructible<_Err, _OtherErrQual>,
-            _If<_Not<is_same<remove_cv_t<_Tp>, bool>>::value,
-                _And< 
-                      _Not<_And<is_same<_Tp, _Up>, is_same<_Err, _OtherErr>>>, // use the copy constructor instead, see #92676
-                      _Not<is_constructible<_Tp, expected<_Up, _OtherErr>&>>,
-                      _Not<is_constructible<_Tp, expected<_Up, _OtherErr>>>,
-                      _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>&>>,
-                      _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>>>,
-                      _Not<is_convertible<expected<_Up, _OtherErr>&, _Tp>>,
-                      _Not<is_convertible<expected<_Up, _OtherErr>&&, _Tp>>,
-                      _Not<is_convertible<const expected<_Up, _OtherErr>&, _Tp>>,
-                      _Not<is_convertible<const expected<_Up, _OtherErr>&&, _Tp>>>,
-                true_type>,
-            _Not<is_constructible<unexpected<_Err>, expected<_Up, _OtherErr>&>>,
-            _Not<is_constructible<unexpected<_Err>, expected<_Up, _OtherErr>>>,
-            _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>&>>,
-            _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>>> >;
+  using __can_convert _LIBCPP_NODEBUG = _And<
+      is_constructible<_Tp, _UfQual>,
+      is_constructible<_Err, _OtherErrQual>,
+      _If<_Not<is_same<remove_cv_t<_Tp>, bool>>::value,
+          _And< _Not<_And<is_same<_Tp, _Up>, is_same<_Err, _OtherErr>>>, // use the copy constructor instead, see #92676
+                _Not<is_constructible<_Tp, expected<_Up, _OtherErr>&>>,
+                _Not<is_constructible<_Tp, expected<_Up, _OtherErr>>>,
+                _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>&>>,
+                _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>>>,
+                _Not<is_convertible<expected<_Up, _OtherErr>&, _Tp>>,
+                _Not<is_convertible<expected<_Up, _OtherErr>&&, _Tp>>,
+                _Not<is_convertible<const expected<_Up, _OtherErr>&, _Tp>>,
+                _Not<is_convertible<const expected<_Up, _OtherErr>&&, _Tp>>>,
+          true_type>,
+      _Not<is_constructible<unexpected<_Err>, expected<_Up, _OtherErr>&>>,
+      _Not<is_constructible<unexpected<_Err>, expected<_Up, _OtherErr>>>,
+      _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>&>>,
+      _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>>> >;
 
   template <class _Func, class... _Args>
   _LIBCPP_HIDE_FROM_ABI constexpr explicit expected(
@@ -918,9 +919,9 @@ public:
     requires is_constructible_v<_Err, _Err&>
   _LIBCPP_HIDE_FROM_ABI constexpr auto and_then(_Func&& __f) & {
     using _Up = remove_cvref_t<invoke_result_t<_Func, _Tp&>>;
-    static_assert(__is_std_expected<_Up>::value, "The result of f(**this) must be a specialization of std::expected");
+    static_assert(__is_std_expected<_Up>::value, "The result of f(value()) must be a specialization of std::expected");
     static_assert(is_same_v<typename _Up::error_type, _Err>,
-                  "The result of f(**this) must have the same error_type as this expected");
+                  "The result of f(value()) must have the same error_type as this expected");
     if (has_value()) {
       return std::invoke(std::forward<_Func>(__f), this->__val());
     }
@@ -931,9 +932,9 @@ public:
     requires is_constructible_v<_Err, const _Err&>
   _LIBCPP_HIDE_FROM_ABI constexpr auto and_then(_Func&& __f) const& {
     using _Up = remove_cvref_t<invoke_result_t<_Func, const _Tp&>>;
-    static_assert(__is_std_expected<_Up>::value, "The result of f(**this) must be a specialization of std::expected");
+    static_assert(__is_std_expected<_Up>::value, "The result of f(value()) must be a specialization of std::expected");
     static_assert(is_same_v<typename _Up::error_type, _Err>,
-                  "The result of f(**this) must have the same error_type as this expected");
+                  "The result of f(value()) must have the same error_type as this expected");
     if (has_value()) {
       return std::invoke(std::forward<_Func>(__f), this->__val());
     }
@@ -945,9 +946,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr auto and_then(_Func&& __f) && {
     using _Up = remove_cvref_t<invoke_result_t<_Func, _Tp&&>>;
     static_assert(
-        __is_std_expected<_Up>::value, "The result of f(std::move(**this)) must be a specialization of std::expected");
+        __is_std_expected<_Up>::value, "The result of f(std::move(value())) must be a specialization of std::expected");
     static_assert(is_same_v<typename _Up::error_type, _Err>,
-                  "The result of f(std::move(**this)) must have the same error_type as this expected");
+                  "The result of f(std::move(value())) must have the same error_type as this expected");
     if (has_value()) {
       return std::invoke(std::forward<_Func>(__f), std::move(this->__val()));
     }
@@ -959,9 +960,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr auto and_then(_Func&& __f) const&& {
     using _Up = remove_cvref_t<invoke_result_t<_Func, const _Tp&&>>;
     static_assert(
-        __is_std_expected<_Up>::value, "The result of f(std::move(**this)) must be a specialization of std::expected");
+        __is_std_expected<_Up>::value, "The result of f(std::move(value())) must be a specialization of std::expected");
     static_assert(is_same_v<typename _Up::error_type, _Err>,
-                  "The result of f(std::move(**this)) must have the same error_type as this expected");
+                  "The result of f(std::move(value())) must have the same error_type as this expected");
     if (has_value()) {
       return std::invoke(std::forward<_Func>(__f), std::move(this->__val()));
     }
@@ -1362,7 +1363,7 @@ class expected<_Tp, _Err> : private __expected_void_base<_Err> {
   friend class expected;
 
   template <class _Up, class _OtherErr, class _OtherErrQual>
-  using __can_convert =
+  using __can_convert _LIBCPP_NODEBUG =
       _And< is_void<_Up>,
             is_constructible<_Err, _OtherErrQual>,
             _Not<is_constructible<unexpected<_Err>, expected<_Up, _OtherErr>&>>,
@@ -1370,7 +1371,7 @@ class expected<_Tp, _Err> : private __expected_void_base<_Err> {
             _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>&>>,
             _Not<is_constructible<unexpected<_Err>, const expected<_Up, _OtherErr>>>>;
 
-  using __base = __expected_void_base<_Err>;
+  using __base _LIBCPP_NODEBUG = __expected_void_base<_Err>;
 
 public:
   using value_type      = _Tp;
@@ -1491,8 +1492,6 @@ public:
     }
     return *this;
   }
-
-  _LIBCPP_HIDE_FROM_ABI constexpr expected& operator=(expected&&) = delete;
 
   _LIBCPP_HIDE_FROM_ABI constexpr expected&
   operator=(expected&& __rhs) noexcept(is_nothrow_move_assignable_v<_Err> && is_nothrow_move_constructible_v<_Err>)

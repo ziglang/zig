@@ -14,10 +14,12 @@
 #include <__algorithm/max.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_unsigned.h>
+#include <__vector/vector.h>
 #include <cstdint>
 #include <initializer_list>
-#include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

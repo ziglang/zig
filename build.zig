@@ -376,7 +376,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
-    const test_slow_targets = b.option(bool, "test-slow-targets", "Enable running module tests for targets that have a slow compiler backend") orelse false;
+    const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
@@ -433,7 +433,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
@@ -449,7 +449,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "test/c_import.zig",
         .name = "c-import",
         .desc = "Run the @cImport tests",
@@ -464,7 +464,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
@@ -480,7 +480,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/c.zig",
         .name = "universal-libc",
         .desc = "Run the universal libc tests",
@@ -496,7 +496,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/std/std.zig",
         .name = "std",
         .desc = "Run the standard library tests",
@@ -668,24 +668,6 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
-        .code_model = switch (options.target.result.cpu.arch) {
-            // NB:
-            // For loongarch, LLVM supports only small, medium and large
-            // code model. If we don't explicitly specify the code model,
-            // the default value `small' will be used.
-            //
-            // Since zig binary itself is relatively large, using a `small'
-            // code model will cause
-            //
-            // relocation R_LARCH_B26 out of range
-            //
-            // error when linking a loongarch32/loongarch64 zig binary.
-            //
-            // Here we explicitly set code model to `medium' to avoid this
-            // error.
-            .loongarch32, .loongarch64 => .medium,
-            else => .default,
-        },
         .valgrind = options.valgrind,
     });
 
@@ -1166,10 +1148,10 @@ const llvm_libs = [_][]const u8{
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
+    "LLVMTelemetry",
     "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
-    "LLVMSandboxIR",
     "LLVMXCoreDisassembler",
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
@@ -1196,6 +1178,10 @@ const llvm_libs = [_][]const u8{
     "LLVMSystemZCodeGen",
     "LLVMSystemZDesc",
     "LLVMSystemZInfo",
+    "LLVMSPIRVCodeGen",
+    "LLVMSPIRVDesc",
+    "LLVMSPIRVInfo",
+    "LLVMSPIRVAnalysis",
     "LLVMSparcDisassembler",
     "LLVMSparcAsmParser",
     "LLVMSparcCodeGen",
@@ -1294,6 +1280,7 @@ const llvm_libs = [_][]const u8{
     "LLVMCoroutines",
     "LLVMipo",
     "LLVMVectorize",
+    "LLVMSandboxIR",
     "LLVMLinker",
     "LLVMInstrumentation",
     "LLVMFrontendOpenMP",
@@ -1301,11 +1288,11 @@ const llvm_libs = [_][]const u8{
     "LLVMFrontendOpenACC",
     "LLVMFrontendHLSL",
     "LLVMFrontendDriver",
+    "LLVMFrontendAtomic",
     "LLVMExtensions",
     "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
-    "LLVMCodeGenData",
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",
@@ -1314,6 +1301,7 @@ const llvm_libs = [_][]const u8{
     "LLVMTarget",
     "LLVMObjCARCOpts",
     "LLVMCodeGenTypes",
+    "LLVMCGData",
     "LLVMIRPrinter",
     "LLVMInterfaceStub",
     "LLVMFileCheck",
@@ -1329,6 +1317,7 @@ const llvm_libs = [_][]const u8{
     "LLVMDebugInfoBTF",
     "LLVMDebugInfoPDB",
     "LLVMDebugInfoMSF",
+    "LLVMDebugInfoCodeView",
     "LLVMDebugInfoDWARF",
     "LLVMObject",
     "LLVMTextAPI",
@@ -1336,7 +1325,6 @@ const llvm_libs = [_][]const u8{
     "LLVMIRReader",
     "LLVMAsmParser",
     "LLVMMC",
-    "LLVMDebugInfoCodeView",
     "LLVMBitReader",
     "LLVMFuzzerCLI",
     "LLVMCore",

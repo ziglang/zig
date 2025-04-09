@@ -36,40 +36,45 @@ size_t c32rtomb(char* s, char32_t c32, mbstate_t* ps);
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cuchar>
+#else
+#  include <__config>
+#  include <__cstddef/size_t.h>
 
-#include <uchar.h>
+#  include <uchar.h>
 
-#ifndef _LIBCPP_UCHAR_H
+#  ifndef _LIBCPP_UCHAR_H
 #   error <cuchar> tried including <uchar.h> but didn't find libc++'s <uchar.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_CXX03_LANG)
+#  if !defined(_LIBCPP_CXX03_LANG)
 
 using ::mbstate_t _LIBCPP_USING_IF_EXISTS;
-using ::size_t _LIBCPP_USING_IF_EXISTS;
 
-#  if !defined(_LIBCPP_HAS_NO_C8RTOMB_MBRTOC8)
+#    if _LIBCPP_HAS_C8RTOMB_MBRTOC8
 using ::mbrtoc8 _LIBCPP_USING_IF_EXISTS;
 using ::c8rtomb _LIBCPP_USING_IF_EXISTS;
-#  endif
+#    endif
 using ::mbrtoc16 _LIBCPP_USING_IF_EXISTS;
 using ::c16rtomb _LIBCPP_USING_IF_EXISTS;
 using ::mbrtoc32 _LIBCPP_USING_IF_EXISTS;
 using ::c32rtomb _LIBCPP_USING_IF_EXISTS;
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CUCHAR

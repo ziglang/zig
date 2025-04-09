@@ -48,7 +48,7 @@ use_lib_llvm: bool,
 /// and updates the final binary.
 use_lld: bool,
 c_frontend: CFrontend,
-lto: LtoMode,
+lto: std.zig.LtoMode,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -65,8 +65,6 @@ rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
-
-pub const LtoMode = enum { none, full, thin };
 
 pub const DebugFormat = union(enum) {
     strip,
@@ -105,7 +103,7 @@ pub const Options = struct {
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
-    lto: ?LtoMode = null,
+    lto: ?std.zig.LtoMode = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -288,7 +286,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .clang;
     };
 
-    const lto: LtoMode = b: {
+    const lto: std.zig.LtoMode = b: {
         if (!use_lld) {
             // zig ld LTO support is tracked by
             // https://github.com/ziglang/zig/issues/8680

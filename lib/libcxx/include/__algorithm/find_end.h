@@ -12,14 +12,10 @@
 
 #include <__algorithm/comp.h>
 #include <__algorithm/iterator_operations.h>
-#include <__algorithm/search.h>
 #include <__config>
 #include <__functional/identity.h>
-#include <__functional/invoke.h>
-#include <__iterator/advance.h>
 #include <__iterator/iterator_traits.h>
-#include <__iterator/next.h>
-#include <__iterator/reverse_iterator.h>
+#include <__type_traits/invoke.h>
 #include <__utility/pair.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -80,111 +76,8 @@ _LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> 
   }
 }
 
-template < class _IterOps,
-           class _Pred,
-           class _Iter1,
-           class _Sent1,
-           class _Iter2,
-           class _Sent2,
-           class _Proj1,
-           class _Proj2>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Iter1 __find_end(
-    _Iter1 __first1,
-    _Sent1 __sent1,
-    _Iter2 __first2,
-    _Sent2 __sent2,
-    _Pred& __pred,
-    _Proj1& __proj1,
-    _Proj2& __proj2,
-    bidirectional_iterator_tag,
-    bidirectional_iterator_tag) {
-  auto __last1 = _IterOps::next(__first1, __sent1);
-  auto __last2 = _IterOps::next(__first2, __sent2);
-  // modeled after search algorithm (in reverse)
-  if (__first2 == __last2)
-    return __last1; // Everything matches an empty sequence
-  _Iter1 __l1 = __last1;
-  _Iter2 __l2 = __last2;
-  --__l2;
-  while (true) {
-    // Find last element in sequence 1 that matchs *(__last2-1), with a mininum of loop checks
-    while (true) {
-      if (__first1 == __l1) // return __last1 if no element matches *__first2
-        return __last1;
-      if (std::__invoke(__pred, std::__invoke(__proj1, *--__l1), std::__invoke(__proj2, *__l2)))
-        break;
-    }
-    // *__l1 matches *__l2, now match elements before here
-    _Iter1 __m1 = __l1;
-    _Iter2 __m2 = __l2;
-    while (true) {
-      if (__m2 == __first2) // If pattern exhausted, __m1 is the answer (works for 1 element pattern)
-        return __m1;
-      if (__m1 == __first1) // Otherwise if source exhaused, pattern not found
-        return __last1;
-
-      // if there is a mismatch, restart with a new __l1
-      if (!std::__invoke(__pred, std::__invoke(__proj1, *--__m1), std::__invoke(__proj2, *--__m2))) {
-        break;
-      } // else there is a match, check next elements
-    }
-  }
-}
-
-template < class _AlgPolicy,
-           class _Pred,
-           class _Iter1,
-           class _Sent1,
-           class _Iter2,
-           class _Sent2,
-           class _Proj1,
-           class _Proj2>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Iter1 __find_end(
-    _Iter1 __first1,
-    _Sent1 __sent1,
-    _Iter2 __first2,
-    _Sent2 __sent2,
-    _Pred& __pred,
-    _Proj1& __proj1,
-    _Proj2& __proj2,
-    random_access_iterator_tag,
-    random_access_iterator_tag) {
-  typedef typename iterator_traits<_Iter1>::difference_type _D1;
-  auto __last1 = _IterOps<_AlgPolicy>::next(__first1, __sent1);
-  auto __last2 = _IterOps<_AlgPolicy>::next(__first2, __sent2);
-  // Take advantage of knowing source and pattern lengths.  Stop short when source is smaller than pattern
-  auto __len2 = __last2 - __first2;
-  if (__len2 == 0)
-    return __last1;
-  auto __len1 = __last1 - __first1;
-  if (__len1 < __len2)
-    return __last1;
-  const _Iter1 __s = __first1 + _D1(__len2 - 1); // End of pattern match can't go before here
-  _Iter1 __l1      = __last1;
-  _Iter2 __l2      = __last2;
-  --__l2;
-  while (true) {
-    while (true) {
-      if (__s == __l1)
-        return __last1;
-      if (std::__invoke(__pred, std::__invoke(__proj1, *--__l1), std::__invoke(__proj2, *__l2)))
-        break;
-    }
-    _Iter1 __m1 = __l1;
-    _Iter2 __m2 = __l2;
-    while (true) {
-      if (__m2 == __first2)
-        return __m1;
-      // no need to check range on __m1 because __s guarantees we have enough source
-      if (!std::__invoke(__pred, std::__invoke(__proj1, *--__m1), std::__invoke(*--__m2))) {
-        break;
-      }
-    }
-  }
-}
-
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator1 __find_end_classic(
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator1 __find_end_classic(
     _ForwardIterator1 __first1,
     _ForwardIterator1 __last1,
     _ForwardIterator2 __first2,
@@ -205,7 +98,7 @@ _LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Fo
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1 find_end(
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1 find_end(
     _ForwardIterator1 __first1,
     _ForwardIterator1 __last1,
     _ForwardIterator2 __first2,
@@ -215,7 +108,7 @@ _LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Fo
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator1
 find_end(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
   return std::find_end(__first1, __last1, __first2, __last2, __equal_to());
 }

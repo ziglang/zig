@@ -167,6 +167,9 @@ discard_local_symbols: bool = false,
 /// Position Independent Executable
 pie: ?bool = null,
 
+/// Link Time Optimization mode
+lto: ?std.zig.LtoMode = null,
+
 dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
@@ -185,7 +188,9 @@ force_undefined_symbols: std.StringHashMap(void),
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
+/// Deprecated; prefer using `lto`.
 want_lto: ?bool = null,
+
 use_llvm: ?bool,
 use_lld: ?bool,
 
@@ -1711,7 +1716,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
-    try addFlag(&zig_args, "lto", compile.want_lto);
+
+    if (compile.lto) |lto| {
+        try zig_args.append(switch (lto) {
+            .full => "-flto=full",
+            .thin => "-flto=thin",
+            .none => "-fno-lto",
+        });
+    } else try addFlag(&zig_args, "lto", compile.want_lto);
+
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {

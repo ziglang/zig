@@ -236,6 +236,8 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .muslabi64,
         .musleabi,
         .musleabihf,
+        .muslf32,
+        .muslsf,
         .muslx32,
         .none,
         .ohos,

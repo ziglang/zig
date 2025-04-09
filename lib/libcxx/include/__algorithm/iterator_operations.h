@@ -48,13 +48,13 @@ struct _RangeAlgPolicy {};
 template <>
 struct _IterOps<_RangeAlgPolicy> {
   template <class _Iter>
-  using __value_type = iter_value_t<_Iter>;
+  using __value_type _LIBCPP_NODEBUG = iter_value_t<_Iter>;
 
   template <class _Iter>
-  using __iterator_category = ranges::__iterator_concept<_Iter>;
+  using __iterator_category _LIBCPP_NODEBUG = ranges::__iterator_concept<_Iter>;
 
   template <class _Iter>
-  using __difference_type = iter_difference_t<_Iter>;
+  using __difference_type _LIBCPP_NODEBUG = iter_difference_t<_Iter>;
 
   static constexpr auto advance      = ranges::advance;
   static constexpr auto distance     = ranges::distance;
@@ -72,13 +72,13 @@ struct _ClassicAlgPolicy {};
 template <>
 struct _IterOps<_ClassicAlgPolicy> {
   template <class _Iter>
-  using __value_type = typename iterator_traits<_Iter>::value_type;
+  using __value_type _LIBCPP_NODEBUG = typename iterator_traits<_Iter>::value_type;
 
   template <class _Iter>
-  using __iterator_category = typename iterator_traits<_Iter>::iterator_category;
+  using __iterator_category _LIBCPP_NODEBUG = typename iterator_traits<_Iter>::iterator_category;
 
   template <class _Iter>
-  using __difference_type = typename iterator_traits<_Iter>::difference_type;
+  using __difference_type _LIBCPP_NODEBUG = typename iterator_traits<_Iter>::difference_type;
 
   // advance
   template <class _Iter, class _Distance>
@@ -94,10 +94,10 @@ struct _IterOps<_ClassicAlgPolicy> {
   }
 
   template <class _Iter>
-  using __deref_t = decltype(*std::declval<_Iter&>());
+  using __deref_t _LIBCPP_NODEBUG = decltype(*std::declval<_Iter&>());
 
   template <class _Iter>
-  using __move_t = decltype(std::move(*std::declval<_Iter&>()));
+  using __move_t _LIBCPP_NODEBUG = decltype(std::move(*std::declval<_Iter&>()));
 
   template <class _Iter>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 static void __validate_iter_reference() {
@@ -215,6 +215,9 @@ private:
     return __count - __dist;
   }
 };
+
+template <class _AlgPolicy, class _Iter>
+using __policy_iter_diff_t _LIBCPP_NODEBUG = typename _IterOps<_AlgPolicy>::template __difference_type<_Iter>;
 
 _LIBCPP_END_NAMESPACE_STD
 

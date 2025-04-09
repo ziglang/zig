@@ -348,7 +348,5 @@ pub const ucontext_t = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const MMAP2_UNIT = 4096;
-
 /// TODO
 pub const getcontext = {};
