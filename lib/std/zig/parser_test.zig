@@ -1,3 +1,10 @@
+const std = @import("std");
+const mem = std.mem;
+const print = std.debug.print;
+const io = std.io;
+const maxInt = std.math.maxInt;
+const Error = std.zig.Ast.Error.Tag;
+
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
@@ -1381,6 +1388,24 @@ test "zig fmt: comment to disable/enable zig fmt" {
         \\// zig fmt: on
         \\const e = f;
         \\
+    );
+}
+
+test "zig fmt: (off|on) can be toggled inside nested containers" {
+    try testTransform(
+        \\const data1 = .{
+        \\    // zig fmt: off
+        \\    .{},
+        \\    // zig fmt: on
+        \\};
+        \\    const a = 0;
+    ,
+        \\const data1 = .{
+        \\    // zig fmt: off
+        \\    .{},
+        \\    // zig fmt: on
+        \\};
+        \\const a = 0;
     );
 }
 
@@ -6455,12 +6480,6 @@ test "ampersand" {
     , &.{});
 }
 
-const std = @import("std");
-const mem = std.mem;
-const print = std.debug.print;
-const io = std.io;
-const maxInt = std.math.maxInt;
-
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
@@ -6513,8 +6532,6 @@ fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
 fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
-
-const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.Ast.parse(std.testing.allocator, source, .zig);
