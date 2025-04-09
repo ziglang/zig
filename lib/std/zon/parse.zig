@@ -2380,7 +2380,7 @@ test "std.zon enum literals" {
 test "std.zon parse bool" {
     const gpa = std.testing.allocator;
 
-    // Correct floats
+    // Correct bools
     try std.testing.expectEqual(true, try fromSlice(bool, gpa, "true", null, .{}));
     try std.testing.expectEqual(false, try fromSlice(bool, gpa, "false", null, .{}));
 
