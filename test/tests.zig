@@ -1681,7 +1681,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
-            test_step.want_lto = false;
+            test_step.lto = .none;
 
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;

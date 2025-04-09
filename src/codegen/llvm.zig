@@ -771,7 +771,7 @@ pub const Object = struct {
         time_report: bool,
         sanitize_thread: bool,
         fuzz: bool,
-        lto: Compilation.Config.LtoMode,
+        lto: std.zig.LtoMode,
     };
 
     pub fn emit(o: *Object, options: EmitOptions) error{ LinkFailure, OutOfMemory }!void {
