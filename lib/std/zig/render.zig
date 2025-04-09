@@ -2969,8 +2969,8 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
                 try ais.insertNewline();
             } else if (index == start) {
                 // Otherwise if the first comment is on the same line as
-                // the token before it, prefix it with a single space.
-                try ais.writer().writeByte(' ');
+                // the token before it, prefix it with double space.
+                try ais.writer().writeAll("  ");
             }
         }
 
