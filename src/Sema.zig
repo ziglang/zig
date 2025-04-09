@@ -34985,7 +34985,15 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
         offsets[i] = @intCast(aligns[i].forward(offset));
         offset = offsets[i] + sizes[i];
     }
-    struct_type.setLayoutResolved(ip, @intCast(big_align.forward(offset)), big_align);
+    const size = std.math.cast(u32, big_align.forward(offset)) orelse {
+        const msg = try sema.errMsg(
+            ty.srcLoc(zcu),
+            "struct layout requires size {d}, this compiler implementation supports up to {d}",
+            .{ big_align.forward(offset), std.math.maxInt(u32) },
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    };
+    struct_type.setLayoutResolved(ip, size, big_align);
     _ = try ty.comptimeOnlySema(pt);
 }
 
@@ -35260,7 +35268,15 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
         break :layout .{ size, max_align.max(tag_align), padding };
     } else .{ max_align.forward(max_size), max_align, 0 };
 
-    union_type.setHaveLayout(ip, @intCast(size), padding, alignment);
+    const casted_size = std.math.cast(u32, size) orelse {
+        const msg = try sema.errMsg(
+            ty.srcLoc(pt.zcu),
+            "union layout requires size {d}, this compiler implementation supports up to {d}",
+            .{ size, std.math.maxInt(u32) },
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    };
+    union_type.setHaveLayout(ip, casted_size, padding, alignment);
 
     if (union_type.flagsUnordered(ip).assumed_runtime_bits and !(try ty.hasRuntimeBitsSema(pt))) {
         const msg = try sema.errMsg(
