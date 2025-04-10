@@ -1001,10 +1001,6 @@ if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
 endif()
 
-if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
-  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
-endif()
-
 
 add_custom_target(stage3 ALL
   DEPENDS "${PROJECT_BINARY_DIR}/stage3/bin/zig"
