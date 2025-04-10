@@ -51,22 +51,21 @@ pub fn readIntChecked(
     return fbr.readInt(T);
 }
 
-pub fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
+pub fn readLeb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
     var br: std.io.BufferedReader = undefined;
     br.initFixed(fbr.buf);
     br.seek = fbr.pos;
-    const result = br.takeUleb128(T);
+    const result = br.takeLeb128(T);
     fbr.pos = br.seek;
     return @errorCast(result);
 }
 
+pub fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
+    return fbr.readLeb128(T);
+}
+
 pub fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(fbr.buf);
-    br.seek = fbr.pos;
-    const result = br.takeIleb128(T);
-    fbr.pos = br.seek;
-    return @errorCast(result);
+    return fbr.readLeb128(T);
 }
 
 pub fn readAddress(fbr: *FixedBufferReader, format: std.dwarf.Format) Error!u64 {

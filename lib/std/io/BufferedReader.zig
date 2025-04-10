@@ -164,6 +164,21 @@ fn passthru_posReadVec(ctx: ?*anyopaque, data: []const []u8, off: u64) anyerror!
     @panic("TODO");
 }
 
+pub fn seekBy(br: *BufferedReader, seek_by: i64) anyerror!void {
+    if (seek_by < 0) try br.seekBackwardBy(@abs(seek_by)) else try br.seekForwardBy(@abs(seek_by));
+}
+
+pub fn seekBackwardBy(br: *BufferedReader, seek_by: u64) anyerror!void {
+    if (seek_by > br.storage.buffer.items.len - br.seek) return error.Unseekable; // TODO
+    br.seek += @abs(seek_by);
+}
+
+pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) anyerror!void {
+    const seek, const need_unbuffered_seek = @subWithOverflow(br.seek, @abs(seek_by));
+    if (need_unbuffered_seek > 0) return error.Unseekable; // TODO
+    br.seek = seek;
+}
+
 /// Returns the next `n` bytes from `unbuffered_reader`, filling the buffer as
 /// necessary.
 ///
@@ -176,12 +191,31 @@ fn passthru_posReadVec(ctx: ?*anyopaque, data: []const []u8, off: u64) anyerror!
 /// is returned instead.
 ///
 /// See also:
+/// * `peekAll`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) anyerror![]u8 {
+    return (try br.peekAll(n))[0..n];
+}
+
+/// Returns the next buffered bytes from `unbuffered_reader`, after filling the buffer
+/// with at least `n` bytes.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// Asserts that the `BufferedReader` was initialized with a buffer capacity at
+/// least as big as `n`.
+///
+/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
+/// is returned instead.
+///
+/// See also:
+/// * `peek`
+/// * `toss`
+pub fn peekAll(br: *BufferedReader, n: usize) anyerror![]u8 {
     const list = &br.storage.buffer;
     assert(n <= list.capacity);
-    try fill(br, n);
-    return list.items[br.seek..][0..n];
+    try br.fill(n);
+    return list.items[br.seek..];
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position. This
@@ -563,93 +597,41 @@ pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.En
     return std.meta.intToEnum(Enum, int);
 }
 
-/// Read a single unsigned LEB128 value from the given reader as type T,
-/// or error.Overflow if the value cannot fit.
-pub fn takeUleb128(br: *std.io.BufferedReader, comptime T: type) anyerror!T {
-    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
-    const ShiftT = std.math.Log2Int(U);
-
-    const max_group = (@typeInfo(U).int.bits + 6) / 7;
-
-    var value: U = 0;
-    var group: ShiftT = 0;
-
-    while (group < max_group) : (group += 1) {
-        const byte = try br.takeByte();
-
-        const ov = @shlWithOverflow(@as(U, byte & 0x7f), group * 7);
-        if (ov[1] != 0) return error.Overflow;
-
-        value |= ov[0];
-        if (byte & 0x80 == 0) break;
-    } else {
-        return error.Overflow;
-    }
-
-    // only applies in the case that we extended to u8
-    if (U != T) {
-        if (value > std.math.maxInt(T)) return error.Overflow;
-    }
-
-    return @truncate(value);
+/// Read a single LEB128 value as type T, or `error.Overflow` if the value cannot fit.
+pub fn takeLeb128(br: *BufferedReader, comptime Result: type) anyerror!Result {
+    const result_info = @typeInfo(Result).int;
+    return std.math.cast(Result, try br.takeMultipleOf7Leb128(@Type(.{ .int = .{
+        .signedness = result_info.signedness,
+        .bits = std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
+    } }))) orelse error.Overflow;
 }
 
-/// Read a single signed LEB128 value from the given reader as type T,
-/// or `error.Overflow` if the value cannot fit.
-pub fn takeIleb128(br: *std.io.BufferedReader, comptime T: type) anyerror!T {
-    const S = if (@typeInfo(T).int.bits < 8) i8 else T;
-    const U = std.meta.Int(.unsigned, @typeInfo(S).int.bits);
-    const ShiftU = std.math.Log2Int(U);
-
-    const max_group = (@typeInfo(U).int.bits + 6) / 7;
-
-    var value = @as(U, 0);
-    var group = @as(ShiftU, 0);
-
-    while (group < max_group) : (group += 1) {
-        const byte = try br.takeByte();
-
-        const shift = group * 7;
-        const ov = @shlWithOverflow(@as(U, byte & 0x7f), shift);
-        if (ov[1] != 0) {
-            // Overflow is ok so long as the sign bit is set and this is the last byte
-            if (byte & 0x80 != 0) return error.Overflow;
-            if (@as(S, @bitCast(ov[0])) >= 0) return error.Overflow;
-
-            // and all the overflowed bits are 1
-            const remaining_shift = @as(u3, @intCast(@typeInfo(U).int.bits - @as(u16, shift)));
-            const remaining_bits = @as(i8, @bitCast(byte | 0x80)) >> remaining_shift;
-            if (remaining_bits != -1) return error.Overflow;
-        } else {
-            // If we don't overflow and this is the last byte and the number being decoded
-            // is negative, check that the remaining bits are 1
-            if ((byte & 0x80 == 0) and (@as(S, @bitCast(ov[0])) < 0)) {
-                const remaining_shift = @as(u3, @intCast(@typeInfo(U).int.bits - @as(u16, shift)));
-                const remaining_bits = @as(i8, @bitCast(byte | 0x80)) >> remaining_shift;
-                if (remaining_bits != -1) return error.Overflow;
-            }
+fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) anyerror!Result {
+    const result_info = @typeInfo(Result).int;
+    comptime assert(result_info.bits % 7 == 0);
+    var remaining_bits: std.math.Log2IntCeil(Result) = result_info.bits;
+    const UnsignedResult = @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = result_info.bits,
+    } });
+    var result: UnsignedResult = 0;
+    var fits = true;
+    while (true) {
+        const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try br.peekAll(1));
+        for (buffer, 1..) |byte, len| {
+            if (remaining_bits > 0) {
+                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) | @shrExact(result, 7);
+                remaining_bits -= 7;
+            } else if (fits) fits = switch (result_info.signedness) {
+                .signed => @as(i7, @bitCast(byte.bits)) == @as(i7, @truncate(@as(Result, @bitCast(result)) >> (result_info.bits - 1))),
+                .unsigned => byte.bits == 0,
+            };
+            if (byte.more) continue;
+            br.toss(len);
+            return if (fits) @as(Result, @bitCast(result)) >> remaining_bits else error.Overflow;
         }
-
-        value |= ov[0];
-        if (byte & 0x80 == 0) {
-            const needs_sign_ext = group + 1 < max_group;
-            if (byte & 0x40 != 0 and needs_sign_ext) {
-                const ones = @as(S, -1);
-                value |= @as(U, @bitCast(ones)) << (shift + 7);
-            }
-            break;
-        }
-    } else {
-        return error.Overflow;
+        br.toss(buffer.len);
     }
-
-    const result = @as(S, @bitCast(value));
-    // Only applies if we extended to i8
-    if (S != T) {
-        if (result > std.math.maxInt(T) or result < std.math.minInt(T)) return error.Overflow;
-    }
-
-    return @truncate(result);
 }
 
 test initFixed {
@@ -666,6 +648,10 @@ test initFixed {
 }
 
 test peek {
+    return error.Unimplemented;
+}
+
+test peekAll {
     return error.Unimplemented;
 }
 
@@ -766,10 +752,6 @@ test takeEnum {
     return error.Unimplemented;
 }
 
-test takeUleb128 {
-    return error.Unimplemented;
-}
-
-test takeIleb128 {
+test takeLeb128 {
     return error.Unimplemented;
 }
