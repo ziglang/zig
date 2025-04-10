@@ -2028,13 +2028,13 @@ pub const VirtualMachine = struct {
         var prev_row: Row = self.current_row;
 
         var cie_stream: std.io.BufferedReader = undefined;
-        cie_stream.initFixed(&cie.initial_instructions);
+        cie_stream.initFixed(cie.initial_instructions);
         var fde_stream: std.io.BufferedReader = undefined;
-        fde_stream.initFixed(&fde.instructions);
-        const streams: [2]*std.io.FixedBufferStream = .{ &cie_stream, &fde_stream };
+        fde_stream.initFixed(fde.instructions);
+        const streams: [2]*std.io.BufferedReader = .{ &cie_stream, &fde_stream };
 
         for (&streams, 0..) |stream, i| {
-            while (stream.pos < stream.buffer.len) {
+            while (stream.seek < stream.buffer.len) {
                 const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;

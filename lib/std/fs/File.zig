@@ -1512,23 +1512,48 @@ pub fn writeFileAllUnseekable(self: File, in_file: File, args: WriteFileOptions)
     return @errorCast(writeFileAllUnseekableInner(self, in_file, args));
 }
 
-fn writeFileAllUnseekableInner(self: File, in_file: File, args: WriteFileOptions) anyerror!void {
+fn writeFileAllUnseekableInner(out_file: File, in_file: File, args: WriteFileOptions) anyerror!void {
     const headers = args.headers_and_trailers[0..args.header_count];
     const trailers = args.headers_and_trailers[args.header_count..];
 
-    try self.writevAll(headers);
+    try out_file.writevAll(headers);
 
-    try in_file.reader().skipBytes(args.in_offset, .{ .buf_size = 4096 });
+    // Some possible optimizations here:
+    // * Could writev buffer multiple times if the amount to discard is larger than 4096
+    // * Could combine discard and read in one readv if amount to discard is small
 
-    var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+    var buffer: [4096]u8 = undefined;
+    var remaining = args.in_offset;
+    while (remaining > 0) {
+        const n = try in_file.read(buffer[0..@min(buffer.len, remaining)]);
+        if (n == 0) return error.EndOfStream;
+        remaining -= n;
+    }
     if (args.in_len) |len| {
-        var stream = std.io.limitedReader(in_file.reader(), len);
-        try fifo.pump(stream.reader(), self.writer());
+        remaining = len;
+        var buffer_index: usize = 0;
+        while (remaining > 0) {
+            const n = buffer_index + try in_file.read(buffer[buffer_index..@min(buffer.len, remaining)]);
+            if (n == 0) return error.EndOfStream;
+            const written = try out_file.write(buffer[0..n]);
+            if (written == 0) return error.EndOfStream;
+            remaining -= written;
+            std.mem.copyForwards(u8, &buffer, buffer[written..n]);
+            buffer_index = n - written;
+        }
     } else {
-        try fifo.pump(in_file.reader(), self.writer());
+        var buffer_index: usize = 0;
+        while (true) {
+            const n = buffer_index + try in_file.read(buffer[buffer_index..]);
+            if (n == 0) break;
+            const written = try out_file.write(buffer[0..n]);
+            if (written == 0) return error.EndOfStream;
+            std.mem.copyForwards(u8, &buffer, buffer[written..n]);
+            buffer_index = n - written;
+        }
     }
 
-    try self.writevAll(trailers);
+    try out_file.writevAll(trailers);
 }
 
 /// Low level function which can fail for OS-specific reasons.
@@ -1645,7 +1670,7 @@ pub fn reader_posReadVec(context: *anyopaque, data: []const []u8, offset: u64) a
 }
 
 pub fn reader_streamRead(
-    context: *anyopaque,
+    context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
 ) anyerror!std.io.Reader.Status {
@@ -1658,7 +1683,7 @@ pub fn reader_streamRead(
     };
 }
 
-pub fn reader_streamReadVec(context: *anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+pub fn reader_streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
     const file = opaqueToHandle(context);
     const n = try file.readv(data);
     return .{
@@ -1667,12 +1692,12 @@ pub fn reader_streamReadVec(context: *anyopaque, data: []const []u8) anyerror!st
     };
 }
 
-pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Result {
     const file = opaqueToHandle(context);
     var splat_buffer: [256]u8 = undefined;
     if (is_windows) {
         if (data.len == 1 and splat == 0) return 0;
-        return windows.WriteFile(file, data[0], null);
+        return .{ .len = windows.WriteFile(file, data[0], null) catch |err| return .{ .err = err } };
     }
     var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
     var len: usize = @min(iovecs.len, data.len);
@@ -1681,8 +1706,8 @@ pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: u
         .len = d.len,
     };
     switch (splat) {
-        0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
-        1 => return std.posix.writev(file, iovecs[0..len]),
+        0 => return .{ .len = std.posix.writev(file, iovecs[0 .. len - 1]) catch |err| return .{ .err = err } },
+        1 => return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } },
         else => {
             const pattern = data[data.len - 1];
             if (pattern.len == 1) {
@@ -1700,21 +1725,21 @@ pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: u
                     iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
                     len += 1;
                 }
-                return std.posix.writev(file, iovecs[0..len]);
+                return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } };
             }
         },
     }
-    return std.posix.writev(file, iovecs[0..len]);
+    return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } };
 }
 
 pub fn writer_writeFile(
-    context: *anyopaque,
+    context: ?*anyopaque,
     in_file: std.fs.File,
     in_offset: u64,
     in_len: std.io.Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
+) std.io.Writer.Result {
     const out_fd = opaqueToHandle(context);
     const in_fd = in_file.handle;
     const len_int = switch (in_len) {
