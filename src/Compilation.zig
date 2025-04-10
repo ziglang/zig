@@ -5628,12 +5628,19 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (target.os.tag) {
-        .macos => {
+        .ios, .macos, .tvos, .watchos => |os| {
             try argv.ensureUnusedCapacity(2);
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
-            argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
-                ver.major, ver.minor, ver.patch,
+            argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-m{s}{s}-version-min={d}.{d}.{d}", .{
+                switch (target.abi) {
+                    .simulator => "-simulator",
+                    else => "",
+                },
+                @tagName(os),
+                ver.major,
+                ver.minor,
+                ver.patch,
             }));
             // This avoids a warning that sometimes occurs when
             // providing both a -target argument that contains a
@@ -5641,23 +5648,6 @@ pub fn addCCArgs(
             // Zig provides the correct value in both places, so it
             // doesn't matter which one gets overridden.
             argv.appendAssumeCapacity("-Wno-overriding-option");
-        },
-        .ios => switch (target.cpu.arch) {
-            // Pass the proper -m<os>-version-min argument for darwin.
-            .x86, .x86_64 => {
-                const ver = target.os.version_range.semver.min;
-                try argv.append(try std.fmt.allocPrint(
-                    arena,
-                    "-m{s}-simulator-version-min={d}.{d}.{d}",
-                    .{ @tagName(target.os.tag), ver.major, ver.minor, ver.patch },
-                ));
-            },
-            else => {
-                const ver = target.os.version_range.semver.min;
-                try argv.append(try std.fmt.allocPrint(arena, "-m{s}-version-min={d}.{d}.{d}", .{
-                    @tagName(target.os.tag), ver.major, ver.minor, ver.patch,
-                }));
-            },
         },
         else => {},
     }
