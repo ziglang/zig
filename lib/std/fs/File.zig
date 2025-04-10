@@ -333,6 +333,10 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
         // stderr is always sanitized.
         return false;
     }
+    if (builtin.os.tag == .uefi) {
+        // UEFI has it's own way of terminal control without ANSI.
+        return false;
+    }
     if (self.isTty()) {
         if (self.handle == posix.STDOUT_FILENO or self.handle == posix.STDERR_FILENO) {
             if (posix.getenvZ("TERM")) |term| {
