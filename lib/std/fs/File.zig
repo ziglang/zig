@@ -1737,9 +1737,10 @@ pub fn writer_writeFile(
         const smaller_len = if (len_int == 0) max_count else @min(len_int, max_count);
         var off: std.os.linux.off_t = undefined;
         const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
-            off = try std.math.cast(std.os.linux.off_t, offset);
+            off = std.math.cast(std.os.linux.off_t, offset) orelse return error.Overflow;
             break :b &off;
         } else null;
+        if (true) @panic("TODO");
         const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, smaller_len) catch |err| switch (err) {
             error.UnsupportedOperation => break :sf,
             error.Unseekable => break :sf,

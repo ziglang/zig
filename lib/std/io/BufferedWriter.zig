@@ -50,7 +50,7 @@ pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
             .context = bw,
             .vtable = &fixed_vtable,
         },
-        .buffer = buffer,
+        .buffer = .initBuffer(buffer),
     };
 }
 
