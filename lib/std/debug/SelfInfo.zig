@@ -2034,7 +2034,7 @@ pub const VirtualMachine = struct {
         const streams: [2]*std.io.BufferedReader = .{ &cie_stream, &fde_stream };
 
         for (&streams, 0..) |stream, i| {
-            while (stream.seek < stream.buffer.len) {
+            while (stream.seek < stream.storageBuffer().len) {
                 const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;

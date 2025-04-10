@@ -2247,16 +2247,15 @@ pub const ElfModule = struct {
                 errdefer gpa.free(decompressed_section);
 
                 {
-                    var read_index: usize = 0;
+                    var i: usize = 0;
                     while (true) {
-                        const read_result = zlib_stream.streamReadVec(&.{decompressed_section[read_index..]});
-                        read_result.err catch {
+                        const status = zlib_stream.streamReadVec(&.{decompressed_section[i..]}) catch {
                             gpa.free(decompressed_section);
                             continue :shdrs;
                         };
-                        read_index += read_result.len;
-                        if (read_index == decompressed_section.len) break;
-                        if (read_result.end) {
+                        i += status.len;
+                        if (i == decompressed_section.len) break;
+                        if (status.end) {
                             gpa.free(decompressed_section);
                             continue :shdrs;
                         }
