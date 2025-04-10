@@ -43,7 +43,7 @@ const fixed_vtable: Writer.VTable = .{
 };
 
 /// Replaces the `BufferedWriter` with a new one that writes to `buffer` and
-/// returns `error.NoSpaceLeft` when it is full.
+/// then ends when it is full.
 pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
     bw.* = .{
         .unbuffered_writer = .{
@@ -77,6 +77,36 @@ pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
     return bw.buffer.unusedCapacitySlice();
 }
 
+pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
+    const list = &bw.buffer;
+    assert(list.capacity >= minimum_length);
+    const cap_slice = list.unusedCapacitySlice();
+    if (cap_slice.len >= minimum_length) {
+        @branchHint(.likely);
+        return cap_slice;
+    }
+    const buffer = list.items;
+    const result = bw.unbuffered_writer.write(buffer);
+    if (result.len == buffer.len) {
+        @branchHint(.likely);
+        list.items.len = 0;
+        try result.err;
+        return list.unusedCapacitySlice();
+    }
+    if (result.len > 0) {
+        const remainder = buffer[result.len..];
+        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        list.items.len = remainder.len;
+    }
+    try result.err;
+    return list.unusedCapacitySlice();
+}
+
+/// After calling `writableSlice`, this function tracks how many bytes were written to it.
+pub fn advance(bw: *BufferedWriter, n: usize) void {
+    bw.items.len += n;
+}
+
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `Writer.VTable.writev`.
 pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
@@ -92,15 +122,15 @@ pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
     }
 }
 
-pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) anyerror!usize {
+pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) Writer.Result {
     return passthru_writeSplat(bw, data, splat);
 }
 
-pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
+pub fn writev(bw: *BufferedWriter, data: []const []const u8) Writer.Result {
     return passthru_writeSplat(bw, data, 1);
 }
 
-fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Result {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const list = &bw.buffer;
     const buffer = list.allocatedSlice();
@@ -126,27 +156,45 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
         if (len >= remaining_data.len) {
             @branchHint(.likely);
             // Made it past the headers, so we can enable splatting.
-            const n = try bw.unbuffered_writer.writeSplat(send_buffers, splat);
+            const result = bw.unbuffered_writer.writeSplat(send_buffers, splat);
+            const n = result.len;
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return end - start_end;
+                return .{
+                    .err = result.err,
+                    .len = end - start_end,
+                    .end = result.end,
+                };
             }
             list.items.len = 0;
-            return n - start_end;
+            return .{
+                .err = result.err,
+                .len = n - start_end,
+                .end = result.end,
+            };
         }
-        const n = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
+        const result = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
+        const n = result.len;
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
             list.items.len = remainder.len;
-            return end - start_end;
+            return .{
+                .err = result.err,
+                .len = end - start_end,
+                .end = result.end,
+            };
         }
         list.items.len = 0;
-        return n - start_end;
+        return .{
+            .err = result.err,
+            .len = n - start_end,
+            .end = result.end,
+        };
     }
 
     const pattern = data[data.len - 1];
@@ -156,7 +204,7 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
         // It was added in the loop above; undo it here.
         end -= pattern.len;
         list.items.len = end;
-        return end - start_end;
+        return .{ .len = end - start_end };
     }
 
     const remaining_splat = splat - 1;
@@ -164,7 +212,7 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
     switch (pattern.len) {
         0 => {
             list.items.len = end;
-            return end - start_end;
+            return .{ .len = end - start_end };
         },
         1 => {
             const new_end = end + remaining_splat;
@@ -172,20 +220,29 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
                 @branchHint(.likely);
                 @memset(buffer[end..new_end], pattern[0]);
                 list.items.len = new_end;
-                return new_end - start_end;
+                return .{ .len = new_end - start_end };
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
-            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            const result = bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            const n = result.len;
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return end - start_end;
+                return .{
+                    .err = result.err,
+                    .len = end - start_end,
+                    .end = result.end,
+                };
             }
             list.items.len = 0;
-            return n - start_end;
+            return .{
+                .err = result.err,
+                .len = n - start_end,
+                .end = result.end,
+            };
         },
         else => {
             const new_end = end + pattern.len * remaining_splat;
@@ -195,46 +252,43 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
                     @memcpy(buffer[end..][0..pattern.len], pattern);
                 }
                 list.items.len = new_end;
-                return new_end - start_end;
+                return .{ .len = new_end - start_end };
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
-            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            const result = bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            const n = result.len;
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return end - start_end;
+                return .{
+                    .err = result.err,
+                    .len = end - start_end,
+                    .end = result.end,
+                };
             }
             list.items.len = 0;
-            return n - start_end;
+            return .{
+                .err = result.err,
+                .len = n - start_end,
+                .end = result.end,
+            };
         },
     }
-}
-
-fn fixed_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
-    const bw: *BufferedWriter = @alignCast(@ptrCast(context));
-    const list = &bw.buffer;
-    // When this function is called it means the buffer got full, so it's time
-    // to return an error. However, we still need to make sure all of the
-    // available buffer has been used.
-    const first = data[0];
-    const dest = list.unusedCapacitySlice();
-    @memcpy(dest, first[0..dest.len]);
-    list.items.len = list.capacity;
-    return error.NoSpaceLeft;
 }
 
 /// When this function is called it means the buffer got full, so it's time
 /// to return an error. However, we still need to make sure all of the
 /// available buffer has been filled.
-fn fixed_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Result {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const list = &bw.buffer;
+    const start_len = list.items.len;
     for (data) |bytes| {
         const dest = list.unusedCapacitySlice();
-        if (dest.len == 0) return error.NoSpaceLeft;
+        if (dest.len == 0) return .{ .len = list.items.len - start_len, .end = true };
         const len = @min(bytes.len, dest.len);
         @memcpy(dest[0..len], bytes[0..len]);
         list.items.len += len;
@@ -247,90 +301,153 @@ fn fixed_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize)
         else => for (0..splat - 1) |i| @memcpy(dest[i * pattern.len ..][0..pattern.len], pattern),
     }
     list.items.len = list.capacity;
-    return error.NoSpaceLeft;
+    return .{ .len = list.items.len - start_len, .end = true };
 }
 
-pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
+pub fn write(bw: *BufferedWriter, bytes: []const u8) Writer.Result {
     const list = &bw.buffer;
     const buffer = list.allocatedSlice();
     const end = list.items.len;
     const new_end = end + bytes.len;
     if (new_end > buffer.len) {
         var data: [2][]const u8 = .{ buffer[0..end], bytes };
-        const n = try bw.unbuffered_writer.writev(&data);
+        const result = bw.unbuffered_writer.writev(&data);
+        const n = result.len;
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
             list.items.len = remainder.len;
-            return 0;
+            return .{
+                .err = result.err,
+                .len = 0,
+                .end = result.end,
+            };
         }
         list.items.len = 0;
-        return n - end;
+        return .{
+            .err = result.err,
+            .len = n - end,
+            .end = result.end,
+        };
     }
     @memcpy(buffer[end..new_end], bytes);
     list.items.len = new_end;
     return bytes.len;
 }
 
-/// This function is provided by the `Writer`, however it is
-/// duplicated here so that `bw` can be passed to `std.fmt.format` directly,
-/// avoiding one indirect function call.
 pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
+    if ((try writeUntilEnd(bw, bytes)) != bytes.len) return error.WriteStreamEnd;
+}
+
+pub fn writeAllCount(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
+    try writeAll(bw, bytes);
+    return bytes.len;
+}
+
+/// If the number returned is less than `bytes.len` it indicates end of stream.
+pub fn writeUntilEnd(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
     var index: usize = 0;
-    while (index < bytes.len) index += try write(bw, bytes[index..]);
+    while (true) {
+        const result = write(bw, bytes[index..]);
+        try result.err;
+        index += result.len;
+        assert(index <= bytes.len);
+        if (index == bytes.len or result.end) return index;
+    }
 }
 
 pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) anyerror!void {
+    _ = try std.fmt.format(bw, format, args);
+}
+
+pub fn printCount(bw: *BufferedWriter, comptime format: []const u8, args: anytype) anyerror!usize {
     return std.fmt.format(bw, format, args);
 }
 
 pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
+    if ((try writeByteUntilEnd(bw, byte)) == 0) return error.WriteStreamEnd;
+}
+
+pub fn writeByteCount(bw: *BufferedWriter, byte: u8) anyerror!usize {
+    try writeByte(bw, byte);
+    return 1;
+}
+
+/// Returns 0 or 1 indicating how many bytes were written.
+/// `0` means end of stream encountered.
+pub fn writeByteUntilEnd(bw: *BufferedWriter, byte: u8) anyerror!usize {
     const list = &bw.buffer;
     const buffer = list.items;
     if (buffer.len < list.capacity) {
         @branchHint(.likely);
         buffer.ptr[buffer.len] = byte;
         list.items.len = buffer.len + 1;
-        return;
+        return 1;
     }
     var buffers: [2][]const u8 = .{ buffer, &.{byte} };
     while (true) {
-        const n = try bw.unbuffered_writer.writev(&buffers);
+        const result = bw.unbuffered_writer.writev(&buffers);
+        try result.err;
+        const n = result.len;
         if (n == 0) {
             @branchHint(.unlikely);
+            if (result.end) return 0;
             continue;
         } else if (n >= buffer.len) {
             @branchHint(.likely);
             if (n > buffer.len) {
                 @branchHint(.likely);
                 list.items.len = 0;
-                return;
+                return 1;
             } else {
                 buffer[0] = byte;
                 list.items.len = 1;
-                return;
+                return 1;
             }
         }
         const remainder = buffer[n..];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
         buffer[remainder.len] = byte;
         list.items.len = remainder.len + 1;
-        return;
+        return 1;
     }
 }
 
 /// Writes the same byte many times, performing the underlying write call as
-/// many times as necessary.
+/// many times as necessary, returning `error.WriteStreamEnd` if the byte
+/// could not be repeated `n` times.
 pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
-    var remaining: usize = n;
-    while (remaining > 0) remaining -= try splatByte(bw, byte, remaining);
+    if ((try splatByteUntilEnd(bw, byte, n)) != n) return error.WriteStreamEnd;
+}
+
+/// Writes the same byte many times, performing the underlying write call as
+/// many times as necessary, returning `error.WriteStreamEnd` if the byte
+/// could not be repeated `n` times, or returning `n` on success.
+pub fn splatByteAllCount(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
+    try splatByteAll(bw, byte, n);
+    return n;
+}
+
+/// Writes the same byte many times, performing the underlying write call as
+/// many times as necessary.
+///
+/// If the number returned is less than `n` it indicates end of stream.
+pub fn splatByteUntilEnd(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
+    var index: usize = 0;
+    while (true) {
+        const result = splatByte(bw, byte, n - index);
+        try result.err;
+        index += result.len;
+        assert(index <= n);
+        if (index == n or result.end) return index;
+    }
 }
 
 /// Writes the same byte many times, allowing short writes.
 ///
-/// Does maximum of one underlying `Writer.VTable.writev`.
-pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
+/// Does maximum of one underlying `Writer.VTable.writeSplat`.
+pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) Writer.Result {
     return passthru_writeSplat(bw, &.{&.{byte}}, n);
 }
 
@@ -389,7 +506,7 @@ pub fn writeFile(
 }
 
 fn passthru_writeFile(
-    context: *anyopaque,
+    context: ?*anyopaque,
     file: std.fs.File,
     offset: u64,
     len: Writer.FileLen,
@@ -544,32 +661,34 @@ pub fn alignBuffer(
     width: usize,
     alignment: std.fmt.Alignment,
     fill: u8,
-) anyerror!void {
+) anyerror!usize {
     const padding = if (buffer.len < width) width - buffer.len else 0;
     if (padding == 0) {
         @branchHint(.likely);
-        return bw.writeAll(buffer);
+        return bw.writeAllCount(buffer);
     }
+    var n: usize = 0;
     switch (alignment) {
         .left => {
-            try bw.writeAll(buffer);
-            try bw.splatByteAll(fill, padding);
+            n += try bw.writeAllCount(buffer);
+            n += try bw.splatByteAllCount(fill, padding);
         },
         .center => {
             const left_padding = padding / 2;
             const right_padding = (padding + 1) / 2;
-            try bw.splatByteAll(fill, left_padding);
-            try bw.writeAll(buffer);
-            try bw.splatByteAll(fill, right_padding);
+            n += try bw.splatByteAllCount(fill, left_padding);
+            n += try bw.writeAllCount(buffer);
+            n += try bw.splatByteAllCount(fill, right_padding);
         },
         .right => {
-            try bw.splatByteAll(fill, padding);
-            try bw.writeAll(buffer);
+            n += try bw.splatByteAllCount(fill, padding);
+            n += try bw.writeAllCount(buffer);
         },
     }
+    return n;
 }
 
-pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.fmt.Options) anyerror!void {
+pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.fmt.Options) anyerror!usize {
     return alignBuffer(bw, buffer, options.width orelse buffer.len, options.alignment, options.fill);
 }
 
@@ -604,7 +723,7 @@ pub fn printValue(
     options: std.fmt.Options,
     value: anytype,
     max_depth: usize,
-) anyerror!void {
+) anyerror!usize {
     const T = @TypeOf(value);
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
         defaultFormatString(T)
@@ -619,13 +738,10 @@ pub fn printValue(
 
     if (std.meta.hasMethod(T, "format")) {
         if (fmt.len > 0 and fmt[0] == 'f') {
-            return value.format(fmt[1..], options, bw);
-        } else {
-            //@deprecated();
-            // After 0.14.0 is tagged, uncomment this next line:
-            //@compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-            //and then delete the `hasMethod` condition
-            return value.format(fmt, options, bw);
+            return value.format(bw, fmt[1..]);
+        } else if (fmt.len == 0) {
+            // after 0.15.0 is tagged, delete the hasMethod condition and this compile error
+            @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
         }
     }
 
@@ -662,92 +778,104 @@ pub fn printValue(
         },
         .error_set => {
             if (actual_fmt.len > 0 and actual_fmt[0] == 's') {
-                return bw.writeAll(@errorName(value));
+                return bw.writeAllCount(@errorName(value));
             } else if (actual_fmt.len != 0) {
                 invalidFmtError(fmt, value);
             } else {
-                try bw.writeAll("error.");
-                return bw.writeAll(@errorName(value));
+                var n: usize = 0;
+                n += try bw.writeAllCount("error.");
+                n += try bw.writeAllCount(@errorName(value));
+                return n;
             }
         },
-        .@"enum" => |enumInfo| {
-            try bw.writeAll(@typeName(T));
-            if (enumInfo.is_exhaustive) {
+        .@"enum" => |enum_info| {
+            var n: usize = 0;
+            n += try bw.writeAllCount(@typeName(T));
+            if (enum_info.is_exhaustive) {
                 if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-                try bw.writeAll(".");
-                try bw.writeAll(@tagName(value));
-                return;
+                n += try bw.writeAllCount(".");
+                n += try bw.writeAllCount(@tagName(value));
+                return n;
             }
 
             // Use @tagName only if value is one of known fields
-            @setEvalBranchQuota(3 * enumInfo.fields.len);
-            inline for (enumInfo.fields) |enumField| {
+            @setEvalBranchQuota(3 * enum_info.fields.len);
+            inline for (enum_info.fields) |enumField| {
                 if (@intFromEnum(value) == enumField.value) {
-                    try bw.writeAll(".");
-                    try bw.writeAll(@tagName(value));
+                    n += try bw.writeAllCount(".");
+                    n += try bw.writeAllCount(@tagName(value));
                     return;
                 }
             }
 
-            try bw.writeByte('(');
-            try printValue(bw, actual_fmt, options, @intFromEnum(value), max_depth);
-            try bw.writeByte(')');
+            n += try bw.writeByteCount('(');
+            n += try printValue(bw, actual_fmt, options, @intFromEnum(value), max_depth);
+            n += try bw.writeByteCount(')');
+            return n;
         },
         .@"union" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            try bw.writeAll(@typeName(T));
+            var n: usize = 0;
+            n += try bw.writeAllCount(@typeName(T));
             if (max_depth == 0) {
-                return bw.writeAll("{ ... }");
+                n += bw.writeAllCount("{ ... }");
+                return n;
             }
             if (info.tag_type) |UnionTagType| {
-                try bw.writeAll("{ .");
-                try bw.writeAll(@tagName(@as(UnionTagType, value)));
-                try bw.writeAll(" = ");
+                n += try bw.writeAllCount("{ .");
+                n += try bw.writeAllCount(@tagName(@as(UnionTagType, value)));
+                n += try bw.writeAllCount(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try printValue(bw, ANY, options, @field(value, u_field.name), max_depth - 1);
+                        n += try printValue(bw, ANY, options, @field(value, u_field.name), max_depth - 1);
                     }
                 }
-                try bw.writeAll(" }");
+                n += try bw.writeAllCount(" }");
             } else {
-                try bw.writeByte('@');
-                try bw.printIntOptions(@intFromPtr(&value), 16, .lower);
+                n += try bw.writeByte('@');
+                n += try bw.printIntOptions(@intFromPtr(&value), 16, .lower);
             }
+            return n;
         },
         .@"struct" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            var n: usize = 0;
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
-                    return bw.writeAll("{ ... }");
+                    n += try bw.writeAllCount("{ ... }");
+                    return n;
                 }
-                try bw.writeAll("{");
+                n += try bw.writeAllCount("{");
                 inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
-                        try bw.writeAll(" ");
+                        n += try bw.writeAllCount(" ");
                     } else {
-                        try bw.writeAll(", ");
+                        n += try bw.writeAllCount(", ");
                     }
-                    try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
+                    n += try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
                 }
-                return bw.writeAll(" }");
+                n += try bw.writeAllCount(" }");
+                return n;
             }
-            try bw.writeAll(@typeName(T));
+            n += try bw.writeAllCount(@typeName(T));
             if (max_depth == 0) {
-                return bw.writeAll("{ ... }");
+                n += try bw.writeAllCount("{ ... }");
+                return n;
             }
-            try bw.writeAll("{");
+            n += try bw.writeAllCount("{");
             inline for (info.fields, 0..) |f, i| {
                 if (i == 0) {
-                    try bw.writeAll(" .");
+                    n += try bw.writeAllCount(" .");
                 } else {
-                    try bw.writeAll(", .");
+                    n += try bw.writeAllCount(", .");
                 }
-                try bw.writeAll(f.name);
-                try bw.writeAll(" = ");
-                try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
+                n += try bw.writeAllCount(f.name);
+                n += try bw.writeAllCount(" = ");
+                n += try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
             }
-            try bw.writeAll(" }");
+            n += try bw.writeAllCount(" }");
+            return n;
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
@@ -756,8 +884,10 @@ pub fn printValue(
                 },
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
-                    try writevAll(bw, &buffers);
-                    try printIntOptions(bw, @intFromPtr(value), 16, .lower, options);
+                    var n: usize = 0;
+                    n += try writevAll(bw, &buffers);
+                    n += try printIntOptions(bw, @intFromPtr(value), 16, .lower, options);
+                    return n;
                 },
             },
             .many, .c => {
@@ -775,7 +905,7 @@ pub fn printValue(
                 if (actual_fmt.len == 0)
                     @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
                 if (max_depth == 0) {
-                    return bw.writeAll("{ ... }");
+                    return bw.writeAllCount("{ ... }");
                 }
                 if (ptr_info.child == u8) switch (actual_fmt.len) {
                     1 => switch (actual_fmt[0]) {
@@ -789,21 +919,23 @@ pub fn printValue(
                     },
                     else => {},
                 };
-                try bw.writeAll("{ ");
+                var n: usize = 0;
+                n += try bw.writeAllCount("{ ");
                 for (value, 0..) |elem, i| {
-                    try printValue(bw, actual_fmt, options, elem, max_depth - 1);
+                    n += try printValue(bw, actual_fmt, options, elem, max_depth - 1);
                     if (i != value.len - 1) {
-                        try bw.writeAll(", ");
+                        n += try bw.writeAllCount(", ");
                     }
                 }
-                try bw.writeAll(" }");
+                n += try bw.writeAllCount(" }");
+                return n;
             },
         },
         .array => |info| {
             if (actual_fmt.len == 0)
                 @compileError("cannot format array without a specifier (i.e. {s} or {any})");
             if (max_depth == 0) {
-                return bw.writeAll("{ ... }");
+                return bw.writeAllCount("{ ... }");
             }
             if (info.child == u8) {
                 if (actual_fmt[0] == 's') {
@@ -814,28 +946,32 @@ pub fn printValue(
                     return printHex(bw, &value, .upper);
                 }
             }
-            try bw.writeAll("{ ");
+            var n: usize = 0;
+            n += try bw.writeAllCount("{ ");
             for (value, 0..) |elem, i| {
-                try printValue(bw, actual_fmt, options, elem, max_depth - 1);
+                n += try printValue(bw, actual_fmt, options, elem, max_depth - 1);
                 if (i < value.len - 1) {
-                    try bw.writeAll(", ");
+                    n += try bw.writeAllCount(", ");
                 }
             }
-            try bw.writeAll(" }");
+            n += try bw.writeAllCount(" }");
+            return n;
         },
         .vector => |info| {
             if (max_depth == 0) {
-                return bw.writeAll("{ ... }");
+                return bw.writeAllCount("{ ... }");
             }
-            try bw.writeAll("{ ");
+            var n: usize = 0;
+            n += try bw.writeAllCount("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try printValue(bw, actual_fmt, options, value[i], max_depth - 1);
+                n += try printValue(bw, actual_fmt, options, value[i], max_depth - 1);
                 if (i < info.len - 1) {
-                    try bw.writeAll(", ");
+                    n += try bw.writeAllCount(", ");
                 }
             }
-            try bw.writeAll(" }");
+            n += try bw.writeAllCount(" }");
+            return n;
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
@@ -860,7 +996,7 @@ pub fn printInt(
     comptime fmt: []const u8,
     options: std.fmt.Options,
     value: anytype,
-) anyerror!void {
+) anyerror!usize {
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = std.math.IntFittingRange(value, value);
         break :blk @as(Int, value);
@@ -904,15 +1040,15 @@ pub fn printInt(
     comptime unreachable;
 }
 
-pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) anyerror!void {
+pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) anyerror!usize {
     return alignBufferOptions(bw, @as(*const [1]u8, &c), options);
 }
 
-pub fn printAscii(bw: *BufferedWriter, bytes: []const u8, options: std.fmt.Options) anyerror!void {
+pub fn printAscii(bw: *BufferedWriter, bytes: []const u8, options: std.fmt.Options) anyerror!usize {
     return alignBufferOptions(bw, bytes, options);
 }
 
-pub fn printUnicodeCodepoint(bw: *BufferedWriter, c: u21, options: std.fmt.Options) anyerror!void {
+pub fn printUnicodeCodepoint(bw: *BufferedWriter, c: u21, options: std.fmt.Options) anyerror!usize {
     var buf: [4]u8 = undefined;
     const len = try std.unicode.utf8Encode(c, &buf);
     return alignBufferOptions(bw, buf[0..len], options);
@@ -924,7 +1060,7 @@ pub fn printIntOptions(
     base: u8,
     case: std.fmt.Case,
     options: std.fmt.Options,
-) anyerror!void {
+) anyerror!usize {
     assert(base >= 2);
 
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
@@ -991,7 +1127,7 @@ pub fn printFloat(
     comptime fmt: []const u8,
     options: std.fmt.Options,
     value: anytype,
-) anyerror!void {
+) anyerror!usize {
     var buf: [std.fmt.float.bufferSize(.decimal, f64)]u8 = undefined;
 
     if (fmt.len > 1) invalidFmtError(fmt, value);
@@ -1279,7 +1415,7 @@ pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt
     return alignBufferOptions(bw, sub_bw.getWritten(), options);
 }
 
-pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anyerror!void {
+pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anyerror!usize {
     const charset = switch (case) {
         .upper => "0123456789ABCDEF",
         .lower => "0123456789abcdef",
@@ -1288,12 +1424,68 @@ pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anye
         try writeByte(bw, charset[c >> 4]);
         try writeByte(bw, charset[c & 15]);
     }
+    return bytes.len * 2;
 }
 
-pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
+pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
     var chunker = std.mem.window(u8, bytes, 3, 3);
     var temp: [5]u8 = undefined;
-    while (chunker.next()) |chunk| try bw.writeAll(std.base64.standard.Encoder.encode(&temp, chunk));
+    var n: usize = 0;
+    while (chunker.next()) |chunk| {
+        n += try bw.writeAllCount(std.base64.standard.Encoder.encode(&temp, chunk));
+    }
+    return n;
+}
+
+/// Write a single unsigned integer as unsigned LEB128 to the given writer.
+pub fn writeUleb128(bw: *std.io.BufferedWriter, arg: anytype) anyerror!usize {
+    const Arg = @TypeOf(arg);
+    const Int = switch (Arg) {
+        comptime_int => std.math.IntFittingRange(arg, arg),
+        else => Arg,
+    };
+    const Value = if (@typeInfo(Int).int.bits < 8) u8 else Int;
+    var value: Value = arg;
+    var n: usize = 0;
+
+    while (true) {
+        const byte: u8 = @truncate(value & 0x7f);
+        value >>= 7;
+        if (value == 0) {
+            try bw.writeByte(byte);
+            return n + 1;
+        } else {
+            try bw.writeByte(byte | 0x80);
+            n += 1;
+        }
+    }
+}
+
+/// Write a single signed integer as signed LEB128 to the given writer.
+pub fn writeIleb128(bw: *std.io.BufferedWriter, arg: anytype) anyerror!usize {
+    const Arg = @TypeOf(arg);
+    const Int = switch (Arg) {
+        comptime_int => std.math.IntFittingRange(-@abs(arg), @abs(arg)),
+        else => Arg,
+    };
+    const Signed = if (@typeInfo(Int).int.bits < 8) i8 else Int;
+    const Unsigned = std.meta.Int(.unsigned, @typeInfo(Signed).int.bits);
+    var value: Signed = arg;
+    var n: usize = 0;
+
+    while (true) {
+        const unsigned: Unsigned = @bitCast(value);
+        const byte: u8 = @truncate(unsigned);
+        value >>= 6;
+        if (value == -1 or value == 0) {
+            try bw.writeByte(byte & 0x7F);
+            return n + 1;
+        } else {
+            value >>= 1;
+            try bw.writeByte(byte | 0x80);
+            n += 1;
+        }
+    }
 }
 
 test "formatValue max_depth" {
@@ -1590,15 +1782,15 @@ test "fixed output" {
     try bw.writeAll("world");
     try testing.expect(std.mem.eql(u8, bw.getWritten(), "Helloworld"));
 
-    try testing.expectError(error.NoSpaceLeft, bw.writeAll("!"));
+    try testing.expectError(error.WriteStreamEnd, bw.writeAll("!"));
     try testing.expect(std.mem.eql(u8, bw.getWritten(), "Helloworld"));
 
     bw.reset();
     try testing.expect(bw.getWritten().len == 0);
 
-    try testing.expectError(error.NoSpaceLeft, bw.writeAll("Hello world!"));
+    try testing.expectError(error.WriteStreamEnd, bw.writeAll("Hello world!"));
     try testing.expect(std.mem.eql(u8, bw.getWritten(), "Hello worl"));
 
     try bw.seekTo((try bw.getEndPos()) + 1);
-    try testing.expectError(error.NoSpaceLeft, bw.writeAll("H"));
+    try testing.expectError(error.WriteStreamEnd, bw.writeAll("H"));
 }

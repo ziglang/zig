@@ -19,8 +19,8 @@ pub const VTable = struct {
     ///
     /// If this is `null` it is equivalent to always returning
     /// `error.Unseekable`.
-    posRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) Result,
-    posReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8, offset: u64) VecResult,
+    posRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) RwResult,
+    posReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8, offset: u64) Result,
 
     /// Writes bytes from the internally tracked stream position to `bw`, or
     /// returns `error.Unstreamable`, indicating `posRead` should be used
@@ -37,38 +37,34 @@ pub const VTable = struct {
     ///
     /// If this is `null` it is equivalent to always returning
     /// `error.Unstreamable`.
-    streamRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) Result,
-    streamReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8) VecResult,
+    streamRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) RwResult,
+    streamReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8) Result,
+
+    pub const eof: VTable = .{
+        .posRead = eof_posRead,
+        .posReadVec = eof_posReadVec,
+        .streamRead = eof_streamRead,
+        .streamReadVec = eof_streamReadVec,
+    };
 };
 
-pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
+pub const Result = std.io.Writer.Result;
 
-pub const VecResult = struct {
-    /// Even when a failure occurs, `Effect.written` may be nonzero, and
-    /// `Effect.end` may be true.
-    failure: anyerror!void,
-    effect: VecEffect,
-};
-
-pub const Result = struct {
-    /// Even when a failure occurs, `Effect.written` may be nonzero, and
-    /// `Effect.end` may be true.
-    failure: anyerror!void,
-    write_effect: Effect,
-    read_effect: Effect,
-};
-
-pub const Effect = packed struct(usize) {
-    /// Number of bytes that were read from the reader or written to the
-    /// writer.
-    len: Len,
-    /// Indicates end of stream.
-    end: bool,
+pub const RwResult = struct {
+    len: usize = 0,
+    read_err: anyerror!void = {},
+    write_err: anyerror!void = {},
+    read_end: bool = false,
+    write_end: bool = false,
 };
 
 pub const Limit = enum(usize) {
     none = std.math.maxInt(usize),
     _,
+
+    pub fn min(l: Limit, int: usize) usize {
+        return @min(int, @intFromEnum(l));
+    }
 };
 
 /// Returns total number of bytes written to `w`.
@@ -133,23 +129,9 @@ pub fn streamReadAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) anyer
 
 /// Reads the stream until the end, ignoring all the data.
 /// Returns the number of bytes discarded.
-pub fn discardAll(r: Reader) anyerror!usize {
+pub fn discardUntilEnd(r: Reader) anyerror!usize {
     var bw = std.io.null_writer.unbuffered();
     return streamReadAll(r, &bw);
-}
-
-pub fn buffered(r: Reader, buffer: []u8) std.io.BufferedReader {
-    return .{
-        .reader = r,
-        .buffered_writer = .{
-            .buffer = buffer,
-            .mode = .fixed,
-        },
-    };
-}
-
-pub fn unbuffered(r: Reader) std.io.BufferedReader {
-    return buffered(r, &.{});
 }
 
 pub fn allocating(r: Reader, gpa: std.mem.Allocator) std.io.BufferedReader {
@@ -188,4 +170,32 @@ test "when the backing reader provides one byte at a time" {
     const res = try one_byte_stream.reader().streamReadAlloc(std.testing.allocator, str.len + 1);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
+}
+
+fn eof_posRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) RwResult {
+    _ = ctx;
+    _ = bw;
+    _ = limit;
+    _ = offset;
+    return .{ .end = true };
+}
+
+fn eof_posReadVec(ctx: ?*anyopaque, data: []const []u8, offset: u64) Result {
+    _ = ctx;
+    _ = data;
+    _ = offset;
+    return .{ .end = true };
+}
+
+fn eof_streamRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) RwResult {
+    _ = ctx;
+    _ = bw;
+    _ = limit;
+    return .{ .end = true };
+}
+
+fn eof_streamReadVec(ctx: ?*anyopaque, data: []const []u8) Result {
+    _ = ctx;
+    _ = data;
+    return .{ .end = true };
 }

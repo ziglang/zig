@@ -20,8 +20,6 @@ pub const Writer = @import("io/Writer.zig");
 pub const BufferedReader = @import("io/BufferedReader.zig");
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
-pub const CountingWriter = @import("io/CountingWriter.zig");
-pub const CountingReader = @import("io/CountingReader.zig");
 
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
@@ -47,46 +45,6 @@ pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
 pub const tty = @import("io/tty.zig");
-
-/// A `Writer` that discards all data.
-pub const null_writer: Writer = .{
-    .context = undefined,
-    .vtable = &.{
-        .writeSplat = null_writeSplat,
-        .writeFile = null_writeFile,
-    },
-};
-
-fn null_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
-    _ = context;
-    const headers = data[0 .. data.len - 1];
-    const pattern = data[headers.len..];
-    var written: usize = pattern.len * splat;
-    for (headers) |bytes| written += bytes.len;
-    return written;
-}
-
-fn null_writeFile(
-    context: *anyopaque,
-    file: std.fs.File,
-    offset: u64,
-    len: Writer.FileLen,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) anyerror!usize {
-    _ = context;
-    _ = offset;
-    _ = headers_len;
-    _ = file;
-    if (len == .entire_file) return error.Unimplemented;
-    var n: usize = 0;
-    for (headers_and_trailers) |bytes| n += bytes.len;
-    return len.int() + n;
-}
-
-test null_writer {
-    try null_writer.writeAll("yay");
-}
 
 pub fn poll(
     allocator: Allocator,
@@ -494,8 +452,6 @@ test {
     _ = BufferedReader;
     _ = Reader;
     _ = Writer;
-    _ = CountingWriter;
-    _ = CountingReader;
     _ = AllocatingWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");

@@ -103,13 +103,13 @@ pub const Zip64Options = struct {
 };
 
 pub fn writeZip(
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     files: []const File,
     store: []FileStore,
     options: WriteZipOptions,
 ) !void {
     if (store.len < files.len) return error.FileStoreTooSmall;
-    var zipper = initZipper(writer);
+    var zipper: Zipper = .init(writer);
     for (files, 0..) |file, i| {
         store[i] = try zipper.writeFile(.{
             .name = file.name,
@@ -126,173 +126,172 @@ pub fn writeZip(
     try zipper.writeEndRecord(if (options.end) |e| e else .{});
 }
 
-pub fn initZipper(writer: anytype) Zipper(@TypeOf(writer)) {
-    return .{ .counting_writer = std.io.countingWriter(writer) };
-}
-
 /// Provides methods to format and write the contents of a zip archive
 /// to the underlying Writer.
-pub fn Zipper(comptime Writer: type) type {
-    return struct {
-        counting_writer: std.io.CountingWriter(Writer),
-        central_count: u64 = 0,
-        first_central_offset: ?u64 = null,
-        last_central_limit: ?u64 = null,
+pub const Zipper = struct {
+    writer: *std.io.BufferedWriter,
+    bytes_written: u64,
+    central_count: u64 = 0,
+    first_central_offset: ?u64 = null,
+    last_central_limit: ?u64 = null,
 
-        const Self = @This();
+    const Self = @This();
 
-        pub fn writeFile(
-            self: *Self,
-            opt: struct {
-                name: []const u8,
-                content: []const u8,
-                compression: zip.CompressionMethod,
-                write_options: WriteZipOptions,
-            },
-        ) !FileStore {
-            const writer = self.counting_writer.writer();
+    pub fn init(writer: *std.io.BufferedWriter) Zipper {
+        return .{ .writer = writer, .bytes_written = 0 };
+    }
 
-            const file_offset: u64 = @intCast(self.counting_writer.bytes_written);
-            const crc32 = std.hash.Crc32.hash(opt.content);
+    pub fn writeFile(
+        self: *Self,
+        opt: struct {
+            name: []const u8,
+            content: []const u8,
+            compression: zip.CompressionMethod,
+            write_options: WriteZipOptions,
+        },
+    ) !FileStore {
+        const writer = self.writer;
 
-            const header_options = opt.write_options.local_header;
-            {
-                var compressed_size: u32 = 0;
-                var uncompressed_size: u32 = 0;
-                var extra_len: u16 = 0;
-                if (header_options) |hdr_options| {
-                    compressed_size = if (hdr_options.compressed_size) |size| size else 0;
-                    uncompressed_size = if (hdr_options.uncompressed_size) |size| size else @intCast(opt.content.len);
-                    extra_len = if (hdr_options.extra_len) |len| len else 0;
-                }
-                const hdr: zip.LocalFileHeader = .{
-                    .signature = zip.local_file_header_sig,
-                    .version_needed_to_extract = 10,
-                    .flags = .{ .encrypted = false, ._ = 0 },
-                    .compression_method = opt.compression,
-                    .last_modification_time = 0,
-                    .last_modification_date = 0,
-                    .crc32 = crc32,
-                    .compressed_size = compressed_size,
-                    .uncompressed_size = uncompressed_size,
-                    .filename_len = @intCast(opt.name.len),
-                    .extra_len = extra_len,
-                };
-                try writer.writeStructEndian(hdr, .little);
+        const file_offset: u64 = @intCast(self.bytes_written);
+        const crc32 = std.hash.Crc32.hash(opt.content);
+
+        const header_options = opt.write_options.local_header;
+        {
+            var compressed_size: u32 = 0;
+            var uncompressed_size: u32 = 0;
+            var extra_len: u16 = 0;
+            if (header_options) |hdr_options| {
+                compressed_size = if (hdr_options.compressed_size) |size| size else 0;
+                uncompressed_size = if (hdr_options.uncompressed_size) |size| size else @intCast(opt.content.len);
+                extra_len = if (hdr_options.extra_len) |len| len else 0;
             }
-            try writer.writeAll(opt.name);
-
-            if (header_options) |hdr| {
-                if (hdr.zip64) |options| {
-                    try writer.writeInt(u16, 0x0001, .little);
-                    const data_size = if (options.data_size) |size| size else 8;
-                    try writer.writeInt(u16, data_size, .little);
-                    try writer.writeInt(u64, 0, .little);
-                    try writer.writeInt(u64, @intCast(opt.content.len), .little);
-                }
-            }
-
-            var compressed_size: u32 = undefined;
-            switch (opt.compression) {
-                .store => {
-                    try writer.writeAll(opt.content);
-                    compressed_size = @intCast(opt.content.len);
-                },
-                .deflate => {
-                    const offset = self.counting_writer.bytes_written;
-                    var fbs = std.io.fixedBufferStream(opt.content);
-                    try std.compress.flate.deflate.compress(.raw, fbs.reader(), writer, .{});
-                    std.debug.assert(fbs.pos == opt.content.len);
-                    compressed_size = @intCast(self.counting_writer.bytes_written - offset);
-                },
-                else => unreachable,
-            }
-            return .{
-                .compression = opt.compression,
-                .file_offset = file_offset,
-                .crc32 = crc32,
-                .compressed_size = compressed_size,
-                .uncompressed_size = opt.content.len,
-            };
-        }
-
-        pub fn writeCentralRecord(
-            self: *Self,
-            store: FileStore,
-            opt: struct {
-                name: []const u8,
-                version_needed_to_extract: u16 = 10,
-            },
-        ) !void {
-            if (self.first_central_offset == null) {
-                self.first_central_offset = self.counting_writer.bytes_written;
-            }
-            self.central_count += 1;
-
-            const hdr: zip.CentralDirectoryFileHeader = .{
-                .signature = zip.central_file_header_sig,
-                .version_made_by = 0,
-                .version_needed_to_extract = opt.version_needed_to_extract,
+            const hdr: zip.LocalFileHeader = .{
+                .signature = zip.local_file_header_sig,
+                .version_needed_to_extract = 10,
                 .flags = .{ .encrypted = false, ._ = 0 },
-                .compression_method = store.compression,
+                .compression_method = opt.compression,
                 .last_modification_time = 0,
                 .last_modification_date = 0,
-                .crc32 = store.crc32,
-                .compressed_size = store.compressed_size,
-                .uncompressed_size = @intCast(store.uncompressed_size),
+                .crc32 = crc32,
+                .compressed_size = compressed_size,
+                .uncompressed_size = uncompressed_size,
                 .filename_len = @intCast(opt.name.len),
-                .extra_len = 0,
-                .comment_len = 0,
-                .disk_number = 0,
-                .internal_file_attributes = 0,
-                .external_file_attributes = 0,
-                .local_file_header_offset = @intCast(store.file_offset),
+                .extra_len = extra_len,
             };
-            try self.counting_writer.writer().writeStructEndian(hdr, .little);
-            try self.counting_writer.writer().writeAll(opt.name);
-            self.last_central_limit = self.counting_writer.bytes_written;
+            self.bytes_written += try writer.writeStructEndian(hdr, .little);
         }
+        self.bytes_written += try writer.writeAll(opt.name);
 
-        pub fn writeEndRecord(self: *Self, opt: EndRecordOptions) !void {
-            const cd_offset = self.first_central_offset orelse 0;
-            const cd_end = self.last_central_limit orelse 0;
-
-            if (opt.zip64) |zip64| {
-                const end64_off = cd_end;
-                const fixed: zip.EndRecord64 = .{
-                    .signature = zip.end_record64_sig,
-                    .end_record_size = @sizeOf(zip.EndRecord64) - 12,
-                    .version_made_by = 0,
-                    .version_needed_to_extract = 45,
-                    .disk_number = 0,
-                    .central_directory_disk_number = 0,
-                    .record_count_disk = @intCast(self.central_count),
-                    .record_count_total = @intCast(self.central_count),
-                    .central_directory_size = @intCast(cd_end - cd_offset),
-                    .central_directory_offset = @intCast(cd_offset),
-                };
-                try self.counting_writer.writer().writeStructEndian(fixed, .little);
-                const locator: zip.EndLocator64 = .{
-                    .signature = if (zip64.locator_sig) |s| s else zip.end_locator64_sig,
-                    .zip64_disk_count = if (zip64.locator_zip64_disk_count) |c| c else 0,
-                    .record_file_offset = if (zip64.locator_record_file_offset) |o| o else @intCast(end64_off),
-                    .total_disk_count = if (zip64.locator_total_disk_count) |c| c else 1,
-                };
-                try self.counting_writer.writer().writeStructEndian(locator, .little);
+        if (header_options) |hdr| {
+            if (hdr.zip64) |options| {
+                self.bytes_written += try writer.writeInt(u16, 0x0001, .little);
+                const data_size = if (options.data_size) |size| size else 8;
+                self.bytes_written += try writer.writeInt(u16, data_size, .little);
+                self.bytes_written += try writer.writeInt(u64, 0, .little);
+                self.bytes_written += try writer.writeInt(u64, @intCast(opt.content.len), .little);
             }
-            const hdr: zip.EndRecord = .{
-                .signature = if (opt.sig) |s| s else zip.end_record_sig,
-                .disk_number = if (opt.disk_number) |n| n else 0,
-                .central_directory_disk_number = if (opt.central_directory_disk_number) |n| n else 0,
-                .record_count_disk = if (opt.record_count_disk) |c| c else @intCast(self.central_count),
-                .record_count_total = if (opt.record_count_total) |c| c else @intCast(self.central_count),
-                .central_directory_size = if (opt.central_directory_size) |s| s else @intCast(cd_end - cd_offset),
-                .central_directory_offset = if (opt.central_directory_offset) |o| o else @intCast(cd_offset),
-                .comment_len = if (opt.comment_len) |l| l else (if (opt.comment) |c| @as(u16, @intCast(c.len)) else 0),
-            };
-            try self.counting_writer.writer().writeStructEndian(hdr, .little);
-            if (opt.comment) |c|
-                try self.counting_writer.writer().writeAll(c);
         }
-    };
-}
+
+        var compressed_size: u32 = undefined;
+        switch (opt.compression) {
+            .store => {
+                self.bytes_written += try writer.writeAll(opt.content);
+                compressed_size = @intCast(opt.content.len);
+            },
+            .deflate => {
+                const offset = self.bytes_written;
+                var fbs = std.io.fixedBufferStream(opt.content);
+                self.bytes_written += try std.compress.flate.deflate.compress(.raw, fbs.reader(), writer, .{});
+                std.debug.assert(fbs.pos == opt.content.len);
+                compressed_size = @intCast(self.bytes_written - offset);
+            },
+            else => unreachable,
+        }
+        return .{
+            .compression = opt.compression,
+            .file_offset = file_offset,
+            .crc32 = crc32,
+            .compressed_size = compressed_size,
+            .uncompressed_size = opt.content.len,
+        };
+    }
+
+    pub fn writeCentralRecord(
+        self: *Self,
+        store: FileStore,
+        opt: struct {
+            name: []const u8,
+            version_needed_to_extract: u16 = 10,
+        },
+    ) !void {
+        if (self.first_central_offset == null) {
+            self.first_central_offset = self.bytes_written;
+        }
+        self.central_count += 1;
+
+        const hdr: zip.CentralDirectoryFileHeader = .{
+            .signature = zip.central_file_header_sig,
+            .version_made_by = 0,
+            .version_needed_to_extract = opt.version_needed_to_extract,
+            .flags = .{ .encrypted = false, ._ = 0 },
+            .compression_method = store.compression,
+            .last_modification_time = 0,
+            .last_modification_date = 0,
+            .crc32 = store.crc32,
+            .compressed_size = store.compressed_size,
+            .uncompressed_size = @intCast(store.uncompressed_size),
+            .filename_len = @intCast(opt.name.len),
+            .extra_len = 0,
+            .comment_len = 0,
+            .disk_number = 0,
+            .internal_file_attributes = 0,
+            .external_file_attributes = 0,
+            .local_file_header_offset = @intCast(store.file_offset),
+        };
+        self.bytes_written += try self.writer.writeStructEndian(hdr, .little);
+        self.bytes_written += try self.writer.writeAll(opt.name);
+        self.last_central_limit = self.bytes_written;
+    }
+
+    pub fn writeEndRecord(self: *Self, opt: EndRecordOptions) !void {
+        const cd_offset = self.first_central_offset orelse 0;
+        const cd_end = self.last_central_limit orelse 0;
+
+        if (opt.zip64) |zip64| {
+            const end64_off = cd_end;
+            const fixed: zip.EndRecord64 = .{
+                .signature = zip.end_record64_sig,
+                .end_record_size = @sizeOf(zip.EndRecord64) - 12,
+                .version_made_by = 0,
+                .version_needed_to_extract = 45,
+                .disk_number = 0,
+                .central_directory_disk_number = 0,
+                .record_count_disk = @intCast(self.central_count),
+                .record_count_total = @intCast(self.central_count),
+                .central_directory_size = @intCast(cd_end - cd_offset),
+                .central_directory_offset = @intCast(cd_offset),
+            };
+            self.bytes_written += try self.writer.writeStructEndian(fixed, .little);
+            const locator: zip.EndLocator64 = .{
+                .signature = if (zip64.locator_sig) |s| s else zip.end_locator64_sig,
+                .zip64_disk_count = if (zip64.locator_zip64_disk_count) |c| c else 0,
+                .record_file_offset = if (zip64.locator_record_file_offset) |o| o else @intCast(end64_off),
+                .total_disk_count = if (zip64.locator_total_disk_count) |c| c else 1,
+            };
+            self.bytes_written += try self.writer.writeStructEndian(locator, .little);
+        }
+        const hdr: zip.EndRecord = .{
+            .signature = if (opt.sig) |s| s else zip.end_record_sig,
+            .disk_number = if (opt.disk_number) |n| n else 0,
+            .central_directory_disk_number = if (opt.central_directory_disk_number) |n| n else 0,
+            .record_count_disk = if (opt.record_count_disk) |c| c else @intCast(self.central_count),
+            .record_count_total = if (opt.record_count_total) |c| c else @intCast(self.central_count),
+            .central_directory_size = if (opt.central_directory_size) |s| s else @intCast(cd_end - cd_offset),
+            .central_directory_offset = if (opt.central_directory_offset) |o| o else @intCast(cd_offset),
+            .comment_len = if (opt.comment_len) |l| l else (if (opt.comment) |c| @as(u16, @intCast(c.len)) else 0),
+        };
+        self.bytes_written += try self.writer.writeStructEndian(hdr, .little);
+        if (opt.comment) |c|
+            self.bytes_written += try self.writer.writeAll(c);
+    }
+};

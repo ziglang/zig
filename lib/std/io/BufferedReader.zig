@@ -14,26 +14,37 @@ seek: usize,
 storage: BufferedWriter,
 unbuffered_reader: Reader,
 
+pub fn init(br: *BufferedReader, r: Reader, buffer: []u8) void {
+    br.* = .{
+        .seek = 0,
+        .storage = undefined,
+        .unbuffered_reader = r,
+    };
+    br.storage.initFixed(buffer);
+}
+
+/// Constructs `br` such that it will read from `buffer` and then end.
 pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
     br.* = .{
         .seek = 0,
         .storage = .{
-            .buffer = buffer,
-            .mode = .fixed,
-        },
-        .reader = .{
-            .context = br,
-            .vtable = &.{
-                .streamRead = null,
-                .posRead = null,
+            .buffer = .initBuffer(@constCast(buffer)),
+            .unbuffered_writer = .{
+                .context = undefined,
+                .vtable = &std.io.Writer.VTable.eof,
             },
+        },
+        .unbuffered_reader = &.{
+            .context = undefined,
+            .vtable = &std.io.Reader.VTable.eof,
         },
     };
 }
 
-pub fn deinit(br: *BufferedReader) void {
-    br.storage.deinit();
-    br.* = undefined;
+pub fn storageBuffer(br: *BufferedReader) []u8 {
+    assert(br.storage.unbuffered_writer.vtable == &std.io.Writer.VTable.eof);
+    assert(br.unbuffered_reader.vtable == &std.io.Reader.VTable.eof);
+    return br.storage.buffer.allocatedSlice();
 }
 
 /// Although `BufferedReader` can easily satisfy the `Reader` interface, it's
@@ -51,30 +62,31 @@ pub fn reader(br: *BufferedReader) Reader {
     };
 }
 
-fn passthru_streamRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit) anyerror!Reader.Status {
+fn passthru_streamRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) anyerror!Reader.RwResult {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.storage.buffer.items;
     const buffered = buffer[br.seek..];
     const limited = buffered[0..limit.min(buffered.len)];
     if (limited.len > 0) {
-        const n = try bw.writeSplat(limited, 1);
-        br.seek += n;
+        const result = bw.writeSplat(limited, 1);
+        br.seek += result.len;
         return .{
-            .end = false,
-            .len = @intCast(n),
+            .len = result.len,
+            .write_err = result.err,
+            .write_end = result.end,
         };
     }
     return br.unbuffered_reader.streamRead(bw, limit);
 }
 
-fn passthru_streamReadVec(ctx: *anyopaque, data: []const []u8) anyerror!Reader.Status {
+fn passthru_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     _ = br;
     _ = data;
     @panic("TODO");
 }
 
-fn passthru_posRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit, off: u64) anyerror!Reader.Status {
+fn passthru_posRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit, off: u64) anyerror!Reader.Status {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.storage.buffer.items;
     if (off < buffer.len) {
@@ -84,7 +96,7 @@ fn passthru_posRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit, o
     return br.unbuffered_reader.posRead(bw, limit, off - buffer.len);
 }
 
-fn passthru_posReadVec(ctx: *anyopaque, data: []const []u8, off: u64) anyerror!Reader.Status {
+fn passthru_posReadVec(ctx: ?*anyopaque, data: []const []u8, off: u64) anyerror!Reader.Status {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     _ = br;
     _ = data;
@@ -155,8 +167,24 @@ pub fn takeArray(br: *BufferedReader, comptime n: usize) anyerror!*[n]u8 {
 ///
 /// See also:
 /// * `toss`
-/// * `discardAll`
+/// * `discardUntilEnd`
+/// * `discardUpTo`
 pub fn discard(br: *BufferedReader, n: usize) anyerror!void {
+    if ((try discardUpTo(br, n)) != n) return error.EndOfStream;
+}
+
+/// Skips the next `n` bytes from the stream, advancing the seek position.
+///
+/// Unlike `toss` which is infallible, in this function `n` can be any amount.
+///
+/// Returns the number of bytes discarded, which is less than `n` if and only
+/// if the stream reached the end.
+///
+/// See also:
+/// * `discard`
+/// * `toss`
+/// * `discardUntilEnd`
+pub fn discardUpTo(br: *BufferedReader, n: usize) anyerror!usize {
     const list = &br.storage.buffer;
     var remaining = n;
     while (remaining > 0) {
@@ -168,19 +196,22 @@ pub fn discard(br: *BufferedReader, n: usize) anyerror!void {
         remaining -= (list.items.len - br.seek);
         list.items.len = 0;
         br.seek = 0;
-        const status = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const result = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        result.write_err catch unreachable;
+        try result.read_err;
+        assert(result.len == list.items.len);
         if (remaining <= list.items.len) continue;
-        if (status.end) return error.EndOfStream;
+        if (result.end) return n - remaining;
     }
 }
 
 /// Reads the stream until the end, ignoring all the data.
 /// Returns the number of bytes discarded.
-pub fn discardAll(br: *BufferedReader) anyerror!usize {
+pub fn discardUntilEnd(br: *BufferedReader) anyerror!usize {
     const list = &br.storage.buffer;
     var total: usize = list.items.len;
     list.items.len = 0;
-    total += try br.unbuffered_reader.discardAll();
+    total += try br.unbuffered_reader.discardUntilEnd();
     return total;
 }
 
@@ -222,6 +253,15 @@ pub fn read(br: *BufferedReader, buffer: []u8) anyerror!void {
         list.items.len = 0;
         i = next_i;
     }
+}
+
+/// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+/// means the stream reached the end. Reaching the end of a stream is not an error
+/// condition.
+pub fn partialRead(br: *BufferedReader, buffer: []u8) anyerror!usize {
+    _ = br;
+    _ = buffer;
+    @panic("TODO");
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
@@ -463,6 +503,95 @@ pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.En
     return std.meta.intToEnum(Enum, int);
 }
 
+/// Read a single unsigned LEB128 value from the given reader as type T,
+/// or error.Overflow if the value cannot fit.
+pub fn takeUleb128(br: *std.io.BufferedReader, comptime T: type) anyerror!T {
+    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
+    const ShiftT = std.math.Log2Int(U);
+
+    const max_group = (@typeInfo(U).int.bits + 6) / 7;
+
+    var value: U = 0;
+    var group: ShiftT = 0;
+
+    while (group < max_group) : (group += 1) {
+        const byte = try br.takeByte();
+
+        const ov = @shlWithOverflow(@as(U, byte & 0x7f), group * 7);
+        if (ov[1] != 0) return error.Overflow;
+
+        value |= ov[0];
+        if (byte & 0x80 == 0) break;
+    } else {
+        return error.Overflow;
+    }
+
+    // only applies in the case that we extended to u8
+    if (U != T) {
+        if (value > std.math.maxInt(T)) return error.Overflow;
+    }
+
+    return @truncate(value);
+}
+
+/// Read a single signed LEB128 value from the given reader as type T,
+/// or `error.Overflow` if the value cannot fit.
+pub fn takeIleb128(br: *std.io.BufferedReader, comptime T: type) anyerror!T {
+    const S = if (@typeInfo(T).int.bits < 8) i8 else T;
+    const U = std.meta.Int(.unsigned, @typeInfo(S).int.bits);
+    const ShiftU = std.math.Log2Int(U);
+
+    const max_group = (@typeInfo(U).int.bits + 6) / 7;
+
+    var value = @as(U, 0);
+    var group = @as(ShiftU, 0);
+
+    while (group < max_group) : (group += 1) {
+        const byte = try br.takeByte();
+
+        const shift = group * 7;
+        const ov = @shlWithOverflow(@as(U, byte & 0x7f), shift);
+        if (ov[1] != 0) {
+            // Overflow is ok so long as the sign bit is set and this is the last byte
+            if (byte & 0x80 != 0) return error.Overflow;
+            if (@as(S, @bitCast(ov[0])) >= 0) return error.Overflow;
+
+            // and all the overflowed bits are 1
+            const remaining_shift = @as(u3, @intCast(@typeInfo(U).int.bits - @as(u16, shift)));
+            const remaining_bits = @as(i8, @bitCast(byte | 0x80)) >> remaining_shift;
+            if (remaining_bits != -1) return error.Overflow;
+        } else {
+            // If we don't overflow and this is the last byte and the number being decoded
+            // is negative, check that the remaining bits are 1
+            if ((byte & 0x80 == 0) and (@as(S, @bitCast(ov[0])) < 0)) {
+                const remaining_shift = @as(u3, @intCast(@typeInfo(U).int.bits - @as(u16, shift)));
+                const remaining_bits = @as(i8, @bitCast(byte | 0x80)) >> remaining_shift;
+                if (remaining_bits != -1) return error.Overflow;
+            }
+        }
+
+        value |= ov[0];
+        if (byte & 0x80 == 0) {
+            const needs_sign_ext = group + 1 < max_group;
+            if (byte & 0x40 != 0 and needs_sign_ext) {
+                const ones = @as(S, -1);
+                value |= @as(U, @bitCast(ones)) << (shift + 7);
+            }
+            break;
+        }
+    } else {
+        return error.Overflow;
+    }
+
+    const result = @as(S, @bitCast(value));
+    // Only applies if we extended to i8
+    if (S != T) {
+        if (result > std.math.maxInt(T) or result < std.math.minInt(T)) return error.Overflow;
+    }
+
+    return @truncate(result);
+}
+
 test initFixed {
     var br: BufferedReader = undefined;
     br.initFixed("a\x02");
@@ -501,7 +630,7 @@ test discard {
     try testing.expectError(error.EndOfStream, br.discard(1));
 }
 
-test discardAll {
+test discardUntilEnd {
     return error.Unimplemented;
 }
 
@@ -574,5 +703,13 @@ test takeStructEndian {
 }
 
 test takeEnum {
+    return error.Unimplemented;
+}
+
+test takeUleb128 {
+    return error.Unimplemented;
+}
+
+test takeIleb128 {
     return error.Unimplemented;
 }
