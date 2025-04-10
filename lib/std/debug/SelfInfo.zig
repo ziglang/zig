@@ -2025,18 +2025,15 @@ pub const VirtualMachine = struct {
         assert(self.cie_row == null);
         if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return error.AddressOutOfRange;
 
+        var readers: [2]std.io.BufferedReader = undefined;
+        readers[0].initFixed(cie.initial_instructions);
+        readers[1].initFixed(fde.instructions);
+
         var prev_row: Row = self.current_row;
-
-        var cie_stream: std.io.BufferedReader = undefined;
-        cie_stream.initFixed(cie.initial_instructions);
-        var fde_stream: std.io.BufferedReader = undefined;
-        fde_stream.initFixed(fde.instructions);
-        const streams: [2]*std.io.BufferedReader = .{ &cie_stream, &fde_stream };
-
-        for (&streams, 0..) |stream, i| {
-            while (stream.seek < stream.storageBuffer().len) {
-                const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
-                prev_row = try self.step(allocator, cie, i == 0, instruction);
+        for (&readers, [2]bool{ true, false }) |*reader, is_initial| {
+            while (reader.seek < reader.storageBuffer().len) {
+                const instruction = try std.debug.Dwarf.call_frame.Instruction.read(reader, addr_size_bytes, endian);
+                prev_row = try self.step(allocator, cie, is_initial, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;
             }
         }

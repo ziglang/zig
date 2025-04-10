@@ -68,14 +68,14 @@ pub const Error = error{
 /// Expressions can be decoded for non-native address size and endianness,
 /// but can only be executed if the current target matches the configuration.
 pub fn StackMachine(comptime options: Options) type {
-    const addr_type = switch (options.addr_size) {
+    const Address = switch (options.addr_size) {
         2 => u16,
         4 => u32,
         8 => u64,
         else => @compileError("Unsupported address size of " ++ options.addr_size),
     };
 
-    const addr_type_signed = switch (options.addr_size) {
+    const SignedAddress = switch (options.addr_size) {
         2 => i16,
         4 => i32,
         8 => i64,
@@ -86,7 +86,7 @@ pub fn StackMachine(comptime options: Options) type {
         const Self = @This();
 
         const Operand = union(enum) {
-            generic: addr_type,
+            generic: Address,
             register: u8,
             type_size: u8,
             branch_offset: i16,
@@ -101,38 +101,38 @@ pub fn StackMachine(comptime options: Options) type {
             block: []const u8,
             register_type: struct {
                 register: u8,
-                type_offset: addr_type,
+                type_offset: Address,
             },
             const_type: struct {
-                type_offset: addr_type,
+                type_offset: Address,
                 value_bytes: []const u8,
             },
             deref_type: struct {
                 size: u8,
-                type_offset: addr_type,
+                type_offset: Address,
             },
         };
 
         const Value = union(enum) {
-            generic: addr_type,
+            generic: Address,
 
             // Typed value with a maximum size of a register
             regval_type: struct {
                 // Offset of DW_TAG_base_type DIE
-                type_offset: addr_type,
+                type_offset: Address,
                 type_size: u8,
-                value: addr_type,
+                value: Address,
             },
 
             // Typed value specified directly in the instruction stream
             const_type: struct {
                 // Offset of DW_TAG_base_type DIE
-                type_offset: addr_type,
+                type_offset: Address,
                 // Backed by the instruction stream
                 value_bytes: []const u8,
             },
 
-            pub fn asIntegral(self: Value) !addr_type {
+            pub fn asIntegral(self: Value) !Address {
                 return switch (self) {
                     .generic => |v| v,
 
@@ -147,7 +147,7 @@ pub fn StackMachine(comptime options: Options) type {
                             else => return error.InvalidIntegralTypeSize,
                         };
 
-                        return std.math.cast(addr_type, value) orelse error.TruncatedIntegralType;
+                        return std.math.cast(Address, value) orelse error.TruncatedIntegralType;
                     },
                 };
             }
@@ -167,119 +167,87 @@ pub fn StackMachine(comptime options: Options) type {
             const int_info = @typeInfo(@TypeOf(value)).int;
             if (@sizeOf(@TypeOf(value)) > options.addr_size) {
                 return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(@as(addr_type_signed, @truncate(value))),
+                    .signed => @bitCast(@as(SignedAddress, @truncate(value))),
                     .unsigned => @truncate(value),
                 } };
             } else {
                 return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(@as(addr_type_signed, @intCast(value))),
+                    .signed => @bitCast(@as(SignedAddress, @intCast(value))),
                     .unsigned => @intCast(value),
                 } };
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream, opcode: u8, context: Context) !?Operand {
-            const reader = stream.reader();
+        pub fn readOperand(reader: *std.io.BufferedReader, opcode: u8, context: Context) !?Operand {
             return switch (opcode) {
-                OP.addr => generic(try reader.readInt(addr_type, options.endian)),
+                OP.addr => generic(try reader.takeInt(Address, options.endian)),
                 OP.call_ref => switch (context.format) {
-                    .@"32" => generic(try reader.readInt(u32, options.endian)),
-                    .@"64" => generic(try reader.readInt(u64, options.endian)),
+                    .@"32" => generic(try reader.takeInt(u32, options.endian)),
+                    .@"64" => generic(try reader.takeInt(u64, options.endian)),
                 },
                 OP.const1u,
                 OP.pick,
-                => generic(try reader.readByte()),
+                => generic(try reader.takeByte()),
                 OP.deref_size,
                 OP.xderef_size,
-                => .{ .type_size = try reader.readByte() },
-                OP.const1s => generic(try reader.readByteSigned()),
+                => .{ .type_size = try reader.takeByte() },
+                OP.const1s => generic(try reader.takeByteSigned()),
                 OP.const2u,
                 OP.call2,
-                => generic(try reader.readInt(u16, options.endian)),
-                OP.call4 => generic(try reader.readInt(u32, options.endian)),
-                OP.const2s => generic(try reader.readInt(i16, options.endian)),
+                => generic(try reader.takeInt(u16, options.endian)),
+                OP.call4 => generic(try reader.takeInt(u32, options.endian)),
+                OP.const2s => generic(try reader.takeInt(i16, options.endian)),
                 OP.bra,
                 OP.skip,
-                => .{ .branch_offset = try reader.readInt(i16, options.endian) },
-                OP.const4u => generic(try reader.readInt(u32, options.endian)),
-                OP.const4s => generic(try reader.readInt(i32, options.endian)),
-                OP.const8u => generic(try reader.readInt(u64, options.endian)),
-                OP.const8s => generic(try reader.readInt(i64, options.endian)),
+                => .{ .branch_offset = try reader.takeInt(i16, options.endian) },
+                OP.const4u => generic(try reader.takeInt(u32, options.endian)),
+                OP.const4s => generic(try reader.takeInt(i32, options.endian)),
+                OP.const8u => generic(try reader.takeInt(u64, options.endian)),
+                OP.const8s => generic(try reader.takeInt(i64, options.endian)),
                 OP.constu,
                 OP.plus_uconst,
                 OP.addrx,
                 OP.constx,
                 OP.convert,
                 OP.reinterpret,
-                => generic(try leb.readUleb128(u64, reader)),
+                => generic(try reader.takeLeb128(u64)),
                 OP.consts,
                 OP.fbreg,
-                => generic(try leb.readIleb128(i64, reader)),
+                => generic(try reader.takeLeb128(i64)),
                 OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
                 OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
                 OP.breg0...OP.breg31 => |n| .{ .base_register = .{
                     .base_register = n - OP.breg0,
-                    .offset = try leb.readIleb128(i64, reader),
+                    .offset = try reader.takeLeb128(i64),
                 } },
-                OP.regx => .{ .register = try leb.readUleb128(u8, reader) },
-                OP.bregx => blk: {
-                    const base_register = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
-                    break :blk .{ .base_register = .{
-                        .base_register = base_register,
-                        .offset = offset,
-                    } };
+                OP.regx => .{ .register = try reader.takeLeb128(u8) },
+                OP.bregx => .{ .base_register = .{
+                    .base_register = try reader.takeLeb128(u8),
+                    .offset = try reader.takeLeb128(i64),
+                } },
+                OP.regval_type => .{ .register_type = .{
+                    .register = try reader.takeLeb128(u8),
+                    .type_offset = try reader.takeLeb128(Address),
+                } },
+                OP.piece => .{ .composite_location = .{
+                    .size = try reader.takeLeb128(u64),
+                    .offset = 0,
+                } },
+                OP.bit_piece => .{ .composite_location = .{
+                    .size = try reader.takeLeb128(u64),
+                    .offset = try reader.takeLeb128(i64),
+                } },
+                OP.implicit_value, OP.entry_value => .{
+                    .block = try reader.take(try reader.takeLeb128(usize)),
                 },
-                OP.regval_type => blk: {
-                    const register = try leb.readUleb128(u8, reader);
-                    const type_offset = try leb.readUleb128(addr_type, reader);
-                    break :blk .{ .register_type = .{
-                        .register = register,
-                        .type_offset = type_offset,
-                    } };
-                },
-                OP.piece => .{
-                    .composite_location = .{
-                        .size = try leb.readUleb128(u8, reader),
-                        .offset = 0,
-                    },
-                },
-                OP.bit_piece => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
-                    break :blk .{ .composite_location = .{
-                        .size = size,
-                        .offset = offset,
-                    } };
-                },
-                OP.implicit_value, OP.entry_value => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const block = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
-                    break :blk .{
-                        .block = block,
-                    };
-                },
-                OP.const_type => blk: {
-                    const type_offset = try leb.readUleb128(addr_type, reader);
-                    const size = try reader.readByte();
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const value_bytes = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
-                    break :blk .{ .const_type = .{
-                        .type_offset = type_offset,
-                        .value_bytes = value_bytes,
-                    } };
-                },
-                OP.deref_type,
-                OP.xderef_type,
-                => .{
-                    .deref_type = .{
-                        .size = try reader.readByte(),
-                        .type_offset = try leb.readUleb128(addr_type, reader),
-                    },
-                },
+                OP.const_type => .{ .const_type = .{
+                    .type_offset = try reader.takeLeb128(Address),
+                    .value_bytes = try reader.take(try reader.takeByte()),
+                } },
+                OP.deref_type, OP.xderef_type => .{ .deref_type = .{
+                    .size = try reader.takeByte(),
+                    .type_offset = try reader.takeLeb128(Address),
+                } },
                 OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
                 else => null,
             };
@@ -291,10 +259,11 @@ pub fn StackMachine(comptime options: Options) type {
             allocator: std.mem.Allocator,
             context: Context,
             initial_value: ?usize,
-        ) Error!?Value {
+        ) anyerror!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
-            var stream: std.io.FixedBufferStream = .{ .buffer = expression };
-            while (try self.step(&stream, allocator, context)) {}
+            var reader: std.io.BufferedReader = undefined;
+            reader.initFixed(expression);
+            while (try self.step(&reader, allocator, context)) {}
             if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
         }
@@ -302,16 +271,19 @@ pub fn StackMachine(comptime options: Options) type {
         /// Reads an opcode and its operands from `stream`, then executes it
         pub fn step(
             self: *Self,
-            stream: *std.io.FixedBufferStream,
+            reader: *std.io.BufferedReader,
             allocator: std.mem.Allocator,
             context: Context,
-        ) Error!bool {
-            if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != native_endian)
+        ) anyerror!bool {
+            if (@sizeOf(usize) != @sizeOf(Address) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
-            const opcode = try stream.reader().readByte();
+            const opcode = reader.takeByte() catch |err| switch (err) {
+                error.EndOfStream => return false,
+                else => |e| return @errorCast(e),
+            };
             if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
-            const operand = try readOperand(stream, opcode, context);
+            const operand = try readOperand(reader, opcode, context);
             switch (opcode) {
 
                 // 2.5.1.1: Literal Encodings
@@ -397,7 +369,7 @@ pub fn StackMachine(comptime options: Options) type {
                     try self.stack.append(allocator, .{
                         .regval_type = .{
                             .type_offset = register_type.type_offset,
-                            .type_size = @sizeOf(addr_type),
+                            .type_size = @sizeOf(Address),
                             .value = value,
                         },
                     });
@@ -455,7 +427,7 @@ pub fn StackMachine(comptime options: Options) type {
                     const size = switch (opcode) {
                         OP.deref,
                         OP.xderef,
-                        => @sizeOf(addr_type),
+                        => @sizeOf(Address),
                         OP.deref_size,
                         OP.xderef_size,
                         => operand.?.type_size,
@@ -475,7 +447,7 @@ pub fn StackMachine(comptime options: Options) type {
                         }) return error.InvalidExpression;
                     }
 
-                    const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
+                    const value: Address = std.math.cast(Address, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,
                         2 => @as(*const u16, @ptrFromInt(addr)).*,
                         4 => @as(*const u32, @ptrFromInt(addr)).*,
@@ -544,7 +516,7 @@ pub fn StackMachine(comptime options: Options) type {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
                     const b = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.sub(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
+                        .generic = try std.math.sub(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
                     };
                 },
                 OP.mod => {
@@ -590,14 +562,14 @@ pub fn StackMachine(comptime options: Options) type {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
                     const b = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.add(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
+                        .generic = try std.math.add(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
                     };
                 },
                 OP.plus_uconst => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
                     const constant = operand.?.generic;
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.add(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), constant),
+                        .generic = try std.math.add(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), constant),
                     };
                 },
                 OP.shl => {
@@ -670,15 +642,7 @@ pub fn StackMachine(comptime options: Options) type {
                         break :blk try self.stack.pop().?.asIntegral() != 0;
                     } else true;
 
-                    if (condition) {
-                        const new_pos = std.math.cast(
-                            usize,
-                            try std.math.add(isize, @as(isize, @intCast(stream.pos)), branch_offset),
-                        ) orelse return error.InvalidExpression;
-
-                        if (new_pos < 0 or new_pos > stream.buffer.len) return error.InvalidExpression;
-                        stream.pos = new_pos;
-                    }
+                    if (condition) reader.seekBy(branch_offset) catch return error.InvalidExpression;
                 },
                 OP.call2,
                 OP.call4,
@@ -722,7 +686,7 @@ pub fn StackMachine(comptime options: Options) type {
                             .generic => |v| .{
                                 .regval_type = .{
                                     .type_offset = type_offset,
-                                    .type_size = @sizeOf(addr_type),
+                                    .type_size = @sizeOf(Address),
                                     .value = v,
                                 },
                             },
@@ -756,8 +720,9 @@ pub fn StackMachine(comptime options: Options) type {
                     if (isOpcodeRegisterLocation(block[0])) {
                         if (context.thread_context == null) return error.IncompleteExpressionContext;
 
-                        var block_stream: std.io.FixedBufferStream = .{ .buffer = block };
-                        const register = (try readOperand(&block_stream, block[0], context)).?.register;
+                        var block_reader: std.io.BufferedReader = undefined;
+                        block_reader.initFixed(block);
+                        const register = (try readOperand(&block_reader, block[0], context)).?.register;
                         const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                         try self.stack.append(allocator, .{ .generic = value });
                     } else {
@@ -778,14 +743,13 @@ pub fn StackMachine(comptime options: Options) type {
                     return error.UnknownExpressionOpcode;
                 },
             }
-
-            return stream.pos < stream.buffer.len;
+            return true;
         }
     };
 }
 
 pub fn Builder(comptime options: Options) type {
-    const addr_type = switch (options.addr_size) {
+    const Address = switch (options.addr_size) {
         2 => u16,
         4 => u32,
         8 => u64,
@@ -888,9 +852,9 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeAll(value_bytes);
         }
 
-        pub fn writeAddr(writer: anytype, value: addr_type) !void {
+        pub fn writeAddr(writer: anytype, value: Address) !void {
             try writer.writeByte(OP.addr);
-            try writer.writeInt(addr_type, value, options.endian);
+            try writer.writeInt(Address, value, options.endian);
         }
 
         pub fn writeAddrx(writer: anytype, debug_addr_offset: anytype) !void {
