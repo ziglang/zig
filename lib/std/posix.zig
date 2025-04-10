@@ -6359,7 +6359,7 @@ pub const SendFileError = PReadError || WriteError || SendError;
 pub fn sendfile(
     out_fd: fd_t,
     in_fd: fd_t,
-    in_offset: u64,
+    in_offset: ?u64,
     in_len: u64,
     headers: []const iovec_const,
     trailers: []const iovec_const,
@@ -6390,8 +6390,9 @@ pub fn sendfile(
 
             const sendfile_sym = if (lfs64_abi) system.sendfile64 else system.sendfile;
             while (true) {
-                var offset: off_t = @bitCast(in_offset);
-                const rc = sendfile_sym(out_fd, in_fd, &offset, adjusted_count);
+                var offset: off_t = if (in_offset) |o| o else undefined;
+                const offset_pointer: ?*off_t = if (in_offset) &offset else null;
+                const rc = sendfile_sym(out_fd, in_fd, offset_pointer, adjusted_count);
                 switch (errno(rc)) {
                     .SUCCESS => {
                         const amt: usize = @bitCast(rc);

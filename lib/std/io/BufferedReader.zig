@@ -23,6 +23,69 @@ pub fn init(br: *BufferedReader, r: Reader, buffer: []u8) void {
     br.storage.initFixed(buffer);
 }
 
+const eof_writer: std.io.Writer.VTable = .{
+    .writeSplat = eof_writeSplat,
+    .writeFile = eof_writeFile,
+};
+const eof_reader: std.io.Reader.VTable = .{
+    .posRead = eof_posRead,
+    .posReadVec = eof_posReadVec,
+    .streamRead = eof_streamRead,
+    .streamReadVec = eof_streamReadVec,
+};
+
+fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!Reader.Status {
+    _ = context;
+    _ = data;
+    _ = splat;
+    return error.NoSpaceLeft;
+}
+
+fn eof_writeFile(
+    context: ?*anyopaque,
+    file: std.fs.File,
+    offset: u64,
+    len: Reader.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!Reader.Status {
+    _ = context;
+    _ = file;
+    _ = offset;
+    _ = len;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    return error.NoSpaceLeft;
+}
+
+fn eof_posRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit, offset: u64) anyerror!Reader.Status {
+    _ = ctx;
+    _ = bw;
+    _ = limit;
+    _ = offset;
+    return error.EndOfStream;
+}
+
+fn eof_posReadVec(ctx: ?*anyopaque, data: []const []u8, offset: u64) anyerror!Reader.Status {
+    _ = ctx;
+    _ = data;
+    _ = offset;
+    return error.EndOfStream;
+}
+
+fn eof_streamRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) Reader.Status {
+    _ = ctx;
+    _ = bw;
+    _ = limit;
+    return error.EndOfStream;
+}
+
+fn eof_streamReadVec(ctx: ?*anyopaque, data: []const []u8) Reader.Status {
+    _ = ctx;
+    _ = data;
+    return error.EndOfStream;
+}
+
 /// Constructs `br` such that it will read from `buffer` and then end.
 pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
     br.* = .{
@@ -31,19 +94,16 @@ pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
             .buffer = .initBuffer(@constCast(buffer)),
             .unbuffered_writer = .{
                 .context = undefined,
-                .vtable = &std.io.Writer.VTable.eof,
+                .vtable = &eof_writer,
             },
         },
-        .unbuffered_reader = &.{
-            .context = undefined,
-            .vtable = &std.io.Reader.VTable.eof,
-        },
+        .unbuffered_reader = &.{ .context = undefined, .vtable = &eof_reader },
     };
 }
 
 pub fn storageBuffer(br: *BufferedReader) []u8 {
-    assert(br.storage.unbuffered_writer.vtable == &std.io.Writer.VTable.eof);
-    assert(br.unbuffered_reader.vtable == &std.io.Reader.VTable.eof);
+    assert(br.storage.unbuffered_writer.vtable == &eof_writer);
+    assert(br.unbuffered_reader.vtable == &eof_reader);
     return br.storage.buffer.allocatedSlice();
 }
 

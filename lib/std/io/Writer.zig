@@ -17,7 +17,7 @@ pub const VTable = struct {
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
-    writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) Result,
+    writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -38,23 +38,7 @@ pub const VTable = struct {
         /// zero, they can be forwarded directly to `VTable.writev`.
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) Result,
-
-    pub const eof: VTable = .{
-        .writeSplat = eof_writeSplat,
-        .writeFile = eof_writeFile,
-    };
-};
-
-pub const Result = struct {
-    /// Even when a failure occurs, `len` may be nonzero, and `end` may be
-    /// true.
-    err: anyerror!void = {},
-    /// Number of bytes that were transferred. When an error occurs, ideally
-    /// this will be zero, but may not always be the case.
-    len: usize = 0,
-    /// Indicates end of stream.
-    end: bool = false,
+    ) anyerror!usize,
 };
 
 pub const Offset = enum(u64) {
@@ -90,11 +74,11 @@ pub const FileLen = enum(u64) {
     }
 };
 
-pub fn writev(w: Writer, data: []const []const u8) Result {
+pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
     return w.vtable.writeSplat(w.context, data, 1);
 }
 
-pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) Result {
+pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) anyerror!usize {
     return w.vtable.writeSplat(w.context, data, splat);
 }
 
@@ -105,7 +89,7 @@ pub fn writeFile(
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Result {
+) anyerror!usize {
     return w.vtable.writeFile(w.context, file, offset, len, headers_and_trailers, headers_len);
 }
 
@@ -116,14 +100,14 @@ pub fn unimplemented_writeFile(
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Result {
+) anyerror!usize {
     _ = context;
     _ = file;
     _ = offset;
     _ = len;
     _ = headers_and_trailers;
     _ = headers_len;
-    return .{ .err = error.Unimplemented };
+    return error.Unimplemented;
 }
 
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
@@ -146,7 +130,7 @@ pub const @"null": Writer = .{
     },
 };
 
-fn null_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Result {
+fn null_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     _ = context;
     const headers = data[0 .. data.len - 1];
     const pattern = data[headers.len..];
@@ -162,14 +146,14 @@ fn null_writeFile(
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Result {
+) anyerror!usize {
     _ = context;
     var n: usize = 0;
     if (len == .entire_file) {
         const headers = headers_and_trailers[0..headers_len];
         for (headers) |bytes| n += bytes.len;
         if (offset.toInt()) |off| {
-            const stat = file.stat() catch |err| return .{ .err = err, .len = n };
+            const stat = try file.stat();
             n += stat.size - off;
             for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
             return .{ .len = n };
@@ -182,28 +166,4 @@ fn null_writeFile(
 
 test @"null" {
     try @"null".writeAll("yay");
-}
-
-fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Result {
-    _ = context;
-    _ = data;
-    _ = splat;
-    return .{ .end = true };
-}
-
-fn eof_writeFile(
-    context: ?*anyopaque,
-    file: std.fs.File,
-    offset: u64,
-    len: FileLen,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) Result {
-    _ = context;
-    _ = file;
-    _ = offset;
-    _ = len;
-    _ = headers_and_trailers;
-    _ = headers_len;
-    return .{ .end = true };
 }

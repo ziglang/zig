@@ -1499,7 +1499,7 @@ pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFile
         error.FileDescriptorNotASocket,
         error.NetworkUnreachable,
         error.NetworkSubsystemFailed,
-        => return self.writeFileAllUnseekable(in_file, args),
+        => return self.writeFileUnseekableAll(in_file, args),
 
         else => |e| return e,
     };
@@ -1507,53 +1507,11 @@ pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFile
 
 /// Does not try seeking in either of the File parameters.
 /// See `writeFileAll` as an alternative to calling this.
-pub fn writeFileAllUnseekable(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
-    // TODO make `try @errorCast(...)` work
-    return @errorCast(writeFileAllUnseekableInner(self, in_file, args));
-}
-
-fn writeFileAllUnseekableInner(out_file: File, in_file: File, args: WriteFileOptions) anyerror!void {
-    const headers = args.headers_and_trailers[0..args.header_count];
-    const trailers = args.headers_and_trailers[args.header_count..];
-
-    try out_file.writevAll(headers);
-
-    // Some possible optimizations here:
-    // * Could writev buffer multiple times if the amount to discard is larger than 4096
-    // * Could combine discard and read in one readv if amount to discard is small
-
-    var buffer: [4096]u8 = undefined;
-    var remaining = args.in_offset;
-    while (remaining > 0) {
-        const n = try in_file.read(buffer[0..@min(buffer.len, remaining)]);
-        if (n == 0) return error.EndOfStream;
-        remaining -= n;
-    }
-    if (args.in_len) |len| {
-        remaining = len;
-        var buffer_index: usize = 0;
-        while (remaining > 0) {
-            const n = buffer_index + try in_file.read(buffer[buffer_index..@min(buffer.len, remaining)]);
-            if (n == 0) return error.EndOfStream;
-            const written = try out_file.write(buffer[0..n]);
-            if (written == 0) return error.EndOfStream;
-            remaining -= written;
-            std.mem.copyForwards(u8, &buffer, buffer[written..n]);
-            buffer_index = n - written;
-        }
-    } else {
-        var buffer_index: usize = 0;
-        while (true) {
-            const n = buffer_index + try in_file.read(buffer[buffer_index..]);
-            if (n == 0) break;
-            const written = try out_file.write(buffer[0..n]);
-            if (written == 0) return error.EndOfStream;
-            std.mem.copyForwards(u8, &buffer, buffer[written..n]);
-            buffer_index = n - written;
-        }
-    }
-
-    try out_file.writevAll(trailers);
+pub fn writeFileUnseekableAll(out_file: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
+    _ = out_file;
+    _ = in_file;
+    _ = args;
+    @panic("TODO call writeFileUnseekable multiple times");
 }
 
 /// Low level function which can fail for OS-specific reasons.
@@ -1635,6 +1593,30 @@ pub fn reader(file: File) std.io.Reader {
     };
 }
 
+pub fn unseekableReader(file: File) std.io.Reader {
+    return .{
+        .context = handleToOpaque(file.handle),
+        .vtable = .{
+            .posRead = null,
+            .posReadVec = null,
+            .streamRead = reader_streamRead,
+            .streamReadVec = reader_streamReadVec,
+        },
+    };
+}
+
+pub fn unstreamableReader(file: File) std.io.Reader {
+    return .{
+        .context = handleToOpaque(file.handle),
+        .vtable = .{
+            .posRead = reader_posRead,
+            .posReadVec = reader_posReadVec,
+            .streamRead = null,
+            .streamReadVec = null,
+        },
+    };
+}
+
 pub fn writer(file: File) std.io.Writer {
     return .{
         .context = handleToOpaque(file.handle),
@@ -1692,12 +1674,12 @@ pub fn reader_streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!s
     };
 }
 
-pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Result {
+pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const file = opaqueToHandle(context);
     var splat_buffer: [256]u8 = undefined;
     if (is_windows) {
         if (data.len == 1 and splat == 0) return 0;
-        return .{ .len = windows.WriteFile(file, data[0], null) catch |err| return .{ .err = err } };
+        return windows.WriteFile(file, data[0], null);
     }
     var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
     var len: usize = @min(iovecs.len, data.len);
@@ -1706,8 +1688,8 @@ pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: 
         .len = d.len,
     };
     switch (splat) {
-        0 => return .{ .len = std.posix.writev(file, iovecs[0 .. len - 1]) catch |err| return .{ .err = err } },
-        1 => return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } },
+        0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
+        1 => return std.posix.writev(file, iovecs[0..len]),
         else => {
             const pattern = data[data.len - 1];
             if (pattern.len == 1) {
@@ -1725,21 +1707,21 @@ pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: 
                     iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
                     len += 1;
                 }
-                return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } };
+                return std.posix.writev(file, iovecs[0..len]);
             }
         },
     }
-    return .{ .len = std.posix.writev(file, iovecs[0..len]) catch |err| return .{ .err = err } };
+    return std.posix.writev(file, iovecs[0..len]);
 }
 
 pub fn writer_writeFile(
     context: ?*anyopaque,
     in_file: std.fs.File,
-    in_offset: u64,
+    in_offset: std.io.Writer.Offset,
     in_len: std.io.Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) std.io.Writer.Result {
+) anyerror!usize {
     const out_fd = opaqueToHandle(context);
     const in_fd = in_file.handle;
     const len_int = switch (in_len) {
@@ -1747,6 +1729,26 @@ pub fn writer_writeFile(
         .entire_file => 0,
         else => in_len.int(),
     };
+    if (native_os == .linux) sf: {
+        // Linux sendfile does not support headers or trailers but it does
+        // support a streaming read from in_file.
+        if (headers_len > 0) return writer_writeSplat(context, headers_and_trailers[0..headers_len], 1);
+        const max_count = 0x7ffff000; // Avoid EINVAL.
+        const smaller_len = if (len_int == 0) max_count else @min(len_int, max_count);
+        var off: std.os.linux.off_t = undefined;
+        const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
+            off = try std.math.cast(std.os.linux.off_t, offset);
+            break :b &off;
+        } else null;
+        const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, smaller_len) catch |err| switch (err) {
+            error.UnsupportedOperation => break :sf,
+            error.Unseekable => break :sf,
+            error.Unexpected => break :sf,
+            else => |e| return e,
+        };
+        if (in_offset.toInt()) |offset| assert(n == off - offset);
+        return n;
+    }
     var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
     const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers_and_trailers.len)];
     for (iovecs, headers_and_trailers[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
@@ -1783,7 +1785,7 @@ fn writeFileUnseekable(
     @panic("TODO writeFileUnseekable");
 }
 
-fn handleToOpaque(handle: Handle) *anyopaque {
+fn handleToOpaque(handle: Handle) ?*anyopaque {
     return switch (@typeInfo(Handle)) {
         .pointer => @ptrCast(handle),
         .int => @ptrFromInt(@as(u32, @bitCast(handle))),
@@ -1791,7 +1793,7 @@ fn handleToOpaque(handle: Handle) *anyopaque {
     };
 }
 
-fn opaqueToHandle(userdata: *anyopaque) Handle {
+fn opaqueToHandle(userdata: ?*anyopaque) Handle {
     return switch (@typeInfo(Handle)) {
         .pointer => @ptrCast(userdata),
         .int => @intCast(@intFromPtr(userdata)),
@@ -1976,9 +1978,13 @@ pub fn downgradeLock(file: File) LockError!void {
     }
 }
 
+const builtin = @import("builtin");
+const Os = std.builtin.Os;
+const native_os = builtin.os.tag;
+const is_windows = native_os == .windows;
+
 const File = @This();
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const io = std.io;
@@ -1986,7 +1992,5 @@ const math = std.math;
 const assert = std.debug.assert;
 const linux = std.os.linux;
 const windows = std.os.windows;
-const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;
-const is_windows = builtin.os.tag == .windows;
 const Alignment = std.mem.Alignment;

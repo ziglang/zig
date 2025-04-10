@@ -43,7 +43,7 @@ const fixed_vtable: Writer.VTable = .{
 };
 
 /// Replaces the `BufferedWriter` with a new one that writes to `buffer` and
-/// then ends when it is full.
+/// returns `error.NoSpaceLeft` when it is full.
 pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
     bw.* = .{
         .unbuffered_writer = .{
@@ -86,25 +86,25 @@ pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
         return cap_slice;
     }
     const buffer = list.items;
-    const result = bw.unbuffered_writer.write(buffer);
-    if (result.len == buffer.len) {
+    const n = try bw.unbuffered_writer.write(buffer);
+    if (n == buffer.len) {
         @branchHint(.likely);
         list.items.len = 0;
-        try result.err;
         return list.unusedCapacitySlice();
     }
-    if (result.len > 0) {
-        const remainder = buffer[result.len..];
+    if (n > 0) {
+        const remainder = buffer[n..];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
         list.items.len = remainder.len;
     }
-    try result.err;
     return list.unusedCapacitySlice();
 }
 
 /// After calling `writableSlice`, this function tracks how many bytes were written to it.
 pub fn advance(bw: *BufferedWriter, n: usize) void {
-    bw.items.len += n;
+    const list = &bw.buffer;
+    list.items.len += n;
+    assert(list.items.len <= list.capacity);
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
@@ -122,15 +122,15 @@ pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
     }
 }
 
-pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) Writer.Result {
+pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) anyerror!usize {
     return passthru_writeSplat(bw, data, splat);
 }
 
-pub fn writev(bw: *BufferedWriter, data: []const []const u8) Writer.Result {
+pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
     return passthru_writeSplat(bw, data, 1);
 }
 
-fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Result {
+fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const list = &bw.buffer;
     const buffer = list.allocatedSlice();
@@ -156,45 +156,27 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
         if (len >= remaining_data.len) {
             @branchHint(.likely);
             // Made it past the headers, so we can enable splatting.
-            const result = bw.unbuffered_writer.writeSplat(send_buffers, splat);
-            const n = result.len;
+            const n = try bw.unbuffered_writer.writeSplat(send_buffers, splat);
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return .{
-                    .err = result.err,
-                    .len = end - start_end,
-                    .end = result.end,
-                };
+                return end - start_end;
             }
             list.items.len = 0;
-            return .{
-                .err = result.err,
-                .len = n - start_end,
-                .end = result.end,
-            };
+            return n - start_end;
         }
-        const result = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
-        const n = result.len;
+        const n = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
             list.items.len = remainder.len;
-            return .{
-                .err = result.err,
-                .len = end - start_end,
-                .end = result.end,
-            };
+            return end - start_end;
         }
         list.items.len = 0;
-        return .{
-            .err = result.err,
-            .len = n - start_end,
-            .end = result.end,
-        };
+        return n - start_end;
     }
 
     const pattern = data[data.len - 1];
@@ -204,7 +186,7 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
         // It was added in the loop above; undo it here.
         end -= pattern.len;
         list.items.len = end;
-        return .{ .len = end - start_end };
+        return end - start_end;
     }
 
     const remaining_splat = splat - 1;
@@ -212,7 +194,7 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
     switch (pattern.len) {
         0 => {
             list.items.len = end;
-            return .{ .len = end - start_end };
+            return end - start_end;
         },
         1 => {
             const new_end = end + remaining_splat;
@@ -220,29 +202,20 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                 @branchHint(.likely);
                 @memset(buffer[end..new_end], pattern[0]);
                 list.items.len = new_end;
-                return .{ .len = new_end - start_end };
+                return new_end - start_end;
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
-            const result = bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
-            const n = result.len;
+            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return .{
-                    .err = result.err,
-                    .len = end - start_end,
-                    .end = result.end,
-                };
+                return end - start_end;
             }
             list.items.len = 0;
-            return .{
-                .err = result.err,
-                .len = n - start_end,
-                .end = result.end,
-            };
+            return n - start_end;
         },
         else => {
             const new_end = end + pattern.len * remaining_splat;
@@ -252,29 +225,20 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                     @memcpy(buffer[end..][0..pattern.len], pattern);
                 }
                 list.items.len = new_end;
-                return .{ .len = new_end - start_end };
+                return new_end - start_end;
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
-            const result = bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
-            const n = result.len;
+            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 list.items.len = remainder.len;
-                return .{
-                    .err = result.err,
-                    .len = end - start_end,
-                    .end = result.end,
-                };
+                return end - start_end;
             }
             list.items.len = 0;
-            return .{
-                .err = result.err,
-                .len = n - start_end,
-                .end = result.end,
-            };
+            return n - start_end;
         },
     }
 }
@@ -282,13 +246,12 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
 /// When this function is called it means the buffer got full, so it's time
 /// to return an error. However, we still need to make sure all of the
 /// available buffer has been filled.
-fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Result {
+fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const list = &bw.buffer;
-    const start_len = list.items.len;
     for (data) |bytes| {
         const dest = list.unusedCapacitySlice();
-        if (dest.len == 0) return .{ .len = list.items.len - start_len, .end = true };
+        if (dest.len == 0) return error.NoSpaceLeft;
         const len = @min(bytes.len, dest.len);
         @memcpy(dest[0..len], bytes[0..len]);
         list.items.len += len;
@@ -301,60 +264,43 @@ fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize
         else => for (0..splat - 1) |i| @memcpy(dest[i * pattern.len ..][0..pattern.len], pattern),
     }
     list.items.len = list.capacity;
-    return .{ .len = list.items.len - start_len, .end = true };
+    return error.NoSpaceLeft;
 }
 
-pub fn write(bw: *BufferedWriter, bytes: []const u8) Writer.Result {
+pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
     const list = &bw.buffer;
     const buffer = list.allocatedSlice();
     const end = list.items.len;
     const new_end = end + bytes.len;
     if (new_end > buffer.len) {
         var data: [2][]const u8 = .{ buffer[0..end], bytes };
-        const result = bw.unbuffered_writer.writev(&data);
-        const n = result.len;
+        const n = try bw.unbuffered_writer.writev(&data);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
             list.items.len = remainder.len;
-            return .{
-                .err = result.err,
-                .len = 0,
-                .end = result.end,
-            };
+            return 0;
         }
         list.items.len = 0;
-        return .{
-            .err = result.err,
-            .len = n - end,
-            .end = result.end,
-        };
+        return n - end;
     }
     @memcpy(buffer[end..new_end], bytes);
     list.items.len = new_end;
     return bytes.len;
 }
 
-pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
-    if ((try writeUntilEnd(bw, bytes)) != bytes.len) return error.WriteStreamEnd;
-}
-
+/// Convenience function that calls `writeAll` and then returns `bytes.len`.
 pub fn writeAllCount(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
     try writeAll(bw, bytes);
     return bytes.len;
 }
 
-/// If the number returned is less than `bytes.len` it indicates end of stream.
-pub fn writeUntilEnd(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
+/// Calls `write` as many times as necessary such that all of `bytes` are
+/// transferred.
+pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
     var index: usize = 0;
-    while (true) {
-        const result = write(bw, bytes[index..]);
-        try result.err;
-        index += result.len;
-        assert(index <= bytes.len);
-        if (index == bytes.len or result.end) return index;
-    }
+    while (index < bytes.len) index += try write(bw, bytes[index..]);
 }
 
 pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) anyerror!void {
@@ -365,65 +311,48 @@ pub fn printCount(bw: *BufferedWriter, comptime format: []const u8, args: anytyp
     return std.fmt.format(bw, format, args);
 }
 
-pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
-    if ((try writeByteUntilEnd(bw, byte)) == 0) return error.WriteStreamEnd;
-}
-
+/// Returns 0 or 1 indicating how many bytes were written.
 pub fn writeByteCount(bw: *BufferedWriter, byte: u8) anyerror!usize {
     try writeByte(bw, byte);
     return 1;
 }
 
-/// Returns 0 or 1 indicating how many bytes were written.
-/// `0` means end of stream encountered.
-pub fn writeByteUntilEnd(bw: *BufferedWriter, byte: u8) anyerror!usize {
+pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
     const list = &bw.buffer;
     const buffer = list.items;
     if (buffer.len < list.capacity) {
         @branchHint(.likely);
         buffer.ptr[buffer.len] = byte;
         list.items.len = buffer.len + 1;
-        return 1;
+        return;
     }
     var buffers: [2][]const u8 = .{ buffer, &.{byte} };
     while (true) {
-        const result = bw.unbuffered_writer.writev(&buffers);
-        try result.err;
-        const n = result.len;
+        const n = try bw.unbuffered_writer.writev(&buffers);
         if (n == 0) {
             @branchHint(.unlikely);
-            if (result.end) return 0;
             continue;
         } else if (n >= buffer.len) {
             @branchHint(.likely);
             if (n > buffer.len) {
                 @branchHint(.likely);
                 list.items.len = 0;
-                return 1;
+                return;
             } else {
                 buffer[0] = byte;
                 list.items.len = 1;
-                return 1;
+                return;
             }
         }
         const remainder = buffer[n..];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
         buffer[remainder.len] = byte;
         list.items.len = remainder.len + 1;
-        return 1;
+        return;
     }
 }
 
-/// Writes the same byte many times, performing the underlying write call as
-/// many times as necessary, returning `error.WriteStreamEnd` if the byte
-/// could not be repeated `n` times.
-pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
-    if ((try splatByteUntilEnd(bw, byte, n)) != n) return error.WriteStreamEnd;
-}
-
-/// Writes the same byte many times, performing the underlying write call as
-/// many times as necessary, returning `error.WriteStreamEnd` if the byte
-/// could not be repeated `n` times, or returning `n` on success.
+/// Convenience function that calls `splatByteAll` and then returns `n`.
 pub fn splatByteAllCount(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
     try splatByteAll(bw, byte, n);
     return n;
@@ -431,23 +360,15 @@ pub fn splatByteAllCount(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize
 
 /// Writes the same byte many times, performing the underlying write call as
 /// many times as necessary.
-///
-/// If the number returned is less than `n` it indicates end of stream.
-pub fn splatByteUntilEnd(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
-    var index: usize = 0;
-    while (true) {
-        const result = splatByte(bw, byte, n - index);
-        try result.err;
-        index += result.len;
-        assert(index <= n);
-        if (index == n or result.end) return index;
-    }
+pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
+    var remaining: usize = n;
+    while (remaining > 0) remaining -= try splatByte(bw, byte, remaining);
 }
 
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `Writer.VTable.writeSplat`.
-pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) Writer.Result {
+pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
     return passthru_writeSplat(bw, &.{&.{byte}}, n);
 }
 

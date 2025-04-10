@@ -326,6 +326,7 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
         /// returned bytes means end of stream reached. With limit=0 returns as
         /// much data it can. It newer will be more than 65536 bytes, which is
         /// size of internal buffer.
+        /// TODO merge this logic into reader_streamRead and reader_streamReadVec
         pub fn get(self: *Self, limit: usize) Error![]const u8 {
             while (true) {
                 const out = self.hist.readAtMost(limit);
@@ -342,31 +343,27 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
             ctx: ?*anyopaque,
             bw: *std.io.BufferedWriter,
             limit: std.io.Reader.Limit,
-        ) std.io.Reader.RwResult {
+        ) anyerror!std.io.Reader.Status {
             const self: *Self = @alignCast(@ptrCast(ctx));
-            const out = bw.writableSlice(1) catch |err| return .{ .write_err = err };
-            const in = self.get(limit.min(out.len)) catch |err| return .{ .read_err = err };
-            if (in.len == 0) return .{ .read_end = true };
+            const out = try bw.writableSlice(1);
+            const in = try self.get(limit.min(out.len));
             @memcpy(out[0..in.len], in);
-            return .{ .len = in.len };
+            bw.advance(in.len);
+            return .{ .len = in.len, .end = in.len == 0 };
         }
 
-        fn reader_streamReadVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Result {
+        fn reader_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
             const self: *Self = @alignCast(@ptrCast(ctx));
-            var total: usize = 0;
-            for (data) |buffer| {
-                if (buffer.len == 0) break;
-                const out = self.get(buffer.len) catch |err| {
-                    return .{ .len = total, .err = err };
-                };
-                if (out.len == 0) break;
-                @memcpy(buffer[0..out.len], out);
-                total += out.len;
+            for (data) |out| {
+                if (out.len == 0) continue;
+                const in = try self.get(out.len);
+                @memcpy(out[0..in.len], in);
+                return .{ .len = @intCast(in.len), .end = in.len == 0 };
             }
-            return .{ .len = total, .end = total == 0 };
+            return .{};
         }
 
-        pub fn streamReadVec(self: *Self, data: []const []u8) std.io.Reader.Result {
+        pub fn streamReadVec(self: *Self, data: []const []u8) anyerror!std.io.Reader.Status {
             return reader_streamReadVec(self, data);
         }
 
