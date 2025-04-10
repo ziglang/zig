@@ -235,7 +235,7 @@ ubsan_rt_lib: ?CrtFile = null,
 ubsan_rt_obj: ?CrtFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
-libc_static_lib: ?CrtFile = null,
+zigc_static_lib: ?CrtFile = null,
 /// Populated when we build the libcompiler_rt static library. A Job to build this is indicated
 /// by setting `queued_jobs.compiler_rt_lib` and resolved before calling linker.flush().
 compiler_rt_lib: ?CrtFile = null,
@@ -307,7 +307,7 @@ const QueuedJobs = struct {
     libcxx: bool = false,
     libcxxabi: bool = false,
     libtsan: bool = false,
-    zig_libc: bool = false,
+    zigc_lib: bool = false,
 };
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
@@ -801,7 +801,7 @@ pub const MiscTask = enum {
     libfuzzer,
     wasi_libc_crt_file,
     compiler_rt,
-    zig_libc,
+    libzigc,
     analyze_mod,
     docs_copy,
     docs_wasm,
@@ -1759,7 +1759,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     const target = comp.root_mod.resolved_target.result;
 
     const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.config.use_llvm);
-    const capable_of_building_zig_libc = canBuildZigLibC(target, comp.config.use_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1891,11 +1890,16 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
                     for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
-                } else if (target.os.tag == .freestanding and capable_of_building_zig_libc) {
-                    comp.queued_jobs.zig_libc = true;
-                    comp.remaining_prelink_tasks += 1;
                 } else {
                     return error.LibCUnavailable;
+                }
+
+                if ((target.isMuslLibC() and comp.config.link_mode == .static) or
+                    target.isWasiLibC() or
+                    target.isMinGW())
+                {
+                    comp.queued_jobs.zigc_lib = true;
+                    comp.remaining_prelink_tasks += 1;
                 }
             }
 
@@ -2010,7 +2014,7 @@ pub fn destroy(comp: *Compilation) void {
         crt_file.deinit(gpa);
     }
 
-    if (comp.libc_static_lib) |*crt_file| {
+    if (comp.zigc_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
 
@@ -3761,23 +3765,23 @@ fn performAllTheWorkInner(
         // compiler-rt due to LLD bugs as well, e.g.:
         //
         // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, false, &comp.compiler_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", "compiler_rt", .compiler_rt, .Lib, false, &comp.compiler_rt_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, false, &comp.compiler_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", "compiler_rt", .compiler_rt, .Obj, false, &comp.compiler_rt_obj, main_progress_node });
     }
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, true, &comp.fuzzer_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", "fuzzer", .libfuzzer, .Lib, true, &comp.fuzzer_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Lib, false, &comp.ubsan_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", "ubsan_rt", .libubsan, .Lib, false, &comp.ubsan_rt_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Obj, false, &comp.ubsan_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", "ubsan_rt", .libubsan, .Obj, false, &comp.ubsan_rt_obj, main_progress_node });
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
@@ -3800,8 +3804,8 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
     }
 
-    if (comp.queued_jobs.zig_libc and comp.libc_static_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildZigLibc, .{ comp, main_progress_node });
+    if (comp.queued_jobs.zigc_lib and comp.zigc_static_lib == null) {
+        comp.link_task_wait_group.spawnManager(buildLibZigC, .{ comp, main_progress_node });
     }
 
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
@@ -4764,6 +4768,7 @@ fn workerUpdateWin32Resource(
 fn buildRt(
     comp: *Compilation,
     root_source_name: []const u8,
+    root_name: []const u8,
     misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
     allow_lto: bool,
@@ -4772,6 +4777,7 @@ fn buildRt(
 ) void {
     comp.buildOutputFromZig(
         root_source_name,
+        root_name,
         output_mode,
         allow_lto,
         out,
@@ -4877,17 +4883,18 @@ fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
     }
 }
 
-fn buildZigLibc(comp: *Compilation, prog_node: std.Progress.Node) void {
+fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
     comp.buildOutputFromZig(
         "c.zig",
+        "zigc",
         .Lib,
         true,
-        &comp.libc_static_lib,
-        .zig_libc,
+        &comp.zigc_static_lib,
+        .libzigc,
         prog_node,
     ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
-        else => comp.lockAndSetMiscFailure(.zig_libc, "unable to build zig's multitarget libc: {s}", .{@errorName(err)}),
+        else => comp.lockAndSetMiscFailure(.libzigc, "unable to build libzigc: {s}", .{@errorName(err)}),
     };
 }
 
@@ -6521,25 +6528,6 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
     };
 }
 
-/// Not to be confused with canBuildLibC, which builds musl, glibc, and similar.
-/// This one builds lib/c.zig.
-fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
-    switch (target.os.tag) {
-        .plan9 => return false,
-        else => {},
-    }
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
-        else => {},
-    }
-    return switch (target_util.zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
-        .stage2_riscv64 => true,
-        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else build_options.have_llvm,
-        else => build_options.have_llvm,
-    };
-}
-
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     const target = comp.root_mod.resolved_target.result;
     return target_util.zigBackend(target, comp.config.use_llvm);
@@ -6580,6 +6568,7 @@ pub fn updateSubCompilation(
 fn buildOutputFromZig(
     comp: *Compilation,
     src_basename: []const u8,
+    root_name: []const u8,
     output_mode: std.builtin.OutputMode,
     allow_lto: bool,
     out: *?CrtFile,
@@ -6643,7 +6632,6 @@ fn buildOutputFromZig(
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
     });
-    const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
