@@ -50,6 +50,7 @@ Set-Location -Path 'build-debug'
   -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_AR="$($ZIG -Replace "\\", "/")" `
+  -DZIG_CI=ON `
   -DZIG_AR_WORKAROUND=ON `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
@@ -62,6 +63,7 @@ CheckLastExitCode
 
 Write-Output "Main test suite..."
 & "stage3-debug\bin\zig.exe" build test docs `
+  -Dci `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
