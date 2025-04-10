@@ -197,7 +197,7 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
-/// Deprecated: Use @field(U, @tagName(tag)) or @field(U, string)
+/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
     return comptime blk: {
         const V = @TypeOf(value);
