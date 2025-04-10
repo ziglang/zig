@@ -34,7 +34,7 @@ const eof_reader: std.io.Reader.VTable = .{
     .streamReadVec = eof_streamReadVec,
 };
 
-fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!Reader.Status {
+fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     _ = context;
     _ = data;
     _ = splat;
@@ -44,11 +44,11 @@ fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) 
 fn eof_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
-    offset: u64,
-    len: Reader.FileLen,
+    offset: std.io.Writer.Offset,
+    len: std.io.Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!Reader.Status {
+) anyerror!usize {
     _ = context;
     _ = file;
     _ = offset;
@@ -73,14 +73,14 @@ fn eof_posReadVec(ctx: ?*anyopaque, data: []const []u8, offset: u64) anyerror!Re
     return error.EndOfStream;
 }
 
-fn eof_streamRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) Reader.Status {
+fn eof_streamRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) anyerror!Reader.Status {
     _ = ctx;
     _ = bw;
     _ = limit;
     return error.EndOfStream;
 }
 
-fn eof_streamReadVec(ctx: ?*anyopaque, data: []const []u8) Reader.Status {
+fn eof_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
     _ = ctx;
     _ = data;
     return error.EndOfStream;
@@ -91,13 +91,16 @@ pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
     br.* = .{
         .seek = 0,
         .storage = .{
-            .buffer = .initBuffer(@constCast(buffer)),
+            .buffer = .fromOwnedSlice(@constCast(buffer)),
             .unbuffered_writer = .{
                 .context = undefined,
                 .vtable = &eof_writer,
             },
         },
-        .unbuffered_reader = &.{ .context = undefined, .vtable = &eof_reader },
+        .unbuffered_reader = .{
+            .context = undefined,
+            .vtable = &eof_reader,
+        },
     };
 }
 

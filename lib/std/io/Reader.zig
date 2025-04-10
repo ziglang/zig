@@ -86,6 +86,11 @@ pub fn posReadAll(r: Reader, w: *std.io.BufferedWriter, start_offset: u64) anyer
 }
 
 /// Returns total number of bytes written to `w`.
+pub fn streamRead(r: Reader, w: *std.io.BufferedWriter, limit: Limit) anyerror!Status {
+    return r.vtable.streamRead.?(r.context, w, limit);
+}
+
+/// Returns total number of bytes written to `w`.
 pub fn streamReadAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
     const vtable_streamRead = r.vtable.streamRead.?;
     var offset: usize = 0;

@@ -96,7 +96,7 @@ pub fn writeFile(
 pub fn unimplemented_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
-    offset: u64,
+    offset: Offset,
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
@@ -136,7 +136,7 @@ fn null_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize)
     const pattern = data[headers.len..];
     var written: usize = pattern.len * splat;
     for (headers) |bytes| written += bytes.len;
-    return .{ .len = written };
+    return written;
 }
 
 fn null_writeFile(
@@ -156,12 +156,12 @@ fn null_writeFile(
             const stat = try file.stat();
             n += stat.size - off;
             for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
-            return .{ .len = n };
+            return n;
         }
         @panic("TODO stream from file until eof, counting");
     }
     for (headers_and_trailers) |bytes| n += bytes.len;
-    return .{ .len = len.int() + n };
+    return len.int() + n;
 }
 
 test @"null" {
