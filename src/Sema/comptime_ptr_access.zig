@@ -748,7 +748,7 @@ fn prepareComptimePtrStore(
         const extra_base_index: u64 = if (ptr.byte_offset == 0) 0 else idx: {
             if (try store_one_ty.comptimeOnlySema(pt)) break :restructure_array;
             const elem_len = try store_one_ty.abiSizeSema(pt);
-            if (ptr.byte_offset % elem_len != 0) break :restructure_array;
+            if (elem_len == 0 or ptr.byte_offset % elem_len != 0) break :restructure_array;
             break :idx @divExact(ptr.byte_offset, elem_len);
         };
 
@@ -857,8 +857,18 @@ fn prepareComptimePtrStore(
             .array => {
                 const elem_ty = cur_ty.childType(zcu);
                 const elem_size = try elem_ty.abiSizeSema(pt);
-                const elem_idx = cur_offset / elem_size;
-                const next_elem_off = elem_size * (elem_idx + 1);
+
+                const elem_idx, const next_elem_off = if (elem_size == 0)
+                    .{ 0, 1 }
+                else idx: {
+                    const elem_inner_idx = (cur_offset % elem_size);
+
+                    // The index would be out of bounds if we don't check for 0-bit values located at the end of the element type.
+                    const elem_idx = (cur_offset / elem_size) - @as(u64, if (cur_offset != 0 and elem_inner_idx == 0 and need_bytes == 0) 1 else 0);
+                    const next_elem_off = elem_size * (elem_idx + 1);
+                    break :idx .{ elem_idx, next_elem_off };
+                };
+
                 if (cur_offset + need_bytes <= next_elem_off) {
                     // We can look at a single array element.
                     cur_val = try cur_val.elem(pt, sema.arena, @intCast(elem_idx));
