@@ -81,6 +81,8 @@ else()
 endif()
 message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 
+set(ZIG_CI off CACHE BOOL "Enable build system behaviors intended only for the official ZSF CI")
+
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
@@ -113,7 +115,6 @@ if(ZIG_AR_WORKAROUND)
   string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
-
 option(ZIG_PIE "Produce a position independent zig executable" ${CMAKE_POSITION_INDEPENDENT_CODE})
 include(CheckPIESupported)
 check_pie_supported(
@@ -123,7 +124,6 @@ check_pie_supported(
 if(ZIG_PIE AND NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
   message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target: ${ZIG_PIE_SUPPORTED_BY_CMAKE}")
 endif()
-
 
 # Detect system libcxx name.
 if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
@@ -942,6 +942,10 @@ set(ZIG_BUILD_ARGS
 set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")
 if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
+endif()
+
+if(ZIG_CI)
+  list(APPEND ZIG_BUILD_ARGS -Dci)
 endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
