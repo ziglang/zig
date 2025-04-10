@@ -69,7 +69,8 @@ pub fn reset(bw: *BufferedWriter) void {
 pub fn flush(bw: *BufferedWriter) anyerror!void {
     const list = &bw.buffer;
     const send_buffer = list.items;
-    try bw.unbuffered_writer.writeAll(send_buffer);
+    var index: usize = 0;
+    while (index < send_buffer.len) index += try bw.unbuffered_writer.writev(&.{send_buffer[index..]});
     list.items.len = 0;
 }
 

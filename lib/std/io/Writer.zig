@@ -149,6 +149,9 @@ fn null_writeFile(
 ) anyerror!usize {
     _ = context;
     var n: usize = 0;
+    if (offset == .none) {
+        @panic("TODO seek the file forwards");
+    }
     if (len == .entire_file) {
         const headers = headers_and_trailers[0..headers_len];
         for (headers) |bytes| n += bytes.len;
