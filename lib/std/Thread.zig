@@ -108,6 +108,8 @@ else if (native_os == .linux)
     LinuxThreadImpl
 else if (native_os == .wasi)
     WasiThreadImpl
+else if (native_os == .uefi)
+    UefiThreadImpl
 else
     UnsupportedImpl;
 
@@ -1151,6 +1153,12 @@ const WasiThreadImpl = struct {
             \\ local.set %[stack_ptr]
             : [stack_ptr] "=r" (-> [*]u8),
         );
+    }
+};
+
+const UefiThreadImpl = struct {
+    fn getCurrentId() Id {
+        return 1;
     }
 };
 
