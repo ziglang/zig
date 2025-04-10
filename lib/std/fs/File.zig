@@ -1737,7 +1737,8 @@ pub fn writer_writeFile(
         const smaller_len = if (len_int == 0) max_count else @min(len_int, max_count);
         var off: std.os.linux.off_t = undefined;
         const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
-            off = std.math.cast(std.os.linux.off_t, offset) orelse return error.Overflow;
+            off = std.math.cast(std.os.linux.off_t, offset) orelse
+                return writer_writeSplat(context, headers_and_trailers, 1);
             break :b &off;
         } else null;
         if (true) @panic("TODO");
@@ -1747,7 +1748,13 @@ pub fn writer_writeFile(
             error.Unexpected => break :sf,
             else => |e| return e,
         };
-        if (in_offset.toInt()) |offset| assert(n == off - offset);
+        if (in_offset.toInt()) |offset| {
+            assert(n == off - offset);
+        } else if (n == 0 and len_int == 0) {
+            // The caller wouldn't be able to tell that the file transfer is
+            // done and would incorrectly repeat the same call.
+            return writer_writeSplat(context, headers_and_trailers, 1);
+        }
         return n;
     }
     var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
