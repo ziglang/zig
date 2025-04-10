@@ -51,17 +51,6 @@ const Opcode = enum(u8) {
     pub const hi_user = 0x3f;
 };
 
-fn readBlock(stream: *std.io.FixedBufferStream) ![]const u8 {
-    const reader = stream.reader();
-    const block_len = try leb.readUleb128(usize, reader);
-    if (stream.pos + block_len > stream.buffer.len) return error.InvalidOperand;
-
-    const block = stream.buffer[stream.pos..][0..block_len];
-    reader.context.pos += block_len;
-
-    return block;
-}
-
 pub const Instruction = union(Opcode) {
     advance_loc: struct {
         delta: u8,
@@ -147,12 +136,11 @@ pub const Instruction = union(Opcode) {
     },
 
     pub fn read(
-        stream: *std.io.FixedBufferStream,
+        reader: *std.io.BufferedReader,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Instruction {
-        const reader = stream.reader();
-        switch (try reader.readByte()) {
+        switch (try reader.takeByte()) {
             Opcode.lo_inline...Opcode.hi_inline => |opcode| {
                 const e: Opcode = @enumFromInt(opcode & 0b11000000);
                 const value: u6 = @intCast(opcode & 0b111111);
@@ -163,7 +151,7 @@ pub const Instruction = union(Opcode) {
                     .offset => .{
                         .offset = .{
                             .register = value,
-                            .offset = try leb.readUleb128(u64, reader),
+                            .offset = try reader.takeLeb128(u64),
                         },
                     },
                     .restore => .{
@@ -175,121 +163,84 @@ pub const Instruction = union(Opcode) {
             Opcode.lo_reserved...Opcode.hi_reserved => |opcode| {
                 const e: Opcode = @enumFromInt(opcode);
                 return switch (e) {
-                    .advance_loc,
-                    .offset,
-                    .restore,
-                    => unreachable,
-                    .nop => .{ .nop = {} },
-                    .set_loc => .{
-                        .set_loc = .{
-                            .address = switch (addr_size_bytes) {
-                                2 => try reader.readInt(u16, endian),
-                                4 => try reader.readInt(u32, endian),
-                                8 => try reader.readInt(u64, endian),
-                                else => return error.InvalidAddrSize,
-                            },
+                    .advance_loc, .offset, .restore => unreachable,
+                    .nop => .nop,
+                    .set_loc => .{ .set_loc = .{
+                        .address = switch (addr_size_bytes) {
+                            2 => try reader.takeInt(u16, endian),
+                            4 => try reader.takeInt(u32, endian),
+                            8 => try reader.takeInt(u64, endian),
+                            else => return error.InvalidAddrSize,
                         },
-                    },
-                    .advance_loc1 => .{
-                        .advance_loc1 = .{ .delta = try reader.readByte() },
-                    },
-                    .advance_loc2 => .{
-                        .advance_loc2 = .{ .delta = try reader.readInt(u16, endian) },
-                    },
-                    .advance_loc4 => .{
-                        .advance_loc4 = .{ .delta = try reader.readInt(u32, endian) },
-                    },
-                    .offset_extended => .{
-                        .offset_extended = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readUleb128(u64, reader),
-                        },
-                    },
-                    .restore_extended => .{
-                        .restore_extended = .{
-                            .register = try leb.readUleb128(u8, reader),
-                        },
-                    },
-                    .undefined => .{
-                        .undefined = .{
-                            .register = try leb.readUleb128(u8, reader),
-                        },
-                    },
-                    .same_value => .{
-                        .same_value = .{
-                            .register = try leb.readUleb128(u8, reader),
-                        },
-                    },
-                    .register => .{
-                        .register = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .target_register = try leb.readUleb128(u8, reader),
-                        },
-                    },
-                    .remember_state => .{ .remember_state = {} },
-                    .restore_state => .{ .restore_state = {} },
-                    .def_cfa => .{
-                        .def_cfa = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readUleb128(u64, reader),
-                        },
-                    },
-                    .def_cfa_register => .{
-                        .def_cfa_register = .{
-                            .register = try leb.readUleb128(u8, reader),
-                        },
-                    },
-                    .def_cfa_offset => .{
-                        .def_cfa_offset = .{
-                            .offset = try leb.readUleb128(u64, reader),
-                        },
-                    },
-                    .def_cfa_expression => .{
-                        .def_cfa_expression = .{
-                            .block = try readBlock(stream),
-                        },
-                    },
-                    .expression => .{
-                        .expression = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .block = try readBlock(stream),
-                        },
-                    },
-                    .offset_extended_sf => .{
-                        .offset_extended_sf = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readIleb128(i64, reader),
-                        },
-                    },
-                    .def_cfa_sf => .{
-                        .def_cfa_sf = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readIleb128(i64, reader),
-                        },
-                    },
-                    .def_cfa_offset_sf => .{
-                        .def_cfa_offset_sf = .{
-                            .offset = try leb.readIleb128(i64, reader),
-                        },
-                    },
-                    .val_offset => .{
-                        .val_offset = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readUleb128(u64, reader),
-                        },
-                    },
-                    .val_offset_sf => .{
-                        .val_offset_sf = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .offset = try leb.readIleb128(i64, reader),
-                        },
-                    },
-                    .val_expression => .{
-                        .val_expression = .{
-                            .register = try leb.readUleb128(u8, reader),
-                            .block = try readBlock(stream),
-                        },
-                    },
+                    } },
+                    .advance_loc1 => .{ .advance_loc1 = .{
+                        .delta = try reader.takeByte(),
+                    } },
+                    .advance_loc2 => .{ .advance_loc2 = .{
+                        .delta = try reader.takeInt(u16, endian),
+                    } },
+                    .advance_loc4 => .{ .advance_loc4 = .{
+                        .delta = try reader.takeInt(u32, endian),
+                    } },
+                    .offset_extended => .{ .offset_extended = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(u64),
+                    } },
+                    .restore_extended => .{ .restore_extended = .{
+                        .register = try reader.takeLeb128(u8),
+                    } },
+                    .undefined => .{ .undefined = .{
+                        .register = try reader.takeLeb128(u8),
+                    } },
+                    .same_value => .{ .same_value = .{
+                        .register = try reader.takeLeb128(u8),
+                    } },
+                    .register => .{ .register = .{
+                        .register = try reader.takeLeb128(u8),
+                        .target_register = try reader.takeLeb128(u8),
+                    } },
+                    .remember_state => .remember_state,
+                    .restore_state => .restore_state,
+                    .def_cfa => .{ .def_cfa = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(u64),
+                    } },
+                    .def_cfa_register => .{ .def_cfa_register = .{
+                        .register = try reader.takeLeb128(u8),
+                    } },
+                    .def_cfa_offset => .{ .def_cfa_offset = .{
+                        .offset = try reader.takeLeb128(u64),
+                    } },
+                    .def_cfa_expression => .{ .def_cfa_expression = .{
+                        .block = try reader.take(try reader.takeLeb128(usize)),
+                    } },
+                    .expression => .{ .expression = .{
+                        .register = try reader.takeLeb128(u8),
+                        .block = try reader.take(try reader.takeLeb128(usize)),
+                    } },
+                    .offset_extended_sf => .{ .offset_extended_sf = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(i64),
+                    } },
+                    .def_cfa_sf => .{ .def_cfa_sf = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(i64),
+                    } },
+                    .def_cfa_offset_sf => .{ .def_cfa_offset_sf = .{
+                        .offset = try reader.takeLeb128(i64),
+                    } },
+                    .val_offset => .{ .val_offset = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(u64),
+                    } },
+                    .val_offset_sf => .{ .val_offset_sf = .{
+                        .register = try reader.takeLeb128(u8),
+                        .offset = try reader.takeLeb128(i64),
+                    } },
+                    .val_expression => .{ .val_expression = .{
+                        .register = try reader.takeLeb128(u8),
+                        .block = try reader.take(try reader.takeLeb128(usize)),
+                    } },
                 };
             },
             Opcode.lo_user...Opcode.hi_user => return error.UnimplementedUserOpcode,
