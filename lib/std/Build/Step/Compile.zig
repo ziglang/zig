@@ -1186,11 +1186,13 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 break :prefix "-l";
                             };
                             switch (system_lib.use_pkg_config) {
-                                .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
+                                .no => if (!compile.isStaticLibrary())
+                                    try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
                                 .yes, .force => {
                                     if (compile.runPkgConfig(system_lib.name)) |result| {
                                         try zig_args.appendSlice(result.cflags);
-                                        try zig_args.appendSlice(result.libs);
+                                        if (!compile.isStaticLibrary())
+                                            try zig_args.appendSlice(result.libs);
                                         try seen_system_libs.put(arena, system_lib.name, result.cflags);
                                     } else |err| switch (err) {
                                         error.PkgConfigInvalidOutput,
@@ -1202,10 +1204,11 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                             .yes => {
                                                 // pkg-config failed, so fall back to linking the library
                                                 // by name directly.
-                                                try zig_args.append(b.fmt("{s}{s}", .{
-                                                    prefix,
-                                                    system_lib.name,
-                                                }));
+                                                if (!compile.isStaticLibrary())
+                                                    try zig_args.append(b.fmt("{s}{s}", .{
+                                                        prefix,
+                                                        system_lib.name,
+                                                    }));
                                             },
                                             .force => {
                                                 panic("pkg-config failed for library {s}", .{system_lib.name});
