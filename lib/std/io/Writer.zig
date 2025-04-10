@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Writer = @This();
 
-context: *anyopaque,
+context: ?*anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -17,7 +17,7 @@ pub const VTable = struct {
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
-    writeSplat: *const fn (ctx: *anyopaque, data: []const []const u8, splat: usize) Result,
+    writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) Result,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -29,7 +29,7 @@ pub const VTable = struct {
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
     writeFile: *const fn (
-        ctx: *anyopaque,
+        ctx: ?*anyopaque,
         file: std.fs.File,
         offset: Offset,
         /// When zero, it means copy until the end of the file is reached.
@@ -39,25 +39,26 @@ pub const VTable = struct {
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) Result,
-};
 
-pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
+    pub const eof: VTable = .{
+        .writeSplat = eof_writeSplat,
+        .writeFile = eof_writeFile,
+    };
+};
 
 pub const Result = struct {
-    /// Even when a failure occurs, `Effect.written` may be nonzero, and
-    /// `Effect.end` may be true.
-    failure: anyerror!void,
-    effect: Effect,
-};
-
-pub const Effect = packed struct(usize) {
-    /// Number of bytes that were written to `writer`.
-    len: Len,
+    /// Even when a failure occurs, `len` may be nonzero, and `end` may be
+    /// true.
+    err: anyerror!void = {},
+    /// Number of bytes that were transferred. When an error occurs, ideally
+    /// this will be zero, but may not always be the case.
+    len: usize = 0,
     /// Indicates end of stream.
-    end: bool,
+    end: bool = false,
 };
 
 pub const Offset = enum(u64) {
+    /// Indicates to read the file as a stream.
     none = std.math.maxInt(u64),
     _,
 
@@ -65,6 +66,11 @@ pub const Offset = enum(u64) {
         const result: Offset = @enumFromInt(integer);
         assert(result != .none);
         return result;
+    }
+
+    pub fn toInt(o: Offset) ?u64 {
+        if (o == .none) return null;
+        return @intFromEnum(o);
     }
 };
 
@@ -84,11 +90,11 @@ pub const FileLen = enum(u64) {
     }
 };
 
-pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
+pub fn writev(w: Writer, data: []const []const u8) Result {
     return w.vtable.writeSplat(w.context, data, 1);
 }
 
-pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) anyerror!usize {
+pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) Result {
     return w.vtable.writeSplat(w.context, data, splat);
 }
 
@@ -99,25 +105,25 @@ pub fn writeFile(
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
+) Result {
     return w.vtable.writeFile(w.context, file, offset, len, headers_and_trailers, headers_len);
 }
 
 pub fn unimplemented_writeFile(
-    context: *anyopaque,
+    context: ?*anyopaque,
     file: std.fs.File,
     offset: u64,
     len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
+) Result {
     _ = context;
     _ = file;
     _ = offset;
     _ = len;
     _ = headers_and_trailers;
     _ = headers_len;
-    return error.Unimplemented;
+    return .{ .err = error.Unimplemented };
 }
 
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
@@ -129,4 +135,75 @@ pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
 
 pub fn unbuffered(w: Writer) std.io.BufferedWriter {
     return buffered(w, &.{});
+}
+
+/// A `Writer` that discards all data.
+pub const @"null": Writer = .{
+    .context = undefined,
+    .vtable = &.{
+        .writeSplat = null_writeSplat,
+        .writeFile = null_writeFile,
+    },
+};
+
+fn null_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Result {
+    _ = context;
+    const headers = data[0 .. data.len - 1];
+    const pattern = data[headers.len..];
+    var written: usize = pattern.len * splat;
+    for (headers) |bytes| written += bytes.len;
+    return .{ .len = written };
+}
+
+fn null_writeFile(
+    context: ?*anyopaque,
+    file: std.fs.File,
+    offset: Offset,
+    len: FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Result {
+    _ = context;
+    var n: usize = 0;
+    if (len == .entire_file) {
+        const headers = headers_and_trailers[0..headers_len];
+        for (headers) |bytes| n += bytes.len;
+        if (offset.toInt()) |off| {
+            const stat = file.stat() catch |err| return .{ .err = err, .len = n };
+            n += stat.size - off;
+            for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
+            return .{ .len = n };
+        }
+        @panic("TODO stream from file until eof, counting");
+    }
+    for (headers_and_trailers) |bytes| n += bytes.len;
+    return .{ .len = len.int() + n };
+}
+
+test @"null" {
+    try @"null".writeAll("yay");
+}
+
+fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Result {
+    _ = context;
+    _ = data;
+    _ = splat;
+    return .{ .end = true };
+}
+
+fn eof_writeFile(
+    context: ?*anyopaque,
+    file: std.fs.File,
+    offset: u64,
+    len: FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Result {
+    _ = context;
+    _ = file;
+    _ = offset;
+    _ = len;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    return .{ .end = true };
 }

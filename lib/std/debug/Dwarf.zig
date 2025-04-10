@@ -2212,7 +2212,7 @@ pub const ElfModule = struct {
         var separate_debug_filename: ?[]const u8 = null;
         var separate_debug_crc: ?u32 = null;
 
-        for (shdrs) |*shdr| {
+        shdrs: for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
             const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
 
@@ -2246,8 +2246,22 @@ pub const ElfModule = struct {
                 const decompressed_section = try gpa.alloc(u8, ch_size);
                 errdefer gpa.free(decompressed_section);
 
-                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
-                assert(read == decompressed_section.len);
+                {
+                    var read_index: usize = 0;
+                    while (true) {
+                        const read_result = zlib_stream.streamReadVec(&.{decompressed_section[read_index..]});
+                        read_result.err catch {
+                            gpa.free(decompressed_section);
+                            continue :shdrs;
+                        };
+                        read_index += read_result.len;
+                        if (read_index == decompressed_section.len) break;
+                        if (read_result.end) {
+                            gpa.free(decompressed_section);
+                            continue :shdrs;
+                        }
+                    }
+                }
 
                 break :blk .{
                     .data = decompressed_section,
