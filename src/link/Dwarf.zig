@@ -1768,34 +1768,36 @@ pub const WipNav = struct {
     }
 
     const ExprLocCounter = struct {
-        const Stream = std.io.CountingWriter(std.io.NullWriter);
-        stream: Stream,
+        stream: *std.io.BufferedWriter,
         section_offset_bytes: u32,
         address_size: AddressSize,
-        fn init(dwarf: *Dwarf) ExprLocCounter {
+        counter: usize,
+        fn init(dwarf: *Dwarf, stream: *std.io.BufferedWriter) ExprLocCounter {
             return .{
-                .stream = std.io.countingWriter(std.io.null_writer),
+                .stream = stream,
                 .section_offset_bytes = dwarf.sectionOffsetBytes(),
                 .address_size = dwarf.address_size,
             };
         }
-        fn writer(counter: *ExprLocCounter) Stream.Writer {
-            return counter.stream.writer();
+        fn writer(counter: *ExprLocCounter) *std.io.BufferedWriter {
+            return counter.stream;
         }
         fn endian(_: ExprLocCounter) std.builtin.Endian {
             return @import("builtin").cpu.arch.endian();
         }
         fn addrSym(counter: *ExprLocCounter, _: u32) error{}!void {
-            counter.stream.bytes_written += @intFromEnum(counter.address_size);
+            counter.count += @intFromEnum(counter.address_size);
         }
         fn infoEntry(counter: *ExprLocCounter, _: Unit.Index, _: Entry.Index) error{}!void {
-            counter.stream.bytes_written += counter.section_offset_bytes;
+            counter.count += counter.section_offset_bytes;
         }
     };
 
     fn infoExprLoc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
-        var counter: ExprLocCounter = .init(wip_nav.dwarf);
-        try loc.write(&counter);
+        var buffer: [std.atomic.cache_line]u8 = undefined;
+        var counter_bw = std.io.Writer.null.buffered(&buffer);
+        var counter: ExprLocCounter = .init(wip_nav.dwarf, &counter_bw);
+        counter.count += try loc.write(&counter);
 
         const adapter: struct {
             wip_nav: *WipNav,
@@ -1812,8 +1814,8 @@ pub const WipNav = struct {
                 try ctx.wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
-        try uleb128(adapter.writer(), counter.stream.bytes_written);
-        try loc.write(adapter);
+        try uleb128(adapter.writer(), counter.count);
+        _ = try loc.write(adapter);
     }
 
     fn infoAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) UpdateError!void {
@@ -1826,8 +1828,10 @@ pub const WipNav = struct {
     }
 
     fn frameExprLoc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
-        var counter: ExprLocCounter = .init(wip_nav.dwarf);
-        try loc.write(&counter);
+        var buffer: [std.atomic.cache_line]u8 = undefined;
+        var counter_bw = std.io.Writer.null.buffered(&buffer);
+        var counter: ExprLocCounter = .init(wip_nav.dwarf, &counter_bw);
+        counter.count += try loc.write(&counter);
 
         const adapter: struct {
             wip_nav: *WipNav,
@@ -1844,8 +1848,8 @@ pub const WipNav = struct {
                 try ctx.wip_nav.sectionOffset(.debug_frame, .debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
-        try uleb128(adapter.writer(), counter.stream.bytes_written);
-        try loc.write(adapter);
+        try uleb128(adapter.writer(), counter.count);
+        _ = try loc.write(adapter);
     }
 
     fn frameAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) UpdateError!void {
@@ -6015,15 +6019,21 @@ fn sectionOffsetBytes(dwarf: *Dwarf) u32 {
 }
 
 fn uleb128Bytes(value: anytype) u32 {
-    var cw = std.io.countingWriter(std.io.null_writer);
-    try uleb128(cw.writer(), value);
-    return @intCast(cw.bytes_written);
+    var buffer: [std.atomic.cache_line]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = .null,
+        .buffer = .initBuffer(&buffer),
+    };
+    return try std.leb.writeUleb128Count(&bw, value);
 }
 
 fn sleb128Bytes(value: anytype) u32 {
-    var cw = std.io.countingWriter(std.io.null_writer);
-    try sleb128(cw.writer(), value);
-    return @intCast(cw.bytes_written);
+    var buffer: [std.atomic.cache_line]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = .null,
+        .buffer = .initBuffer(&buffer),
+    };
+    return try std.leb.writeIleb128Count(&bw, value);
 }
 
 /// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional

@@ -189,24 +189,22 @@ fn renderErrorMessageToWriter(
     indent: usize,
 ) anyerror!void {
     const ttyconf = options.ttyconf;
-    var counting_writer: std.io.CountingWriter = .{ .child_writer = bw.writer() };
-    var counting_bw = counting_writer.writer().unbuffered();
     const err_msg = eb.getErrorMessage(err_msg_index);
+    // This is the length of the part before the error message:
+    // e.g. "file.zig:4:5: error: "
+    var prefix_len: usize = 0;
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
-        try counting_bw.splatByteAll(' ', indent);
+        prefix_len += try bw.splatByteAllCount(' ', indent);
         try ttyconf.setColor(bw, .bold);
-        try counting_bw.print("{s}:{d}:{d}: ", .{
+        prefix_len += try bw.printCount("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
             src.data.column + 1,
         });
         try ttyconf.setColor(bw, color);
-        try counting_bw.writeAll(kind);
-        try counting_bw.writeAll(": ");
-        // This is the length of the part before the error message:
-        // e.g. "file.zig:4:5: error: "
-        const prefix_len: usize = @intCast(counting_writer.bytes_written);
+        prefix_len += try bw.writeAllCount(kind);
+        prefix_len += try bw.writeAllCount(": ");
         try ttyconf.setColor(bw, .reset);
         try ttyconf.setColor(bw, .bold);
         if (err_msg.count == 1) {
