@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const bit_reader = @This();
 
 //General note on endianess:
 //Big endian is packed starting in the most significant part of the byte and subsequent
@@ -13,11 +14,11 @@ const std = @import("../std.zig");
 // of the byte.
 
 /// Creates a bit reader which allows for reading bits from an underlying standard reader
-pub fn BitReader(comptime endian: std.builtin.Endian) type {
+pub fn Type(comptime endian: std.builtin.Endian) type {
     return struct {
         reader: *std.io.BufferedReader,
-        bits: u8 = 0,
-        count: u4 = 0,
+        bits: u8,
+        count: u4,
 
         const low_bit_mask = [9]u8{
             0b00000000,
@@ -31,11 +32,12 @@ pub fn BitReader(comptime endian: std.builtin.Endian) type {
             0b11111111,
         };
 
+        pub fn init(reader: *std.io.BufferedReader) @This() {
+            return .{ .reader = reader, .bits = 0, .count = 0 };
+        }
+
         fn Bits(comptime T: type) type {
-            return struct {
-                T,
-                u16,
-            };
+            return struct { T, u16 };
         }
 
         fn initBits(comptime T: type, out: anytype, num: u16) Bits(T) {
@@ -82,7 +84,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian) type {
             const full_bytes_left = (num - out_count) / 8;
 
             for (0..full_bytes_left) |_| {
-                const byte = self.reader.readByte() catch |err| switch (err) {
+                const byte = self.reader.takeByte() catch |err| switch (err) {
                     error.EndOfStream => return initBits(T, out, out_count),
                     else => |e| return e,
                 };
@@ -105,7 +107,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian) type {
 
             if (bits_left == 0) return initBits(T, out, out_count);
 
-            const final_byte = self.reader.readByte() catch |err| switch (err) {
+            const final_byte = self.reader.takeByte() catch |err| switch (err) {
                 error.EndOfStream => return initBits(T, out, out_count),
                 else => |e| return e,
             };
@@ -157,10 +159,6 @@ pub fn BitReader(comptime endian: std.builtin.Endian) type {
     };
 }
 
-pub fn bitReader(comptime endian: std.builtin.Endian, reader: *std.io.BufferedReader) BitReader(endian) {
-    return .{ .reader = reader };
-}
-
 ///////////////////////////////
 
 test "api coverage" {
@@ -168,7 +166,7 @@ test "api coverage" {
     const mem_le = [_]u8{ 0b00011101, 0b10010101 };
 
     var mem_in_be = std.io.fixedBufferStream(&mem_be);
-    var bit_stream_be = bitReader(.big, mem_in_be.reader());
+    var bit_stream_be: bit_reader.Type(.big) = .init(mem_in_be.reader());
 
     var out_bits: u16 = undefined;
 
@@ -205,7 +203,7 @@ test "api coverage" {
     try expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
 
     var mem_in_le = std.io.fixedBufferStream(&mem_le);
-    var bit_stream_le = bitReader(.little, mem_in_le.reader());
+    var bit_stream_le: bit_reader.Type(.little) = .init(mem_in_le.reader());
 
     try expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
     try expect(out_bits == 1);

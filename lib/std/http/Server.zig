@@ -130,13 +130,9 @@ pub const Request = struct {
     write_error: anyerror,
 
     pub const Compression = union(enum) {
-        pub const DeflateDecompressor = std.compress.zlib.Decompressor(std.io.AnyReader);
-        pub const GzipDecompressor = std.compress.gzip.Decompressor(std.io.AnyReader);
-        pub const ZstdDecompressor = std.compress.zstd.Decompressor(std.io.AnyReader);
-
-        deflate: DeflateDecompressor,
-        gzip: GzipDecompressor,
-        zstd: ZstdDecompressor,
+        deflate: std.compress.zlib.Decompressor,
+        gzip: std.compress.gzip.Decompressor,
+        zstd: std.compress.zstd.Decompressor,
         none: void,
     };
 
