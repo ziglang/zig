@@ -838,6 +838,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.NoDevice,
         => return error.GLibCNotFound,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -881,6 +882,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
 
         error.FileTooBig => return error.Unexpected,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
