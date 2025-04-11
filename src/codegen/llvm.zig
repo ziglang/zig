@@ -7063,7 +7063,8 @@ pub const FuncGen = struct {
             } else {
                 const elem_ptr =
                     try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
-                return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
+                const elem_llvm_ty = try o.lowerType(elem_ty);
+                return self.wip.load(.normal, elem_llvm_ty, elem_ptr, .default, "");
             }
         }
 
@@ -11451,7 +11452,7 @@ pub const FuncGen = struct {
             if (isByRef(elem_ty, zcu)) {
                 return self.loadByRef(ptr, elem_ty, ptr_alignment, access_kind);
             }
-            return self.loadTruncate(access_kind, elem_ty, ptr, ptr_alignment);
+            return self.wip.load(access_kind, try o.lowerType(elem_ty), ptr, ptr_alignment, "");
         }
 
         const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
