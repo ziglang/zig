@@ -88,6 +88,40 @@ pub fn clone(
     ) callconv(.c) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
 }
 
+pub const clone_args = extern struct {
+    flags: u64,
+    pidfd: u64,
+    child_tid: u64,
+    parent_tid: u64,
+    exit_signal: u64,
+    stack: u64,
+    stack_size: u64,
+    tls: u64,
+    set_tid: u64,
+    set_tid_size: u64,
+    cgroup: u64,
+};
+
+pub fn clone3(
+    cl_args: *const clone_args,
+    size: usize,
+    func: *const fn (arg: usize) callconv(.C) u8,
+    arg: usize,
+) usize {
+    // TODO: write asm for other arch.
+    if (@hasDecl(syscall_bits, "clone3")) {
+        // Can't directly call a naked function; cast to C calling convention first.
+        return @as(*const fn (
+            cl_args: *const clone_args,
+            size: usize,
+            func: *const fn (arg: usize) callconv(.C) u8,
+            arg: usize,
+        ) callconv(.C) usize, @ptrCast(&syscall_bits.clone3))(cl_args, size, func, arg);
+    } else {
+        @compileError("clone3() implementation has not been written for this target");
+    }
+}
+
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
@@ -1745,24 +1779,21 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig >= 1);
-    assert(sig != SIG.KILL);
-    assert(sig != SIG.STOP);
-
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
     var ksa: k_sigaction = undefined;
     var oldksa: k_sigaction = undefined;
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
-        ksa = k_sigaction{
-            .handler = new.handler.handler,
-            .flags = new.flags | SA.RESTORER,
-            .mask = undefined,
-            .restorer = @ptrCast(restorer_fn),
-        };
-        @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
+        ksa.handler = new.handler.handler;
+        if (ksa.handler == SIG.DFL or ksa.handler == SIG.IGN) {
+            ksa.flags = new.flags;
+        } else {
+            const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
+            ksa.flags = new.flags | SA.RESTORER;
+            ksa.restorer = @ptrCast(restorer_fn);
+            @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
+        }
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
