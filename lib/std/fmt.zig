@@ -91,7 +91,7 @@ pub const Options = struct {
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype) anyerror!usize {
+pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype) anyerror!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .@"struct") {
@@ -107,7 +107,6 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
     comptime var arg_state: ArgState = .{ .args_len = fields_info.len };
     comptime var i = 0;
     comptime var literal: []const u8 = "";
-    var bytes_written: usize = 0;
     inline while (true) {
         const start_index = i;
 
@@ -137,7 +136,7 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
 
         // Write out the literal
         if (literal.len != 0) {
-            bytes_written += try bw.writeAllCount(literal);
+            try bw.writeAll(literal);
             literal = "";
         }
 
@@ -197,7 +196,7 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
         const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
             @compileError("too few arguments");
 
-        bytes_written += try bw.printValue(
+        try bw.printValue(
             placeholder.specifier_arg,
             .{
                 .fill = placeholder.fill,
@@ -218,8 +217,6 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
             else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
         }
     }
-
-    return bytes_written;
 }
 
 fn cacheString(str: anytype) []const u8 {
@@ -858,7 +855,8 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 pub fn count(comptime fmt: []const u8, args: anytype) usize {
     var buffer: [std.atomic.cache_line]u8 = undefined;
     var bw = std.io.Writer.null.buffered(&buffer);
-    return bw.printCount(fmt, args) catch unreachable;
+    bw.print(fmt, args) catch unreachable;
+    return bw.bytes_written;
 }
 
 pub const AllocPrintError = error{OutOfMemory};
