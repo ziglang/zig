@@ -27,19 +27,27 @@ const vtable: std.io.Writer.VTable = .{
 };
 
 /// Sets the `AllocatingWriter` to an empty state.
-pub fn init(aw: *AllocatingWriter, allocator: std.mem.Allocator) *std.io.BufferedWriter {
+pub fn init(aw: *AllocatingWriter, allocator: std.mem.Allocator) void {
+    initOwnedSlice(aw, allocator, &.{});
+}
+
+pub fn initCapacity(aw: *AllocatingWriter, allocator: std.mem.Allocator, capacity: usize) error{OutOfMemory}!void {
+    const initial_buffer = try allocator.alloc(u8, capacity);
+    initOwnedSlice(aw, allocator, initial_buffer);
+}
+
+pub fn initOwnedSlice(aw: *AllocatingWriter, allocator: std.mem.Allocator, slice: []u8) void {
     aw.* = .{
-        .written = &.{},
+        .written = slice[0..0],
         .allocator = allocator,
         .buffered_writer = .{
             .unbuffered_writer = .{
                 .context = aw,
                 .vtable = &vtable,
             },
-            .buffer = &.{},
+            .buffer = slice,
         },
     };
-    return &aw.buffered_writer;
 }
 
 pub fn deinit(aw: *AllocatingWriter) void {
@@ -118,7 +126,7 @@ pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
     aw.written.len = 0;
 }
 
-fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const start_len = aw.written.len;
     const bw = &aw.buffered_writer;
@@ -150,9 +158,9 @@ fn appendPatternAssumeCapacity(list: *std.ArrayListUnmanaged(u8), pattern: []con
 }
 
 fn writeFile(
-    context: *anyopaque,
+    context: ?*anyopaque,
     file: std.fs.File,
-    offset: u64,
+    offset: std.io.Writer.Offset,
     len: std.io.Writer.FileLen,
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
@@ -168,13 +176,14 @@ fn writeFile(
         break :b .{ headers_and_trailers_full[1..], headers_len_full - 1 };
     } else .{ headers_and_trailers_full, headers_len_full };
     const trailers = headers_and_trailers[headers_len..];
+    const pos = offset.toInt() orelse @panic("TODO treat file as stream");
     if (len == .entire_file) {
         var new_capacity: usize = list.capacity + std.atomic.cache_line;
         for (headers_and_trailers) |bytes| new_capacity += bytes.len;
         try list.ensureTotalCapacity(gpa, new_capacity);
         for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
         const dest = list.items.ptr[list.items.len..list.capacity];
-        const n = try file.pread(dest, offset);
+        const n = try file.pread(dest, pos);
         if (n == 0) {
             new_capacity = list.capacity;
             for (trailers) |bytes| new_capacity += bytes.len;
@@ -190,7 +199,7 @@ fn writeFile(
     try list.ensureTotalCapacity(gpa, new_capacity);
     for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
     const dest = list.items.ptr[list.items.len..][0..len.int()];
-    const n = try file.pread(dest, offset);
+    const n = try file.pread(dest, pos);
     list.items.len += n;
     if (n < dest.len) {
         return list.items.len - start_len;
@@ -201,8 +210,9 @@ fn writeFile(
 
 test AllocatingWriter {
     var aw: AllocatingWriter = undefined;
-    const bw = aw.init(std.testing.allocator);
+    aw.init(std.testing.allocator);
     defer aw.deinit();
+    const bw = &aw.buffered_writer;
 
     const x: i32 = 42;
     const y: i32 = 1234;

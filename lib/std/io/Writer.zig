@@ -112,7 +112,7 @@ pub fn unimplemented_writeFile(
 
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
     return .{
-        .buffer = .initBuffer(buffer),
+        .buffer = buffer,
         .unbuffered_writer = w,
     };
 }

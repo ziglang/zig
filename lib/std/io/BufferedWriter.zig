@@ -6,10 +6,6 @@ const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
-/// User-provided storage that must outlive this `BufferedWriter`.
-///
-/// If this has capacity zero, the writer is unbuffered, and `flush` is a no-op.
-buffer: std.ArrayListUnmanaged(u8),
 /// Underlying stream to send bytes to.
 ///
 /// A write will only be sent here if it could not fit into `buffer`, or if it
@@ -19,10 +15,14 @@ buffer: std.ArrayListUnmanaged(u8),
 /// equals number of bytes provided. This property is exploited by
 /// `std.io.AllocatingWriter` for example.
 unbuffered_writer: Writer,
+/// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
+buffer: []u8,
+/// Marks the end of `buffer` - before this are buffered bytes, after this is
+/// undefined.
+end: usize = 0,
 /// Tracks total number of bytes written to this `BufferedWriter`. This value
-/// only increases. In the case of fixed mode, this value always equals
-/// `buffer.items.len`.
-bytes_written: usize = 0,
+/// only increases. In the case of fixed mode, this value always equals `end`.
+count: usize = 0,
 
 /// Number of slices to store on the stack, when trying to send as many byte
 /// vectors through the underlying write calls as possible.
@@ -46,71 +46,72 @@ const fixed_vtable: Writer.VTable = .{
     .writeFile = Writer.unimplemented_writeFile,
 };
 
-/// Replaces the `BufferedWriter` with a new one that writes to `buffer` and
-/// returns `error.NoSpaceLeft` when it is full.
+/// Replaces the `BufferedWriter` with one that writes to `buffer` and returns
+/// `error.NoSpaceLeft` when it is full. `end` and `count` will always be
+/// equal.
 pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
     bw.* = .{
         .unbuffered_writer = .{
             .context = bw,
             .vtable = &fixed_vtable,
         },
-        .buffer = .initBuffer(buffer),
+        .buffer = buffer,
     };
 }
 
 /// This function is available when using `initFixed`.
 pub fn getWritten(bw: *const BufferedWriter) []u8 {
     assert(bw.unbuffered_writer.vtable == &fixed_vtable);
-    return bw.buffer.items;
+    return bw.buffer[0..bw.end];
 }
 
 /// This function is available when using `initFixed`.
 pub fn reset(bw: *BufferedWriter) void {
     assert(bw.unbuffered_writer.vtable == &fixed_vtable);
-    bw.buffer.items.len = 0;
+    bw.end = 0;
+    bw.count = 0;
 }
 
 pub fn flush(bw: *BufferedWriter) anyerror!void {
-    const list = &bw.buffer;
-    const send_buffer = list.items;
+    const send_buffer = bw.buffer[0..bw.end];
     var index: usize = 0;
     while (index < send_buffer.len) index += try bw.unbuffered_writer.writev(&.{send_buffer[index..]});
-    list.items.len = 0;
+    bw.end = 0;
 }
 
 pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
-    return bw.buffer.unusedCapacitySlice();
+    return bw.buffer[bw.end..];
 }
 
+/// Asserts the provided buffer has total capacity enough for `minimum_length`.
 pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
-    const list = &bw.buffer;
-    assert(list.capacity >= minimum_length);
-    const cap_slice = list.unusedCapacitySlice();
+    assert(bw.buffer.len >= minimum_length);
+    const cap_slice = bw.buffer[bw.end..];
     if (cap_slice.len >= minimum_length) {
         @branchHint(.likely);
         return cap_slice;
     }
-    const buffer = list.items;
+    const buffer = bw.buffer[0..bw.end];
     const n = try bw.unbuffered_writer.write(buffer);
     if (n == buffer.len) {
         @branchHint(.likely);
-        list.items.len = 0;
-        return list.unusedCapacitySlice();
+        bw.end = 0;
+        return bw.buffer;
     }
     if (n > 0) {
         const remainder = buffer[n..];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        list.items.len = remainder.len;
+        bw.end = remainder.len;
     }
-    return list.unusedCapacitySlice();
+    return bw.buffer[bw.end..];
 }
 
 /// After calling `writableSlice`, this function tracks how many bytes were written to it.
 pub fn advance(bw: *BufferedWriter, n: usize) void {
-    const list = &bw.buffer;
-    list.items.len += n;
-    assert(list.items.len <= list.capacity);
-    bw.bytes_written += n;
+    const new_end = bw.end + n;
+    assert(new_end <= bw.buffer.len);
+    bw.end = new_end;
+    bw.count += n;
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
@@ -139,9 +140,8 @@ pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
 
 fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
-    const list = &bw.buffer;
-    const buffer = list.allocatedSlice();
-    const start_end = list.items.len;
+    const buffer = bw.buffer;
+    const start_end = bw.end;
 
     var buffers: [max_buffers_len][]const u8 = undefined;
     var end = start_end;
@@ -153,7 +153,7 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
             end = new_end;
             continue;
         }
-        if (end == 0) return track(&bw.bytes_written, try bw.unbuffered_writer.writeSplat(data, splat));
+        if (end == 0) return track(&bw.count, try bw.unbuffered_writer.writeSplat(data, splat));
         buffers[0] = buffer[0..end];
         const remaining_data = data[i..];
         const remaining_buffers = buffers[1..];
@@ -168,22 +168,22 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-                list.items.len = remainder.len;
-                return track(&bw.bytes_written, end - start_end);
+                bw.end = remainder.len;
+                return track(&bw.count, end - start_end);
             }
-            list.items.len = 0;
-            return track(&bw.bytes_written, n - start_end);
+            bw.end = 0;
+            return track(&bw.count, n - start_end);
         }
         const n = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-            list.items.len = remainder.len;
-            return track(&bw.bytes_written, end - start_end);
+            bw.end = remainder.len;
+            return track(&bw.count, end - start_end);
         }
-        list.items.len = 0;
-        return track(&bw.bytes_written, n - start_end);
+        bw.end = 0;
+        return track(&bw.count, n - start_end);
     }
 
     const pattern = data[data.len - 1];
@@ -192,24 +192,24 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
         @branchHint(.unlikely);
         // It was added in the loop above; undo it here.
         end -= pattern.len;
-        list.items.len = end;
-        return track(&bw.bytes_written, end - start_end);
+        bw.end = end;
+        return track(&bw.count, end - start_end);
     }
 
     const remaining_splat = splat - 1;
 
     switch (pattern.len) {
         0 => {
-            list.items.len = end;
-            return track(&bw.bytes_written, end - start_end);
+            bw.end = end;
+            return track(&bw.count, end - start_end);
         },
         1 => {
             const new_end = end + remaining_splat;
             if (new_end <= buffer.len) {
                 @branchHint(.likely);
                 @memset(buffer[end..new_end], pattern[0]);
-                list.items.len = new_end;
-                return track(&bw.bytes_written, new_end - start_end);
+                bw.end = new_end;
+                return track(&bw.count, new_end - start_end);
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
@@ -218,11 +218,11 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-                list.items.len = remainder.len;
-                return track(&bw.bytes_written, end - start_end);
+                bw.end = remainder.len;
+                return track(&bw.count, end - start_end);
             }
-            list.items.len = 0;
-            return track(&bw.bytes_written, n - start_end);
+            bw.end = 0;
+            return track(&bw.count, n - start_end);
         },
         else => {
             const new_end = end + pattern.len * remaining_splat;
@@ -231,8 +231,8 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                 while (end < new_end) : (end += pattern.len) {
                     @memcpy(buffer[end..][0..pattern.len], pattern);
                 }
-                list.items.len = new_end;
-                return track(&bw.bytes_written, new_end - start_end);
+                bw.end = new_end;
+                return track(&bw.count, new_end - start_end);
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
@@ -241,17 +241,17 @@ fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: us
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-                list.items.len = remainder.len;
-                return track(&bw.bytes_written, end - start_end);
+                bw.end = remainder.len;
+                return track(&bw.count, end - start_end);
             }
-            list.items.len = 0;
-            return track(&bw.bytes_written, n - start_end);
+            bw.end = 0;
+            return track(&bw.count, n - start_end);
         },
     }
 }
 
-fn track(bytes_written: *usize, n: usize) usize {
-    bytes_written.* += n;
+fn track(count: *usize, n: usize) usize {
+    count.* += n;
     return n;
 }
 
@@ -260,31 +260,29 @@ fn track(bytes_written: *usize, n: usize) usize {
 /// available buffer has been filled.
 fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
-    const list = &bw.buffer;
     for (data) |bytes| {
-        const dest = list.unusedCapacitySlice();
+        const dest = bw.buffer[bw.end..];
         if (dest.len == 0) return error.NoSpaceLeft;
         const len = @min(bytes.len, dest.len);
         @memcpy(dest[0..len], bytes[0..len]);
-        list.items.len += len;
-        bw.bytes_written = list.items.len;
+        bw.end += len;
+        bw.count = bw.end;
     }
     const pattern = data[data.len - 1];
-    const dest = list.unusedCapacitySlice();
+    const dest = bw.buffer[bw.end..];
     switch (pattern.len) {
         0 => unreachable,
         1 => @memset(dest, pattern[0]),
         else => for (0..splat - 1) |i| @memcpy(dest[i * pattern.len ..][0..pattern.len], pattern),
     }
-    list.items.len = list.capacity;
-    bw.bytes_written = list.items.len;
+    bw.end = bw.buffer.len;
+    bw.count = bw.end;
     return error.NoSpaceLeft;
 }
 
 pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
-    const list = &bw.buffer;
-    const buffer = list.allocatedSlice();
-    const end = list.items.len;
+    const buffer = bw.buffer;
+    const end = bw.end;
     const new_end = end + bytes.len;
     if (new_end > buffer.len) {
         var data: [2][]const u8 = .{ buffer[0..end], bytes };
@@ -293,15 +291,15 @@ pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-            list.items.len = remainder.len;
+            bw.end = remainder.len;
             return 0;
         }
-        list.items.len = 0;
-        return track(&bw.bytes_written, n - end);
+        bw.end = 0;
+        return track(&bw.count, n - end);
     }
     @memcpy(buffer[end..new_end], bytes);
-    list.items.len = new_end;
-    return track(&bw.bytes_written, bytes.len);
+    bw.end = new_end;
+    return track(&bw.count, bytes.len);
 }
 
 /// Calls `write` as many times as necessary such that all of `bytes` are
@@ -316,13 +314,12 @@ pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) an
 }
 
 pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
-    const list = &bw.buffer;
-    const buffer = list.items;
-    if (buffer.len < list.capacity) {
+    const buffer = bw.buffer[0..bw.end];
+    if (buffer.len < bw.buffer.len) {
         @branchHint(.likely);
         buffer.ptr[buffer.len] = byte;
-        list.items.len = buffer.len + 1;
-        bw.bytes_written += 1;
+        bw.end = buffer.len + 1;
+        bw.count += 1;
         return;
     }
     var buffers: [2][]const u8 = .{ buffer, &.{byte} };
@@ -332,23 +329,23 @@ pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
             @branchHint(.unlikely);
             continue;
         }
-        bw.bytes_written += 1;
+        bw.count += 1;
         if (n >= buffer.len) {
             @branchHint(.likely);
             if (n > buffer.len) {
                 @branchHint(.likely);
-                list.items.len = 0;
+                bw.end = 0;
                 return;
             } else {
                 buffer[0] = byte;
-                list.items.len = 1;
+                bw.end = 1;
                 return;
             }
         }
         const remainder = buffer[n..];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
         buffer[remainder.len] = byte;
-        list.items.len = remainder.len + 1;
+        bw.end = remainder.len + 1;
         return;
     }
 }
@@ -430,13 +427,12 @@ fn passthru_writeFile(
     headers_len: usize,
 ) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
-    const list = &bw.buffer;
-    const buffer = list.allocatedSlice();
+    const buffer = bw.buffer;
     if (buffer.len == 0) return track(
-        &bw.bytes_written,
+        &bw.count,
         try bw.unbuffered_writer.writeFile(file, offset, len, headers_and_trailers, headers_len),
     );
-    const start_end = list.items.len;
+    const start_end = bw.end;
     const headers = headers_and_trailers[0..headers_len];
     const trailers = headers_and_trailers[headers_len..];
     var buffers: [max_buffers_len][]const u8 = undefined;
@@ -466,11 +462,11 @@ fn passthru_writeFile(
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-                list.items.len = remainder.len;
-                return track(&bw.bytes_written, end - start_end);
+                bw.end = remainder.len;
+                return track(&bw.count, end - start_end);
             }
-            list.items.len = 0;
-            return track(&bw.bytes_written, n - start_end);
+            bw.end = 0;
+            return track(&bw.count, n - start_end);
         }
         // Have not made it past the headers yet; must call `writev`.
         const n = try bw.unbuffered_writer.writev(buffers[0 .. buffers_len + 1]);
@@ -478,11 +474,11 @@ fn passthru_writeFile(
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
             std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-            list.items.len = remainder.len;
-            return track(&bw.bytes_written, end - start_end);
+            bw.end = remainder.len;
+            return track(&bw.count, end - start_end);
         }
-        list.items.len = 0;
-        return track(&bw.bytes_written, n - start_end);
+        bw.end = 0;
+        return track(&bw.count, n - start_end);
     }
     // All headers written to buffer.
     buffers[0] = buffer[0..end];
@@ -496,11 +492,11 @@ fn passthru_writeFile(
         @branchHint(.unlikely);
         const remainder = buffer[n..end];
         std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        list.items.len = remainder.len;
-        return track(&bw.bytes_written, end - start_end);
+        bw.end = remainder.len;
+        return track(&bw.count, end - start_end);
     }
-    list.items.len = 0;
-    return track(&bw.bytes_written, n - start_end);
+    bw.end = 0;
+    return track(&bw.count, n - start_end);
 }
 
 pub const WriteFileOptions = struct {

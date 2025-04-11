@@ -856,7 +856,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) usize {
     var buffer: [std.atomic.cache_line]u8 = undefined;
     var bw = std.io.Writer.null.buffered(&buffer);
     bw.print(fmt, args) catch unreachable;
-    return bw.bytes_written;
+    return bw.count;
 }
 
 pub const AllocPrintError = error{OutOfMemory};
