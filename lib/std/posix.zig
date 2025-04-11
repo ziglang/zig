@@ -4408,8 +4408,6 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat = mem.zeroes(Stat);
     switch (errno(fstat_sym(fd, &stat))) {
         .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
         .NOMEM => return error.SystemResources,
         .ACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),

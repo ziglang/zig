@@ -2722,31 +2722,7 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
         return Stat.fromWasi(st);
     }
-    if (native_os == .linux) {
-        const sub_path_c = try posix.toPosixPath(sub_path);
-        var stx = std.mem.zeroes(linux.Statx);
 
-        const rc = linux.statx(
-            self.fd,
-            &sub_path_c,
-            linux.AT.NO_AUTOMOUNT,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
-
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => error.AccessDenied,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => error.SymLinkLoop,
-            .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
-            .NOENT, .NOTDIR => error.FileNotFound,
-            .NOMEM => error.SystemResources,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
     const st = try posix.fstatat(self.fd, sub_path, 0);
     return Stat.fromPosix(st);
 }

@@ -1060,37 +1060,6 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     .creation_time = windows.fromSysTime(info.BasicInformation.CreationTime),
                 };
             },
-            .linux => blk: {
-                var stx = std.mem.zeroes(linux.Statx);
-
-                // We are gathering information for Metadata, which is meant to contain all the
-                // native OS information about the file, so use all known flags.
-                const rc = linux.statx(
-                    self.handle,
-                    "",
-                    linux.AT.EMPTY_PATH,
-                    linux.STATX_BASIC_STATS | linux.STATX_BTIME,
-                    &stx,
-                );
-
-                switch (linux.E.init(rc)) {
-                    .SUCCESS => {},
-                    .ACCES => unreachable,
-                    .BADF => unreachable,
-                    .FAULT => unreachable,
-                    .INVAL => unreachable,
-                    .LOOP => unreachable,
-                    .NAMETOOLONG => unreachable,
-                    .NOENT => unreachable,
-                    .NOMEM => return error.SystemResources,
-                    .NOTDIR => unreachable,
-                    else => |err| return posix.unexpectedErrno(err),
-                }
-
-                break :blk .{
-                    .statx = stx,
-                };
-            },
             .wasi => .{ .stat = try std.os.fstat_wasi(self.handle) },
             else => .{ .stat = try posix.fstat(self.handle) },
         },
