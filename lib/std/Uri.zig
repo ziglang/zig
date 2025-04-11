@@ -40,17 +40,16 @@ pub const Component = union(enum) {
         };
     }
 
-    pub fn format(component: Component, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!usize {
-        var n: usize = 0;
+    pub fn format(component: Component, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
         if (fmt.len == 0) {
-            n += try bw.printCount("std.Uri.Component{{ .{s} = \"{}\" }}", .{
+            try bw.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
                 @tagName(component),
                 std.zig.fmtEscapes(switch (component) {
                     .raw, .percent_encoded => |string| string,
                 }),
             });
         } else if (comptime std.mem.eql(u8, fmt, "raw")) switch (component) {
-            .raw => |raw| n += try bw.writeAllCount(raw),
+            .raw => |raw| try bw.writeAll(raw),
             .percent_encoded => |percent_encoded| {
                 var start: usize = 0;
                 var index: usize = 0;
@@ -59,55 +58,51 @@ pub const Component = union(enum) {
                     if (percent_encoded.len - index < 2) continue;
                     const percent_encoded_char =
                         std.fmt.parseInt(u8, percent_encoded[index..][0..2], 16) catch continue;
-                    n += try bw.printCount("{s}{c}", .{
+                    try bw.print("{s}{c}", .{
                         percent_encoded[start..percent],
                         percent_encoded_char,
                     });
                     start = percent + 3;
                     index = percent + 3;
                 }
-                n += try bw.writeAllCount(percent_encoded[start..]);
+                try bw.writeAll(percent_encoded[start..]);
             },
         } else if (comptime std.mem.eql(u8, fmt, "%")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isUnreserved),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isUnreserved),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "user")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isUserChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isUserChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "password")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isPasswordChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isPasswordChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "host")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isHostChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isHostChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "path")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isPathChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isPathChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "query")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isQueryChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isQueryChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else if (comptime std.mem.eql(u8, fmt, "fragment")) switch (component) {
-            .raw => |raw| n += try percentEncode(bw, raw, isFragmentChar),
-            .percent_encoded => |percent_encoded| n += try bw.writeAllCount(percent_encoded),
+            .raw => |raw| try percentEncode(bw, raw, isFragmentChar),
+            .percent_encoded => |percent_encoded| try bw.writeAll(percent_encoded),
         } else @compileError("invalid format string '" ++ fmt ++ "'");
-
-        return n;
     }
 
     pub fn percentEncode(
         bw: *std.io.BufferedWriter,
         raw: []const u8,
         comptime isValidChar: fn (u8) bool,
-    ) anyerror!usize {
-        var n: usize = 0;
+    ) anyerror!void {
         var start: usize = 0;
         for (raw, 0..) |char, index| {
             if (isValidChar(char)) continue;
-            n += try bw.printCount("{s}%{X:0>2}", .{ raw[start..index], char });
+            try bw.print("{s}%{X:0>2}", .{ raw[start..index], char });
             start = index + 1;
         }
-        n += try bw.writeAllCount(raw[start..]);
-        return n;
+        try bw.writeAll(raw[start..]);
     }
 };
 
