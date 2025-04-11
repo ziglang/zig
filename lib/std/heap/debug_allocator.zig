@@ -436,7 +436,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                             const stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc);
                             const page_addr = @intFromPtr(bucket) & ~(page_size - 1);
                             const addr = page_addr + slot_index * size_class;
-                            log.err("memory address 0x{x} leaked: {}", .{ addr, stack_trace });
+                            log.err("memory address 0x{x} leaked: {f}", .{ addr, stack_trace });
                             leaks = true;
                         }
                     }
@@ -463,7 +463,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
                 const stack_trace = large_alloc.getStackTrace(.alloc);
-                log.err("memory address 0x{x} leaked: {}", .{
+                log.err("memory address 0x{x} leaked: {f}", .{
                     @intFromPtr(large_alloc.bytes.ptr), stack_trace,
                 });
                 leaks = true;
@@ -522,7 +522,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 .index = 0,
             };
             std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
-            log.err("Double free detected. Allocation: {} First free: {} Second free: {}", .{
+            log.err("Double free detected. Allocation: {f} First free: {f} Second free: {f}", .{
                 alloc_stack_trace, free_stack_trace, second_free_stack_trace,
             });
         }
@@ -568,7 +568,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
                     entry.value_ptr.getStackTrace(.alloc),
@@ -678,7 +678,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
                     entry.value_ptr.getStackTrace(.alloc),
@@ -907,7 +907,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     };
                     std.debug.captureStackTrace(return_address, &free_stack_trace);
                     if (old_memory.len != requested_size) {
-                        log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                        log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                             requested_size,
                             old_memory.len,
                             bucketStackTrace(bucket, slot_count, slot_index, .alloc),
@@ -915,7 +915,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                         });
                     }
                     if (alignment != slot_alignment) {
-                        log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                        log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                             slot_alignment.toByteUnits(),
                             alignment.toByteUnits(),
                             bucketStackTrace(bucket, slot_count, slot_index, .alloc),
@@ -1006,7 +1006,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 };
                 std.debug.captureStackTrace(return_address, &free_stack_trace);
                 if (memory.len != requested_size) {
-                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                         requested_size,
                         memory.len,
                         bucketStackTrace(bucket, slot_count, slot_index, .alloc),
@@ -1014,7 +1014,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     });
                 }
                 if (alignment != slot_alignment) {
-                    log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                    log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                         slot_alignment.toByteUnits(),
                         alignment.toByteUnits(),
                         bucketStackTrace(bucket, slot_count, slot_index, .alloc),

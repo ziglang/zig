@@ -629,5 +629,7 @@ pub fn decodeZstandardHeader(
 }
 
 test {
-    std.testing.refAllDecls(@This());
+    _ = types;
+    _ = block;
+    _ = readers;
 }

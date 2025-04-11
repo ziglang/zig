@@ -30,8 +30,7 @@ pub const limitedReader = @import("io/limited_reader.zig").limitedReader;
 pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
 pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
 
-pub const BitReader = @import("io/bit_reader.zig").BitReader;
-pub const bitReader = @import("io/bit_reader.zig").bitReader;
+pub const BitReader = @import("io/bit_reader.zig").Type;
 
 pub const BitWriter = @import("io/bit_writer.zig").BitWriter;
 pub const bitWriter = @import("io/bit_writer.zig").bitWriter;

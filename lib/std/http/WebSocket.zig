@@ -9,7 +9,7 @@ const native_endian = builtin.cpu.arch.endian();
 key: []const u8,
 request: *std.http.Server.Request,
 recv_fifo: std.fifo.LinearFifo(u8, .Slice),
-reader: std.io.AnyReader,
+reader: *std.io.BufferedReader,
 response: std.http.Server.Response,
 /// Number of bytes that have been peeked but not discarded yet.
 outstanding_len: usize,

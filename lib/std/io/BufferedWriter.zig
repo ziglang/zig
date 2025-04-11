@@ -614,23 +614,23 @@ pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.
     return alignBuffer(bw, buffer, options.width orelse buffer.len, options.alignment, options.fill);
 }
 
-pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!usize {
     const T = @TypeOf(value);
-
+    var n: usize = 0;
     switch (@typeInfo(T)) {
         .pointer => |info| {
-            try bw.writeAll(@typeName(info.child) ++ "@");
+            n += try bw.writeAllCount(@typeName(info.child) ++ "@");
             if (info.size == .slice)
-                try printIntOptions(bw, @intFromPtr(value.ptr), 16, .lower, .{})
+                n += try printIntOptions(bw, @intFromPtr(value.ptr), 16, .lower, .{})
             else
-                try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
-            return;
+                n += try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
+            return n;
         },
         .optional => |info| {
             if (@typeInfo(info.child) == .pointer) {
-                try bw.writeAll(@typeName(info.child) ++ "@");
-                try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
-                return;
+                n += try bw.writeAll(@typeName(info.child) ++ "@");
+                n += try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
+                return n;
             }
         },
         else => {},

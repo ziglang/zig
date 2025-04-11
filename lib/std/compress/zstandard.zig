@@ -7,21 +7,10 @@ pub const compressed_block = types.compressed_block;
 
 pub const decompress = @import("zstandard/decompress.zig");
 
-pub const DecompressorOptions = struct {
-    verify_checksum: bool = true,
-    window_buffer: []u8,
-
-    /// Recommended amount by the standard. Lower than this may result
-    /// in inability to decompress common streams.
-    pub const default_window_buffer_len = 8 * 1024 * 1024;
-};
-
 pub const Decompressor = struct {
-    const Self = @This();
-
     const table_size_max = types.compressed_block.table_size_max;
 
-    source: std.io.CountingReader,
+    source: *std.io.BufferedReader,
     state: enum { NewFrame, InFrame, LastBlock },
     decode_state: decompress.block.DecodeState,
     frame_context: decompress.FrameContext,
@@ -34,6 +23,15 @@ pub const Decompressor = struct {
     verify_checksum: bool,
     checksum: ?u32,
     current_frame_decompressed_size: usize,
+
+    pub const Options = struct {
+        verify_checksum: bool = true,
+        window_buffer: []u8,
+
+        /// Recommended amount by the standard. Lower than this may result
+        /// in inability to decompress common streams.
+        pub const default_window_buffer_len = 8 * 1024 * 1024;
+    };
 
     const WindowBuffer = struct {
         data: []u8 = undefined,
@@ -49,9 +47,9 @@ pub const Decompressor = struct {
         OutOfMemory,
     };
 
-    pub fn init(source: *std.io.BufferedReader, options: DecompressorOptions) Self {
+    pub fn init(source: *std.io.BufferedReader, options: Options) Decompressor {
         return .{
-            .source = std.io.countingReader(source),
+            .source = source,
             .state = .NewFrame,
             .decode_state = undefined,
             .frame_context = undefined,
@@ -67,7 +65,7 @@ pub const Decompressor = struct {
         };
     }
 
-    fn frameInit(self: *Self) !void {
+    fn frameInit(self: *Decompressor) !void {
         const source_reader = self.source;
         switch (try decompress.decodeFrameHeader(source_reader)) {
             .skippable => |header| {
@@ -98,11 +96,11 @@ pub const Decompressor = struct {
         }
     }
 
-    pub fn reader(self: *Self) std.io.Reader {
+    pub fn reader(self: *Decompressor) std.io.Reader {
         return .{ .context = self };
     }
 
-    pub fn read(self: *Self, buffer: []u8) Error!usize {
+    pub fn read(self: *Decompressor, buffer: []u8) Error!usize {
         if (buffer.len == 0) return 0;
 
         var size: usize = 0;
@@ -123,7 +121,7 @@ pub const Decompressor = struct {
         return size;
     }
 
-    fn readInner(self: *Self, buffer: []u8) Error!usize {
+    fn readInner(self: *Decompressor, buffer: []u8) Error!usize {
         std.debug.assert(self.state != .NewFrame);
 
         var ring_buffer = RingBuffer{
@@ -198,16 +196,12 @@ pub const Decompressor = struct {
     }
 };
 
-pub fn decompressor(reader: anytype, options: DecompressorOptions) Decompressor(@TypeOf(reader)) {
-    return Decompressor(@TypeOf(reader)).init(reader, options);
-}
-
 fn testDecompress(data: []const u8) ![]u8 {
     const window_buffer = try std.testing.allocator.alloc(u8, 1 << 23);
     defer std.testing.allocator.free(window_buffer);
 
     var in_stream = std.io.fixedBufferStream(data);
-    var zstd_stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
+    var zstd_stream: Decompressor = .init(in_stream.reader(), .{ .window_buffer = window_buffer });
     const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
 }
@@ -260,7 +254,7 @@ fn expectEqualDecodedStreaming(expected: []const u8, input: []const u8) !void {
     defer std.testing.allocator.free(window_buffer);
 
     var in_stream = std.io.fixedBufferStream(input);
-    var stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
+    var stream: Decompressor = .init(in_stream.reader(), .{ .window_buffer = window_buffer });
 
     const result = try stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     defer std.testing.allocator.free(result);
@@ -299,7 +293,7 @@ test "declared raw literals size too large" {
 
     var fbs = std.io.fixedBufferStream(input_raw);
     var window: [1024]u8 = undefined;
-    var stream = decompressor(fbs.reader(), .{ .window_buffer = &window });
+    var stream: Decompressor = .init(fbs.reader(), .{ .window_buffer = &window });
 
     var buf: [1024]u8 = undefined;
     try std.testing.expectError(error.MalformedBlock, stream.read(&buf));
