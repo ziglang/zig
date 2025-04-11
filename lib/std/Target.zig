@@ -470,7 +470,7 @@ pub const Os = struct {
                             .max = .{ .major = 6, .minor = 13, .patch = 4 },
                         },
                         .glibc = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 31, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.os != tag or libc.arch != arch or libc.abi != abi) continue;
