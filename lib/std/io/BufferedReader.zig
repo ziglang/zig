@@ -28,10 +28,8 @@ const eof_writer: std.io.Writer.VTable = .{
     .writeFile = eof_writeFile,
 };
 const eof_reader: std.io.Reader.VTable = .{
-    .posRead = eof_posRead,
-    .posReadVec = eof_posReadVec,
-    .streamRead = eof_streamRead,
-    .streamReadVec = eof_streamReadVec,
+    .read = eof_read,
+    .readv = eof_readv,
 };
 
 fn eof_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
@@ -58,29 +56,14 @@ fn eof_writeFile(
     return error.NoSpaceLeft;
 }
 
-fn eof_posRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit, offset: u64) anyerror!Reader.Status {
-    _ = ctx;
-    _ = bw;
-    _ = limit;
-    _ = offset;
-    return error.EndOfStream;
-}
-
-fn eof_posReadVec(ctx: ?*anyopaque, data: []const []u8, offset: u64) anyerror!Reader.Status {
-    _ = ctx;
-    _ = data;
-    _ = offset;
-    return error.EndOfStream;
-}
-
-fn eof_streamRead(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) anyerror!Reader.Status {
+fn eof_read(ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) anyerror!Reader.Status {
     _ = ctx;
     _ = bw;
     _ = limit;
     return error.EndOfStream;
 }
 
-fn eof_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
+fn eof_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
     _ = ctx;
     _ = data;
     return error.EndOfStream;
@@ -117,15 +100,13 @@ pub fn reader(br: *BufferedReader) Reader {
     return .{
         .context = br,
         .vtable = &.{
-            .streamRead = passthru_streamRead,
-            .streamReadVec = passthru_streamReadVec,
-            .posRead = passthru_posRead,
-            .posReadVec = passthru_posReadVec,
+            .read = passthru_read,
+            .readv = passthru_readv,
         },
     };
 }
 
-fn passthru_streamRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) anyerror!Reader.RwResult {
+fn passthru_read(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) anyerror!Reader.RwResult {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.storage.buffer.items;
     const buffered = buffer[br.seek..];
@@ -139,31 +120,13 @@ fn passthru_streamRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limi
             .write_end = result.end,
         };
     }
-    return br.unbuffered_reader.streamRead(bw, limit);
+    return br.unbuffered_reader.read(bw, limit);
 }
 
-fn passthru_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
+fn passthru_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!Reader.Status {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     _ = br;
     _ = data;
-    @panic("TODO");
-}
-
-fn passthru_posRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit, off: u64) anyerror!Reader.Status {
-    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
-    const buffer = br.storage.buffer.items;
-    if (off < buffer.len) {
-        const send = buffer[off..limit.min(buffer.len)];
-        return bw.writeSplat(send, 1);
-    }
-    return br.unbuffered_reader.posRead(bw, limit, off - buffer.len);
-}
-
-fn passthru_posReadVec(ctx: ?*anyopaque, data: []const []u8, off: u64) anyerror!Reader.Status {
-    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
-    _ = br;
-    _ = data;
-    _ = off;
     @panic("TODO");
 }
 
@@ -293,7 +256,7 @@ pub fn discardUpTo(br: *BufferedReader, n: usize) anyerror!usize {
         remaining -= (list.items.len - br.seek);
         list.items.len = 0;
         br.seek = 0;
-        const result = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const result = try br.unbuffered_reader.read(&br.storage, .none);
         result.write_err catch unreachable;
         try result.read_err;
         assert(result.len == list.items.len);
@@ -337,7 +300,7 @@ pub fn read(br: *BufferedReader, buffer: []u8) anyerror!void {
     br.seek = 0;
     var i: usize = in_buffer.len;
     while (true) {
-        const status = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const status = try br.unbuffered_reader.read(&br.storage, .none);
         const next_i = i + list.items.len;
         if (next_i >= buffer.len) {
             const remaining = buffer[i..];
@@ -397,7 +360,7 @@ pub fn peekDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 
     list.items.len = i;
     br.seek = 0;
     while (i < list.capacity) {
-        const status = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const status = try br.unbuffered_reader.read(&br.storage, .none);
         if (std.mem.indexOfScalarPos(u8, list.items, i, delimiter)) |end| {
             return list.items[0 .. end + 1];
         }
@@ -442,7 +405,7 @@ pub fn peekDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8
     list.items.len = i;
     br.seek = 0;
     while (i < list.capacity) {
-        const status = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const status = try br.unbuffered_reader.read(&br.storage, .none);
         if (std.mem.indexOfScalarPos(u8, list.items, i, delimiter)) |end| {
             return list.items[0 .. end + 1];
         }
@@ -540,7 +503,7 @@ pub fn fill(br: *BufferedReader, n: usize) anyerror!void {
     list.items.len = remainder.len;
     br.seek = 0;
     while (true) {
-        const status = try br.unbuffered_reader.streamRead(&br.storage, .none);
+        const status = try br.unbuffered_reader.read(&br.storage, .none);
         if (n <= list.items.len) return;
         if (status.end) return error.EndOfStream;
     }
