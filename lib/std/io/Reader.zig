@@ -6,39 +6,35 @@ context: ?*anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
-    /// Writes bytes starting from `offset` to `bw`, or returns
-    /// `error.Unseekable`, indicating `streamRead` should be used instead.
+    /// Writes bytes from the internally tracked stream position to `bw`.
     ///
     /// Returns the number of bytes written, which will be at minimum `0` and at
     /// most `limit`. The number of bytes read, including zero, does not
     /// indicate end of stream.
     ///
-    /// If the reader has an internal seek position, it is not mutated.
+    /// If the reader has an internal seek position, it moves forward in
+    /// accordance with the number of bytes return from this function.
     ///
     /// The implementation should do a maximum of one underlying read call.
     ///
-    /// If this is `null` it is equivalent to always returning
-    /// `error.Unseekable`.
-    posRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) anyerror!Status,
-    posReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8, offset: u64) anyerror!Status,
+    /// If `error.Unstreamable` is returned, the resource cannot be used via a
+    /// streaming reading interface.
+    read: *const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) anyerror!Status,
 
-    /// Writes bytes from the internally tracked stream position to `bw`, or
-    /// returns `error.Unstreamable`, indicating `posRead` should be used
-    /// instead.
+    /// Writes bytes from the internally tracked stream position to `data`.
     ///
     /// Returns the number of bytes written, which will be at minimum `0` and at
     /// most `limit`. The number of bytes read, including zero, does not
     /// indicate end of stream.
     ///
-    /// If the reader has an internal seek position, it moves forward in accordance
-    /// with the number of bytes return from this function.
+    /// If the reader has an internal seek position, it moves forward in
+    /// accordance with the number of bytes return from this function.
     ///
     /// The implementation should do a maximum of one underlying read call.
     ///
-    /// If this is `null` it is equivalent to always returning
-    /// `error.Unstreamable`.
-    streamRead: ?*const fn (ctx: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Limit) anyerror!Status,
-    streamReadVec: ?*const fn (ctx: ?*anyopaque, data: []const []u8) anyerror!Status,
+    /// If `error.Unstreamable` is returned, the resource cannot be used via a
+    /// streaming reading interface.
+    readv: *const fn (ctx: ?*anyopaque, data: []const []u8) anyerror!Status,
 };
 
 pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
@@ -60,42 +56,20 @@ pub const Limit = enum(usize) {
     }
 };
 
+pub fn read(r: Reader, w: *std.io.BufferedWriter, limit: Limit) anyerror!Status {
+    return r.vtable.read(r.context, w, limit);
+}
+
+pub fn readv(r: Reader, data: []const []u8) anyerror!Status {
+    return r.vtable.readv(r.context, data);
+}
+
 /// Returns total number of bytes written to `w`.
 pub fn readAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
-    if (r.vtable.pread != null) {
-        return posReadAll(r, w) catch |err| switch (err) {
-            error.Unseekable => {},
-            else => return err,
-        };
-    }
-    return streamReadAll(r, w);
-}
-
-/// Returns total number of bytes written to `w`.
-///
-/// May return `error.Unseekable`, indicating this function cannot be used to
-/// read from the reader.
-pub fn posReadAll(r: Reader, w: *std.io.BufferedWriter, start_offset: u64) anyerror!usize {
-    const vtable_posRead = r.vtable.posRead.?;
-    var offset: u64 = start_offset;
-    while (true) {
-        const status = try vtable_posRead(r.context, w, .none, offset);
-        offset += status.len;
-        if (status.end) return @intCast(offset - start_offset);
-    }
-}
-
-/// Returns total number of bytes written to `w`.
-pub fn streamRead(r: Reader, w: *std.io.BufferedWriter, limit: Limit) anyerror!Status {
-    return r.vtable.streamRead.?(r.context, w, limit);
-}
-
-/// Returns total number of bytes written to `w`.
-pub fn streamReadAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
-    const vtable_streamRead = r.vtable.streamRead.?;
+    const readFn = r.vtable.read;
     var offset: usize = 0;
     while (true) {
-        const status = try vtable_streamRead(r.context, w, .none);
+        const status = try readFn(r.context, w, .none);
         offset += status.len;
         if (status.end) return offset;
     }
@@ -107,42 +81,28 @@ pub fn streamReadAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
 /// Caller owns returned memory.
 ///
 /// If this function returns an error, the contents from the stream read so far are lost.
-pub fn streamReadAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) anyerror![]u8 {
-    const vtable_streamRead = r.vtable.streamRead.?;
-
-    var bw: std.io.BufferedWriter = .{
-        .buffer = .empty,
-        .mode = .{ .allocator = gpa },
-    };
-    const list = &bw.buffer;
-    defer list.deinit(gpa);
-
+pub fn readAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) anyerror![]u8 {
+    const readFn = r.vtable.read;
+    var aw: std.io.AllocatingWriter = undefined;
+    errdefer aw.deinit();
+    const bw = aw.init(gpa);
     var remaining = max_size;
     while (remaining > 0) {
-        const status = try vtable_streamRead(r.context, &bw, .init(remaining));
-        if (status.end) return list.toOwnedSlice(gpa);
+        const status = try readFn(r.context, bw, .init(remaining));
+        if (status.end) break;
         remaining -= status.len;
     }
+    return aw.toOwnedSlice(gpa);
 }
 
 /// Reads the stream until the end, ignoring all the data.
 /// Returns the number of bytes discarded.
 pub fn discardUntilEnd(r: Reader) anyerror!usize {
     var bw = std.io.null_writer.unbuffered();
-    return streamReadAll(r, &bw);
+    return readAll(r, &bw);
 }
 
-pub fn allocating(r: Reader, gpa: std.mem.Allocator) std.io.BufferedReader {
-    return .{
-        .reader = r,
-        .buffered_writer = .{
-            .buffer = .empty,
-            .mode = .{ .allocator = gpa },
-        },
-    };
-}
-
-test "when the backing reader provides one byte at a time" {
+test "readAlloc when the backing reader provides one byte at a time" {
     const OneByteReader = struct {
         str: []const u8,
         curr: usize,

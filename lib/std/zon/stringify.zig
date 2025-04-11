@@ -434,7 +434,7 @@ pub const SerializeContainerOptions = struct {
 /// * `beginStruct`
 /// * `beginTuple`
 pub const Serializer = struct {
-    options: Options,
+    options: Options = .{},
     indent_level: u8 = 0,
     writer: *std.io.BufferedWriter,
 
