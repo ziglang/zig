@@ -638,10 +638,12 @@ const Parser = struct {
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
         if (pointer.sentinel() != null) size_hint += 1;
+        const gpa = self.gpa;
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
-        defer buf.deinit(self.gpa);
-        switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
+        var aw: std.io.AllocatingWriter = undefined;
+        try aw.initCapacity(gpa, size_hint);
+        defer aw.deinit();
+        switch (try ZonGen.parseStrLit(self.ast, ast_node, &aw.buffered_writer)) {
             .success => {},
             .failure => |err| {
                 const token = self.ast.nodeMainToken(ast_node);
@@ -660,9 +662,9 @@ const Parser = struct {
         }
 
         if (pointer.sentinel() != null) {
-            return buf.toOwnedSliceSentinel(self.gpa, 0);
+            return aw.toOwnedSliceSentinel(gpa, 0);
         } else {
-            return buf.toOwnedSlice(self.gpa);
+            return aw.toOwnedSlice(gpa);
         }
     }
 
@@ -1064,6 +1066,7 @@ const Parser = struct {
         name: []const u8,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
+        const gpa = self.gpa;
         const token = if (field) |f| b: {
             var buf: [2]Ast.Node.Index = undefined;
             const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
@@ -1081,18 +1084,17 @@ const Parser = struct {
                     };
                 } else b: {
                     const msg = "supported: ";
-                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, 64);
-                    defer buf.deinit(self.gpa);
-                    const writer = buf.writer(self.gpa);
-                    try writer.writeAll(msg);
+                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(gpa, 64);
+                    defer buf.deinit(gpa);
+                    try buf.appendSlice(gpa, msg);
                     inline for (info.fields, 0..) |field_info, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        try writer.print("'{p_}'", .{std.zig.fmtId(field_info.name)});
+                        if (i != 0) try buf.appendSlice(gpa, ", ");
+                        try buf.print(gpa, "'{p_}'", .{std.zig.fmtId(field_info.name)});
                     }
                     break :b .{
                         .token = token,
                         .offset = 0,
-                        .msg = try buf.toOwnedSlice(self.gpa),
+                        .msg = try buf.toOwnedSlice(gpa),
                         .owned = true,
                     };
                 };
