@@ -51,11 +51,11 @@ pub const Diagnostics = struct {
         },
     };
 
-    fn findRoot(d: *Diagnostics, path: []const u8) !void {
+    fn findRoot(d: *Diagnostics, kind: FileKind, path: []const u8) !void {
         if (path.len == 0) return;
 
         d.entries += 1;
-        const root_dir = rootDir(path);
+        const root_dir = rootDir(path, kind);
         if (d.entries == 1) {
             d.root_dir = try d.allocator.dupe(u8, root_dir);
             return;
@@ -67,24 +67,31 @@ pub const Diagnostics = struct {
     }
 
     // Returns root dir of the path, assumes non empty path.
-    fn rootDir(path: []const u8) []const u8 {
+    fn rootDir(path: []const u8, kind: FileKind) []const u8 {
         const start_index: usize = if (path[0] == '/') 1 else 0;
         const end_index: usize = if (path[path.len - 1] == '/') path.len - 1 else path.len;
         const buf = path[start_index..end_index];
         if (std.mem.indexOfScalarPos(u8, buf, 0, '/')) |idx| {
             return buf[0..idx];
         }
-        return buf;
+
+        return switch (kind) {
+            .file => "",
+            .sym_link => "",
+            .directory => buf,
+        };
     }
 
-    test rootDir {
+    test "rootDir" {
         const expectEqualStrings = testing.expectEqualStrings;
-        try expectEqualStrings("a", rootDir("a"));
-        try expectEqualStrings("b", rootDir("b"));
-        try expectEqualStrings("c", rootDir("/c"));
-        try expectEqualStrings("d", rootDir("/d/"));
-        try expectEqualStrings("a", rootDir("a/b"));
-        try expectEqualStrings("a", rootDir("a/b/c"));
+        try expectEqualStrings("", rootDir("a", .file));
+        try expectEqualStrings("a", rootDir("a", .directory));
+        try expectEqualStrings("b", rootDir("b", .directory));
+        try expectEqualStrings("c", rootDir("/c", .directory));
+        try expectEqualStrings("d", rootDir("/d/", .directory));
+        try expectEqualStrings("a", rootDir("a/b", .directory));
+        try expectEqualStrings("a", rootDir("a/b", .file));
+        try expectEqualStrings("a", rootDir("a/b/c", .directory));
     }
 
     pub fn deinit(d: *Diagnostics) void {
@@ -637,7 +644,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
             continue;
         }
         if (options.diagnostics) |d| {
-            try d.findRoot(file_name);
+            try d.findRoot(file.kind, file_name);
         }
 
         switch (file.kind) {
@@ -1091,6 +1098,21 @@ test "pipeToFileSystem root_dir" {
         try testing.expectEqualStrings("example", diagnostics.root_dir);
         try testing.expectEqual(6, diagnostics.entries);
     }
+}
+
+test "findRoot with single file archive" {
+    const data = @embedFile("tar/testdata/22752.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+
+    try testing.expectEqualStrings("", diagnostics.root_dir);
 }
 
 test "findRoot without explicit root dir" {
