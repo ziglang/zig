@@ -35,6 +35,7 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -50,6 +51,7 @@ ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-debug/bin/zig build test docs \
+  -Dci \
   --maxrss 24696061952 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
@@ -58,6 +60,7 @@ stage3-debug/bin/zig build test docs \
   -Denable-superhtml
 
 stage3-debug/bin/zig build \
+  -Dci \
   --prefix stage4-debug \
   -Denable-llvm \
   -Dno-lib \

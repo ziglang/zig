@@ -41,6 +41,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -50,6 +51,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
 $HOME/local/bin/ninja install
 
 stage3-release/bin/zig build test docs \
+  -Dci \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
@@ -58,6 +60,7 @@ stage3-release/bin/zig build test docs \
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
+  -Dci \
   --prefix stage4-release \
   -Denable-llvm \
   -Dno-lib \

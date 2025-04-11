@@ -23,6 +23,8 @@ pub fn build(b: *std.Build) !void {
     });
     const optimize = b.standardOptimizeOption(.{});
 
+    const ci = b.option(bool, "ci", "Enable build system behaviors intended only for the official ZSF CI") orelse false;
+
     const flat = b.option(bool, "flat", "Put files into the installation prefix in a manner suited for upstream distribution rather than a posix file system hierarchy standard") orelse false;
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
@@ -193,6 +195,7 @@ pub fn build(b: *std.Build) !void {
         .valgrind = valgrind,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
+        .ci = ci,
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
@@ -443,7 +446,7 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        .max_rss = 2 * 1024 * 1024 * 1024,
+        .max_rss = if (ci) 2 * 1024 * 1024 * 1024 else 0,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -507,7 +510,7 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
         // I observed a value of 5605064704 on the M2 CI.
-        .max_rss = 6165571174,
+        .max_rss = if (ci) 6165571174 else 0,
     }));
 
     const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
@@ -557,7 +560,7 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
 
-    try addWasiUpdateStep(b, version);
+    try addWasiUpdateStep(b, version, ci);
 
     const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
@@ -583,7 +586,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(test_incremental_step);
 }
 
-fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
+fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8, ci: bool) !void {
     const semver = try std.SemanticVersion.parse(version);
 
     const exe = addCompilerStep(b, .{
@@ -594,6 +597,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
             // * `nontrapping_bulk_memory_len0` is supported by `wasm2c`.
             .cpu_features = "baseline-extended_const+nontrapping_bulk_memory_len0",
         }) catch unreachable),
+        .ci = ci,
     });
 
     const exe_options = b.addOptions();
@@ -658,6 +662,7 @@ const AddCompilerStepOptions = struct {
     valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,
+    ci: bool,
 };
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
@@ -685,7 +690,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
 
     const exe = b.addExecutable(.{
         .name = "zig",
-        .max_rss = 7_800_000_000,
+        .max_rss = if (options.ci) 7_800_000_000 else 0,
         .root_module = compiler_mod,
     });
     exe.stack_size = stack_size;

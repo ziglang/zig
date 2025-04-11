@@ -50,6 +50,7 @@ Set-Location -Path 'build-release'
   -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_AR="$($ZIG -Replace "\\", "/")" `
+  -DZIG_CI=ON `
   -DZIG_AR_WORKAROUND=ON `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
@@ -62,6 +63,7 @@ CheckLastExitCode
 
 Write-Output "Main test suite..."
 & "stage3-release\bin\zig.exe" build test docs `
+  -Dci `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
@@ -72,6 +74,7 @@ CheckLastExitCode
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 Write-Output "Build and compare stage4..."
 & "stage3-release\bin\zig.exe" build `
+  -Dci `
   --prefix stage4-release `
   -Denable-llvm `
   -Dno-lib `
