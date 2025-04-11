@@ -2610,6 +2610,71 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
     return syscall3(.map_shadow_stack, addr, size, flags);
 }
 
+pub const Sysinfo = switch (native_abi) {
+    .gnux32, .muslx32 => extern struct {
+        /// Seconds since boot
+        uptime: i64,
+        /// 1, 5, and 15 minute load averages
+        loads: [3]u64,
+        /// Total usable main memory size
+        totalram: u64,
+        /// Available memory size
+        freeram: u64,
+        /// Amount of shared memory
+        sharedram: u64,
+        /// Memory used by buffers
+        bufferram: u64,
+        /// Total swap space size
+        totalswap: u64,
+        /// swap space still available
+        freeswap: u64,
+        /// Number of current processes
+        procs: u16,
+        /// Explicit padding for m68k
+        pad: u16,
+        /// Total high memory size
+        totalhigh: u64,
+        /// Available high memory size
+        freehigh: u64,
+        /// Memory unit size in bytes
+        mem_unit: u32,
+    },
+    else => extern struct {
+        /// Seconds since boot
+        uptime: isize,
+        /// 1, 5, and 15 minute load averages
+        loads: [3]usize,
+        /// Total usable main memory size
+        totalram: usize,
+        /// Available memory size
+        freeram: usize,
+        /// Amount of shared memory
+        sharedram: usize,
+        /// Memory used by buffers
+        bufferram: usize,
+        /// Total swap space size
+        totalswap: usize,
+        /// swap space still available
+        freeswap: usize,
+        /// Number of current processes
+        procs: u16,
+        /// Explicit padding for m68k
+        pad: u16,
+        /// Total high memory size
+        totalhigh: usize,
+        /// Available high memory size
+        freehigh: usize,
+        /// Memory unit size in bytes
+        mem_unit: u32,
+        /// Pad
+        _f: [20 - 2 * @sizeOf(usize) - @sizeOf(u32)]u8,
+    },
+};
+
+pub fn sysinfo(info: *Sysinfo) usize {
+    return syscall1(.sysinfo, @intFromPtr(info));
+}
+
 pub const E = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.

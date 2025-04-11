@@ -165,6 +165,15 @@ test "sigset_t" {
     try expectEqual(sigset[2], 0);
 }
 
+test "sysinfo" {
+    var info: linux.Sysinfo = undefined;
+    const result: usize = linux.sysinfo(&info);
+    try expect(std.os.linux.E.init(result) == .SUCCESS);
+
+    try expect(info.mem_unit > 0);
+    try expect(info.mem_unit <= std.heap.page_size_max);
+}
+
 test {
     _ = linux.IoUring;
 }
