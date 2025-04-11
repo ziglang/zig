@@ -512,11 +512,10 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
+        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp_optional + envp_count + 1));
 
         var at_hwcap: usize = 0;
         const phdrs = init: {
@@ -583,7 +582,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         }
     }
 
-    std.posix.exit(callMainWithArgs(argc, argv, envp));
+    std.posix.exit(callMainWithArgs(argc, argv, envp_optional));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -621,9 +620,12 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
+// Used by std.os.envp et. al.
+pub var environ: ?[*:null]?[*:0]u8 = null;
+
+inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [*:null]?[*:0]u8) u8 {
     std.os.argv = argv[0..argc];
-    std.os.environ = envp;
+    environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
     maybeIgnoreSigpipe();
@@ -632,10 +634,6 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 }
 
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.c) c_int {
-    var env_count: usize = 0;
-    while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
-
     if (builtin.os.tag == .linux) {
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
@@ -643,7 +641,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         expandStackSize(phdrs);
     }
 
-    return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
+    return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), c_envp);
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
