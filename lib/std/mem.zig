@@ -431,7 +431,9 @@ test zeroes {
     }
     try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
     try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
-    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    }
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);

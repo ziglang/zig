@@ -3329,6 +3329,7 @@ enum
 #define R_LARCH_TLS_TPREL32                 10
 #define R_LARCH_TLS_TPREL64                 11
 #define R_LARCH_IRELATIVE                   12
+#define R_LARCH_TLS_DESC64                  14
 #define R_LARCH_MARK_LA                     20
 #define R_LARCH_MARK_PCREL                  21
 #define R_LARCH_SOP_PUSH_PCREL              22
