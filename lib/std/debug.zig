@@ -733,26 +733,28 @@ pub fn writeStackTrace(
     writer: *std.io.BufferedWriter,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
-) !void {
+) !usize {
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
+    var n: usize = 0;
 
     while (frames_left != 0) : ({
         frames_left -= 1;
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
+        n += try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
     }
 
     if (stack_trace.index > stack_trace.instruction_addresses.len) {
         const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
 
-        tty_config.setColor(writer, .bold) catch {};
-        try writer.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
-        tty_config.setColor(writer, .reset) catch {};
+        n += tty_config.setColor(writer, .bold) catch {};
+        n += try writer.printCount("({d} additional stack frames skipped...)\n", .{dropped_frames});
+        n += tty_config.setColor(writer, .reset) catch {};
     }
+    return n;
 }
 
 pub const UnwindError = if (have_ucontext)
@@ -1100,7 +1102,12 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, addre
     try tty_config.setColor(writer, .reset);
 }
 
-pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, address: usize, tty_config: io.tty.Config) !void {
+pub fn printSourceAtAddress(
+    debug_info: *SelfInfo,
+    writer: *std.io.BufferedWriter,
+    address: usize,
+    tty_config: io.tty.Config,
+) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
         else => return err,
