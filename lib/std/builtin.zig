@@ -34,8 +34,8 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(st: StackTrace, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!usize {
-        comptime std.debug.assert(fmt.len == 0);
+    pub fn format(st: StackTrace, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+        comptime if (fmt.len != 0) unreachable;
 
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using DebugAllocator with WebAssembly
@@ -43,17 +43,15 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return 0;
 
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return bw.printCount("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{
+            return bw.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{
                 @errorName(err),
             });
         };
         const tty_config = std.io.tty.detectConfig(.stderr());
-        var n: usize = 0;
-        n += try bw.writeAllCount("\n");
-        n += std.debug.writeStackTrace(st, bw, debug_info, tty_config) catch |err| {
+        try bw.writeAll("\n");
+        std.debug.writeStackTrace(st, bw, debug_info, tty_config) catch |err| {
             try bw.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
-        return n;
     }
 };
 
