@@ -4941,6 +4941,7 @@ pub const FuncGen = struct {
                 .memset         => try self.airMemset(inst, false),
                 .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
+                .memmove        => try self.airMemmove(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
                 .clz            => try self.airClzCtz(inst, .ctlz),
@@ -9923,6 +9924,32 @@ pub const FuncGen = struct {
             len,
             access_kind,
             self.disable_intrinsics,
+        );
+        return .none;
+    }
+
+    fn airMemmove(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const dest_ptr_ty = self.typeOf(bin_op.lhs);
+        const src_slice = try self.resolveInst(bin_op.rhs);
+        const src_ptr_ty = self.typeOf(bin_op.rhs);
+        const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ptr_ty);
+        const len = try self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
+        const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
+        const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
+            dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        _ = try self.wip.callMemMove(
+            dest_ptr,
+            dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            src_ptr,
+            src_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            len,
+            access_kind,
         );
         return .none;
     }
