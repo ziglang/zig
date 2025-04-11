@@ -6053,7 +6053,9 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
 
-                        if (mod.optimize_mode == .ReleaseSafe) {
+                        // If we want to sanitize C, but the ubsan runtime has been turned off,
+                        // we'll switch to just trapping.
+                        if (comp.ubsan_rt_strat == .none or mod.optimize_mode == .ReleaseSafe) {
                             // It's recommended to use the minimal runtime in production
                             // environments due to the security implications of the full runtime.
                             // The minimal runtime doesn't provide much benefit over simply
