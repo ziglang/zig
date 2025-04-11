@@ -7481,13 +7481,14 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
     {
         return true;
     }
-    // Look for .so.X, .so.X.Y, .so.X.Y.Z
+    // Look for .so.X
     var it = mem.splitScalar(u8, filename, '.');
     _ = it.first();
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
         so_txt = it.next() orelse return false;
     }
+
     const n1 = it.next() orelse return false;
     const n2 = it.next();
     const n3 = it.next();
@@ -7495,7 +7496,6 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
     _ = std.fmt.parseInt(u32, n1, 10) catch return false;
     if (n2) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
     if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
-    if (it.next() != null) return false;
 
     return true;
 }
@@ -7527,8 +7527,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly_with_cpp;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
-    } else if (hasSharedLibraryExt(filename)) {
-        return .shared_library;
     } else if (hasStaticLibraryExt(filename)) {
         return .static_library;
     } else if (hasObjectExt(filename)) {
@@ -7541,6 +7539,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .res;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".manifest")) {
         return .manifest;
+    } else if (hasSharedLibraryExt(filename)) { // currently the only check that doesn't only look at the end, thus goes last
+        return .shared_library;
     } else {
         return .unknown;
     }
@@ -7555,7 +7555,9 @@ test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
-    try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3.4"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3.dev4"));
+    try std.testing.expectEqual(FileExt.static_library, classifyFileExt("foo.so.1.a"));
     try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
 }
 
