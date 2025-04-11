@@ -1373,6 +1373,8 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>;
 
 _LIBCPP_END_NAMESPACE_STD
 
+_LIBCPP_POP_MACROS
+
 #  endif // _LIBCPP_HAS_LOCALIZATION
 
 #  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
@@ -1381,8 +1383,6 @@ _LIBCPP_END_NAMESPACE_STD
 #    include <ostream>
 #    include <type_traits>
 #  endif
-
-_LIBCPP_POP_MACROS
 
 #endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
