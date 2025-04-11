@@ -16661,9 +16661,9 @@ fn zirAsm(
     const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
     const src = block.nodeOffset(extra.data.src_node);
     const ret_ty_src = block.src(.{ .node_offset_asm_ret_ty = extra.data.src_node });
-    const outputs_len: u5 = @truncate(extended.small);
-    const inputs_len: u5 = @truncate(extended.small >> 5);
-    const clobbers_len: u5 = @truncate(extended.small >> 10);
+    const outputs_len: u4 = @truncate(extended.small);
+    const inputs_len: u5 = @truncate(extended.small >> 4);
+    const clobbers_len: u6 = @truncate(extended.small >> 9);
     const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
     const is_global_assembly = sema.func_index == .none;
     const zir_tags = sema.code.instructions.items(.tag);

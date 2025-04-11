@@ -395,6 +395,7 @@ pub fn mem(lower: *Lower, op_index: InstOpIndex, payload: u32) Memory {
         .sib => |*sib| switch (sib.base) {
             else => {},
             .table => sib.disp = lower.reloc(op_index, .table, sib.disp).signed,
+            .rip_inst => |inst_index| sib.disp = lower.reloc(op_index, .{ .inst = inst_index }, sib.disp).signed,
         },
         else => {},
     }
