@@ -4100,10 +4100,11 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("-mwasm64");
         }
 
-        if (target.os.tag == .wasi) {
-            const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
-                (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
-            if (is_exe_or_dyn_lib) {
+        const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
+            (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
+
+        if (comp.config.link_libc and is_exe_or_dyn_lib) {
+            if (target.os.tag == .wasi) {
                 for (comp.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.crtFileAsString(
                         arena,
@@ -4111,18 +4112,20 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                     ));
                 }
 
-                if (comp.config.link_libc) {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
-                    ));
-                    try argv.append(try comp.crtFileAsString(arena, "libc.a"));
-                }
+                try argv.append(try comp.crtFileAsString(
+                    arena,
+                    wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
+                ));
+                try argv.append(try comp.crtFileAsString(arena, "libc.a"));
+            }
 
-                if (comp.config.link_libcpp) {
-                    try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-                    try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-                }
+            if (comp.zigc_static_lib) |zigc| {
+                try argv.append(try zigc.full_object_path.toString(arena));
+            }
+
+            if (comp.config.link_libcpp) {
+                try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
+                try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
             }
         }
 
@@ -4155,10 +4158,6 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
         if (module_obj_path) |p| {
             try argv.append(p);
-        }
-
-        if (comp.libc_static_lib) |crt_file| {
-            try argv.append(try crt_file.full_object_path.toString(arena));
         }
 
         if (compiler_rt_path) |p| {

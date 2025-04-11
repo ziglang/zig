@@ -2147,6 +2147,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             },
         }
 
+        if (comp.config.link_libc and link_in_crt) {
+            if (comp.zigc_static_lib) |zigc| {
+                try argv.append(try zigc.full_object_path.toString(arena));
+            }
+        }
+
         // libc++ dep
         if (comp.config.link_libcpp) {
             try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
@@ -2172,11 +2178,6 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
-            if (!comp.config.link_libc) {
-                if (comp.libc_static_lib) |lib| {
-                    try argv.append(try lib.full_object_path.toString(arena));
-                }
-            }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
             if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));

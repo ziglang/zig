@@ -411,6 +411,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         if (result.cpu.arch.isArm() and result.abi.float() == .soft) {
             result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
         }
+
+        // https://github.com/llvm/llvm-project/issues/135283
+        if (result.cpu.arch.isMIPS() and result.abi.float() == .soft) {
+            result.cpu.features.addFeature(@intFromEnum(Target.mips.Feature.soft_float));
+        }
     }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
