@@ -119,28 +119,24 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(
-        value: Value,
-        bw: *std.io.BufferedWriter,
-        comptime fmt: []const u8,
-    ) anyerror!usize {
+    pub fn format(value: Value, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
         comptime assert(fmt.len == 0);
 
         // Work around x86_64 backend limitation.
         if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
-            return bw.writeAllCount("(unknown)");
+            return bw.writeAll("(unknown)");
         }
 
         switch (value.td.kind) {
             .integer => {
                 if (value.td.isSigned()) {
-                    return bw.printCount("{d}", .{value.getSignedInteger()});
+                    return bw.print("{d}", .{value.getSignedInteger()});
                 } else {
-                    return bw.printCount("{d}", .{value.getUnsignedInteger()});
+                    return bw.print("{d}", .{value.getUnsignedInteger()});
                 }
             },
-            .float => return bw.printCount("{d}", .{value.getFloat()}),
-            .unknown => return bw.writeAllCount("(unknown)"),
+            .float => return bw.print("{d}", .{value.getFloat()}),
+            .unknown => return bw.writeAll("(unknown)"),
         }
     }
 };
