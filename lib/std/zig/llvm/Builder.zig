@@ -2776,6 +2776,12 @@ pub const Intrinsic = enum {
     @"wasm.memory.size",
     @"wasm.memory.grow",
 
+    // x86 PDEP/PEXT
+    @"x86.bmi.pdep.32",
+    @"x86.bmi.pdep.64",
+    @"x86.bmi.pext.32",
+    @"x86.bmi.pext.64",
+
     const Signature = struct {
         ret_len: u8,
         params: []const Parameter,
@@ -4019,6 +4025,43 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+
+        .@"x86.bmi.pext.32" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"x86.bmi.pext.64" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i64 } },
+                .{ .kind = .{ .type = .i64 } },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"x86.bmi.pdep.32" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"x86.bmi.pdep.64" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i64 } },
+                .{ .kind = .{ .type = .i64 } },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .{ .memory = Attribute.Memory.all(.none) } },
         },
     });
 };
