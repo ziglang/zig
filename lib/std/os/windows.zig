@@ -137,7 +137,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .FILE_IS_A_DIRECTORY => return error.IsDir,
             .NOT_A_DIRECTORY => return error.NotDir,
             .USER_MAPPED_FILE => return error.AccessDenied,
-            .INVALID_HANDLE => unreachable,
+            // .INVALID_HANDLE => unreachable,
             .FILE_DELETED, .DELETE_PENDING => {
                 return error.AccessDenied;
             },
@@ -899,19 +899,19 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     );
     switch (rc) {
         .SUCCESS => {},
-        .OBJECT_NAME_INVALID => unreachable,
+        // .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
         .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
         .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
-        .INVALID_PARAMETER => unreachable,
+        // .INVALID_PARAMETER => unreachable,
         .SHARING_VIOLATION => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
         .PIPE_BUSY => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => unreachable,
-        .FILE_IS_A_DIRECTORY => unreachable,
+        // .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        // .OBJECT_NAME_COLLISION => unreachable,
+        // .FILE_IS_A_DIRECTORY => unreachable,
         else => return unexpectedStatus(rc),
     }
     defer CloseHandle(result_handle);
@@ -1089,7 +1089,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     switch (rc) {
         .SUCCESS => {},
         .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
-        .INVALID_PARAMETER => unreachable,
+        // .INVALID_PARAMETER => unreachable,
         .CANNOT_DELETE => return error.AccessDenied,
         .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
@@ -1140,7 +1140,7 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (GetLastError()) {
-            .INVALID_HANDLE => unreachable,
+            // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1150,7 +1150,7 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
-            .INVALID_HANDLE => unreachable,
+            // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1160,7 +1160,7 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (GetLastError()) {
-            .INVALID_HANDLE => unreachable,
+            // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1171,7 +1171,7 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
-            .INVALID_HANDLE => unreachable,
+            // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }

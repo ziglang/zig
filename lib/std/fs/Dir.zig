@@ -60,10 +60,10 @@ pub const Iterator = switch (native_os) {
                     if (rc == 0) return null;
                     if (rc < 0) {
                         switch (posix.errno(rc)) {
-                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                            .FAULT => unreachable,
-                            .NOTDIR => unreachable,
-                            .INVAL => unreachable,
+                            // .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            // .FAULT => unreachable,
+                            // .NOTDIR => unreachable,
+                            // .INVAL => unreachable,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
@@ -242,10 +242,10 @@ pub const Iterator = switch (native_os) {
                     if (self.first_iter) {
                         switch (@as(posix.E, @enumFromInt(posix.system._kern_rewind_dir(self.dir.fd)))) {
                             .SUCCESS => {},
-                            .BADF => unreachable, // Dir is invalid
-                            .FAULT => unreachable,
-                            .NOTDIR => unreachable,
-                            .INVAL => unreachable,
+                            // .BADF => unreachable, // Dir is invalid
+                            // .FAULT => unreachable,
+                            // .NOTDIR => unreachable,
+                            // .INVAL => unreachable,
                             .ACCES => return error.AccessDenied,
                             .PERM => return error.AccessDenied,
                             else => |err| return posix.unexpectedErrno(err),
@@ -261,11 +261,11 @@ pub const Iterator = switch (native_os) {
                     if (rc == 0) return null;
                     if (rc < 0) {
                         switch (@as(posix.E, @enumFromInt(rc))) {
-                            .BADF => unreachable, // Dir is invalid
-                            .FAULT => unreachable,
-                            .NOTDIR => unreachable,
-                            .INVAL => unreachable,
-                            .OVERFLOW => unreachable,
+                            // .BADF => unreachable, // Dir is invalid
+                            // .FAULT => unreachable,
+                            // .NOTDIR => unreachable,
+                            // .INVAL => unreachable,
+                            // .OVERFLOW => unreachable,
                             .ACCES => return error.AccessDenied,
                             .PERM => return error.AccessDenied,
                             else => |err| return posix.unexpectedErrno(err),
@@ -290,14 +290,14 @@ pub const Iterator = switch (native_os) {
                     0,
                 )))) {
                     .SUCCESS => {},
-                    .INVAL => unreachable,
-                    .BADF => unreachable, // Dir is invalid
+                    // .INVAL => unreachable,
+                    // .BADF => unreachable, // Dir is invalid
                     .NOMEM => return error.SystemResources,
                     .ACCES => return error.AccessDenied,
                     .PERM => return error.AccessDenied,
-                    .FAULT => unreachable,
-                    .NAMETOOLONG => unreachable,
-                    .LOOP => unreachable,
+                    // .FAULT => unreachable,
+                    // .NAMETOOLONG => unreachable,
+                    // .LOOP => unreachable,
                     .NOENT => continue,
                     else => |err| return posix.unexpectedErrno(err),
                 }
@@ -364,9 +364,9 @@ pub const Iterator = switch (native_os) {
                     const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
                     switch (linux.E.init(rc)) {
                         .SUCCESS => {},
-                        .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                        .FAULT => unreachable,
-                        .NOTDIR => unreachable,
+                        // .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                        // .FAULT => unreachable,
+                        // .NOTDIR => unreachable,
                         .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                         .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
                         .ACCES => return error.AccessDenied, // Do not have permission to iterate this directory.
@@ -527,10 +527,10 @@ pub const Iterator = switch (native_os) {
                     var bufused: usize = undefined;
                     switch (w.fd_readdir(self.dir.fd, &self.buf, self.buf.len, self.cookie, &bufused)) {
                         .SUCCESS => {},
-                        .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                        .FAULT => unreachable,
-                        .NOTDIR => unreachable,
-                        .INVAL => unreachable,
+                        // .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                        // .FAULT => unreachable,
+                        // .NOTDIR => unreachable,
+                        // .INVAL => unreachable,
                         .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                         .NOTCAPABLE => return error.AccessDenied,
                         .ILSEQ => return error.InvalidUtf8, // An entry's name cannot be encoded as UTF-8.
@@ -698,7 +698,7 @@ pub const Walker = struct {
                 self.name_buffer.appendAssumeCapacity(0);
                 if (base.kind == .directory) {
                     var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
-                        error.NameTooLong => unreachable, // no path sep in base.name
+                        error.NameTooLong => return error.Unexpected, // no path sep in base.name
                         else => |e| return e,
                     };
                     {
@@ -1574,11 +1574,12 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenEr
         .no_follow = args.no_follow,
         .create_disposition = w.FILE_OPEN,
     }) catch |err| switch (err) {
-        error.ReadOnlyFileSystem => unreachable,
-        error.DiskQuota => unreachable,
-        error.NoSpaceLeft => unreachable,
-        error.PathAlreadyExists => unreachable,
-        error.LinkQuotaExceeded => unreachable,
+        error.ReadOnlyFileSystem,
+        error.DiskQuota,
+        error.NoSpaceLeft,
+        error.PathAlreadyExists,
+        error.LinkQuotaExceeded,
+        => if (builtin.mode == .Debug) unreachable else return error.Unexpected,
         else => |e| return e,
     };
     return dir;
@@ -1588,13 +1589,14 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenEr
 fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError!Dir {
     assert(flags.DIRECTORY);
     const fd = posix.openatZ(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
-        error.FileTooBig => unreachable, // can't happen for directories
-        error.IsDir => unreachable, // we're setting DIRECTORY
-        error.NoSpaceLeft => unreachable, // not setting CREAT
-        error.PathAlreadyExists => unreachable, // not setting CREAT
-        error.FileLocksNotSupported => unreachable, // locking folders is not supported
-        error.WouldBlock => unreachable, // can't happen for directories
-        error.FileBusy => unreachable, // can't happen for directories
+        error.FileTooBig, // can't happen for directories
+        error.IsDir, // we're setting DIRECTORY
+        error.NoSpaceLeft, // not setting CREAT
+        error.PathAlreadyExists, // not setting CREAT
+        error.FileLocksNotSupported, // locking folders is not supported
+        error.WouldBlock, // can't happen for directories
+        error.FileBusy, // can't happen for directories
+        => if (builtin.mode == .Debug) unreachable else return error.Unexpected,
         else => |e| return e,
     };
     return Dir{ .fd = fd };
@@ -1670,7 +1672,7 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
         return self.deleteFileW(sub_path_w.span());
     } else if (native_os == .wasi and !builtin.link_libc) {
         posix.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
+            error.DirNotEmpty => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not passing AT.REMOVEDIR
             else => |e| return e,
         };
     } else {
@@ -1682,7 +1684,7 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
 /// Same as `deleteFile` except the parameter is null-terminated.
 pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     posix.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
-        error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
+        error.DirNotEmpty => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not passing AT.REMOVEDIR
         error.AccessDenied => |e| switch (native_os) {
             // non-Linux POSIX systems return EPERM when trying to delete a directory, so
             // we need to handle that case specifically and translate the error
@@ -1701,7 +1703,7 @@ pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
 /// Same as `deleteFile` except the parameter is WTF-16 LE encoded.
 pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
     posix.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
-        error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
+        error.DirNotEmpty => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not passing AT.REMOVEDIR
         else => |e| return e,
     };
 }
@@ -1740,7 +1742,7 @@ pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         return self.deleteDirW(sub_path_w.span());
     } else if (native_os == .wasi and !builtin.link_libc) {
         posix.unlinkat(self.fd, sub_path, posix.AT.REMOVEDIR) catch |err| switch (err) {
-            error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
+            error.IsDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not possible since we pass AT.REMOVEDIR
             else => |e| return e,
         };
     } else {
@@ -1752,7 +1754,7 @@ pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
 /// Same as `deleteDir` except the parameter is null-terminated.
 pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
     posix.unlinkatZ(self.fd, sub_path_c, posix.AT.REMOVEDIR) catch |err| switch (err) {
-        error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
+        error.IsDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not possible since we pass AT.REMOVEDIR
         else => |e| return e,
     };
 }
@@ -1761,7 +1763,7 @@ pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
 /// This function is Windows-only.
 pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
     posix.unlinkatW(self.fd, sub_path_w, posix.AT.REMOVEDIR) catch |err| switch (err) {
-        error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
+        error.IsDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected, // not possible since we pass AT.REMOVEDIR
         else => |e| return e,
     };
 }
@@ -2135,7 +2137,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         error.FileNotFound => break :handle_entry,
 
                         // Impossible because we do not pass any path separators.
-                        error.NotDir => unreachable,
+                        error.NotDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected,
 
                         error.IsDir => {
                             treat_as_dir = true;
@@ -2220,7 +2222,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.FileNotFound => continue :process_stack,
 
                             // Impossible because we do not pass any path separators.
-                            error.NotDir => unreachable,
+                            error.NotDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected,
 
                             error.IsDir => {
                                 treat_as_dir = true;
@@ -2332,7 +2334,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.FileNotFound => continue :dir_it,
 
                             // Impossible because we do not pass any path separators.
-                            error.NotDir => unreachable,
+                            error.NotDir => if (builtin.mode == .Debug) unreachable else return error.Unexpected,
 
                             error.IsDir => {
                                 treat_as_dir = true;
@@ -2622,7 +2624,7 @@ fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRa
         const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
         switch (posix.errno(rc)) {
             .SUCCESS => return,
-            .INVAL => unreachable,
+            // .INVAL => unreachable,
             .NOMEM => return error.SystemResources,
             // The source file is not a directory, symbolic link, or regular file.
             // Try with the fallback path before giving up.
