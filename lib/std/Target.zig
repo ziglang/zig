@@ -455,7 +455,7 @@ pub const Os = struct {
                     .linux = .{
                         .range = .{
                             .min = blk: {
-                                const default_min: std.SemanticVersion = .{ .major = 4, .minor = 19, .patch = 0 };
+                                const default_min: std.SemanticVersion = .{ .major = 5, .minor = 10, .patch = 0 };
 
                                 for (std.zig.target.available_libcs) |libc| {
                                     if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
