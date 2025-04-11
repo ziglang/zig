@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
+    .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
@@ -92,7 +93,6 @@ pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
@@ -279,7 +279,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .s390x => packed struct(u32) {
+    .hexagon, .m68k, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -333,7 +333,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -355,7 +355,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -377,7 +377,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .sparc64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -402,7 +402,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u6 = 0,
+        _27: u6 = 0,
     },
     .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -426,7 +426,7 @@ pub const O = switch (native_arch) {
         _20: u1 = 0,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -448,7 +448,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .hexagon, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -467,14 +467,35 @@ pub const O = switch (native_arch) {
         NOFOLLOW: bool = false,
         NOATIME: bool = false,
         CLOEXEC: bool = false,
-        _17: u1 = 0,
+        _20: u1 = 0,
         PATH: bool = false,
-        _: u10 = 0,
+        _22: u10 = 0,
 
         // #define O_RSYNC    04010000
         // #define O_SYNC     04010000
         // #define O_TMPFILE 020200000
         // #define O_NDELAY O_NONBLOCK
+    },
+    .m68k => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        _22: u10 = 0,
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
@@ -482,22 +503,22 @@ pub const O = switch (native_arch) {
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
+/// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
     .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
 };
 
-comptime {
-    const root = @import("root");
-    // Export this only when building executable, otherwise it is overriding
-    // the libc implementation
-    if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
-        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
-    }
-}
-
 pub const getauxval = if (extern_getauxval) struct {
+    comptime {
+        const root = @import("root");
+        // Export this only when building an executable, otherwise it is overriding
+        // the libc implementation
+        if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+            @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        }
+    }
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
@@ -906,7 +927,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             prot,
             @as(u32, @bitCast(flags)),
             @bitCast(@as(isize, fd)),
-            @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
+            @truncate(@as(u64, @bitCast(offset)) / std.heap.pageSize()),
         );
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
@@ -1765,25 +1786,41 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).int.bits;
 
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
+pub const sigset_t = [1024 / 32]u32;
+
+const sigset_len = @typeInfo(sigset_t).array.len;
+
+/// Empty set to initialize sigset_t instances from.
+pub const empty_sigset: sigset_t = [_]u32{0} ** sigset_len;
+
+pub const filled_sigset: sigset_t = [_]u32{0x7fff_ffff} ++ [_]u32{0} ** (sigset_len - 1);
+
+pub const all_mask: sigset_t = [_]u32{0xffff_ffff} ** sigset_len;
+
+fn sigset_bit_index(sig: usize) struct { word: usize, mask: u32 } {
+    assert(sig > 0);
+    assert(sig < NSIG);
+    const bit = sig - 1;
+    const shift = @as(u5, @truncate(bit % 32));
+    return .{
+        .word = bit / 32,
+        .mask = @as(u32, 1) << shift,
+    };
 }
 
-pub fn sigdelset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+pub fn sigaddset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] |= index.mask;
 }
 
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
-    const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
+pub fn sigdelset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] ^= index.mask;
+}
+
+pub fn sigismember(set: *const sigset_t, sig: usize) bool {
+    const index = sigset_bit_index(sig);
+    return ((set.*)[index.word] & index.mask) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1992,8 +2029,8 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstat syscall on this architecture.");
     } else if (@hasField(SYS, "fstat64")) {
@@ -2004,8 +2041,8 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No stat syscall on this architecture.");
     } else if (@hasField(SYS, "stat64")) {
@@ -2016,8 +2053,8 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No lstat syscall on this architecture.");
     } else if (@hasField(SYS, "lstat64")) {
@@ -2028,8 +2065,8 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
@@ -2221,7 +2258,7 @@ pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeou
         @as(usize, @intCast(maxevents)),
         @as(usize, @bitCast(@as(isize, timeout))),
         @intFromPtr(sigmask),
-        @sizeOf(sigset_t),
+        NSIG / 8,
     );
 }
 
@@ -4212,6 +4249,239 @@ pub const IPV6 = struct {
     pub const FREEBIND = 78;
 };
 
+/// IEEE 802.3 Ethernet magic constants. The frame sizes omit the preamble
+/// and FCS/CRC (frame check sequence).
+pub const ETH = struct {
+    /// Octets in one ethernet addr
+    pub const ALEN = 6;
+    /// Octets in ethernet type field
+    pub const TLEN = 2;
+    /// Total octets in header
+    pub const HLEN = 14;
+    /// Min. octets in frame sans FC
+    pub const ZLEN = 60;
+    /// Max. octets in payload
+    pub const DATA_LEN = 1500;
+    /// Max. octets in frame sans FCS
+    pub const FRAME_LEN = 1514;
+    /// Octets in the FCS
+    pub const FCS_LEN = 4;
+
+    /// Min IPv4 MTU per RFC791
+    pub const MIN_MTU = 68;
+    /// 65535, same as IP_MAX_MTU
+    pub const MAX_MTU = 0xFFFF;
+
+    /// These are the defined Ethernet Protocol ID's.
+    pub const P = struct {
+        /// Ethernet Loopback packet
+        pub const LOOP = 0x0060;
+        /// Xerox PUP packet
+        pub const PUP = 0x0200;
+        /// Xerox PUP Addr Trans packet
+        pub const PUPAT = 0x0201;
+        /// TSN (IEEE 1722) packet
+        pub const TSN = 0x22F0;
+        /// ERSPAN version 2 (type III)
+        pub const ERSPAN2 = 0x22EB;
+        /// Internet Protocol packet
+        pub const IP = 0x0800;
+        /// CCITT X.25
+        pub const X25 = 0x0805;
+        /// Address Resolution packet
+        pub const ARP = 0x0806;
+        /// G8BPQ AX.25 Ethernet Packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BPQ = 0x08FF;
+        /// Xerox IEEE802.3 PUP packet
+        pub const IEEEPUP = 0x0a00;
+        /// Xerox IEEE802.3 PUP Addr Trans packet
+        pub const IEEEPUPAT = 0x0a01;
+        /// B.A.T.M.A.N.-Advanced packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BATMAN = 0x4305;
+        /// DEC Assigned proto
+        pub const DEC = 0x6000;
+        /// DEC DNA Dump/Load
+        pub const DNA_DL = 0x6001;
+        /// DEC DNA Remote Console
+        pub const DNA_RC = 0x6002;
+        /// DEC DNA Routing
+        pub const DNA_RT = 0x6003;
+        /// DEC LAT
+        pub const LAT = 0x6004;
+        /// DEC Diagnostics
+        pub const DIAG = 0x6005;
+        /// DEC Customer use
+        pub const CUST = 0x6006;
+        /// DEC Systems Comms Arch
+        pub const SCA = 0x6007;
+        /// Trans Ether Bridging
+        pub const TEB = 0x6558;
+        /// Reverse Addr Res packet
+        pub const RARP = 0x8035;
+        /// Appletalk DDP
+        pub const ATALK = 0x809B;
+        /// Appletalk AARP
+        pub const AARP = 0x80F3;
+        /// 802.1Q VLAN Extended Header
+        pub const P_8021Q = 0x8100;
+        /// ERSPAN type II
+        pub const ERSPAN = 0x88BE;
+        /// IPX over DIX
+        pub const IPX = 0x8137;
+        /// IPv6 over bluebook
+        pub const IPV6 = 0x86DD;
+        /// IEEE Pause frames. See 802.3 31B
+        pub const PAUSE = 0x8808;
+        /// Slow Protocol. See 802.3ad 43B
+        pub const SLOW = 0x8809;
+        /// Web-cache coordination protocol defined in draft-wilson-wrec-wccp-v2-00.txt
+        pub const WCCP = 0x883E;
+        /// MPLS Unicast traffic
+        pub const MPLS_UC = 0x8847;
+        /// MPLS Multicast traffic
+        pub const MPLS_MC = 0x8848;
+        /// MultiProtocol Over ATM
+        pub const ATMMPOA = 0x884c;
+        /// PPPoE discovery messages
+        pub const PPP_DISC = 0x8863;
+        /// PPPoE session messages
+        pub const PPP_SES = 0x8864;
+        /// HPNA, wlan link local tunnel
+        pub const LINK_CTL = 0x886c;
+        /// Frame-based ATM Transport over Ethernet
+        pub const ATMFATE = 0x8884;
+        /// Port Access Entity (IEEE 802.1X)
+        pub const PAE = 0x888E;
+        /// PROFINET
+        pub const PROFINET = 0x8892;
+        /// Multiple proprietary protocols
+        pub const REALTEK = 0x8899;
+        /// ATA over Ethernet
+        pub const AOE = 0x88A2;
+        /// EtherCAT
+        pub const ETHERCAT = 0x88A4;
+        /// 802.1ad Service VLAN
+        pub const @"8021AD" = 0x88A8;
+        /// 802.1 Local Experimental 1.
+        pub const @"802_EX1" = 0x88B5;
+        /// 802.11 Preauthentication
+        pub const PREAUTH = 0x88C7;
+        /// TIPC
+        pub const TIPC = 0x88CA;
+        /// Link Layer Discovery Protocol
+        pub const LLDP = 0x88CC;
+        /// Media Redundancy Protocol
+        pub const MRP = 0x88E3;
+        /// 802.1ae MACsec
+        pub const MACSEC = 0x88E5;
+        /// 802.1ah Backbone Service Tag
+        pub const @"8021AH" = 0x88E7;
+        /// 802.1Q MVRP
+        pub const MVRP = 0x88F5;
+        /// IEEE 1588 Timesync
+        pub const @"1588" = 0x88F7;
+        /// NCSI protocol
+        pub const NCSI = 0x88F8;
+        /// IEC 62439-3 PRP/HSRv0
+        pub const PRP = 0x88FB;
+        /// Connectivity Fault Management
+        pub const CFM = 0x8902;
+        /// Fibre Channel over Ethernet
+        pub const FCOE = 0x8906;
+        /// Infiniband over Ethernet
+        pub const IBOE = 0x8915;
+        /// TDLS
+        pub const TDLS = 0x890D;
+        /// FCoE Initialization Protocol
+        pub const FIP = 0x8914;
+        /// IEEE 802.21 Media Independent Handover Protocol
+        pub const @"80221" = 0x8917;
+        /// IEC 62439-3 HSRv1
+        pub const HSR = 0x892F;
+        /// Network Service Header
+        pub const NSH = 0x894F;
+        /// Ethernet loopback packet, per IEEE 802.3
+        pub const LOOPBACK = 0x9000;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ1 = 0x9100;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ2 = 0x9200;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ3 = 0x9300;
+        /// Ethertype DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const EDSA = 0xDADA;
+        /// Fake VLAN Header for DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_8021Q = 0xDADB;
+        /// A5PSW Tag Value [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_A5PSW = 0xE001;
+        /// ForCES inter-FE LFB type
+        pub const IFE = 0xED3E;
+        /// IBM af_iucv [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const AF_IUCV = 0xFBFB;
+        /// If the value in the ethernet type is more than this value then the frame is Ethernet II. Else it is 802.3
+        pub const @"802_3_MIN" = 0x0600;
+
+        // Non DIX types. Won't clash for 1500 types.
+
+        /// Dummy type for 802.3 frames
+        pub const @"802_3" = 0x0001;
+        /// Dummy protocol id for AX.25
+        pub const AX25 = 0x0002;
+        /// Every packet (be careful!!!)
+        pub const ALL = 0x0003;
+        /// 802.2 frames
+        pub const @"802_2" = 0x0004;
+        /// Internal only
+        pub const SNAP = 0x0005;
+        /// DEC DDCMP: Internal only
+        pub const DDCMP = 0x0006;
+        /// Dummy type for WAN PPP frames
+        pub const WAN_PPP = 0x0007;
+        /// Dummy type for PPP MP frames
+        pub const PPP_MP = 0x0008;
+        /// Localtalk pseudo type
+        pub const LOCALTALK = 0x0009;
+        /// CAN: Controller Area Network
+        pub const CAN = 0x000C;
+        /// CANFD: CAN flexible data rate
+        pub const CANFD = 0x000D;
+        /// CANXL: eXtended frame Length
+        pub const CANXL = 0x000E;
+        /// Dummy type for Atalk over PPP
+        pub const PPPTALK = 0x0010;
+        /// 802.2 frames
+        pub const TR_802_2 = 0x0011;
+        /// Mobitex (kaz@cafe.net)
+        pub const MOBITEX = 0x0015;
+        /// Card specific control frames
+        pub const CONTROL = 0x0016;
+        /// Linux-IrDA
+        pub const IRDA = 0x0017;
+        /// Acorn Econet
+        pub const ECONET = 0x0018;
+        /// HDLC frames
+        pub const HDLC = 0x0019;
+        /// 1A for ArcNet :-)
+        pub const ARCNET = 0x001A;
+        /// Distributed Switch Arch.
+        pub const DSA = 0x001B;
+        /// Trailer switch tagging
+        pub const TRAILER = 0x001C;
+        /// Nokia Phonet frames
+        pub const PHONET = 0x00F5;
+        /// IEEE802.15.4 frame
+        pub const IEEE802154 = 0x00F6;
+        /// ST-Ericsson CAIF protocol
+        pub const CAIF = 0x00F7;
+        /// Multiplexed DSA protocol
+        pub const XDSA = 0x00F8;
+        /// Qualcomm multiplexing and aggregation protocol
+        pub const MAP = 0x00F9;
+        /// Management component transport protocol packets
+        pub const MCTP = 0x00FA;
+    };
+};
+
 pub const MSG = struct {
     pub const OOB = 0x0001;
     pub const PEEK = 0x0002;
@@ -5148,11 +5418,6 @@ pub const TFD = switch (native_arch) {
 /// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
 
-pub const sigset_t = [1024 / 32]u32;
-
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
-pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
-
 const k_sigaction_funcs = struct {
     const handler = ?*align(1) const fn (i32) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
@@ -5192,10 +5457,6 @@ pub const Sigaction = extern struct {
     flags: c_uint,
     restorer: ?*const fn () callconv(.c) void = null,
 };
-
-const sigset_len = @typeInfo(sigset_t).array.len;
-pub const empty_sigset = [_]u32{0} ** sigset_len;
-pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
     pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
@@ -5806,6 +6067,9 @@ pub const IORING_OP = enum(u8) {
     FUTEX_WAITV,
     FIXED_FD_INSTALL,
     FTRUNCATE,
+    BIND,
+    LISTEN,
+    RECV_ZC,
 
     _,
 };
@@ -5930,6 +6194,8 @@ pub const IORING_CQE_F_MORE = 1 << 1;
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 /// Set for notification CQEs. Can be used to distinct them from sends.
 pub const IORING_CQE_F_NOTIF = 1 << 3;
+/// If set, the buffer ID set in the completion will get more completions.
+pub const IORING_CQE_F_BUF_MORE = 1 << 4;
 
 pub const IORING_CQE_BUFFER_SHIFT = 16;
 
@@ -6135,26 +6401,32 @@ pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
 pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
-
     resv: u8,
-
     /// IO_URING_OP_* flags
     flags: u16,
-
     resv2: u32,
+
+    pub fn is_supported(self: @This()) bool {
+        return self.flags & IO_URING_OP_SUPPORTED != 0;
+    }
 };
 
 pub const io_uring_probe = extern struct {
-    /// last opcode supported
+    /// Last opcode supported
     last_op: IORING_OP,
-
-    /// Number of io_uring_probe_op following
+    /// Length of ops[] array below
     ops_len: u8,
-
     resv: u16,
     resv2: [3]u32,
+    ops: [256]io_uring_probe_op,
 
-    // Followed by up to `ops_len` io_uring_probe_op structures
+    /// Is the operation supported on the running kernel.
+    pub fn is_supported(self: @This(), op: IORING_OP) bool {
+        const i = @intFromEnum(op);
+        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
+            return false;
+        return self.ops[i].is_supported();
+    }
 };
 
 pub const io_uring_restriction = extern struct {
@@ -6190,6 +6462,13 @@ pub const IORING_RESTRICTION = enum(u16) {
     _,
 };
 
+pub const IO_URING_SOCKET_OP = enum(u16) {
+    SIOCIN = 0,
+    SIOCOUTQ = 1,
+    GETSOCKOPT = 2,
+    SETSOCKOPT = 3,
+};
+
 pub const io_uring_buf = extern struct {
     addr: u64,
     len: u32,
@@ -6209,8 +6488,15 @@ pub const io_uring_buf_reg = extern struct {
     ring_addr: u64,
     ring_entries: u32,
     bgid: u16,
-    pad: u16,
+    flags: Flags,
     resv: [3]u64,
+
+    pub const Flags = packed struct {
+        _0: u1 = 0,
+        /// Incremental buffer consumption.
+        inc: bool,
+        _: u14 = 0,
+    };
 };
 
 pub const io_uring_getevents_arg = extern struct {

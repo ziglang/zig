@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_EXPERIMENTAL___SIMD_UTILITY_H
 #define _LIBCPP_EXPERIMENTAL___SIMD_UTILITY_H
 
+#include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/is_arithmetic.h>
 #include <__type_traits/is_const.h>
 #include <__type_traits/is_constant_evaluated.h>
@@ -20,9 +22,7 @@
 #include <__type_traits/void_t.h>
 #include <__utility/declval.h>
 #include <__utility/integer_sequence.h>
-#include <cstddef>
 #include <cstdint>
-#include <experimental/__config>
 #include <limits>
 
 _LIBCPP_PUSH_MACROS
@@ -47,7 +47,7 @@ _LIBCPP_HIDE_FROM_ABI auto __choose_mask_type() {
   } else if constexpr (sizeof(_Tp) == 8) {
     return uint64_t{};
   }
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
   else if constexpr (sizeof(_Tp) == 16) {
     return __uint128_t{};
   }

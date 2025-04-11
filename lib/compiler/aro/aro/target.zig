@@ -204,7 +204,7 @@ pub fn unnamedFieldAffectsAlignment(target: std.Target) bool {
         },
         .armeb => {
             if (std.Target.arm.featureSetHas(target.cpu.features, .has_v7)) {
-                if (std.Target.Abi.default(target.cpu.arch, target.os) == .eabi) return true;
+                if (std.Target.Abi.default(target.cpu.arch, target.os.tag) == .eabi) return true;
             }
         },
         .arm => return true,
@@ -698,6 +698,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslf32 => "muslf32",
+        .muslsf => "muslsf",
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
@@ -716,7 +718,7 @@ test "alignment functions - smoke test" {
     const x86 = std.Target.Cpu.Arch.x86_64;
     target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     target.cpu = std.Target.Cpu.baseline(x86, target.os);
-    target.abi = std.Target.Abi.default(x86, target.os);
+    target.abi = std.Target.Abi.default(x86, target.os.tag);
 
     try std.testing.expect(isTlsSupported(target));
     try std.testing.expect(!ignoreNonZeroSizedBitfieldTypeAlignment(target));
@@ -729,7 +731,7 @@ test "alignment functions - smoke test" {
     const arm = std.Target.Cpu.Arch.arm;
     target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     target.cpu = std.Target.Cpu.baseline(arm, target.os);
-    target.abi = std.Target.Abi.default(arm, target.os);
+    target.abi = std.Target.Abi.default(arm, target.os.tag);
 
     try std.testing.expect(!isTlsSupported(target));
     try std.testing.expect(ignoreNonZeroSizedBitfieldTypeAlignment(target));

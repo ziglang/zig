@@ -96,7 +96,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         a0,   a1,    a2,    a3,  a4,   a5,  a6
     //
@@ -142,7 +142,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ ecall
         :
@@ -255,8 +255,6 @@ pub const Stat = extern struct {
 };
 
 pub const Elf_Symndx = u32;
-
-pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";

@@ -1134,7 +1134,7 @@ pub fn updateFunc(
     ) catch |err| switch (err) {
         error.CodegenFail => return error.CodegenFail,
         error.OutOfMemory => return error.OutOfMemory,
-        error.Overflow => |e| {
+        error.Overflow, error.RelocationNotByteAligned => |e| {
             try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                 gpa,
                 zcu.navSrcLoc(nav_index),
@@ -2104,7 +2104,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                             try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.crtFileAsString(arena, "mingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",
@@ -3497,9 +3497,9 @@ pub const Relocation = struct {
                 const target_page = @as(i32, @intCast(ctx.target_vaddr >> 12));
                 const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
                 var inst = aarch64_util.Instruction{
-                    .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
+                    .pc_relative_address = mem.bytesToValue(@FieldType(
                         aarch64_util.Instruction,
-                        aarch64_util.Instruction.pc_relative_address,
+                        @tagName(aarch64_util.Instruction.pc_relative_address),
                     ), buffer[0..4]),
                 };
                 inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
@@ -3512,18 +3512,18 @@ pub const Relocation = struct {
                 const narrowed = @as(u12, @truncate(@as(u64, @intCast(ctx.target_vaddr))));
                 if (isArithmeticOp(buffer[0..4])) {
                     var inst = aarch64_util.Instruction{
-                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
                             aarch64_util.Instruction,
-                            aarch64_util.Instruction.add_subtract_immediate,
+                            @tagName(aarch64_util.Instruction.add_subtract_immediate),
                         ), buffer[0..4]),
                     };
                     inst.add_subtract_immediate.imm12 = narrowed;
                     mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
                 } else {
                     var inst = aarch64_util.Instruction{
-                        .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+                        .load_store_register = mem.bytesToValue(@FieldType(
                             aarch64_util.Instruction,
-                            aarch64_util.Instruction.load_store_register,
+                            @tagName(aarch64_util.Instruction.load_store_register),
                         ), buffer[0..4]),
                     };
                     const offset: u12 = blk: {

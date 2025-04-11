@@ -12,9 +12,9 @@
 
 #include <__config>
 #include <__functional/binary_function.h>
-#include <__functional/invoke.h>
 #include <__functional/unary_function.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_same.h>
 #include <__utility/declval.h>
 
@@ -219,11 +219,6 @@ struct __weak_result_type<_Rp (_Cp::*)(_A1, _A2, _A3...) const volatile> {
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_BINDER_TYPEDEFS)
   using result_type _LIBCPP_NODEBUG _LIBCPP_DEPRECATED_IN_CXX17 = _Rp;
 #endif
-};
-
-template <class _Tp, class... _Args>
-struct __invoke_return {
-  typedef decltype(std::__invoke(std::declval<_Tp>(), std::declval<_Args>()...)) type;
 };
 
 _LIBCPP_END_NAMESPACE_STD

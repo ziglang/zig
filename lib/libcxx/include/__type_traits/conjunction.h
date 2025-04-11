@@ -22,7 +22,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class...>
-using __expand_to_true = true_type;
+using __expand_to_true _LIBCPP_NODEBUG = true_type;
 
 template <class... _Pred>
 __expand_to_true<__enable_if_t<_Pred::value>...> __and_helper(int);
@@ -47,16 +47,21 @@ struct __all : _IsSame<__all_dummy<_Pred...>, __all_dummy<((void)_Pred, true)...
 #if _LIBCPP_STD_VER >= 17
 
 template <class...>
-struct conjunction : true_type {};
+struct _LIBCPP_NO_SPECIALIZATIONS conjunction : true_type {};
 
+_LIBCPP_DIAGNOSTIC_PUSH
+#  if __has_warning("-Winvalid-specialization")
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
+#  endif
 template <class _Arg>
 struct conjunction<_Arg> : _Arg {};
 
 template <class _Arg, class... _Args>
 struct conjunction<_Arg, _Args...> : conditional_t<!bool(_Arg::value), _Arg, conjunction<_Args...>> {};
+_LIBCPP_DIAGNOSTIC_POP
 
 template <class... _Args>
-inline constexpr bool conjunction_v = conjunction<_Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool conjunction_v = conjunction<_Args...>::value;
 
 #endif // _LIBCPP_STD_VER >= 17
 

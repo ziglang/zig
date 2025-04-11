@@ -11,12 +11,12 @@
 
 #include <__algorithm/iterator_operations.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__iterator/iterator_traits.h>
 #include <__random/uniform_int_distribution.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <__utility/swap.h>
-#include <cstddef>
 #include <cstdint>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

@@ -14,14 +14,7 @@ const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
-pub const AllocationError = error{
-    OutOfRegisters,
-    OutOfMemory,
-    /// Compiler was asked to operate on a number larger than supported.
-    Overflow,
-    /// Indicates the error is already stored in `failed_codegen` on the Zcu.
-    CodegenFail,
-};
+pub const AllocationError = @import("codegen.zig").CodeGenError || error{OutOfRegisters};
 
 pub fn RegisterManager(
     comptime Function: type,

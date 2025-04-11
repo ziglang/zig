@@ -39,19 +39,22 @@ int raise(int sig);
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/csignal>
+#else
+#  include <__config>
 
 // <signal.h> is not provided by libc++
-#if __has_include(<signal.h>)
-#  include <signal.h>
-#  ifdef _LIBCPP_SIGNAL_H
-#    error "If libc++ starts defining <signal.h>, the __has_include check should move to libc++'s <signal.h>"
+#  if __has_include(<signal.h>)
+#    include <signal.h>
+#    ifdef _LIBCPP_SIGNAL_H
+#      error "If libc++ starts defining <signal.h>, the __has_include check should move to libc++'s <signal.h>"
+#    endif
 #  endif
-#endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -60,5 +63,7 @@ using ::signal _LIBCPP_USING_IF_EXISTS;
 using ::raise _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CSIGNAL

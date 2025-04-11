@@ -13,39 +13,6 @@
 #include <cstring> // strcpy, wcsncpy
 #include <cwchar>  // mbstate_t
 
-// Like sprintf, but when return value >= 0 it returns
-// a pointer to a malloc'd string in *sptr.
-// If return >= 0, use free to delete *sptr.
-int __libcpp_vasprintf(char** sptr, const char* __restrict format, va_list ap) {
-  *sptr = NULL;
-  // Query the count required.
-  va_list ap_copy;
-  va_copy(ap_copy, ap);
-  _LIBCPP_DIAGNOSTIC_PUSH
-  _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
-  int count = vsnprintf(NULL, 0, format, ap_copy);
-  _LIBCPP_DIAGNOSTIC_POP
-  va_end(ap_copy);
-  if (count < 0)
-    return count;
-  size_t buffer_size = static_cast<size_t>(count) + 1;
-  char* p            = static_cast<char*>(malloc(buffer_size));
-  if (!p)
-    return -1;
-  // If we haven't used exactly what was required, something is wrong.
-  // Maybe bug in vsnprintf. Report the error and return.
-  _LIBCPP_DIAGNOSTIC_PUSH
-  _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wformat-nonliteral")
-  if (vsnprintf(p, buffer_size, format, ap) != count) {
-    _LIBCPP_DIAGNOSTIC_POP
-    free(p);
-    return -1;
-  }
-  // All good. This is returning memory to the caller not freeing it.
-  *sptr = p;
-  return count;
-}
-
 // Returns >= 0: the number of wide characters found in the
 // multi byte sequence src (of src_size_bytes), that fit in the buffer dst
 // (of max_dest_chars elements size). The count returned excludes the
@@ -81,7 +48,7 @@ size_t mbsnrtowcs(wchar_t* __restrict dst,
     // if result > 0, it's the size in bytes of that character.
     // othewise if result is zero it indicates the null character has been found.
     // otherwise it's an error and errno may be set.
-    size_t char_size = mbrtowc(dst ? dst + dest_converted : NULL, *src + source_converted, source_remaining, ps);
+    size_t char_size = mbrtowc(dst ? dst + dest_converted : nullptr, *src + source_converted, source_remaining, ps);
     // Don't do anything to change errno from here on.
     if (char_size > 0) {
       source_remaining -= char_size;
@@ -95,7 +62,7 @@ size_t mbsnrtowcs(wchar_t* __restrict dst,
   }
   if (dst) {
     if (have_result && result == terminated_sequence)
-      *src = NULL;
+      *src = nullptr;
     else
       *src += source_converted;
   }
@@ -141,7 +108,7 @@ size_t wcsnrtombs(char* __restrict dst,
     if (dst)
       result = wcrtomb_s(&char_size, dst + dest_converted, dest_remaining, c, ps);
     else
-      result = wcrtomb_s(&char_size, NULL, 0, c, ps);
+      result = wcrtomb_s(&char_size, nullptr, 0, c, ps);
     // If result is zero there is no error and char_size contains the
     // size of the multi-byte-sequence converted.
     // Otherwise result indicates an errno type error.
@@ -161,7 +128,7 @@ size_t wcsnrtombs(char* __restrict dst,
   }
   if (dst) {
     if (terminator_found)
-      *src = NULL;
+      *src = nullptr;
     else
       *src = *src + source_converted;
   }

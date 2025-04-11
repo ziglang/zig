@@ -84,6 +84,25 @@
 #define SI_NOT_MAC 1
 #endif
 
+#if SANITIZER_APPLE
+#  include <Availability.h>
+
+// aligned_alloc was introduced in OSX 10.15
+// Linking will fail when using an older SDK
+#  if defined(__MAC_10_15)
+// macOS 10.15 is greater than our minimal deployment target.  To ensure we
+// generate a weak reference so the dylib continues to work on older
+// systems, we need to forward declare the intercepted function as "weak
+// imports".
+SANITIZER_WEAK_IMPORT void *aligned_alloc(__sanitizer::usize __alignment,
+                                          __sanitizer::usize __size);
+#    define SI_MAC_SDK_10_15_AVAILABLE 1
+#  else
+#    define SI_MAC_SDK_10_15_AVAILABLE 0
+#  endif  // defined(__MAC_10_15)
+
+#endif  // SANITIZER_APPLE
+
 #if SANITIZER_IOS
 #define SI_IOS 1
 #else
@@ -183,8 +202,15 @@
 #define SANITIZER_INTERCEPT_FPUTS SI_POSIX
 #define SANITIZER_INTERCEPT_PUTS SI_POSIX
 
+#define SANITIZER_INTERCEPT_CREAT64 (SI_GLIBC || SI_SOLARIS32)
+#define SANITIZER_INTERCEPT_FCNTL64 (SI_GLIBC || SI_SOLARIS32)
+#define SANITIZER_INTERCEPT_OPEN64 (SI_GLIBC || SI_SOLARIS32)
+#define SANITIZER_INTERCEPT_OPENAT64 (SI_GLIBC || SI_SOLARIS32)
+
 #define SANITIZER_INTERCEPT_PREAD64 (SI_GLIBC || SI_SOLARIS32)
 #define SANITIZER_INTERCEPT_PWRITE64 (SI_GLIBC || SI_SOLARIS32)
+
+#define SANITIZER_INTERCEPT_LSEEK64 (SI_GLIBC || SI_SOLARIS32)
 
 #define SANITIZER_INTERCEPT_READV SI_POSIX
 #define SANITIZER_INTERCEPT_WRITEV SI_POSIX
@@ -232,8 +258,12 @@
   (SI_FREEBSD || SI_NETBSD || SI_LINUX || SI_SOLARIS)
 #define SANITIZER_INTERCEPT_CLOCK_GETCPUCLOCKID \
   (SI_LINUX || SI_FREEBSD || SI_NETBSD)
+// TODO: This should be SI_POSIX, adding glibc first until I have time
+// to verify all timer_t typedefs on other platforms.
+#define SANITIZER_INTERCEPT_TIMER_CREATE SI_GLIBC
 #define SANITIZER_INTERCEPT_GETITIMER SI_POSIX
 #define SANITIZER_INTERCEPT_TIME SI_POSIX
+#define SANITIZER_INTERCEPT_TIMESPEC_GET SI_LINUX
 #define SANITIZER_INTERCEPT_GLOB (SI_GLIBC || SI_SOLARIS)
 #define SANITIZER_INTERCEPT_GLOB64 SI_GLIBC
 #define SANITIZER_INTERCEPT___B64_TO SI_LINUX_NOT_ANDROID
@@ -274,8 +304,9 @@
 #if SI_LINUX_NOT_ANDROID &&                                                \
     (defined(__i386) || defined(__x86_64) || defined(__mips64) ||          \
      defined(__powerpc64__) || defined(__aarch64__) || defined(__arm__) || \
-     defined(__s390__) || defined(__loongarch__) || SANITIZER_RISCV64)
-#define SANITIZER_INTERCEPT_PTRACE 1
+     defined(__s390__) || defined(__loongarch__) || SANITIZER_RISCV64 ||   \
+     defined(__sparc__))
+#  define SANITIZER_INTERCEPT_PTRACE 1
 #else
 #define SANITIZER_INTERCEPT_PTRACE 0
 #endif
@@ -314,6 +345,8 @@
 #define SANITIZER_INTERCEPT_GETGROUPS SI_POSIX
 #define SANITIZER_INTERCEPT_POLL SI_POSIX
 #define SANITIZER_INTERCEPT_PPOLL SI_LINUX_NOT_ANDROID || SI_SOLARIS
+#define SANITIZER_INTERCEPT_EPOLL (SI_LINUX)
+#define SANITIZER_INTERCEPT_KQUEUE (SI_FREEBSD || SI_NETBSD || SI_MAC)
 #define SANITIZER_INTERCEPT_WORDEXP                                          \
   (SI_FREEBSD || SI_NETBSD || (SI_MAC && !SI_IOS) || SI_LINUX_NOT_ANDROID || \
    SI_SOLARIS)
@@ -494,7 +527,8 @@
 #define SANITIZER_INTERCEPT_PVALLOC (SI_GLIBC || SI_ANDROID)
 #define SANITIZER_INTERCEPT_CFREE (SI_GLIBC && !SANITIZER_RISCV64)
 #define SANITIZER_INTERCEPT_REALLOCARRAY SI_POSIX
-#define SANITIZER_INTERCEPT_ALIGNED_ALLOC (!SI_MAC)
+#define SANITIZER_INTERCEPT_ALIGNED_ALLOC \
+  (!SI_MAC || SI_MAC_SDK_10_15_AVAILABLE)
 #define SANITIZER_INTERCEPT_MALLOC_USABLE_SIZE (!SI_MAC && !SI_NETBSD)
 #define SANITIZER_INTERCEPT_MCHECK_MPROBE SI_LINUX_NOT_ANDROID
 #define SANITIZER_INTERCEPT_WCSLEN 1
@@ -559,10 +593,8 @@
 #define SANITIZER_INTERCEPT_SHA1 SI_NETBSD
 #define SANITIZER_INTERCEPT_MD4 SI_NETBSD
 #define SANITIZER_INTERCEPT_RMD160 SI_NETBSD
-#define SANITIZER_INTERCEPT_MD5 (SI_NETBSD || SI_FREEBSD)
-#define SANITIZER_INTERCEPT_FSEEK (SI_NETBSD || SI_FREEBSD)
+#define SANITIZER_INTERCEPT_FSEEK SI_POSIX
 #define SANITIZER_INTERCEPT_MD2 SI_NETBSD
-#define SANITIZER_INTERCEPT_SHA2 (SI_NETBSD || SI_FREEBSD)
 #define SANITIZER_INTERCEPT_CDB SI_NETBSD
 #define SANITIZER_INTERCEPT_VIS (SI_NETBSD || SI_FREEBSD)
 #define SANITIZER_INTERCEPT_POPEN SI_POSIX
@@ -601,7 +633,13 @@
 // FIXME: also available from musl 1.2.5
 #define SANITIZER_INTERCEPT_PREADV2 (SI_LINUX && __GLIBC_PREREQ(2, 26))
 #define SANITIZER_INTERCEPT_PWRITEV2 (SI_LINUX && __GLIBC_PREREQ(2, 26))
-
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && \
+    __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000
+#  define SI_MAC_OS_DEPLOYMENT_MIN_13_00 1
+#else
+#  define SI_MAC_OS_DEPLOYMENT_MIN_13_00 0
+#endif
+#define SANITIZER_INTERCEPT_FREADLINK (SI_MAC && SI_MAC_OS_DEPLOYMENT_MIN_13_00)
 // This macro gives a way for downstream users to override the above
 // interceptor macros irrespective of the platform they are on. They have
 // to do two things:

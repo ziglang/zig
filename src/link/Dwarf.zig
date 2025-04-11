@@ -23,12 +23,11 @@ debug_str: StringSection,
 pub const UpdateError = error{
     ReinterpretDeclRef,
     Unimplemented,
-    OutOfMemory,
     EndOfStream,
-    Overflow,
     Underflow,
     UnexpectedEndOfFile,
 } ||
+    codegen.GenerateSymbolError ||
     std.fs.File.OpenError ||
     std.fs.File.SetEndPosError ||
     std.fs.File.CopyRangeError ||
@@ -1439,7 +1438,7 @@ pub const WipNav = struct {
     debug_info: std.ArrayListUnmanaged(u8),
     debug_line: std.ArrayListUnmanaged(u8),
     debug_loclists: std.ArrayListUnmanaged(u8),
-    pending_lazy: std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: PendingLazy,
 
     pub fn deinit(wip_nav: *WipNav) void {
         const gpa = wip_nav.dwarf.gpa;
@@ -1448,7 +1447,8 @@ pub const WipNav = struct {
         wip_nav.debug_info.deinit(gpa);
         wip_nav.debug_line.deinit(gpa);
         wip_nav.debug_loclists.deinit(gpa);
-        wip_nav.pending_lazy.deinit(gpa);
+        wip_nav.pending_lazy.types.deinit(gpa);
+        wip_nav.pending_lazy.values.deinit(gpa);
     }
 
     pub fn genDebugFrame(wip_nav: *WipNav, loc: u32, cfa: Cfa) UpdateError!void {
@@ -1835,7 +1835,7 @@ pub const WipNav = struct {
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        if (maybe_inst_index == null) try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, ty.toIntern());
+        if (maybe_inst_index == null) try wip_nav.pending_lazy.types.append(wip_nav.dwarf.gpa, ty.toIntern());
         return .{ unit, entry };
     }
 
@@ -1849,14 +1849,16 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
-        if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (!value.isUndef(zcu)) {
+            if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
+            if (ip.isFunctionType(ty.toIntern())) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        }
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, value.toIntern());
+        try wip_nav.pending_lazy.values.append(wip_nav.dwarf.gpa, value.toIntern());
         return .{ unit, entry };
     }
 
@@ -2008,9 +2010,9 @@ pub const WipNav = struct {
                     .decl_const_runtime_bits,
                     .decl_const_comptime_state,
                     .decl_const_runtime_bits_comptime_state,
-                    .decl_empty_func,
+                    .decl_nullary_func,
                     .decl_func,
-                    .decl_empty_func_generic,
+                    .decl_nullary_func_generic,
                     .decl_func_generic,
                     => false,
                     .generic_decl_var,
@@ -2052,12 +2054,20 @@ pub const WipNav = struct {
         try wip_nav.infoSectionOffset(.debug_info, wip_nav.unit, generic_decl_entry, 0);
     }
 
+    const PendingLazy = struct {
+        types: std.ArrayListUnmanaged(InternPool.Index),
+        values: std.ArrayListUnmanaged(InternPool.Index),
+
+        const empty: PendingLazy = .{ .types = .empty, .values = .empty };
+    };
+
     fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) UpdateError!void {
-        const ip = &wip_nav.pt.zcu.intern_pool;
-        while (wip_nav.pending_lazy.pop()) |val| switch (ip.typeOf(val)) {
-            .type_type => try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-            else => try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-        };
+        while (true) if (wip_nav.pending_lazy.types.pop()) |pending_ty|
+            try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, pending_ty, &wip_nav.pending_lazy)
+        else if (wip_nav.pending_lazy.values.pop()) |pending_val|
+            try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, pending_val, &wip_nav.pending_lazy)
+        else
+            break;
     }
 };
 
@@ -2626,8 +2636,8 @@ pub fn finishWipNavFunc(
                 abbrev_code_buf,
                 try dwarf.refAbbrevCode(switch (abbrev_code) {
                     else => unreachable,
-                    .decl_func => .decl_empty_func,
-                    .decl_instance_func => .decl_instance_empty_func,
+                    .decl_func => .decl_nullary_func,
+                    .decl_instance_func => .decl_instance_nullary_func,
                 }),
             );
         }
@@ -3012,29 +3022,34 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             if (nav_gop.found_existing) switch (try dwarf.debug_info.declAbbrevCode(wip_nav.unit, nav_gop.value_ptr.*)) {
                 .null => {},
                 else => unreachable,
-                .decl_empty_func, .decl_func, .decl_instance_empty_func, .decl_instance_func => return,
-                .decl_empty_func_generic,
+                .decl_nullary_func, .decl_func, .decl_instance_nullary_func, .decl_instance_func => return,
+                .decl_nullary_func_generic,
                 .decl_func_generic,
-                .decl_instance_empty_func_generic,
+                .decl_instance_nullary_func_generic,
                 .decl_instance_func_generic,
                 => dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear(),
             } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
 
             const func_type = ip.indexToKey(func.ty).func_type;
+            const is_nullary = !func_type.is_var_args and for (0..func_type.param_types.len) |param_index| {
+                if (!func_type.paramIsComptime(std.math.cast(u5, param_index) orelse break false)) break false;
+            } else true;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try wip_nav.declCommon(if (func_type.param_types.len > 0 or func_type.is_var_args) .{
+            try wip_nav.declCommon(if (is_nullary) .{
+                .decl = .decl_nullary_func_generic,
+                .generic_decl = .generic_decl_func,
+                .decl_instance = .decl_instance_nullary_func_generic,
+            } else .{
                 .decl = .decl_func_generic,
                 .generic_decl = .generic_decl_func,
                 .decl_instance = .decl_instance_func_generic,
-            } else .{
-                .decl = .decl_empty_func_generic,
-                .generic_decl = .generic_decl_func,
-                .decl_instance = .decl_instance_empty_func_generic,
             }, &nav, inst_info.file, &decl);
             try wip_nav.refType(.fromInterned(func_type.return_type));
-            if (func_type.param_types.len > 0 or func_type.is_var_args) {
+            if (!is_nullary) {
                 for (0..func_type.param_types.len) |param_index| {
+                    if (std.math.cast(u5, param_index)) |small_param_index|
+                        if (func_type.paramIsComptime(small_param_index)) continue;
                     try wip_nav.abbrevCode(.func_type_param);
                     try wip_nav.refType(.fromInterned(func_type.param_types.get(ip)[param_index]));
                 }
@@ -3129,7 +3144,7 @@ fn updateLazyType(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     type_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -3568,12 +3583,14 @@ fn updateLazyType(
             };
             try diw.writeByte(@intFromEnum(cc));
             try wip_nav.refType(.fromInterned(func_type.return_type));
-            for (0..func_type.param_types.len) |param_index| {
-                try wip_nav.abbrevCode(.func_type_param);
-                try wip_nav.refType(.fromInterned(func_type.param_types.get(ip)[param_index]));
+            if (!is_nullary) {
+                for (0..func_type.param_types.len) |param_index| {
+                    try wip_nav.abbrevCode(.func_type_param);
+                    try wip_nav.refType(.fromInterned(func_type.param_types.get(ip)[param_index]));
+                }
+                if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
             }
-            if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
-            if (!is_nullary) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .error_set_type => |error_set_type| {
             try wip_nav.abbrevCode(if (error_set_type.names.len == 0) .generated_empty_enum_type else .generated_enum_type);
@@ -3629,7 +3646,7 @@ fn updateLazyValue(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     value_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -4787,9 +4804,9 @@ const AbbrevCode = enum {
     decl_const_runtime_bits,
     decl_const_comptime_state,
     decl_const_runtime_bits_comptime_state,
-    decl_empty_func,
+    decl_nullary_func,
     decl_func,
-    decl_empty_func_generic,
+    decl_nullary_func_generic,
     decl_func_generic,
     generic_decl_var,
     generic_decl_const,
@@ -4806,9 +4823,9 @@ const AbbrevCode = enum {
     decl_instance_const_runtime_bits,
     decl_instance_const_comptime_state,
     decl_instance_const_runtime_bits_comptime_state,
-    decl_instance_empty_func,
+    decl_instance_nullary_func,
     decl_instance_func,
-    decl_instance_empty_func_generic,
+    decl_instance_nullary_func_generic,
     decl_instance_func_generic,
     // the rest are unrestricted other than empty variants must not be longer
     // than the non-empty variant, and so should appear first
@@ -5019,7 +5036,7 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .decl_empty_func = .{
+        .decl_nullary_func = .{
             .tag = .subprogram,
             .attrs = decl_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
@@ -5044,7 +5061,7 @@ const AbbrevCode = enum {
                 .{ .noreturn, .flag },
             },
         },
-        .decl_empty_func_generic = .{
+        .decl_nullary_func_generic = .{
             .tag = .subprogram,
             .attrs = decl_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
@@ -5167,7 +5184,7 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .decl_instance_empty_func = .{
+        .decl_instance_nullary_func = .{
             .tag = .subprogram,
             .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
@@ -5192,7 +5209,7 @@ const AbbrevCode = enum {
                 .{ .noreturn, .flag },
             },
         },
-        .decl_instance_empty_func_generic = .{
+        .decl_instance_nullary_func_generic = .{
             .tag = .subprogram,
             .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
