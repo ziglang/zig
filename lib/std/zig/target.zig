@@ -352,6 +352,38 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     }
 }
 
+pub fn intByteSize(target: std.Target, bits: u16) u19 {
+    return std.mem.alignForward(u19, @intCast((@as(u17, bits) + 7) / 8), intAlignment(target, bits));
+}
+
+pub fn intAlignment(target: std.Target, bits: u16) u16 {
+    return switch (target.cpu.arch) {
+        .x86 => switch (bits) {
+            0 => 0,
+            1...8 => 1,
+            9...16 => 2,
+            17...32 => 4,
+            33...64 => switch (target.os.tag) {
+                .uefi, .windows => 8,
+                else => 4,
+            },
+            else => 16,
+        },
+        .x86_64 => switch (bits) {
+            0 => 0,
+            1...8 => 1,
+            9...16 => 2,
+            17...32 => 4,
+            33...64 => 8,
+            else => 16,
+        },
+        else => return @min(
+            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
+            target.cMaxIntAlignment(),
+        ),
+    };
+}
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
