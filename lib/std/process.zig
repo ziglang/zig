@@ -1748,7 +1748,12 @@ pub const TotalSystemMemoryError = error{
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (native_os) {
         .linux => {
-            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+            var info: std.os.linux.Sysinfo = undefined;
+            const result: usize = std.os.linux.sysinfo(&info);
+            if (std.os.linux.E.init(result) != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            return info.totalram * info.mem_unit;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
@@ -1791,22 +1796,6 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         },
         else => return error.UnknownTotalSystemMemory,
     }
-}
-
-fn totalSystemMemoryLinux() !u64 {
-    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
-    defer file.close();
-    var buf: [50]u8 = undefined;
-    const amt = try file.read(&buf);
-    if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
-    const label = it.next().?;
-    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
-    const int_text = it.next() orelse return error.Unexpected;
-    const units = it.next() orelse return error.Unexpected;
-    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
-    const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
-    return kilobytes * 1024;
 }
 
 /// Indicate that we are now terminating with a successful exit code.
