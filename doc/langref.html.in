@@ -1649,6 +1649,7 @@ unwrapped == 1234{#endsyntax#}</pre>
               <li>{#link|Floats#}</li>
               <li>{#link|bool|Primitive Types#}</li>
               <li>{#link|type|Primitive Types#}</li>
+              <li>{#link|packed struct#}</li>
             </ul>
           </td>
           <td>
@@ -2224,27 +2225,24 @@ or
 
       {#header_open|packed struct#}
       <p>
-      Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
+      {#syntax#}packed{#endsyntax#} structs, like {#syntax#}enum{#endsyntax#}, are based on the concept
+      of interpreting integers differently. All packed structs have a <strong>backing integer</strong>,
+      which is implicitly determined by the total bit count of fields, or explicitly specified.
+      Packed structs have well-defined memory layout - exactly the same ABI as their backing integer.
+      </p>
+      <p>
+      Each field of a packed struct is interpreted as a logical sequence of bits, arranged from
+      least to most significant. Allowed field types:
       </p>
       <ul>
-        <li>Fields are arranged in the order declared, from the least to the most significant bits of a backing integer.</li>
-        <li>There is no padding between fields.</li>
-        <li>The backing integer has the same bit width as the fields' total bit width.</li>
-        <li>The backing integer is subject to the same rules as any integer, including {#link|alignment|Alignment#}, 
-        having a maximum bit count of 65535, and the host endianness.
-        On a big endian system, the first declared field will have the highest memory address, and on a little endian system, the lowest.
-        </li>
-        <li>Due to {#link|alignment|Alignment#}, the backing integer may require more memory that its bit width. {#link|@bitSizeOf|@bitSizeOf#} and {#link|@sizeOf|@sizeOf#} can interrogate the difference.</li>
-        <li>Field access and assignment can be understood as shorthand for bitshifts on the backing integer.</li>
-        <li>An {#link|integer|Integers#} field uses exactly as many bits as its bit width. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of the backing integer.</li>
+        <li>An {#link|integer|Integers#} field uses exactly as many bits as its
+        bit width. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of
+        the backing integer.</li>
         <li>A {#link|bool|Primitive Types#} field uses exactly 1 bit.</li>
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>A {#syntax#}packed struct{#endsyntax#} field, when within a {#syntax#}packed struct{#endsyntax#}, uses exactly the bit width of its backing integer. For example,
-          a {#syntax#}packed struct{#endsyntax#} field having backing integer {#syntax#}u17{#endsyntax#} uses 17 bits of its parent's backing integer.
-        </li>
-        <li>Packed structs support equality operators.</li>
+        <li>A {#syntax#}packed struct{#endsyntax#} field uses the bits of its backing integer.</li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -2252,9 +2250,11 @@ or
       This even works at {#link|comptime#}:
       </p>
       {#code|test_packed_structs.zig#}
-
       <p>
-      The backing integer can be inferred or explicitly provided. When inferred, it will be unsigned. When explicitly provided, its bit width will be enforced at compile time to exactly match the total bit width of the fields:
+      The backing integer can be inferred or explicitly provided. When
+      inferred, it will be unsigned. When explicitly provided, its bit width
+      will be enforced at compile time to exactly match the total bit width of
+      the fields:
       </p>
       {#code|test_missized_packed_struct.zig#}
 
@@ -2296,17 +2296,18 @@ or
 
       <p>
       Equating packed structs results in a comparison of the backing integer, 
-      and only works for the `==` and `!=` operators.
+      and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
       </p>
       {#code|test_packed_struct_equality.zig#}
 
       <p>
-      Packed structs can be used to interact with memory-mapped input-output (MMIO), which is
-      common in embedded applications. A pointer of the correct alignment and address to a packed struct
-      can be constructed to faciltiate manipulation of bit-packed registers without arduous bitshifting.
-      
-      {#code|packed_struct_mmio.zig#}
+      Field access and assignment can be understood as shorthand for bitshifts
+      on the backing integer. These operations are not {#link|atomic|Atomics#},
+      so beware using field access syntax when combined with memory-mapped
+      input-output (MMIO). Instead of field access on {#link|volatile#} {#link|Pointers#},
+      construct a fully-formed new value first, then write that value to the volatile pointer.
       </p>
+      {#code|packed_struct_mmio.zig#}
       {#header_close#}
 
       {#header_open|Struct Naming#}
