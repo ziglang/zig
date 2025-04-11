@@ -197,12 +197,6 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.entitlements = entitlements;
 
-    exe.build_id = b.option(
-        std.zig.BuildId,
-        "build-id",
-        "Request creation of '.note.gnu.build-id' section",
-    );
-
     if (no_bin) {
         b.getInstallStep().dependOn(&exe.step);
     } else {
