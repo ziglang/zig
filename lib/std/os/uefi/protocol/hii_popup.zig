@@ -4,15 +4,33 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.hii;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Display a popup window
 pub const HiiPopup = extern struct {
     revision: u64,
     _create_popup: *const fn (*const HiiPopup, PopupStyle, PopupType, hii.Handle, u16, ?*PopupSelection) callconv(cc) Status,
 
+    pub const CreatePopupError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        OutOfResources,
+    };
+
     /// Displays a popup window.
-    pub fn createPopup(self: *const HiiPopup, style: PopupStyle, popup_type: PopupType, handle: hii.Handle, msg: u16, user_selection: ?*PopupSelection) Status {
-        return self._create_popup(self, style, popup_type, handle, msg, user_selection);
+    pub fn createPopup(
+        self: *const HiiPopup,
+        style: PopupStyle,
+        popup_type: PopupType,
+        handle: hii.Handle,
+        msg: u16,
+    ) CreatePopupError!PopupSelection {
+        var res: PopupSelection = undefined;
+        switch (self._create_popup(self, style, popup_type, handle, msg, &res)) {
+            .success => return res,
+            .invalid_parameter => return Error.InvalidParameter,
+            .out_of_resources => return Error.OutOfResources,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

@@ -1859,8 +1859,17 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).branch_hint == .cold)
-            try w.writeAll("zig_cold ");
+
+        if (fn_val.getFunction(zcu)) |func| {
+            const func_analysis = func.analysisUnordered(ip);
+
+            if (func_analysis.branch_hint == .cold)
+                try w.writeAll("zig_cold ");
+
+            if (kind == .complete and func_analysis.disable_intrinsics or dg.mod.no_builtin)
+                try w.writeAll("zig_no_builtin ");
+        }
+
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         var trailing = try renderTypePrefix(dg.pass, &dg.ctype_pool, zcu, w, fn_ctype, .suffix, .{});
@@ -8166,7 +8175,7 @@ fn formatIntLiteral(
         try writer.writeAll(string);
     } else {
         try data.ctype.renderLiteralPrefix(writer, data.kind, ctype_pool);
-        wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
+        wrap.truncate(int, .unsigned, c_bits);
         @memset(wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
@@ -8198,7 +8207,6 @@ fn formatIntLiteral(
                 c_limb_int_info.signedness = .signed;
                 c_limb_ctype = c_limb_info.ctype.toSigned();
 
-                c_limb_mut.positive = wrap.positive;
                 c_limb_mut.truncate(
                     c_limb_mut.toConst(),
                     .signed,

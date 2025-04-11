@@ -10,17 +10,18 @@ pub const Feature = enum {
     v1_4,
     v1_5,
     v1_6,
-    int8,
-    int16,
     int64,
     float16,
     float64,
-    addresses,
     matrix,
+    storage_push_constant16,
+    arbitrary_precision_integers,
     kernel,
+    addresses,
     generic_pointer,
     vector16,
     shader,
+    physical_storage_buffer,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -35,93 +36,98 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.v1_0)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.0",
+        .description = "Enable version 1.0",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v1_1)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.1",
+        .description = "Enable version 1.1",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.v1_2)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.2",
+        .description = "Enable version 1.2",
         .dependencies = featureSet(&[_]Feature{.v1_1}),
     };
     result[@intFromEnum(Feature.v1_3)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.3",
+        .description = "Enable version 1.3",
         .dependencies = featureSet(&[_]Feature{.v1_2}),
     };
     result[@intFromEnum(Feature.v1_4)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.4",
+        .description = "Enable version 1.4",
         .dependencies = featureSet(&[_]Feature{.v1_3}),
     };
     result[@intFromEnum(Feature.v1_5)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.5",
+        .description = "Enable version 1.5",
         .dependencies = featureSet(&[_]Feature{.v1_4}),
     };
     result[@intFromEnum(Feature.v1_6)] = .{
         .llvm_name = null,
-        .description = "SPIR-V version 1.6",
+        .description = "Enable version 1.6",
         .dependencies = featureSet(&[_]Feature{.v1_5}),
-    };
-    result[@intFromEnum(Feature.int8)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability Int8",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
-    result[@intFromEnum(Feature.int16)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability Int16",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.int64)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Int64",
+        .description = "Enable Int64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.float16)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Float16",
+        .description = "Enable Float16 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.float64)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Float64",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
-    result[@intFromEnum(Feature.addresses)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability Addresses",
+        .description = "Enable Float64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.matrix)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Matrix",
+        .description = "Enable Matrix capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
+    result[@intFromEnum(Feature.storage_push_constant16)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
+        .dependencies = featureSet(&[_]Feature{.v1_3}),
+    };
+    result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
+        .dependencies = featureSet(&[_]Feature{.v1_5}),
     };
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Kernel",
+        .description = "Enable Kernel capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
+    result[@intFromEnum(Feature.addresses)] = .{
+        .llvm_name = null,
+        .description = "Enable Addresses capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.generic_pointer)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability GenericPointer",
+        .description = "Enable GenericPointer capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .addresses }),
     };
     result[@intFromEnum(Feature.vector16)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Vector16",
+        .description = "Enable Vector16 capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .kernel }),
     };
     result[@intFromEnum(Feature.shader)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability Shader",
+        .description = "Enable Shader capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .matrix }),
+    };
+    result[@intFromEnum(Feature.physical_storage_buffer)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
@@ -141,7 +147,7 @@ pub const cpu = struct {
     pub const vulkan_v1_2: CpuModel = .{
         .name = "vulkan_v1_2",
         .llvm_name = null,
-        .features = featureSet(&[_]Feature{ .v1_5, .shader, .addresses }),
+        .features = featureSet(&[_]Feature{ .v1_5, .shader, .physical_storage_buffer }),
     };
 
     pub const opencl_v2: CpuModel = .{

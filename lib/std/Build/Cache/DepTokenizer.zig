@@ -25,7 +25,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
             },
             .target => switch (char) {
-                '\t', '\n', '\r', ' ' => {
+                '\n', '\r' => {
                     return errorIllegalChar(.invalid_target, self.index, char);
                 },
                 '$' => {
@@ -39,6 +39,15 @@ pub fn next(self: *Tokenizer) ?Token {
                 ':' => {
                     self.state = .target_colon;
                     self.index += 1;
+                },
+                '\t', ' ' => {
+                    self.state = .target_space;
+
+                    const bytes = self.bytes[start..self.index];
+                    std.debug.assert(bytes.len != 0);
+                    self.index += 1;
+
+                    return finishTarget(must_resolve, bytes);
                 },
                 else => {
                     self.index += 1;
@@ -108,6 +117,19 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
                 else => {
                     self.state = .target;
+                },
+            },
+            .target_space => switch (char) {
+                '\t', ' ' => {
+                    // silently ignore additional horizontal whitespace
+                    self.index += 1;
+                },
+                ':' => {
+                    self.state = .rhs;
+                    self.index += 1;
+                },
+                else => {
+                    return errorIllegalChar(.expected_colon, self.index, char);
                 },
             },
             .rhs => switch (char) {
@@ -256,6 +278,10 @@ pub fn next(self: *Tokenizer) ?Token {
                 self.state = .lhs;
                 return null;
             },
+            .target_space => {
+                const idx = self.index - 1;
+                return errorIllegalChar(.expected_colon, idx, self.bytes[idx]);
+            },
             .prereq_quote => {
                 return errorPosition(.incomplete_quoted_prerequisite, start, self.bytes[start..]);
             },
@@ -299,6 +325,7 @@ const State = enum {
     target_dollar_sign,
     target_colon,
     target_colon_reverse_solidus,
+    target_space,
     rhs,
     rhs_continuation,
     rhs_continuation_linefeed,
@@ -322,6 +349,7 @@ pub const Token = union(enum) {
     expected_dollar_sign: IndexAndChar,
     continuation_eol: IndexAndChar,
     incomplete_escape: IndexAndChar,
+    expected_colon: IndexAndChar,
 
     pub const IndexAndChar = struct {
         index: usize,
@@ -420,6 +448,7 @@ pub const Token = union(enum) {
             .expected_dollar_sign,
             .continuation_eol,
             .incomplete_escape,
+            .expected_colon,
             => |index_and_char| {
                 try writer.writeAll("illegal char ");
                 try printUnderstandableChar(writer, index_and_char.char);
@@ -438,6 +467,7 @@ pub const Token = union(enum) {
             .expected_dollar_sign => "expecting '$'",
             .continuation_eol => "continuation expecting end-of-line",
             .incomplete_escape => "incomplete escape",
+            .expected_colon => "expecting ':'",
         };
     }
 };
@@ -543,6 +573,16 @@ test "empty target linefeeds + hspace + continuations" {
         \\foo.o: \
         \\
     , expect);
+}
+
+test "empty target + hspace + colon" {
+    const expect = "target = {foo.o}";
+
+    try depTokenizer("foo.o :", expect);
+    try depTokenizer("foo.o\t\t\t:", expect);
+    try depTokenizer("foo.o \t \t :", expect);
+    try depTokenizer("\r\nfoo.o :", expect);
+    try depTokenizer(" foo.o :", expect);
 }
 
 test "prereq" {
@@ -923,9 +963,6 @@ test "error illegal char at position - expecting dollar_sign" {
 }
 
 test "error illegal char at position - invalid target" {
-    try depTokenizer("foo\t.o",
-        \\ERROR: illegal char \x09 at position 3: invalid target
-    );
     try depTokenizer("foo\n.o",
         \\ERROR: illegal char \x0A at position 3: invalid target
     );
@@ -960,6 +997,25 @@ test "error prereq - continuation expecting end-of-line" {
     try depTokenizer("foo.o: foo.h\\\x0dx",
         \\target = {foo.o}
         \\ERROR: illegal char 'x' at position 14: continuation expecting end-of-line
+    );
+}
+
+test "error illegal char at position - expecting colon" {
+    try depTokenizer("foo\t.o:",
+        \\target = {foo}
+        \\ERROR: illegal char '.' at position 4: expecting ':'
+    );
+    try depTokenizer("foo .o:",
+        \\target = {foo}
+        \\ERROR: illegal char '.' at position 4: expecting ':'
+    );
+    try depTokenizer("foo \n.o:",
+        \\target = {foo}
+        \\ERROR: illegal char \x0A at position 4: expecting ':'
+    );
+    try depTokenizer("foo.o\t\n:",
+        \\target = {foo.o}
+        \\ERROR: illegal char \x0A at position 6: expecting ':'
     );
 }
 

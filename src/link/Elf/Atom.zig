@@ -1783,9 +1783,9 @@ const aarch64 = struct {
                     aarch64_util.writeAddImmInst(off, code);
                 } else {
                     const old_inst: Instruction = .{
-                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
                             Instruction,
-                            Instruction.add_subtract_immediate,
+                            @tagName(Instruction.add_subtract_immediate),
                         ), code),
                     };
                     const rd: Register = @enumFromInt(old_inst.add_subtract_immediate.rd);
@@ -1797,9 +1797,9 @@ const aarch64 = struct {
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
                 const old_inst: Instruction = .{
-                    .unconditional_branch_register = mem.bytesToValue(std.meta.TagPayload(
+                    .unconditional_branch_register = mem.bytesToValue(@FieldType(
                         Instruction,
-                        Instruction.unconditional_branch_register,
+                        @tagName(Instruction.unconditional_branch_register),
                     ), code),
                 };
                 const rn: Register = @enumFromInt(old_inst.unconditional_branch_register.rn);

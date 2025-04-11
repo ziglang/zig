@@ -50,7 +50,7 @@ pub fn findByMnemonic(
         else => {},
     } else false;
     const rex_extended = for (ops) |op| {
-        if (op.isBaseExtended() or op.isIndexExtended()) break true;
+        if (op.baseExtEnc() != 0b00 or op.indexExtEnc() != 0b00) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
@@ -592,6 +592,7 @@ pub const Op = enum {
                         else => unreachable,
                     },
                 },
+                .gphi => .r8,
                 .segment => .sreg,
                 .x87 => switch (reg) {
                     .st0 => .st0,
@@ -1015,20 +1016,23 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_800);
+    const ModrmExt = u3;
+    const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
+    const encodings: []const Entry = @import("encodings.zon");
+
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
-    const encodings = @import("encodings.zig");
-    for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
-    var data_storage: [encodings.table.len]Data = undefined;
+    for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
+    var data_storage: [encodings.len]Data = undefined;
     var storage_i: usize = 0;
     for (&mnemonic_map) |*value| {
         value.ptr = data_storage[storage_i..].ptr;
         storage_i += value.len;
     }
     var mnemonic_i: [mnemonic_count]usize = @splat(0);
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
-    for (encodings.table) |entry| {
+    const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
+    const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
+    for (encodings) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
             .op_en = entry[1],

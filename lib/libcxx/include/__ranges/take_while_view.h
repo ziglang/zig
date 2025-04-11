@@ -103,7 +103,7 @@ template <view _View, class _Pred>
   requires input_range<_View> && is_object_v<_Pred> && indirect_unary_predicate<const _Pred, iterator_t<_View>>
 template <bool _Const>
 class take_while_view<_View, _Pred>::__sentinel {
-  using _Base = __maybe_const<_Const, _View>;
+  using _Base _LIBCPP_NODEBUG = __maybe_const<_Const, _View>;
 
   sentinel_t<_Base> __end_ = sentinel_t<_Base>();
   const _Pred* __pred_     = nullptr;
@@ -149,7 +149,7 @@ struct __fn {
     requires constructible_from<decay_t<_Pred>, _Pred>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Pred&& __pred) const
       noexcept(is_nothrow_constructible_v<decay_t<_Pred>, _Pred>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Pred>(__pred)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Pred>(__pred)));
   }
 };
 

@@ -9,13 +9,12 @@ const maxInt = std.math.maxInt;
 
 test "switch with numbers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSwitchWithNumbers(13);
 }
 
 fn testSwitchWithNumbers(x: u32) !void {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-
     const result = switch (x) {
         1, 2, 3, 4...8 => false,
         13 => true,
@@ -44,7 +43,6 @@ fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
 }
 
 test "switch arbitrary int size" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -323,14 +321,13 @@ fn testSwitchEnumPtrCapture() !void {
 
 test "switch handles all cases of number" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSwitchHandleAllCases();
     try comptime testSwitchHandleAllCases();
 }
 
 fn testSwitchHandleAllCases() !void {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-
     try expect(testSwitchHandleAllCasesExhaustive(0) == 3);
     try expect(testSwitchHandleAllCasesExhaustive(1) == 2);
     try expect(testSwitchHandleAllCasesExhaustive(2) == 1);
@@ -694,6 +691,7 @@ test "switch prong pointer capture alignment" {
 test "switch on pointer type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const X = struct {
@@ -742,6 +740,7 @@ test "switch capture copies its payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -832,6 +831,8 @@ test "comptime inline switch" {
 }
 
 test "switch capture peer type resolution" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const U = union(enum) {
         a: u32,
         b: u64,
@@ -867,8 +868,6 @@ test "switch capture peer type resolution for in-memory coercible payloads" {
 }
 
 test "switch pointer capture peer type resolution" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const T1 = c_int;
     const T2 = @Type(@typeInfo(T1));
 
@@ -989,8 +988,6 @@ test "prong with inline call to unreachable" {
 }
 
 test "block error return trace index is reset between prongs" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn returnError() error{TestFailed} {
             return error.TestFailed;

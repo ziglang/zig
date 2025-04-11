@@ -17,9 +17,11 @@
 // The asm hack only works with GCC and Clang.
 #    if !defined(_WIN32)
 
-asm("memcpy = __sanitizer_internal_memcpy");
-asm("memmove = __sanitizer_internal_memmove");
-asm("memset = __sanitizer_internal_memset");
+asm(R"(
+    .set memcpy, __sanitizer_internal_memcpy
+    .set memmove, __sanitizer_internal_memmove
+    .set memset, __sanitizer_internal_memset
+    )");
 
 #      if defined(__cplusplus) && \
           !defined(SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD)

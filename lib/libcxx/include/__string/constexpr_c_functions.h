@@ -10,20 +10,23 @@
 #define _LIBCPP___STRING_CONSTEXPR_C_FUNCTIONS_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__type_traits/datasizeof.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_always_bitcastable.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_equality_comparable.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_trivially_copyable.h>
 #include <__type_traits/is_trivially_lexicographically_comparable.h>
 #include <__type_traits/remove_cv.h>
+#include <__utility/element_count.h>
 #include <__utility/is_pointer_in_range.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -31,17 +34,13 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// Type used to encode that a function takes an integer that represents a number
-// of elements as opposed to a number of bytes.
-enum class __element_count : size_t {};
-
 template <class _Tp>
 inline const bool __is_char_type = false;
 
 template <>
 inline const bool __is_char_type<char> = true;
 
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#if _LIBCPP_HAS_CHAR8_T
 template <>
 inline const bool __is_char_type<char8_t> = true;
 #endif
@@ -64,13 +63,13 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 size_t __constexpr_st
   return __builtin_strlen(reinterpret_cast<const char*>(__str));
 }
 
-// Because of __libcpp_is_trivially_lexicographically_comparable we know that comparing the object representations is
+// Because of __is_trivially_lexicographically_comparable_v we know that comparing the object representations is
 // equivalent to a std::memcmp. Since we have multiple objects contiguously in memory, we can call memcmp once instead
 // of invoking it on every object individually.
 template <class _Tp, class _Up>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int
 __constexpr_memcmp(const _Tp* __lhs, const _Up* __rhs, __element_count __n) {
-  static_assert(__libcpp_is_trivially_lexicographically_comparable<_Tp, _Up>::value,
+  static_assert(__is_trivially_lexicographically_comparable_v<_Tp, _Up>,
                 "_Tp and _Up have to be trivially lexicographically comparable");
 
   auto __count = static_cast<size_t>(__n);

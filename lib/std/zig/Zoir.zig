@@ -228,8 +228,8 @@ pub const NullTerminatedString = enum(u32) {
 
 pub const CompileError = extern struct {
     msg: NullTerminatedString,
-    token: Ast.TokenIndex,
-    /// If `token == invalid_token`, this is an `Ast.Node.Index`.
+    token: Ast.OptionalTokenIndex,
+    /// If `token == .none`, this is an `Ast.Node.Index`.
     /// Otherwise, this is a byte offset into `token`.
     node_or_offset: u32,
 
@@ -243,13 +243,11 @@ pub const CompileError = extern struct {
 
     pub const Note = extern struct {
         msg: NullTerminatedString,
-        token: Ast.TokenIndex,
-        /// If `token == invalid_token`, this is an `Ast.Node.Index`.
+        token: Ast.OptionalTokenIndex,
+        /// If `token == .none`, this is an `Ast.Node.Index`.
         /// Otherwise, this is a byte offset into `token`.
         node_or_offset: u32,
     };
-
-    pub const invalid_token: Ast.TokenIndex = std.math.maxInt(Ast.TokenIndex);
 
     comptime {
         assert(std.meta.hasUniqueRepresentation(CompileError));

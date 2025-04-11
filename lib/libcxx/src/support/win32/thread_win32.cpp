@@ -129,7 +129,7 @@ __libcpp_init_once_execute_once_thunk(PINIT_ONCE __init_once, PVOID __parameter,
 
 int __libcpp_execute_once(__libcpp_exec_once_flag* __flag, void (*__init_routine)(void)) {
   if (!InitOnceExecuteOnce(
-          (PINIT_ONCE)__flag, __libcpp_init_once_execute_once_thunk, reinterpret_cast<void*>(__init_routine), NULL))
+          (PINIT_ONCE)__flag, __libcpp_init_once_execute_once_thunk, reinterpret_cast<void*>(__init_routine), nullptr))
     return GetLastError();
   return 0;
 }

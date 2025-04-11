@@ -34,27 +34,27 @@ inline fn XcmpXi2(comptime T: type, a: T, b: T) i32 {
     return cmp1 - cmp2 + 1;
 }
 
-pub fn __cmpsi2(a: i32, b: i32) callconv(.C) i32 {
+pub fn __cmpsi2(a: i32, b: i32) callconv(.c) i32 {
     return XcmpXi2(i32, a, b);
 }
 
-pub fn __cmpdi2(a: i64, b: i64) callconv(.C) i32 {
+pub fn __cmpdi2(a: i64, b: i64) callconv(.c) i32 {
     return XcmpXi2(i64, a, b);
 }
 
-pub fn __cmpti2(a: i128, b: i128) callconv(.C) i32 {
+pub fn __cmpti2(a: i128, b: i128) callconv(.c) i32 {
     return XcmpXi2(i128, a, b);
 }
 
-pub fn __ucmpsi2(a: u32, b: u32) callconv(.C) i32 {
+pub fn __ucmpsi2(a: u32, b: u32) callconv(.c) i32 {
     return XcmpXi2(u32, a, b);
 }
 
-pub fn __ucmpdi2(a: u64, b: u64) callconv(.C) i32 {
+pub fn __ucmpdi2(a: u64, b: u64) callconv(.c) i32 {
     return XcmpXi2(u64, a, b);
 }
 
-pub fn __ucmpti2(a: u128, b: u128) callconv(.C) i32 {
+pub fn __ucmpti2(a: u128, b: u128) callconv(.c) i32 {
     return XcmpXi2(u128, a, b);
 }
 

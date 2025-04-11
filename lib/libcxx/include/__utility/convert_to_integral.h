@@ -42,7 +42,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR long long __convert_to_integral(_
   return __val;
 }
 
-#ifndef _LIBCPP_HAS_NO_INT128
+#if _LIBCPP_HAS_INT128
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __int128_t __convert_to_integral(__int128_t __val) { return __val; }
 
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __uint128_t __convert_to_integral(__uint128_t __val) { return __val; }

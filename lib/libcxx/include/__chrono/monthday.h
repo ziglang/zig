@@ -13,8 +13,8 @@
 #include <__chrono/calendar.h>
 #include <__chrono/day.h>
 #include <__chrono/month.h>
+#include <__compare/ordering.h>
 #include <__config>
-#include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

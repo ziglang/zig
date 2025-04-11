@@ -24,6 +24,7 @@ pub const LibCInstallation = @import("zig/LibCInstallation.zig");
 pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
+pub const llvm = @import("zig/llvm.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
@@ -311,6 +312,8 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 };
+
+pub const LtoMode = enum { none, full, thin };
 
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.

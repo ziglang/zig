@@ -24,6 +24,7 @@ namespace __sanitizer {
 #define errno_ENOMEM 12
 #define errno_EBUSY 16
 #define errno_EINVAL 22
+#define errno_ERANGE 34
 #define errno_ENAMETOOLONG 36
 #define errno_ENOSYS 38
 

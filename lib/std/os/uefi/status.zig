@@ -231,11 +231,57 @@ pub const Status = enum(usize) {
             else => {},
         }
     }
+
+    pub fn fromError(e: Error) Status {
+        return switch (e) {
+            Error.Aborted => .aborted,
+            Error.AccessDenied => .access_denied,
+            Error.AlreadyStarted => .already_started,
+            Error.BadBufferSize => .bad_buffer_size,
+            Error.BufferTooSmall => .buffer_too_small,
+            Error.CompromisedData => .compromised_data,
+            Error.ConnectionFin => .connection_fin,
+            Error.ConnectionRefused => .connection_refused,
+            Error.ConnectionReset => .connection_reset,
+            Error.CrcError => .crc_error,
+            Error.DeviceError => .device_error,
+            Error.EndOfFile => .end_of_file,
+            Error.EndOfMedia => .end_of_media,
+            Error.HostUnreachable => .host_unreachable,
+            Error.HttpError => .http_error,
+            Error.IcmpError => .icmp_error,
+            Error.IncompatibleVersion => .incompatible_version,
+            Error.InvalidLanguage => .invalid_language,
+            Error.InvalidParameter => .invalid_parameter,
+            Error.IpAddressConflict => .ip_address_conflict,
+            Error.LoadError => .load_error,
+            Error.MediaChanged => .media_changed,
+            Error.NetworkUnreachable => .network_unreachable,
+            Error.NoMapping => .no_mapping,
+            Error.NoMedia => .no_media,
+            Error.NoResponse => .no_response,
+            Error.NotFound => .not_found,
+            Error.NotReady => .not_ready,
+            Error.NotStarted => .not_started,
+            Error.OutOfResources => .out_of_resources,
+            Error.PortUnreachable => .port_unreachable,
+            Error.ProtocolError => .protocol_error,
+            Error.ProtocolUnreachable => .protocol_unreachable,
+            Error.SecurityViolation => .security_violation,
+            Error.TftpError => .tftp_error,
+            Error.Timeout => .timeout,
+            Error.Unsupported => .unsupported,
+            Error.VolumeCorrupted => .volume_corrupted,
+            Error.VolumeFull => .volume_full,
+            Error.WriteProtected => .write_protected,
+        };
+    }
 };
 
 test "status" {
     var st: Status = .device_error;
     try testing.expectError(error.DeviceError, st.err());
+    try testing.expectEqual(st, Status.fromError(st.err()));
 
     st = .success;
     try st.err();

@@ -285,6 +285,10 @@ const known_options = [_]KnownOpt{
         .ident = "sanitize",
     },
     .{
+        .name = "fno-sanitize",
+        .ident = "no_sanitize",
+    },
+    .{
         .name = "T",
         .ident = "linker_script",
     },

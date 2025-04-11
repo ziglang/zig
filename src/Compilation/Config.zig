@@ -32,6 +32,7 @@ any_non_single_threaded: bool,
 /// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
+any_sanitize_c: bool,
 any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
@@ -47,7 +48,7 @@ use_lib_llvm: bool,
 /// and updates the final binary.
 use_lld: bool,
 c_frontend: CFrontend,
-lto: LtoMode,
+lto: std.zig.LtoMode,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -64,8 +65,6 @@ rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
-
-pub const LtoMode = enum { none, full, thin };
 
 pub const DebugFormat = union(enum) {
     strip,
@@ -87,6 +86,7 @@ pub const Options = struct {
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
+    any_sanitize_c: bool = false,
     any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
@@ -103,7 +103,7 @@ pub const Options = struct {
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
-    lto: ?LtoMode = null,
+    lto: ?std.zig.LtoMode = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -286,7 +286,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .clang;
     };
 
-    const lto: LtoMode = b: {
+    const lto: std.zig.LtoMode = b: {
         if (!use_lld) {
             // zig ld LTO support is tracked by
             // https://github.com/ziglang/zig/issues/8680
@@ -476,6 +476,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         .any_non_single_threaded = options.any_non_single_threaded,
         .any_error_tracing = any_error_tracing,
         .any_sanitize_thread = options.any_sanitize_thread,
+        .any_sanitize_c = options.any_sanitize_c,
         .any_fuzz = options.any_fuzz,
         .san_cov_trace_pc_guard = options.san_cov_trace_pc_guard,
         .root_error_tracing = root_error_tracing,

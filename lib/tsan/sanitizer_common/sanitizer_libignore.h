@@ -49,25 +49,36 @@ class LibIgnore {
   bool IsPcInstrumented(uptr pc) const;
 
  private:
+  static const uptr kMaxIgnoredRanges = 128;
+  static const uptr kMaxInstrumentedRanges = 1024;
+  static const uptr kMaxLibs = 1024;
+  static const uptr kInvalidCodeRangeId = -1;
+
   struct Lib {
     char *templ;
     char *name;
     char *real_name;  // target of symlink
-    bool loaded;
+    uptr range_id;
+    bool loaded() const { return range_id != kInvalidCodeRangeId; };
   };
 
   struct LibCodeRange {
+    bool IsInRange(uptr pc) const {
+      return (pc >= begin && pc < atomic_load(&end, memory_order_acquire));
+    }
+
+    void OnLoad(uptr b, uptr e) {
+      begin = b;
+      atomic_store(&end, e, memory_order_release);
+    }
+
+    void OnUnload() { atomic_store(&end, 0, memory_order_release); }
+
+   private:
     uptr begin;
-    uptr end;
+    // A value of 0 means the associated module was unloaded.
+    atomic_uintptr_t end;
   };
-
-  inline bool IsInRange(uptr pc, const LibCodeRange &range) const {
-    return (pc >= range.begin && pc < range.end);
-  }
-
-  static const uptr kMaxIgnoredRanges = 128;
-  static const uptr kMaxInstrumentedRanges = 1024;
-  static const uptr kMaxLibs = 1024;
 
   // Hot part:
   atomic_uintptr_t ignored_ranges_count_;
@@ -90,7 +101,7 @@ class LibIgnore {
 inline bool LibIgnore::IsIgnored(uptr pc, bool *pc_in_ignored_lib) const {
   const uptr n = atomic_load(&ignored_ranges_count_, memory_order_acquire);
   for (uptr i = 0; i < n; i++) {
-    if (IsInRange(pc, ignored_code_ranges_[i])) {
+    if (ignored_code_ranges_[i].IsInRange(pc)) {
       *pc_in_ignored_lib = true;
       return true;
     }
@@ -104,7 +115,7 @@ inline bool LibIgnore::IsIgnored(uptr pc, bool *pc_in_ignored_lib) const {
 inline bool LibIgnore::IsPcInstrumented(uptr pc) const {
   const uptr n = atomic_load(&instrumented_ranges_count_, memory_order_acquire);
   for (uptr i = 0; i < n; i++) {
-    if (IsInRange(pc, instrumented_code_ranges_[i]))
+    if (instrumented_code_ranges_[i].IsInRange(pc))
       return true;
   }
   return false;

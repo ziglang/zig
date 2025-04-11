@@ -74,6 +74,6 @@ void thread_print_set(int state);
 void thread_print(volatile pthread_t t, char *txt);
 #endif
 int  __pthread_shallcancel(void);
-struct _pthread_v *WINPTHREAD_API __pth_gpointer_locked (pthread_t id);
+WINPTHREAD_API struct _pthread_v * __pth_gpointer_locked (pthread_t id);
 
 #endif

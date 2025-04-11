@@ -104,7 +104,11 @@ test {
     _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
-    _ = @import("behavior/vector.zig");
+    // https://github.com/llvm/llvm-project/issues/118879
+    // https://github.com/llvm/llvm-project/issues/134659
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        _ = @import("behavior/vector.zig");
+    }
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
@@ -112,11 +116,11 @@ test {
 
     _ = @import("behavior/x86_64.zig");
 
-    if (builtin.cpu.arch == .wasm32) {
+    if (builtin.zig_backend != .stage2_spirv64 and builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 
-    if (builtin.os.tag != .wasi) {
+    if (builtin.zig_backend != .stage2_spirv64 and builtin.os.tag != .wasi) {
         _ = @import("behavior/asm.zig");
     }
 
@@ -127,7 +131,7 @@ test {
         _ = @import("behavior/export_keyword.zig");
     }
 
-    if (!builtin.cpu.arch.isWasm()) {
+    if (builtin.zig_backend != .stage2_spirv64 and !builtin.cpu.arch.isWasm()) {
         // Due to lack of import/export of global support
         // (https://github.com/ziglang/zig/issues/4866), these tests correctly
         // cause linker errors, since a data symbol cannot be exported when
@@ -140,6 +144,8 @@ test {
 
 // This bug only repros in the root file
 test "deference @embedFile() of a file full of zero bytes" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const contents = @embedFile("behavior/zero.bin").*;
     try @import("std").testing.expect(contents.len == 456);
     for (contents) |byte| try @import("std").testing.expect(byte == 0);

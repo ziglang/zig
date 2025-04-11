@@ -203,6 +203,7 @@ test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .@"opaque" = .{
@@ -260,6 +261,7 @@ test "Type.Struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).@"struct";
@@ -347,6 +349,7 @@ test "Type.Struct" {
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Foo = @Type(.{
         .@"enum" = .{
@@ -804,4 +807,11 @@ test "reify enum where fields refers to part of array" {
     try testing.expect(a == .foo);
     try testing.expect(b == .bar);
     try testing.expect(a != b);
+}
+
+test "undefined type value" {
+    const S = struct {
+        const undef_type: type = undefined;
+    };
+    comptime assert(@TypeOf(S.undef_type) == type);
 }

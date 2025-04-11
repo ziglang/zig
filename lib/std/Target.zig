@@ -420,19 +420,19 @@ pub const Os = struct {
                 .contiki => .{
                     .semver = .{
                         .min = .{ .major = 4, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 4, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 0, .patch = 0 },
                     },
                 },
                 .fuchsia => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 20, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 21, .minor = 1, .patch = 0 },
                     },
                 },
                 .hermit => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 4, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 10, .patch = 0 },
                     },
                 },
 
@@ -467,7 +467,7 @@ pub const Os = struct {
 
                                 break :blk default_min;
                             },
-                            .max = .{ .major = 6, .minor = 11, .patch = 5 },
+                            .max = .{ .major = 6, .minor = 13, .patch = 4 },
                         },
                         .glibc = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
@@ -482,13 +482,13 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .android = 14,
+                        .android = 24,
                     },
                 },
                 .rtems => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 5, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 1, .patch = 0 },
                     },
                 },
                 .zos => .{
@@ -500,25 +500,25 @@ pub const Os = struct {
 
                 .dragonfly => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
                         .max = .{ .major = 6, .minor = 4, .patch = 0 },
                     },
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
                 .openbsd => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 7, .minor = 5, .patch = 0 },
                         .max = .{ .major = 7, .minor = 6, .patch = 0 },
                     },
                 },
@@ -532,13 +532,13 @@ pub const Os = struct {
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 15, .minor = 3, .patch = 1 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 3, .patch = 1 },
                     },
                 },
                 .tvos => .{
@@ -550,13 +550,13 @@ pub const Os = struct {
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 3, .patch = 1 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 3, .patch = 1 },
                     },
                 },
 
@@ -590,7 +590,7 @@ pub const Os = struct {
                 .amdhsa => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 0, .patch = 2 },
-                        .max = .{ .major = 6, .minor = 2, .patch = 2 },
+                        .max = .{ .major = 6, .minor = 3, .patch = 0 },
                     },
                 },
                 .amdpal => .{
@@ -602,7 +602,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 6, .patch = 1 },
+                        .max = .{ .major = 12, .minor = 8, .patch = 0 },
                     },
                 },
                 .nvcl,
@@ -610,7 +610,7 @@ pub const Os = struct {
                 => .{
                     .semver = .{
                         .min = .{ .major = 2, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 3, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 0, .patch = 17 },
                     },
                 },
                 .opengl => .{
@@ -622,7 +622,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 309 },
                     },
                 },
             };
@@ -775,6 +775,8 @@ pub const Abi = enum {
     muslabi64,
     musleabi,
     musleabihf,
+    muslf32,
+    muslsf,
     muslx32,
     msvc,
     itanium,
@@ -803,8 +805,8 @@ pub const Abi = enum {
     // - raygeneration
     // - vertex
 
-    pub fn default(arch: Cpu.Arch, os: Os) Abi {
-        return switch (os.tag) {
+    pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
+        return switch (os_tag) {
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
@@ -949,6 +951,8 @@ pub const Abi = enum {
             .muslabi64,
             .musleabi,
             .musleabihf,
+            .muslf32,
+            .muslsf,
             .muslx32,
             => true,
             else => abi.isOpenHarmony(),
@@ -1919,9 +1923,9 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
-                .bpfel, .bpfeb => &bpf.cpu.v1,
+                .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
-                .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.loongarch64,
                 .m68k => &m68k.cpu.M68000,
@@ -2251,9 +2255,20 @@ pub const DynamicLinker = struct {
                         },
                     }),
 
+                    .loongarch32,
+                    .loongarch64,
+                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (abi) {
+                            .musl => "",
+                            .muslf32 => "-sp",
+                            .muslsf => "-sf",
+                            else => return none,
+                        },
+                    }),
+
                     .aarch64,
                     .aarch64_be,
-                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
                     .m68k,
                     .powerpc64,
                     .powerpc64le,
@@ -2680,7 +2695,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-pub fn charSignedness(target: Target) std.builtin.Signedness {
+pub fn cCharSignedness(target: Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
@@ -3256,6 +3271,68 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             => unreachable, // Handled above.
         }),
     );
+}
+
+pub fn cMaxIntAlignment(target: std.Target) u16 {
+    return switch (target.cpu.arch) {
+        .avr => 1,
+
+        .msp430 => 2,
+
+        .xcore,
+        .propeller,
+        => 4,
+
+        .amdgcn,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .lanai,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .powerpc,
+        .powerpcle,
+        .riscv32,
+        .s390x,
+        => 8,
+
+        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+        .aarch64,
+        .aarch64_be,
+        .bpfel,
+        .bpfeb,
+        .mips64,
+        .mips64el,
+        .nvptx,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc,
+        .sparc64,
+        .wasm32,
+        .wasm64,
+        .x86,
+        .x86_64,
+        => 16,
+
+        // Below this comment are unverified but based on the fact that C requires
+        // int128_t to be 16 bytes aligned, it's a safe default.
+        .arc,
+        .csky,
+        .kalimba,
+        .loongarch32,
+        .loongarch64,
+        .m68k,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .xtensa,
+        => 16,
+    };
 }
 
 pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {

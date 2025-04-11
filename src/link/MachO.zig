@@ -344,11 +344,21 @@ pub fn deinit(self: *MachO) void {
     self.thunks.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     try self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *MachO,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -407,6 +417,16 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     if (comp.config.any_fuzz) {
         try positionals.append(try link.openObjectInput(diags, comp.fuzzer_lib.?.full_object_path));
+    }
+
+    if (comp.ubsan_rt_lib) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openArchiveInput(diags, path, false, false)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
+    } else if (comp.ubsan_rt_obj) |crt_file| {
+        const path = crt_file.full_object_path;
+        self.classifyInputFile(try link.openObjectInput(diags, path)) catch |err|
+            diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
     }
 
     for (positionals.items) |link_input| {
@@ -813,6 +833,8 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
+        if (comp.ubsan_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
+        if (comp.ubsan_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -3255,6 +3277,37 @@ const InitMetadataOptions = struct {
     program_code_size_hint: u64,
 };
 
+pub fn closeDebugInfo(self: *MachO) bool {
+    const d_sym = &(self.d_sym orelse return false);
+    d_sym.file.?.close();
+    d_sym.file = null;
+    return true;
+}
+
+pub fn reopenDebugInfo(self: *MachO) !void {
+    assert(self.d_sym.?.file == null);
+
+    assert(!self.base.comp.config.use_llvm);
+    assert(self.base.comp.config.debug_format == .dwarf);
+
+    const gpa = self.base.comp.gpa;
+    const sep = fs.path.sep_str;
+    const d_sym_path = try std.fmt.allocPrint(
+        gpa,
+        "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+        .{self.base.emit.sub_path},
+    );
+    defer gpa.free(d_sym_path);
+
+    var d_sym_bundle = try self.base.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
+    defer d_sym_bundle.close();
+
+    self.d_sym.?.file = try d_sym_bundle.createFile(fs.path.basename(self.base.emit.sub_path), .{
+        .truncate = false,
+        .read = true,
+    });
+}
+
 // TODO: move to ZigObject
 fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     if (!self.base.isRelocatable()) {
@@ -3311,25 +3364,8 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         if (options.zo.dwarf) |*dwarf| {
             // Create dSYM bundle.
             log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
-
-            const gpa = self.base.comp.gpa;
-            const sep = fs.path.sep_str;
-            const d_sym_path = try std.fmt.allocPrint(
-                gpa,
-                "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
-                .{options.emit.sub_path},
-            );
-            defer gpa.free(d_sym_path);
-
-            var d_sym_bundle = try options.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
-            defer d_sym_bundle.close();
-
-            const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
-                .truncate = false,
-                .read = true,
-            });
-
-            self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
+            self.d_sym = .{ .allocator = self.base.comp.gpa, .file = null };
+            try self.reopenDebugInfo();
             try self.d_sym.?.initMetadata(self);
             try dwarf.initMetadata();
         }

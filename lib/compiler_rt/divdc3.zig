@@ -8,6 +8,6 @@ comptime {
     }
 }
 
-pub fn __divdc3(a: f64, b: f64, c: f64, d: f64) callconv(.C) Complex(f64) {
+pub fn __divdc3(a: f64, b: f64, c: f64, d: f64) callconv(.c) Complex(f64) {
     return divc3.divc3(f64, a, b, c, d);
 }

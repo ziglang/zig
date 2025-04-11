@@ -275,6 +275,14 @@ test "string set case insensitive number" {
     try testing.expect((try a.toInt(u32)) == 0xabcdef);
 }
 
+test "string set base 36" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(36, "fifvthrv1mzt79ez9");
+    try testing.expect((try a.to(u128)) == 123456789123456789123456789);
+}
+
 test "string set bad char error" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
@@ -349,6 +357,17 @@ test "string to base 16" {
     const as = try a.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(as);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
+
+    try testing.expect(mem.eql(u8, as, es));
+}
+
+test "string to base 36" {
+    var a = try Managed.initSet(testing.allocator, 123456789123456789123456789);
+    defer a.deinit();
+
+    const as = try a.toString(testing.allocator, 36, .lower);
+    defer testing.allocator.free(as);
+    const es = "fifvthrv1mzt79ez9";
 
     try testing.expect(mem.eql(u8, as, es));
 }
@@ -707,6 +726,34 @@ test "subWrap single-multi, signed, limb aligned" {
     try testing.expect((try a.toInt(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
 }
 
+test "addWrap returns normalized result" {
+    var x = try Managed.initSet(testing.allocator, 0);
+    defer x.deinit();
+    var y = try Managed.initSet(testing.allocator, 0);
+    defer y.deinit();
+
+    // make them both non normalized "-0"
+    x.setMetadata(false, 1);
+    y.setMetadata(false, 1);
+
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try testing.expect(!(try r.addWrap(&x, &y, .unsigned, 64)));
+    try testing.expect(r.isPositive() and r.len() == 1 and r.limbs[0] == 0);
+}
+
+test "subWrap returns normalized result" {
+    var x = try Managed.initSet(testing.allocator, 0);
+    defer x.deinit();
+    var y = try Managed.initSet(testing.allocator, 0);
+    defer y.deinit();
+
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try testing.expect(!(try r.subWrap(&x, &y, .unsigned, 64)));
+    try testing.expect(r.isPositive() and r.len() == 1 and r.limbs[0] == 0);
+}
+
 test "addSat single-single, unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(u17) - 5);
     defer a.deinit();
@@ -1001,7 +1048,7 @@ test "mul large" {
     // Generate a number that's large enough to cross the thresholds for the use
     // of subquadratic algorithms
     for (a.limbs) |*p| {
-        p.* = std.math.maxInt(Limb);
+        p.* = maxInt(Limb);
     }
     a.setMetadata(true, 50);
 
@@ -1085,7 +1132,7 @@ test "mulWrap large" {
     // Generate a number that's large enough to cross the thresholds for the use
     // of subquadratic algorithms
     for (a.limbs) |*p| {
-        p.* = std.math.maxInt(Limb);
+        p.* = maxInt(Limb);
     }
     a.setMetadata(true, 50);
 
@@ -1942,21 +1989,76 @@ test "truncate to mutable with fewer limbs" {
         .positive = undefined,
     };
     res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
-    try testing.expect(res.eqlZero());
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
     res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
-    try testing.expect(res.eqlZero());
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
     res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
-    try testing.expect(res.eqlZero());
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
     res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
-    try testing.expect(res.eqlZero());
-    res.truncate(.{ .positive = true, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
-    try testing.expect(res.toConst().orderAgainstScalar(std.math.maxInt(Limb)).compare(.eq));
-    res.truncate(.{ .positive = true, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = true, .limbs = &.{ maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(maxInt(Limb)).compare(.eq));
+    res.truncate(.{ .positive = true, .limbs = &.{ maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
     try testing.expect(res.toConst().orderAgainstScalar(-1).compare(.eq));
-    res.truncate(.{ .positive = false, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
+    res.truncate(.{ .positive = false, .limbs = &.{ maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
     try testing.expect(res.toConst().orderAgainstScalar(1).compare(.eq));
-    res.truncate(.{ .positive = false, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
+    res.truncate(.{ .positive = false, .limbs = &.{ maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
     try testing.expect(res.toConst().orderAgainstScalar(1).compare(.eq));
+}
+
+test "truncate value that normalizes after being masked" {
+    var res_limbs: [2]Limb = undefined;
+    var res: Mutable = .{
+        .limbs = &res_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    res.truncate(.{ .positive = true, .limbs = &.{ 0, 2 } }, .signed, 1 + @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = true, .limbs = &.{ 1, 2 } }, .signed, 1 + @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1).compare(.eq));
+}
+
+test "truncate to zero" {
+    var res_limbs: [1]Limb = undefined;
+    var res: Mutable = .{
+        .limbs = &res_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    res.truncate(.{ .positive = true, .limbs = &.{0} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = false, .limbs = &.{0} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = true, .limbs = &.{0} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = false, .limbs = &.{0} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+    res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.positive and res.len == 1 and res.limbs[0] == 0);
+}
+
+test "truncate to minimum signed integer" {
+    var res_limbs: [1]Limb = undefined;
+    var res: Mutable = .{
+        .limbs = &res_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    res.truncate(.{ .positive = true, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(-1 << @bitSizeOf(Limb) - 1).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(-1 << @bitSizeOf(Limb) - 1).compare(.eq));
+    res.truncate(.{ .positive = true, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1 << @bitSizeOf(Limb) - 1).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1 << @bitSizeOf(Limb) - 1).compare(.eq));
 }
 
 test "saturate single signed positive" {
@@ -2117,6 +2219,15 @@ test "shift-right negative" {
     a.setSign(true);
     try a.shiftRight(&arg7, 4);
     try testing.expect(try a.toInt(i16) == -2048);
+
+    var arg8_limbs: [1]Limb = undefined;
+    var arg8: Mutable = .{
+        .limbs = &arg8_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    arg8.shiftRight(.{ .limbs = &.{ 1, 1 }, .positive = false }, @bitSizeOf(Limb));
+    try testing.expect(arg8.toConst().orderAgainstScalar(-2).compare(.eq));
 }
 
 test "sat shift-left simple unsigned" {

@@ -10,9 +10,8 @@
 #define _LIBCPP___TYPE_TRAITS_ALIGNED_UNION_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/aligned_storage.h>
-#include <__type_traits/integral_constant.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -34,7 +33,7 @@ struct __static_max<_I0, _I1, _In...> {
 };
 
 template <size_t _Len, class _Type0, class... _Types>
-struct _LIBCPP_DEPRECATED_IN_CXX23 aligned_union {
+struct _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_NO_SPECIALIZATIONS aligned_union {
   static const size_t alignment_value =
       __static_max<_LIBCPP_PREFERRED_ALIGNOF(_Type0), _LIBCPP_PREFERRED_ALIGNOF(_Types)...>::value;
   static const size_t __len = __static_max<_Len, sizeof(_Type0), sizeof(_Types)...>::value;

@@ -95,7 +95,7 @@ fn checkStrlcpy_v2_38() !void {
 }
 
 // atexit is part of libc_nonshared, so ensure its linked in correctly
-fn forceExit0Callback() callconv(.C) void {
+fn forceExit0Callback() callconv(.c) void {
     std.c.exit(0); // Override the main() exit code
 }
 

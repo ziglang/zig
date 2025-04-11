@@ -1,16 +1,16 @@
-export fn runtimeCall() callconv(.Naked) void {
+export fn runtimeCall() callconv(.naked) void {
     f();
 }
 
-export fn runtimeBuiltinCall() callconv(.Naked) void {
+export fn runtimeBuiltinCall() callconv(.naked) void {
     @call(.auto, f, .{});
 }
 
-export fn comptimeCall() callconv(.Naked) void {
+export fn comptimeCall() callconv(.naked) void {
     comptime f();
 }
 
-export fn comptimeBuiltinCall() callconv(.Naked) void {
+export fn comptimeBuiltinCall() callconv(.naked) void {
     @call(.compile_time, f, .{});
 }
 

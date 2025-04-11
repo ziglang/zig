@@ -431,6 +431,13 @@ pub fn main() !void {
                 .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
                 else => {},
             }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
+            }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
                 gpa,
@@ -1286,7 +1293,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --fetch                      Exit after fetching dependency tree
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    needed                     (Default) Lazy dependencies are fetched as needed
+        \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
@@ -1487,6 +1496,7 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .path_after,
             .framework_path,
             .framework_path_system,
+            .embed_path,
             => |lp| lp.addStepDependencies(step),
 
             .other_step => |other| {
