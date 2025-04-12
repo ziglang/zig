@@ -2,10 +2,15 @@
 *.zon text eol=lf
 *.txt text eol=lf
 langref.html.in text eol=lf
+
 lib/std/compress/testdata/** binary
-lib/std/compress/deflate/testdata/** binary
 lib/std/compress/flate/testdata/** binary
+lib/std/compress/lzma/testdata/** binary
+lib/std/compress/xz/testdata/** binary
 lib/std/crypto/codecs/asn1/der/testdata/** binary
+lib/std/tar/testdata/** binary
+src/Package/Fetch/testdata/** binary
+src/Package/Fetch/git/testdata/** binary
 
 lib/include/** linguist-vendored
 lib/libc/** linguist-vendored
