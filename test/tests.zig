@@ -145,7 +145,7 @@ const test_targets = blk: {
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
-            .skip_modules = &.{ "c-import", "universal-libc", "std" },
+            .skip_modules = &.{ "c-import", "zigc", "std" },
         },
         // https://github.com/ziglang/zig/issues/13623
         //.{
@@ -1463,9 +1463,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
-        // TODO get universal-libc tests passing for other self-hosted backends.
+        // TODO get zigc tests passing for other self-hosted backends.
         if (target.cpu.arch != .x86_64 and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
+            test_target.use_llvm == false and mem.eql(u8, options.name, "zigc"))
             continue;
 
         // TODO get std lib tests passing for other self-hosted backends.

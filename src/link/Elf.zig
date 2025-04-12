@@ -1984,16 +1984,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append(try p.toString(arena));
         }
 
-        // libc
-        if (is_exe_or_dyn_lib and
-            !comp.skip_linker_dependencies and
-            !comp.config.link_libc)
-        {
-            if (comp.libc_static_lib) |lib| {
-                try argv.append(try lib.full_object_path.toString(arena));
-            }
-        }
-
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             // Worst-case, we need an --as-needed argument for every lib, as well
@@ -2070,6 +2060,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     }));
                 } else {
                     diags.flags.missing_libc = true;
+                }
+
+                if (comp.zigc_static_lib) |zigc| {
+                    try argv.append(try zigc.full_object_path.toString(arena));
                 }
             }
         }
