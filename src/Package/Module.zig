@@ -234,10 +234,14 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b false;
     };
 
-    const code_model = b: {
+    const code_model: std.builtin.CodeModel = b: {
         if (options.inherited.code_model) |x| break :b x;
         if (options.parent) |p| break :b p.code_model;
-        break :b .default;
+        break :b switch (target.cpu.arch) {
+            // Temporary workaround until LLVM 21: https://github.com/llvm/llvm-project/pull/132173
+            .loongarch64 => .medium,
+            else => .default,
+        };
     };
 
     const is_safe_mode = switch (optimize_mode) {

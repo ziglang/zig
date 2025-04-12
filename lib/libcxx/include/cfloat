@@ -69,20 +69,24 @@ Macros:
     LDBL_TRUE_MIN       // C11
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cfloat>
+#else
+#  include <__config>
 
-#include <float.h>
+#  include <float.h>
 
-#ifndef _LIBCPP_FLOAT_H
+#  ifndef _LIBCPP_FLOAT_H
 #   error <cfloat> tried including <float.h> but didn't find libc++'s <float.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CFLOAT

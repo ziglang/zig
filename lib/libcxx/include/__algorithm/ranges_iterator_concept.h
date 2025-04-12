@@ -44,7 +44,7 @@ consteval auto __get_iterator_concept() {
 }
 
 template <class _Iter>
-using __iterator_concept = decltype(__get_iterator_concept<_Iter>());
+using __iterator_concept _LIBCPP_NODEBUG = decltype(__get_iterator_concept<_Iter>());
 
 } // namespace ranges
 _LIBCPP_END_NAMESPACE_STD

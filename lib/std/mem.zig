@@ -228,6 +228,18 @@ test "Allocator.resize" {
     }
 }
 
+test "Allocator alloc and remap with zero-bit type" {
+    var values = try testing.allocator.alloc(void, 10);
+    defer testing.allocator.free(values);
+
+    try testing.expectEqual(10, values.len);
+    const remaped = testing.allocator.remap(values, 200);
+    try testing.expect(remaped != null);
+
+    values = remaped.?;
+    try testing.expectEqual(200, values.len);
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
@@ -419,7 +431,9 @@ test zeroes {
     }
     try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
     try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
-    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    }
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);
@@ -4211,10 +4225,11 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
 
 /// Given a slice of bytes, returns a slice of the specified type
 /// backed by those bytes, preserving pointer attributes.
+/// If `T` is zero-bytes sized, the returned slice has a len of zero.
 pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytes.len == 0) {
+    if (bytes.len == 0 or @sizeOf(T) == 0) {
         return &[0]T{};
     }
 
@@ -4290,6 +4305,19 @@ test "bytesAsSlice preserves pointer attributes" {
     try testing.expectEqual(in.is_volatile, out.is_volatile);
     try testing.expectEqual(in.is_allowzero, out.is_allowzero);
     try testing.expectEqual(in.alignment, out.alignment);
+}
+
+test "bytesAsSlice with zero-bit element type" {
+    {
+        const bytes = [_]u8{};
+        const slice = bytesAsSlice(void, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
+    {
+        const bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const slice = bytesAsSlice(u0, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {

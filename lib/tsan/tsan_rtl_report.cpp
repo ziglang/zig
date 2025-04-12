@@ -828,18 +828,18 @@ void PrintCurrentStack(ThreadState *thr, uptr pc) {
   PrintStack(SymbolizeStack(trace));
 }
 
-// Always inlining PrintCurrentStackSlow, because LocatePcInTrace assumes
+// Always inlining PrintCurrentStack, because LocatePcInTrace assumes
 // __sanitizer_print_stack_trace exists in the actual unwinded stack, but
-// tail-call to PrintCurrentStackSlow breaks this assumption because
+// tail-call to PrintCurrentStack breaks this assumption because
 // __sanitizer_print_stack_trace disappears after tail-call.
 // However, this solution is not reliable enough, please see dvyukov's comment
 // http://reviews.llvm.org/D19148#406208
 // Also see PR27280 comment 2 and 3 for breaking examples and analysis.
-ALWAYS_INLINE USED void PrintCurrentStackSlow(uptr pc) {
+ALWAYS_INLINE USED void PrintCurrentStack(uptr pc, bool fast) {
 #if !SANITIZER_GO
   uptr bp = GET_CURRENT_FRAME();
   auto *ptrace = New<BufferedStackTrace>();
-  ptrace->Unwind(pc, bp, nullptr, false);
+  ptrace->Unwind(pc, bp, nullptr, fast);
 
   for (uptr i = 0; i < ptrace->size / 2; i++) {
     uptr tmp = ptrace->trace_buffer[i];
@@ -857,6 +857,6 @@ using namespace __tsan;
 extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE
 void __sanitizer_print_stack_trace() {
-  PrintCurrentStackSlow(StackTrace::GetCurrentPc());
+  PrintCurrentStack(StackTrace::GetCurrentPc(), false);
 }
 }  // extern "C"

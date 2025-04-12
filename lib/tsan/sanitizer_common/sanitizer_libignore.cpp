@@ -32,7 +32,7 @@ void LibIgnore::AddIgnoredLibrary(const char *name_templ) {
   lib->templ = internal_strdup(name_templ);
   lib->name = nullptr;
   lib->real_name = nullptr;
-  lib->loaded = false;
+  lib->range_id = kInvalidCodeRangeId;
 }
 
 void LibIgnore::OnLibraryLoaded(const char *name) {
@@ -43,7 +43,7 @@ void LibIgnore::OnLibraryLoaded(const char *name) {
       buf[0]) {
     for (uptr i = 0; i < count_; i++) {
       Lib *lib = &libs_[i];
-      if (!lib->loaded && (!lib->real_name) &&
+      if (!lib->loaded() && (!lib->real_name) &&
           TemplateMatch(lib->templ, name))
         lib->real_name = internal_strdup(buf.data());
     }
@@ -70,28 +70,31 @@ void LibIgnore::OnLibraryLoaded(const char *name) {
           Die();
         }
         loaded = true;
-        if (lib->loaded)
+        if (lib->loaded())
           continue;
         VReport(1,
                 "Matched called_from_lib suppression '%s' against library"
                 " '%s'\n",
                 lib->templ, mod.full_name());
-        lib->loaded = true;
         lib->name = internal_strdup(mod.full_name());
         const uptr idx =
             atomic_load(&ignored_ranges_count_, memory_order_relaxed);
         CHECK_LT(idx, ARRAY_SIZE(ignored_code_ranges_));
-        ignored_code_ranges_[idx].begin = range.beg;
-        ignored_code_ranges_[idx].end = range.end;
+        ignored_code_ranges_[idx].OnLoad(range.beg, range.end);
+        // Record the index of the ignored range.
+        lib->range_id = idx;
         atomic_store(&ignored_ranges_count_, idx + 1, memory_order_release);
         break;
       }
     }
-    if (lib->loaded && !loaded) {
-      Report("%s: library '%s' that was matched against called_from_lib"
-             " suppression '%s' is unloaded\n",
-             SanitizerToolName, lib->name, lib->templ);
-      Die();
+    if (lib->loaded() && !loaded) {
+      VReport(1,
+              "%s: library '%s' that was matched against called_from_lib"
+              " suppression '%s' is unloaded\n",
+              SanitizerToolName, lib->name, lib->templ);
+      // The library is unloaded so mark the ignored code range as unloaded.
+      ignored_code_ranges_[lib->range_id].OnUnload();
+      lib->range_id = kInvalidCodeRangeId;
     }
   }
 
@@ -110,8 +113,7 @@ void LibIgnore::OnLibraryLoaded(const char *name) {
         const uptr idx =
             atomic_load(&instrumented_ranges_count_, memory_order_relaxed);
         CHECK_LT(idx, ARRAY_SIZE(instrumented_code_ranges_));
-        instrumented_code_ranges_[idx].begin = range.beg;
-        instrumented_code_ranges_[idx].end = range.end;
+        instrumented_code_ranges_[idx].OnLoad(range.beg, range.end);
         atomic_store(&instrumented_ranges_count_, idx + 1,
                      memory_order_release);
       }

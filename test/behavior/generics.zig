@@ -619,3 +619,55 @@ test "generic parameter resolves to comptime-only type but is not marked comptim
     const ct_result = comptime S.foo(u8, false, S.bar);
     comptime std.debug.assert(ct_result == 123);
 }
+
+test "instantiate coerced generic function" {
+    const S = struct {
+        fn generic(comptime T: type, arg: *const u8) !void {
+            _ = T;
+            _ = arg;
+        }
+    };
+    const coerced: fn (comptime type, *u8) anyerror!void = S.generic;
+    var x: u8 = 20;
+    try coerced(u8, &x);
+}
+
+test "generic struct captures slice of another struct" {
+    const S = struct {
+        const Foo = struct { x: u32 };
+        const foo_array: [2]Foo = undefined;
+
+        fn Bar(foo_slice: []const Foo) type {
+            return struct {
+                const foo_ptr: [*]const Foo = foo_slice.ptr;
+            };
+        }
+    };
+    const T = S.Bar(&S.foo_array);
+    comptime std.debug.assert(T.foo_ptr == &S.foo_array);
+}
+
+test "noalias paramters with generic return type" {
+    const S = struct {
+        pub fn a(noalias _: *u8, im_noalias: usize) im_noalias {}
+        pub fn b(noalias _: *u8, im_noalias: usize, x: *isize) x {
+            _ = im_noalias;
+        }
+        pub fn c(noalias _: *u8, im_noalias: usize, x: isize) struct { x } {
+            _ = im_noalias;
+        }
+        pub fn d(noalias _: *u8, im_noalias: usize, _: anytype) struct { im_noalias } {}
+        pub fn e(noalias _: *u8, _: usize, im_noalias: [5]u9) switch (@TypeOf(im_noalias)) {
+            else => void,
+        } {}
+        pub fn f(noalias _: *u8, _: anytype, im_noalias: u8) switch (@TypeOf(im_noalias)) {
+            else => enum { x, y, z },
+        } {}
+    };
+    _ = S.a;
+    _ = S.b;
+    _ = S.c;
+    _ = S.d;
+    _ = S.e;
+    _ = S.f;
+}

@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 
@@ -236,12 +235,10 @@ test "floatuntisf" {
 
 fn test_floateisf(expected: u32, comptime T: type, a: T) !void {
     const int = @typeInfo(T).int;
-    var a_buf: [@divExact(int.bits, 32)]u32 = undefined;
-    std.mem.writeInt(T, std.mem.asBytes(&a_buf), a, .native);
     const r = switch (int.signedness) {
         .signed => __floateisf,
         .unsigned => __floatuneisf,
-    }(&a_buf, int.bits);
+    }(@ptrCast(&a), int.bits);
     try testing.expect(expected == @as(u32, @bitCast(r)));
 }
 

@@ -72,24 +72,22 @@ export fn entry18() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:5: error: cannot assign to constant
-// :7:7: error: cannot assign to constant
-// :11:7: error: cannot assign to constant
-// :15:7: error: cannot assign to constant
-// :19:7: error: cannot assign to constant
-// :23:7: error: cannot assign to constant
-// :27:7: error: cannot assign to constant
-// :31:7: error: cannot assign to constant
-// :35:7: error: cannot assign to constant
-// :39:7: error: cannot assign to constant
-// :43:7: error: cannot assign to constant
-// :47:7: error: cannot assign to constant
-// :51:7: error: cannot assign to constant
-// :55:7: error: cannot assign to constant
-// :59:7: error: cannot assign to constant
-// :63:7: error: cannot assign to constant
-// :67:7: error: cannot assign to constant
-// :71:7: error: cannot assign to constant
+// :7:5: error: cannot assign to constant
+// :11:5: error: cannot assign to constant
+// :15:5: error: cannot assign to constant
+// :19:5: error: cannot assign to constant
+// :23:5: error: cannot assign to constant
+// :27:5: error: cannot assign to constant
+// :31:5: error: cannot assign to constant
+// :35:5: error: cannot assign to constant
+// :39:5: error: cannot assign to constant
+// :43:5: error: cannot assign to constant
+// :47:5: error: cannot assign to constant
+// :51:5: error: cannot assign to constant
+// :55:5: error: cannot assign to constant
+// :59:5: error: cannot assign to constant
+// :63:5: error: cannot assign to constant
+// :67:5: error: cannot assign to constant
+// :71:5: error: cannot assign to constant

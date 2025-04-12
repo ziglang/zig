@@ -233,6 +233,8 @@ test "@sizeOf comparison against zero" {
 }
 
 test "hardcoded address in typeof expression" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;

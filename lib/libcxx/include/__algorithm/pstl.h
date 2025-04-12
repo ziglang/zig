@@ -18,7 +18,7 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-#if !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+#if _LIBCPP_HAS_EXPERIMENTAL_PSTL && _LIBCPP_STD_VER >= 17
 
 #  include <__functional/operations.h>
 #  include <__iterator/cpp17_iterator_concepts.h>
@@ -352,7 +352,7 @@ template <class _ExecutionPolicy,
           class _Predicate,
           class _RawPolicy                                    = __remove_cvref_t<_ExecutionPolicy>,
           enable_if_t<is_execution_policy_v<_RawPolicy>, int> = 0>
-_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI bool
 is_partitioned(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, _Predicate __pred) {
   _LIBCPP_REQUIRE_CPP17_FORWARD_ITERATOR(_ForwardIterator, "is_partitioned requires ForwardIterators");
   using _Implementation = __pstl::__dispatch<__pstl::__is_partitioned, __pstl::__current_configuration, _RawPolicy>;
@@ -656,7 +656,7 @@ _LIBCPP_HIDE_FROM_ABI _ForwardOutIterator transform(
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+#endif // _LIBCPP_HAS_EXPERIMENTAL_PSTL && _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 

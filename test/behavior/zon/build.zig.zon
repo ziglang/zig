@@ -1,0 +1,20 @@
+.{
+    // Comment
+    .name = "temp",
+    .version = "0.0.0",
+    .dependencies = .{
+        .example_0 = .{
+            .url = "https://example.com/foo.tar.gz",
+            .hash = "...",
+        },
+        .example_1 = .{
+            .path = "../foo",
+            .lazy = false,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

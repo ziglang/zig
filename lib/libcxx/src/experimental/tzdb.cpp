@@ -8,12 +8,16 @@
 
 // For information see https://libcxx.llvm.org/DesignDocs/TimeZone.html
 
+#include <__assert>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "include/tzdb/time_zone_private.h"
 #include "include/tzdb/types_private.h"
@@ -51,8 +55,7 @@ _LIBCPP_WEAK string_view __libcpp_tzdb_directory() {
 #if defined(__linux__)
   return "/usr/share/zoneinfo/";
 #else
-// Zig patch: change this compilation error into a runtime crash.
-//#  error "unknown path to the IANA Time Zone Database"
+  // zig patch: change this compilation error into a runtime crash
   abort();
 #endif
 }
@@ -96,14 +99,23 @@ static void __skip(istream& __input, string_view __suffix) {
 }
 
 static void __matches(istream& __input, char __expected) {
-  if (std::tolower(__input.get()) != __expected)
-    std::__throw_runtime_error((string("corrupt tzdb: expected character '") + __expected + '\'').c_str());
+  _LIBCPP_ASSERT_INTERNAL(!std::isalpha(__expected) || std::islower(__expected), "lowercase characters only here!");
+  char __c = __input.get();
+  if (std::tolower(__c) != __expected)
+    std::__throw_runtime_error(
+        (string("corrupt tzdb: expected character '") + __expected + "', got '" + __c + "' instead").c_str());
 }
 
 static void __matches(istream& __input, string_view __expected) {
-  for (auto __c : __expected)
-    if (std::tolower(__input.get()) != __c)
-      std::__throw_runtime_error((string("corrupt tzdb: expected string '") + string(__expected) + '\'').c_str());
+  for (auto __c : __expected) {
+    _LIBCPP_ASSERT_INTERNAL(!std::isalpha(__c) || std::islower(__c), "lowercase strings only here!");
+    char __actual = __input.get();
+    if (std::tolower(__actual) != __c)
+      std::__throw_runtime_error(
+          (string("corrupt tzdb: expected character '") + __c + "' from string '" + string(__expected) + "', got '" +
+           __actual + "' instead")
+              .c_str());
+  }
 }
 
 [[nodiscard]] static string __parse_string(istream& __input) {

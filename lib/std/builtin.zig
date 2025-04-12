@@ -141,11 +141,16 @@ pub const AtomicRmwOp = enum {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CodeModel = enum {
     default,
-    tiny,
-    small,
+    extreme,
     kernel,
-    medium,
     large,
+    medany,
+    medium,
+    medlow,
+    medmid,
+    normal,
+    small,
+    tiny,
 };
 
 /// This data structure is used by the Zig language code generation and

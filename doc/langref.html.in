@@ -3679,22 +3679,22 @@ void do_a_thing(struct Foo *foo) {
           <tr>
             <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
             <td>{#syntax#}T{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "0"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
             <td>{#syntax#}T{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "0"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
@@ -5498,8 +5498,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}.
-      The return type and thus the length of the vector is inferred.
+      Produces an array or vector where each element is the value
+      {#syntax#}scalar{#endsyntax#}. The return type and thus the length of the
+      vector is inferred.
       </p>
       {#code|test_splat_builtin.zig#}
 

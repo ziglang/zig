@@ -164,6 +164,7 @@ pub const IncludeDir = union(enum) {
     framework_path_system: LazyPath,
     other_step: *Step.Compile,
     config_header_step: *Step.ConfigHeader,
+    embed_path: LazyPath,
 
     pub fn appendZigProcessFlags(
         include_dir: IncludeDir,
@@ -199,6 +200,9 @@ pub const IncludeDir = union(enum) {
                 const full_file_path = config_header.output_file.getPath();
                 const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
                 try zig_args.appendSlice(&.{ "-I", header_dir_path });
+            },
+            .embed_path => |embed_path| {
+                try zig_args.append(try std.mem.concat(b.allocator, u8, &.{ "--embed-dir=", embed_path.getPath2(b, asking_step) }));
             },
         }
     }
@@ -509,6 +513,11 @@ pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
     m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
         @panic("OOM");
+}
+
+pub fn addEmbedPath(m: *Module, lazy_path: LazyPath) void {
+    const b = m.owner;
+    m.include_dirs.append(b.allocator, .{ .embed_path = lazy_path.dupe(b) }) catch @panic("OOM");
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
