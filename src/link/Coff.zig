@@ -1763,6 +1763,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         man.hash.addOptionalBytes(entry_name);
         man.hash.add(coff.base.stack_size);
         man.hash.add(coff.image_base);
+        man.hash.add(coff.base.build_id);
         {
             // TODO remove this, libraries must instead be resolved by the frontend.
             for (coff.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
@@ -1894,6 +1895,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{coff.base.stack_size}));
         }
         try argv.append(try allocPrint(arena, "-BASE:{d}", .{coff.image_base}));
+
+        switch (coff.base.build_id) {
+            .none => try argv.append("-BUILD-ID:NO"),
+            .fast => try argv.append("-BUILD-ID"),
+            .uuid, .sha1, .md5, .hexstring => {},
+        }
 
         if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");
