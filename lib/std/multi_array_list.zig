@@ -350,11 +350,7 @@ pub fn MultiArrayList(comptime T: type) type {
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
-            const other_bytes = gpa.alignedAlloc(
-                u8,
-                @alignOf(Elem),
-                capacityInBytes(new_len),
-            ) catch {
+            const other_bytes = gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_len)) catch {
                 const self_slice = self.slice();
                 inline for (fields, 0..) |field_info, i| {
                     if (@sizeOf(field_info.type) != 0) {
@@ -440,11 +436,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// `new_capacity` must be greater or equal to `len`.
         pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             assert(new_capacity >= self.len);
-            const new_bytes = try gpa.alignedAlloc(
-                u8,
-                @alignOf(Elem),
-                capacityInBytes(new_capacity),
-            );
+            const new_bytes = try gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_capacity));
             if (self.len == 0) {
                 gpa.free(self.allocatedBytes());
                 self.bytes = new_bytes.ptr;

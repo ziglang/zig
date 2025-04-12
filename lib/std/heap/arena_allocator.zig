@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const Alignment = std.mem.Alignment;
 
 /// This allocator takes an existing allocator, wraps it, and provides an interface where
 /// you can allocate and then free it all together. Calls to free an individual item only
@@ -41,7 +42,7 @@ pub const ArenaAllocator = struct {
         data: usize,
         node: std.SinglyLinkedList.Node = .{},
     };
-    const BufNode_alignment: mem.Alignment = .fromByteUnits(@alignOf(BufNode));
+    const BufNode_alignment: Alignment = .fromByteUnits(@alignOf(BufNode));
 
     pub fn init(child_allocator: Allocator) ArenaAllocator {
         return (State{}).promote(child_allocator);
@@ -181,7 +182,7 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
+    fn alloc(ctx: *anyopaque, n: usize, alignment: Alignment, ra: usize) ?[*]u8 {
         const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
 
@@ -214,7 +215,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn resize(ctx: *anyopaque, buf: []u8, alignment: mem.Alignment, new_len: usize, ret_addr: usize) bool {
+    fn resize(ctx: *anyopaque, buf: []u8, alignment: Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         _ = alignment;
         _ = ret_addr;
@@ -242,14 +243,14 @@ pub const ArenaAllocator = struct {
     fn remap(
         context: *anyopaque,
         memory: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
         return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
     }
 
-    fn free(ctx: *anyopaque, buf: []u8, alignment: mem.Alignment, ret_addr: usize) void {
+    fn free(ctx: *anyopaque, buf: []u8, alignment: Alignment, ret_addr: usize) void {
         _ = alignment;
         _ = ret_addr;
 
@@ -279,9 +280,9 @@ test "reset with preheating" {
         const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
         while (alloced_bytes < total_size) {
             const size = random.intRangeAtMost(usize, 16, 256);
-            const alignment = 32;
+            const alignment: Alignment = .@"32";
             const slice = try arena_allocator.allocator().alignedAlloc(u8, alignment, size);
-            try std.testing.expect(std.mem.isAligned(@intFromPtr(slice.ptr), alignment));
+            try std.testing.expect(alignment.check(@intFromPtr(slice.ptr)));
             try std.testing.expectEqual(size, slice.len);
             alloced_bytes += slice.len;
         }

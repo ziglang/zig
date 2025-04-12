@@ -1133,7 +1133,7 @@ pub fn updateTimes(
 /// On success, caller owns returned buffer.
 /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
 pub fn readToEndAlloc(self: File, allocator: Allocator, max_bytes: usize) ![]u8 {
-    return self.readToEndAllocOptions(allocator, max_bytes, null, @alignOf(u8), null);
+    return self.readToEndAllocOptions(allocator, max_bytes, null, .of(u8), null);
 }
 
 /// Reads all the bytes from the current position to the end of the file.
@@ -1147,9 +1147,9 @@ pub fn readToEndAllocOptions(
     allocator: Allocator,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     // If no size hint is provided fall back to the size=0 code path
     const size = size_hint orelse 0;
 
@@ -1782,3 +1782,4 @@ const windows = std.os.windows;
 const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;
 const is_windows = builtin.os.tag == .windows;
+const Alignment = std.mem.Alignment;

@@ -6,6 +6,7 @@ const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
+const Alignment = std.mem.Alignment;
 
 pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) u64) {
     comptime {
@@ -1460,7 +1461,7 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime @max(header_align, key_align, val_align);
+            const max_align: Alignment = comptime .fromByteUnits(@max(header_align, key_align, val_align));
 
             const new_cap: usize = new_capacity;
             const meta_size = @sizeOf(Header) + new_cap * @sizeOf(Metadata);
@@ -1472,7 +1473,7 @@ pub fn HashMapUnmanaged(
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + new_cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(usize, vals_end, max_align);
+            const total_size = max_align.forward(vals_end);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
             const ptr: [*]u8 = @ptrCast(slice.ptr);

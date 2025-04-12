@@ -7510,7 +7510,7 @@ fn loadManifest(
             Package.Manifest.basename,
             Package.Manifest.max_bytes,
             null,
-            1,
+            .@"1",
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
