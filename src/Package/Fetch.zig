@@ -640,7 +640,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
         Manifest.max_bytes,
         null,
-        1,
+        .@"1",
         0,
     ) catch |err| switch (err) {
         error.FileNotFound => return,

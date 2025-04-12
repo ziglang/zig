@@ -1120,7 +1120,7 @@ test "realloc" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
+    var slice = try allocator.alignedAlloc(u8, .of(u32), 1);
     defer allocator.free(slice);
     slice[0] = 0x12;
 
@@ -1234,7 +1234,7 @@ test "shrink large object to large object with larger alignment" {
     const debug_allocator = fba.allocator();
 
     const alloc_size = default_page_size * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
@@ -1244,7 +1244,7 @@ test "shrink large object to large object with larger alignment" {
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1308,7 +1308,7 @@ test "realloc large object to larger alignment" {
     var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fba.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+    var slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
@@ -1316,7 +1316,7 @@ test "realloc large object to larger alignment" {
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+        slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1402,7 +1402,7 @@ test "large allocations count requested size not backing size" {
     var gpa: DebugAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
-    var buf = try allocator.alignedAlloc(u8, 1, default_page_size + 1);
+    var buf = try allocator.alignedAlloc(u8, .@"1", default_page_size + 1);
     try std.testing.expectEqual(default_page_size + 1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 1);
     try std.testing.expectEqual(1, gpa.total_requested_bytes);

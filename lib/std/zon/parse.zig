@@ -679,7 +679,7 @@ const Parser = struct {
         const slice = try self.gpa.allocWithOptions(
             pointer.child,
             nodes.len,
-            pointer.alignment,
+            .fromByteUnits(pointer.alignment),
             pointer.sentinel(),
         );
         errdefer self.gpa.free(slice);

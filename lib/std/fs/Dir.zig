@@ -1960,7 +1960,7 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
+    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
 }
 
 /// On success, caller owns returned buffer.
@@ -1977,9 +1977,9 @@ pub fn readFileAllocOptions(
     file_path: []const u8,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 

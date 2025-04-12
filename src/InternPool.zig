@@ -255,7 +255,7 @@ pub fn trackZir(
     const new_map_capacity = map_header.capacity * 2;
     const new_map_buf = try arena.allocator().alignedAlloc(
         u8,
-        Map.alignment,
+        .fromByteUnits(Map.alignment),
         Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
     );
     const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
@@ -350,7 +350,7 @@ pub fn rehashTrackedInsts(
         defer arena_state.* = arena.state;
         const new_map_buf = try arena.allocator().alignedAlloc(
             u8,
-            Map.alignment,
+            .fromByteUnits(Map.alignment),
             Map.entries_offset + want_capacity * @sizeOf(Map.Entry),
         );
         const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
@@ -1296,7 +1296,7 @@ const Local = struct {
                     defer mutable.arena.* = arena.state;
                     const buf = try arena.allocator().alignedAlloc(
                         u8,
-                        alignment,
+                        .fromByteUnits(alignment),
                         bytes_offset + View.capacityInBytes(capacity),
                     );
                     var new_list: ListSelf = .{ .bytes = @ptrCast(buf[bytes_offset..].ptr) };
@@ -7547,7 +7547,7 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         }
         const new_map_buf = try arena.allocator().alignedAlloc(
             u8,
-            Map.alignment,
+            .fromByteUnits(Map.alignment),
             Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
         );
         const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
@@ -11666,7 +11666,7 @@ pub fn getOrPutTrailingString(
     const new_map_capacity = map_header.capacity * 2;
     const new_map_buf = try arena.allocator().alignedAlloc(
         u8,
-        Map.alignment,
+        .fromByteUnits(Map.alignment),
         Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
     );
     const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
@@ -12586,7 +12586,7 @@ const GlobalErrorSet = struct {
         const new_map_capacity = map_header.capacity * 2;
         const new_map_buf = try arena.allocator().alignedAlloc(
             u8,
-            Map.alignment,
+            .fromByteUnits(Map.alignment),
             Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
         );
         const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };

@@ -358,7 +358,7 @@ fn addFromDirInner(
         current_file.* = filename;
 
         const max_file_size = 10 * 1024 * 1024;
-        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, .@"1", 0);
 
         // Parse the manifest
         var manifest = try TestManifest.parse(ctx.arena, src);

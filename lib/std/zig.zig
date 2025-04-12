@@ -543,7 +543,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?
         gpa,
         max_src_size,
         size_hint,
-        @alignOf(u8),
+        .of(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
