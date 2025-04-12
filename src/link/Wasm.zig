@@ -4078,6 +4078,17 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try std.fmt.allocPrint(arena, "stack-size={d}", .{wasm.base.stack_size}),
         });
 
+        switch (wasm.base.build_id) {
+            .none => try argv.append("--build-id=none"),
+            .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                @tagName(wasm.base.build_id),
+            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                std.fmt.fmtSliceHexLower(hs.toSlice()),
+            })),
+            .md5 => {},
+        }
+
         if (wasm.import_symbols) {
             try argv.append("--allow-undefined");
         }
@@ -4088,11 +4099,6 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.config.pie) {
             try argv.append("--pie");
         }
-
-        // XXX - TODO: add when wasm-ld supports --build-id.
-        // if (wasm.base.build_id) {
-        //     try argv.append("--build-id=tree");
-        // }
 
         try argv.appendSlice(&.{ "-o", full_out_path });
 
