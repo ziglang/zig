@@ -12,10 +12,10 @@ lib/std/tar/testdata/** binary
 src/Package/Fetch/testdata/** binary
 src/Package/Fetch/git/testdata/** binary
 
+lib/compiler/aro/** linguist-vendored
 lib/include/** linguist-vendored
 lib/libc/** linguist-vendored
 lib/libcxx/** linguist-vendored
 lib/libcxxabi/** linguist-vendored
+lib/libtsan/** linguist-vendored
 lib/libunwind/** linguist-vendored
-lib/tsan/** linguist-vendored
-lib/compiler/aro/** linguist-vendored
