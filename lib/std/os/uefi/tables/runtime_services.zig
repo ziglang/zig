@@ -334,11 +334,8 @@ pub const RuntimeServices = extern struct {
         }
     }
 
-    pub fn getNextHighMonotonicCount(
-        self: *const RuntimeServices,
-        count: u32,
-    ) GetNextHighMonotonicCountError!u32 {
-        var cnt = count;
+    pub fn getNextHighMonotonicCount(self: *const RuntimeServices) GetNextHighMonotonicCountError!u32 {
+        var cnt: u32 = undefined;
         switch (self._getNextHighMonotonicCount(&cnt)) {
             .success => return cnt,
             .device_error => return Error.DeviceError,
