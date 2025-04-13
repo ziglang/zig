@@ -17,7 +17,6 @@ const Endian = std.builtin.Endian;
 const Signedness = std.builtin.Signedness;
 const native_endian = builtin.cpu.arch.endian();
 
-const debug_safety = false;
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
@@ -92,8 +91,6 @@ pub fn calcTwosCompLimbCount(bit_count: usize) usize {
 
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
-    @setRuntimeSafety(debug_safety);
-
     // ov1[0] = a + *carry
     const ov1 = @addWithOverflow(a, carry.*);
 
@@ -3277,7 +3274,6 @@ const AccOp = enum {
 ///
 /// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
 fn llmulacc(comptime op: AccOp, opt_allocator: ?Allocator, r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(r.len >= b.len);
 
@@ -3316,7 +3312,6 @@ fn llmulaccKaratsuba(
     a: []const Limb,
     b: []const Limb,
 ) error{OutOfMemory}!void {
-    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
@@ -3479,7 +3474,6 @@ fn llmulaccKaratsuba(
 /// r = r (op) a.
 /// The result is computed modulo `r.len`.
 fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
     if (op == .sub) {
         _ = llsubcarry(r, r, a);
         return;
@@ -3508,7 +3502,6 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
 
 /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
 pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
-    @setRuntimeSafety(debug_safety);
     const a_len = llnormalize(a);
     const b_len = llnormalize(b);
     if (a_len < b_len) {
@@ -3537,7 +3530,6 @@ pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
 /// r = r (op) y * xi
 /// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
 fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
@@ -3551,7 +3543,6 @@ fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb)
 /// The result is computed modulo `r.len`.
 /// Returns whether the operation overflowed.
 fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
-    @setRuntimeSafety(debug_safety);
     if (xi == 0) {
         return false;
     }
@@ -3598,7 +3589,6 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
 
 /// returns the min length the limb could be.
 fn llnormalize(a: []const Limb) usize {
-    @setRuntimeSafety(debug_safety);
     var j = a.len;
     while (j > 0) : (j -= 1) {
         if (a[j - 1] != 0) {
@@ -3612,7 +3602,6 @@ fn llnormalize(a: []const Limb) usize {
 
 /// Knuth 4.3.1, Algorithm S.
 fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
-    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= a.len);
@@ -3638,14 +3627,12 @@ fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
 }
 
 fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
     assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(llsubcarry(r, a, b) == 0);
 }
 
 /// Knuth 4.3.1, Algorithm A.
 fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
-    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= a.len);
@@ -3671,14 +3658,12 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
 }
 
 fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len + 1);
     r[a.len] = lladdcarry(r, a, b);
 }
 
 /// Knuth 4.3.1, Exercise 16.
 fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
-    @setRuntimeSafety(debug_safety);
     assert(a.len > 1 or a[0] >= b);
     assert(quo.len >= a.len);
 
@@ -3704,7 +3689,6 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
 }
 
 fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
-    @setRuntimeSafety(debug_safety);
     assert(a.len > 1 or a[0] >= b);
     assert(quo.len >= a.len);
 
@@ -3788,7 +3772,6 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
 
 // r = ~r
 fn llnot(r: []Limb) void {
-    @setRuntimeSafety(debug_safety);
 
     for (r) |*elem| {
         elem.* = ~elem.*;
@@ -3802,7 +3785,6 @@ fn llnot(r: []Limb) void {
 // When b is positive, r requires at least `a.len` limbs of storage.
 // When b is negative, r requires at least `b.len` limbs of storage.
 fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
-    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
@@ -3933,7 +3915,6 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
 // 2. when b is negative but a is positive, r requires at least `a.len` limbs of storage,
 // 3. when both a and b are negative, r requires at least `a.len + 1` limbs of storage.
 fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
-    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= if (b_positive) b.len else if (a_positive) a.len else a.len + 1);
@@ -4043,7 +4024,6 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 // If the sign of a and b is equal, then r requires at least `@max(a.len, b.len)` limbs are required.
 // Otherwise, r requires at least `@max(a.len, b.len) + 1` limbs.
 fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
-    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
@@ -4102,8 +4082,6 @@ fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 
 /// r MUST NOT alias x.
 fn llsquareBasecase(r: []Limb, x: []const Limb) void {
-    @setRuntimeSafety(debug_safety);
-
     const x_norm = x;
     assert(r.len >= 2 * x_norm.len + 1);
 
