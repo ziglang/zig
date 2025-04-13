@@ -11,7 +11,7 @@ pub const Active = extern struct {
     size_of_edid: u32,
     edid: ?[*]u8,
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0xbd8c1056,
         .time_mid = 0x9f36,
         .time_high_and_version = 0x44ec,
@@ -26,7 +26,7 @@ pub const Discovered = extern struct {
     size_of_edid: u32,
     edid: ?[*]u8,
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x1c0c34f6,
         .time_mid = 0xd380,
         .time_high_and_version = 0x41fa,
@@ -61,7 +61,7 @@ pub const Override = extern struct {
         };
     }
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x48ecb431,
         .time_mid = 0xfb72,
         .time_high_and_version = 0x45c0,

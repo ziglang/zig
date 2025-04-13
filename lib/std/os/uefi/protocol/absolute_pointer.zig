@@ -36,7 +36,7 @@ pub const AbsolutePointer = extern struct {
         }
     }
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x8d59d32b,
         .time_mid = 0xc655,
         .time_high_and_version = 0x4ae9,

@@ -15,7 +15,7 @@ pub const DevicePath = extern struct {
 
     pub const CreateFileDevicePathError = Allocator.Error;
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x09576e91,
         .time_mid = 0x6d3f,
         .time_high_and_version = 0x11d2,

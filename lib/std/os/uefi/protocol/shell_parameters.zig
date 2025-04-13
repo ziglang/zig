@@ -9,7 +9,7 @@ pub const ShellParameters = extern struct {
     stdout: FileHandle,
     stderr: FileHandle,
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x752f3136,
         .time_mid = 0x4e16,
         .time_high_and_version = 0x4fdc,

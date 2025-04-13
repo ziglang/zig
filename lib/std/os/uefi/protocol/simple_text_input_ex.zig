@@ -85,7 +85,7 @@ pub const SimpleTextInputEx = extern struct {
         }
     }
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0xdd9e7534,
         .time_mid = 0x7762,
         .time_high_and_version = 0x4698,

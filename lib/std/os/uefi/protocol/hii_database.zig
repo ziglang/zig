@@ -100,7 +100,7 @@ pub const HiiDatabase = extern struct {
         }
     }
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0xef9fc172,
         .time_mid = 0xa1b2,
         .time_high_and_version = 0x4693,

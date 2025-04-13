@@ -39,7 +39,7 @@ pub const SimplePointer = struct {
         }
     }
 
-    pub const guid = Guid{
+    pub const guid align(8) = Guid{
         .time_low = 0x31878c87,
         .time_mid = 0x0b75,
         .time_high_and_version = 0x11d5,

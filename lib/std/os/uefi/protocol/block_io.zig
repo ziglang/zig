@@ -80,7 +80,7 @@ pub const BlockIo = extern struct {
         }
     }
 
-    pub const guid = uefi.Guid{
+    pub const guid align(8) = uefi.Guid{
         .time_low = 0x964e5b21,
         .time_mid = 0x6459,
         .time_high_and_version = 0x11d2,
