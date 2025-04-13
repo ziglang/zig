@@ -86,6 +86,7 @@ pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
+pub const NSIG = system.NSIG;
 pub const O = system.O;
 pub const PATH_MAX = system.PATH_MAX;
 pub const POLL = system.POLL;
@@ -129,7 +130,6 @@ pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
 pub const fd_t = system.fd_t;
 pub const file_obj = system.file_obj;
-pub const filled_sigset = system.filled_sigset;
 pub const gid_t = system.gid_t;
 pub const ifreq = system.ifreq;
 pub const ino_t = system.ino_t;
@@ -678,7 +678,7 @@ pub fn abort() noreturn {
         raise(SIG.ABRT) catch {};
 
         // Disable all signal handlers.
-        sigprocmask(SIG.BLOCK, &linux.all_mask, null);
+        sigprocmask(SIG.BLOCK, &linux.filled_sigset, null);
 
         // Only one thread may proceed to the rest of abort().
         if (!builtin.single_threaded) {
@@ -698,7 +698,8 @@ pub fn abort() noreturn {
 
         _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
-        const sigabrtmask: linux.sigset_t = [_]u32{0} ** 31 ++ [_]u32{1 << (SIG.ABRT - 1)};
+        var sigabrtmask = empty_sigset;
+        sigaddset(&sigabrtmask, SIG.ABRT);
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
         // Beyond this point should be unreachable.
@@ -723,18 +724,13 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (native_os == .linux) {
-        // https://git.musl-libc.org/cgit/musl/commit/?id=0bed7e0acfd34e3fb63ca0e4d99b7592571355a9
-        //
-        // Unlike musl, libc-less Zig std does not have any internal signals for implementation purposes, so we
-        // need to block all signals on the assumption that any of them could potentially fork() in a handler.
-        var set: sigset_t = undefined;
-        sigprocmask(SIG.BLOCK, &linux.all_mask, &set);
-
-        const tid = linux.gettid();
-        const rc = linux.tkill(tid, sig);
-
-        // restore signal mask
-        sigprocmask(SIG.SETMASK, &set, null);
+        // Block all signals so a `fork` (from a signal handler) between the gettid() and kill() syscalls
+        // cannot trigger an extra, unexpected, inter-process signal.  Signal paranoia inherited from Musl.
+        const filled = linux.sigfillset();
+        var orig: sigset_t = undefined;
+        sigprocmask(SIG.BLOCK, &linux.filled_sigset, &orig);
+        const rc = linux.tkill(linux.gettid(), sig);
+        sigprocmask(SIG.SETMASK, &orig, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -5818,8 +5814,59 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
     }
 }
 
+pub fn sigfillset(set: *sigset_t) void {
+    if (builtin.link_libc) {
+        switch (errno(system.sigfillset(set))) {
+            .SUCCESS => return,
+            else => unreachable,
+        }
+    }
+    set.* = system.filled_sigset;
+}
+
+pub fn sigemptyset(set: *sigset_t) void {
+    if (builtin.link_libc) {
+        switch (errno(system.sigemptyset(set))) {
+            .SUCCESS => return,
+            else => unreachable,
+        }
+    }
+    set.* = system.empty_sigset;
+}
+
+pub fn sigaddset(set: *sigset_t, sig: u8) void {
+    if (builtin.link_libc) {
+        switch (errno(system.sigaddset(set, sig))) {
+            .SUCCESS => return,
+            else => unreachable,
+        }
+    }
+    system.sigaddset(set, sig);
+}
+
+pub fn sigdelset(set: *sigset_t, sig: u8) void {
+    if (builtin.link_libc) {
+        switch (errno(system.sigdelset(set, sig))) {
+            .SUCCESS => return,
+            else => unreachable,
+        }
+    }
+    system.sigdelset(set, sig);
+}
+
+pub fn sigismember(set: *const sigset_t, sig: u8) bool {
+    if (builtin.link_libc) {
+        const rc = system.sigismember(set, sig);
+        switch (errno(rc)) {
+            .SUCCESS => return rc == 1,
+            else => unreachable,
+        }
+    }
+    return system.sigismember(set, sig);
+}
+
 /// Examine and change a signal action.
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) void {
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
         // EINVAL means the signal is either invalid or some signal that cannot have its action
