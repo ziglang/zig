@@ -53,6 +53,27 @@ pub const File = struct {
     /// struct/union/enum/opaque decl node => its namespace scope
     /// local var decl node => its local variable scope
     scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .empty,
+    /// Last decl in the file (exclusive).
+    decl_end: Decl.Index = .none,
+
+    pub const DeclIter = struct {
+        idx: DeclIndexTagType,
+        end: DeclIndexTagType,
+
+        const DeclIndexTagType = @typeInfo(Decl.Index).@"enum".tag_type;
+
+        pub fn next(iter: *DeclIter) ?Decl.Index {
+            if (iter.idx >= iter.end) return null;
+            const decl_idx = iter.idx;
+            iter.idx += 1;
+            return @enumFromInt(decl_idx);
+        }
+
+        pub fn remaining(iter: DeclIter) usize {
+            if (iter.idx >= iter.end) return 0;
+            return iter.end - iter.idx;
+        }
+    };
 
     pub fn lookup_token(file: *File, token: Ast.TokenIndex) Decl.Index {
         const decl_node = file.ident_decls.get(token) orelse return .none;
@@ -87,6 +108,18 @@ pub const File = struct {
 
         pub fn findRootDecl(file_index: File.Index) Decl.Index {
             return file_index.get().node_decls.values()[0];
+        }
+
+        /// Excludes the root decl.
+        /// Only valid after `Walk.add_file()`.
+        pub fn iterDecls(file_index: File.Index) DeclIter {
+            const root_idx = @intFromEnum(file_index.findRootDecl());
+            const end_idx = file_index.get().decl_end;
+            assert(end_idx != .none);
+            return DeclIter{
+                .idx = root_idx + 1,
+                .end = @intFromEnum(end_idx),
+            };
         }
 
         pub fn categorize_decl(file_index: File.Index, node: Ast.Node.Index) Category {
@@ -405,6 +438,7 @@ pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
     try struct_decl(&w, scope, decl_index, .root, ast.containerDeclRoot());
 
     const file = file_index.get();
+    file.decl_end = @enumFromInt(decls.items.len);
     shrinkToFit(&file.ident_decls);
     shrinkToFit(&file.token_parents);
     shrinkToFit(&file.node_decls);
