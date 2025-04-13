@@ -1149,7 +1149,7 @@ pub fn access(path: [*:0]const u8, mode: u32) usize {
 }
 
 pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
-    return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
+    return syscall4(.faccessat2, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
