@@ -308,7 +308,6 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
-stack_trace_type: InternPool.Index = .none,
 
 incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
     if (build_options.enable_debug_extensions) .init else {},
