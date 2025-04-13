@@ -4930,7 +4930,7 @@ pub const AccessError = error{
 ///
 /// On Windows, `mode` is ignored. This is a POSIX API that is only partially supported by
 /// Windows. See `fs` for the cross-platform file system API.
-pub fn access(path: []const u8, mode: u32) AccessError!void {
+pub fn access(path: []const u8, mode: c_int) AccessError!void {
     if (native_os == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
@@ -4943,7 +4943,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 }
 
 /// Same as `access` except `path` is null-terminated.
-pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
+pub fn accessZ(path: [*:0]const u8, mode: c_int) AccessError!void {
     if (native_os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
@@ -4981,7 +4981,7 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
 ///
 /// On Windows, `mode` is ignored. This is a POSIX API that is only partially supported by
 /// Windows. See `fs` for the cross-platform file system API.
-pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
+pub fn faccessat(dirfd: fd_t, path: []const u8, mode: c_int, flags: c_int) AccessError!void {
     if (native_os == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr);
@@ -5025,7 +5025,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
 }
 
 /// Same as `faccessat` except the path parameter is null-terminated.
-pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
+pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: c_int, flags: c_int) AccessError!void {
     if (native_os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr);
