@@ -78,7 +78,7 @@ pub const GraphicsOutput = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0x9042a9de,
         .time_mid = 0x23dc,
         .time_high_and_version = 0x4a38,

@@ -173,7 +173,7 @@ pub const Udp6 = extern struct {
         }
     }
 
-    pub const guid align(8) = uefi.Guid{
+    pub const guid = Guid{
         .time_low = 0x4f948815,
         .time_mid = 0xb4b9,
         .time_high_and_version = 0x43cb,

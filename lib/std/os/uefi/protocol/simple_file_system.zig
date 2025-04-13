@@ -35,7 +35,7 @@ pub const SimpleFileSystem = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0x0964e5b22,
         .time_mid = 0x6459,
         .time_high_and_version = 0x11d2,

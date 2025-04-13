@@ -43,13 +43,13 @@ pub const RuntimeServices = extern struct {
     _convertPointer: *const fn (debug_disposition: DebugDisposition, address: *?*anyopaque) callconv(cc) Status,
 
     /// Returns the value of a variable.
-    _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?*anyopaque) callconv(cc) Status,
+    _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?*anyopaque) callconv(cc) Status,
 
     /// Enumerates the current variable names.
-    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *align(8) Guid) callconv(cc) Status,
+    _getNextVariableName: *const fn (var_name_size: *usize, var_name: ?[*:0]const u16, vendor_guid: *Guid) callconv(cc) Status,
 
     /// Sets the value of a variable.
-    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: [*]const u8) callconv(cc) Status,
+    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *const Guid, attributes: VariableAttributes, data_size: usize, data: [*]const u8) callconv(cc) Status,
 
     /// Return the next high 32 bits of the platform's monotonic counter
     _getNextHighMonotonicCount: *const fn (high_count: *u32) callconv(cc) Status,
@@ -249,7 +249,7 @@ pub const RuntimeServices = extern struct {
     pub fn getVariableSize(
         self: *const RuntimeServices,
         name: [*:0]const u16,
-        guid: *align(8) const Guid,
+        guid: *const Guid,
     ) GetVariableSizeError!?struct { usize, VariableAttributes } {
         var size: usize = 0;
         var attrs: VariableAttributes = undefined;
@@ -274,7 +274,7 @@ pub const RuntimeServices = extern struct {
     pub fn getVariable(
         self: *const RuntimeServices,
         name: [*:0]const u16,
-        guid: *align(8) const Guid,
+        guid: *const Guid,
         buffer: []u8,
     ) GetVariableError!?struct { []u8, VariableAttributes } {
         var attrs: VariableAttributes = undefined;
@@ -311,7 +311,7 @@ pub const RuntimeServices = extern struct {
     pub fn setVariable(
         self: *RuntimeServices,
         name: [*:0]const u16,
-        guid: *align(8) const Guid,
+        guid: *const Guid,
         attributes: VariableAttributes,
         data: []const u8,
     ) SetVariableError!void {
@@ -498,7 +498,7 @@ pub const RuntimeServices = extern struct {
 
         services: *const RuntimeServices,
         buffer: []u16,
-        guid: Guid align(8),
+        guid: Guid,
 
         pub fn nextSize(self: *VariableNameIterator) NextSizeError!?usize {
             var len: usize = 0;

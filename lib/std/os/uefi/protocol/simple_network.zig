@@ -349,7 +349,7 @@ pub const SimpleNetwork = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0xa19832b9,
         .time_mid = 0xac25,
         .time_high_and_version = 0x11d3,

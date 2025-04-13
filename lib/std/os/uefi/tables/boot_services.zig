@@ -83,31 +83,31 @@ pub const BootServices = extern struct {
     /// Installs a protocol interface on a device handle. If the handle does not exist, it is created
     /// and added to the list of handles in the system. installMultipleProtocolInterfaces()
     /// performs more error checking than installProtocolInterface(), so its use is recommended over this.
-    _installProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface_type: InterfaceType, interface: *anyopaque) callconv(cc) Status,
+    _installProtocolInterface: *const fn (handle: Handle, protocol: *const Guid, interface_type: InterfaceType, interface: *anyopaque) callconv(cc) Status,
 
     /// Reinstalls a protocol interface on a device handle
-    _reinstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(cc) Status,
+    _reinstallProtocolInterface: *const fn (handle: Handle, protocol: *const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(cc) Status,
 
     /// Removes a protocol interface from a device handle. Usage of
     /// uninstallMultipleProtocolInterfaces is recommended over this.
-    _uninstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: *anyopaque) callconv(cc) Status,
+    _uninstallProtocolInterface: *const fn (handle: Handle, protocol: *const Guid, interface: *anyopaque) callconv(cc) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
-    _handleProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque) callconv(cc) Status,
+    _handleProtocol: *const fn (handle: Handle, protocol: *const Guid, interface: *?*anyopaque) callconv(cc) Status,
 
     _reserved: *anyopaque,
 
     /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
-    _registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: *EventRegistration) callconv(cc) Status,
+    _registerProtocolNotify: *const fn (protocol: *const Guid, event: Event, registration: *EventRegistration) callconv(cc) Status,
 
     /// Returns an array of handles that support a specified protocol.
-    _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: ?[*]Handle) callconv(cc) Status,
+    _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: ?[*]Handle) callconv(cc) Status,
 
     /// Locates the handle to a device on the device path that supports the specified protocol
-    _locateDevicePath: *const fn (protocols: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(cc) Status,
+    _locateDevicePath: *const fn (protocols: *const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(cc) Status,
 
     /// Adds, updates, or removes a configuration table entry from the EFI System Table.
-    _installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*anyopaque) callconv(cc) Status,
+    _installConfigurationTable: *const fn (guid: *const Guid, table: ?*anyopaque) callconv(cc) Status,
 
     /// Loads an EFI image into memory.
     _loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *Handle) callconv(cc) Status,
@@ -140,22 +140,22 @@ pub const BootServices = extern struct {
     _disconnectController: *const fn (controller_handle: Handle, driver_image_handle: ?Handle, child_handle: ?Handle) callconv(cc) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
-    _openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ?*?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
+    _openProtocol: *const fn (handle: Handle, protocol: *const Guid, interface: ?*?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
-    _closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
+    _closeProtocol: *const fn (handle: Handle, protocol: *const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
 
     /// Retrieves the list of agents that currently have a protocol interface opened.
-    _openProtocolInformation: *const fn (handle: Handle, protocol: *align(8) const Guid, entry_buffer: *[*]ProtocolInformationEntry, entry_count: *usize) callconv(cc) Status,
+    _openProtocolInformation: *const fn (handle: Handle, protocol: *const Guid, entry_buffer: *[*]ProtocolInformationEntry, entry_count: *usize) callconv(cc) Status,
 
     /// Retrieves the list of protocol interface GUIDs that are installed on a handle in a buffer allocated from pool.
-    _protocolsPerHandle: *const fn (handle: Handle, protocol_buffer: *[*]*align(8) const Guid, protocol_buffer_count: *usize) callconv(cc) Status,
+    _protocolsPerHandle: *const fn (handle: Handle, protocol_buffer: *[*]*const Guid, protocol_buffer_count: *usize) callconv(cc) Status,
 
     /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
-    _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
+    _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?*const anyopaque, interface: ?*?EventRegistration) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *const Guid, registration: ?*const anyopaque, interface: ?*?EventRegistration) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -175,7 +175,7 @@ pub const BootServices = extern struct {
     _setMem: *const fn (buffer: [*]u8, size: usize, value: u8) callconv(cc) void,
 
     /// Creates an event in a group.
-    _createEventEx: *const fn (type: u32, notify_tpl: usize, notify_func: EventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(cc) Status,
+    _createEventEx: *const fn (type: u32, notify_tpl: usize, notify_func: EventNotify, notify_ctx: *const anyopaque, event_group: *const Guid, event: *Event) callconv(cc) Status,
 
     pub const AllocatePagesError = uefi.UnexpectedError || error{
         OutOfResources,
@@ -751,7 +751,7 @@ pub const BootServices = extern struct {
 
     pub fn installConfigurationTable(
         self: *BootServices,
-        guid: *align(8) const Guid,
+        guid: *const Guid,
         table: *anyopaque,
     ) InstallConfigurationTableError!void {
         switch (self._installConfigurationTable(
@@ -767,7 +767,7 @@ pub const BootServices = extern struct {
 
     pub fn uninstallConfigurationTable(
         self: *BootServices,
-        guid: *align(8) const Guid,
+        guid: *const Guid,
     ) UninstallConfigurationTableError!void {
         switch (self._installConfigurationTable(
             guid,
@@ -1057,8 +1057,8 @@ pub const BootServices = extern struct {
     pub fn protocolsPerHandle(
         self: *const BootServices,
         handle: Handle,
-    ) ProtocolsPerHandleError![]*align(8) const Guid {
-        var guids: [*]*align(8) const Guid = undefined;
+    ) ProtocolsPerHandleError![]*const Guid {
+        var guids: [*]*const Guid = undefined;
         var len: usize = undefined;
 
         switch (self._protocolsPerHandle(
@@ -1131,7 +1131,7 @@ pub const BootServices = extern struct {
     /// types should declare a `guid` constant like so:
     ///
     /// ```
-    /// pub const guid: align(8) uefi.Guid = .{ ... };
+    /// pub const guid: uefi.Guid = .{ ... };
     /// ```
     ///
     /// See `std.os.uefi.protocol` for examples of protocol type definitions.
@@ -1229,7 +1229,7 @@ fn protocolInterfaces(
 
         if (!@hasDecl(Interface, "guid"))
             @compileError("protocol interface '" ++ @typeName(Interface) ++
-                "' does not declare a 'const guid: align(8) uefi.Guid'.");
+                "' does not declare a 'const guid: uefi.Guid'.");
 
         switch (@typeInfo(Interface)) {
             .@"struct" => |struct_info| if (struct_info.layout != .@"extern")
@@ -1256,7 +1256,7 @@ fn ProtocolInterfaces(HandleType: type, Interfaces: type) type {
     tuple_types[0] = HandleType;
     var idx = 1;
     while (idx < tuple_types.len) : (idx += 2) {
-        tuple_types[idx] = *align(8) const Guid;
+        tuple_types[idx] = *const Guid;
         tuple_types[idx + 1] = *const anyopaque;
     }
 

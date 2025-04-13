@@ -190,7 +190,7 @@ pub const ManagedNetwork = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0x7ab33a91,
         .time_mid = 0xace5,
         .time_high_and_version = 0x4326,
@@ -211,7 +211,7 @@ pub const ManagedNetwork = extern struct {
             return self._destroy_child(self, handle);
         }
 
-        pub const guid align(8) = Guid{
+        pub const guid = Guid{
             .time_low = 0xf36ff770,
             .time_mid = 0xa7e1,
             .time_high_and_version = 0x42cf,

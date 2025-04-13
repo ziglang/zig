@@ -112,7 +112,7 @@ pub const SerialIo = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0xBB25CF6F,
         .time_mid = 0xF1D4,
         .time_high_and_version = 0x11D2,

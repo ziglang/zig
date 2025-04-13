@@ -35,7 +35,7 @@ pub const LoadedImage = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0x5b1b31a1,
         .time_mid = 0x9562,
         .time_high_and_version = 0x11d2,
@@ -44,7 +44,7 @@ pub const LoadedImage = extern struct {
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
     };
 
-    pub const device_path_guid align(8) = Guid{
+    pub const device_path_guid = Guid{
         .time_low = 0xbc62157e,
         .time_mid = 0x3e33,
         .time_high_and_version = 0x4fec,

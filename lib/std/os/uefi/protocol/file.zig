@@ -16,8 +16,8 @@ pub const File = extern struct {
     _write: *const fn (*File, *usize, [*]const u8) callconv(cc) Status,
     _get_position: *const fn (*const File, *u64) callconv(cc) Status,
     _set_position: *const fn (*File, u64) callconv(cc) Status,
-    _get_info: *const fn (*const File, *align(8) const Guid, *usize, ?[*]u8) callconv(cc) Status,
-    _set_info: *const fn (*File, *align(8) const Guid, usize, [*]const u8) callconv(cc) Status,
+    _get_info: *const fn (*const File, *const Guid, *usize, ?[*]u8) callconv(cc) Status,
+    _set_info: *const fn (*File, *const Guid, usize, [*]const u8) callconv(cc) Status,
     _flush: *const fn (*File) callconv(cc) Status,
 
     pub const OpenError = uefi.UnexpectedError || error{
@@ -353,7 +353,7 @@ pub const File = extern struct {
                 return @as([*:0]const u16, @ptrCast(&self._file_name));
             }
 
-            pub const guid align(8) = Guid{
+            pub const guid = Guid{
                 .time_low = 0x09576e92,
                 .time_mid = 0x6d3f,
                 .time_high_and_version = 0x11d2,
@@ -375,7 +375,7 @@ pub const File = extern struct {
                 return @as([*:0]const u16, @ptrCast(&self._volume_label));
             }
 
-            pub const guid align(8) = Guid{
+            pub const guid = Guid{
                 .time_low = 0x09576e93,
                 .time_mid = 0x6d3f,
                 .time_high_and_version = 0x11d2,
@@ -392,7 +392,7 @@ pub const File = extern struct {
                 return @as([*:0]const u16, @ptrCast(&self._volume_label));
             }
 
-            pub const guid align(8) = Guid{
+            pub const guid = Guid{
                 .time_low = 0xdb47d7d3,
                 .time_mid = 0xfe81,
                 .time_high_and_version = 0x11d3,

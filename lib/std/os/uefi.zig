@@ -93,7 +93,7 @@ pub const IpAddress = extern union {
 
 /// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
-    time_low: u32,
+    time_low: u32 align(8),
     time_mid: u16,
     time_high_and_version: u16,
     clock_seq_high_and_reserved: u8,
@@ -102,7 +102,7 @@ pub const Guid = extern struct {
 
     /// Format GUID into hexadecimal lowercase xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx format
     pub fn format(
-        self: @This(),
+        self: Guid,
         comptime f: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
@@ -128,7 +128,7 @@ pub const Guid = extern struct {
         }
     }
 
-    pub fn eql(a: std.os.uefi.Guid, b: std.os.uefi.Guid) bool {
+    pub fn eql(a: Guid, b: Guid) bool {
         return a.time_low == b.time_low and
             a.time_mid == b.time_mid and
             a.time_high_and_version == b.time_high_and_version and

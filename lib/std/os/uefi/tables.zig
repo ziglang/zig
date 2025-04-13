@@ -137,7 +137,7 @@ pub const LocateSearchType = enum(u32) {
 pub const LocateSearch = union(LocateSearchType) {
     all_handles,
     by_register_notify: uefi.EventRegistration,
-    by_protocol: *align(8) const Guid,
+    by_protocol: *const Guid,
 };
 
 pub const OpenProtocolAttributes = enum(u32) {
@@ -225,7 +225,7 @@ pub const AllocateType = enum(u32) {
 pub const PhysicalAddress = u64;
 
 pub const CapsuleHeader = extern struct {
-    capsule_guid: Guid align(8),
+    capsule_guid: Guid,
     header_size: u32,
     flags: u32,
     capsule_image_size: u32,
@@ -246,7 +246,7 @@ pub const ResetType = enum(u32) {
     platform_specific,
 };
 
-pub const global_variable align(8) = Guid{
+pub const global_variable = Guid{
     .time_low = 0x8be4df61,
     .time_mid = 0x93ca,
     .time_high_and_version = 0x11d2,

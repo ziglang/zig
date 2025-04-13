@@ -108,7 +108,7 @@ pub const Ip6Config = extern struct {
         }
     }
 
-    pub const guid align(8) = Guid{
+    pub const guid = Guid{
         .time_low = 0x937fe521,
         .time_mid = 0x95ae,
         .time_high_and_version = 0x4d1a,
