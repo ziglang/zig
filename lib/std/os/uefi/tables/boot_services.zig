@@ -859,7 +859,7 @@ pub const BootServices = extern struct {
         switch (self._exit(
             handle,
             status,
-            message.len + 1,
+            (2 * message.len) + 1,
             message.ptr,
         )) {
             .success => {},
