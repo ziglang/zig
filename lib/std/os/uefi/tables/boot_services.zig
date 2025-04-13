@@ -98,7 +98,7 @@ pub const BootServices = extern struct {
     _reserved: *anyopaque,
 
     /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
-    _registerProtocolNotify: *const fn (protocol: *const Guid, event: Event, registration: *EventRegistration) callconv(cc) Status,
+    _registerProtocolNotify: *const fn (protocol: *const Guid, event: Event, registration: **const EventRegistration) callconv(cc) Status,
 
     /// Returns an array of handles that support a specified protocol.
     _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: ?[*]Handle) callconv(cc) Status,
@@ -155,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *const Guid, registration: ?*const anyopaque, interface: ?*?EventRegistration) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *const Guid, registration: ?*const anyopaque, interface: ?*?*const EventRegistration) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -670,11 +670,11 @@ pub const BootServices = extern struct {
         self: *BootServices,
         Protocol: type,
         event: Event,
-    ) RegisterProtocolNotifyError!EventRegistration {
+    ) RegisterProtocolNotifyError!*const EventRegistration {
         if (!@hasDecl(Protocol, "guid"))
             @compileError("Protocol is missing guid");
 
-        var registration: EventRegistration = undefined;
+        var registration: *const EventRegistration = undefined;
         switch (self._registerProtocolNotify(
             &Protocol.guid,
             event,
@@ -1098,7 +1098,7 @@ pub const BootServices = extern struct {
     pub fn locateProtocol(
         self: *const BootServices,
         Protocol: type,
-        registration: ?EventRegistration,
+        registration: ?*const EventRegistration,
     ) LocateProtocolError!?*Protocol {
         var interface: ?*Protocol = undefined;
 

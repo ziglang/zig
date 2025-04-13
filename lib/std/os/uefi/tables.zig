@@ -136,7 +136,7 @@ pub const LocateSearchType = enum(u32) {
 
 pub const LocateSearch = union(LocateSearchType) {
     all_handles,
-    by_register_notify: uefi.EventRegistration,
+    by_register_notify: *const uefi.EventRegistration,
     by_protocol: *const Guid,
 };
 
@@ -219,7 +219,6 @@ pub const AllocateType = enum(u32) {
     allocate_any_pages,
     allocate_max_address,
     allocate_address,
-    _,
 };
 
 pub const PhysicalAddress = u64;
