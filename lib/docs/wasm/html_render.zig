@@ -11,10 +11,15 @@ const Oom = error{OutOfMemory};
 /// Delete this to find out where URL escaping needs to be added.
 pub const missing_feature_url_escape = true;
 
+/// Prevents collisions with IDs in index.html
+/// Keep in sync with the `navPrefix` constant in `main.js`.
+pub const nav_prefix: []const u8 = "nav_";
+
 pub const RenderSourceOptions = struct {
     skip_doc_comments: bool = false,
     skip_comments: bool = false,
     collapse_whitespace: bool = false,
+    /// Render a specific function as a link to its documentation.
     fn_link: Decl.Index = .none,
     /// Assumed to be sorted ascending.
     source_location_annotations: []const Annotation = &.{},
