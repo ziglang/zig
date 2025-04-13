@@ -380,7 +380,6 @@ pub const BootServices = extern struct {
         var ptr: [*]align(4096) Page = switch (location) {
             .allocate_any_pages => undefined,
             .allocate_address, .allocate_max_address => |ptr| ptr,
-            else => return Error.InvalidParameter,
         };
 
         switch (self._allocatePages(
@@ -854,13 +853,13 @@ pub const BootServices = extern struct {
         self: *BootServices,
         handle: Handle,
         status: Status,
-        message: [:0]const u16,
+        message: ?[:0]const u16,
     ) ExitError!void {
         switch (self._exit(
             handle,
             status,
-            (2 * message.len) + 1,
-            message.ptr,
+            if (message) |msg| (2 * msg.len) + 1 else 0,
+            if (message) |msg| @ptrCast(msg.ptr) else null,
         )) {
             .success => {},
             .invalid_parameter => return error.InvalidParameter,
