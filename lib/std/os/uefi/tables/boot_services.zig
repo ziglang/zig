@@ -116,7 +116,7 @@ pub const BootServices = extern struct {
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*const u16) callconv(cc) Status,
+    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*align(2) const u8) callconv(cc) Status,
 
     /// Unloads an image.
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
@@ -849,22 +849,34 @@ pub const BootServices = extern struct {
         InvalidParameter,
     };
 
-    /// `data` may be a [*:0]const u16 immediately following additional data of
-    /// any format. The string is a description that the caller may use to further
-    /// indicate the reason for the image’s exit. `data` is only valid if `status`
-    /// is something other than `.success`.
+    /// `message` must be allocated using `allocatePool`.
     pub fn exit(
         self: *BootServices,
         handle: Handle,
         status: Status,
-        data: ?[]const u8,
+        message: [:0]const u16,
     ) ExitError!void {
         switch (self._exit(
             handle,
             status,
-            if (data) |d| d.len else 0,
-            if (data) |d| @alignCast(@ptrCast(d.ptr)) else null,
+            message.len + 1,
+            message.ptr,
         )) {
+            .success => {},
+            .invalid_parameter => return error.InvalidParameter,
+            else => |exit_status| return uefi.unexpectedStatus(exit_status),
+        }
+    }
+
+    /// `message` should be a null-terminated u16 string followed by binary data
+    /// allocated using `allocatePool`.
+    pub fn exitWithData(
+        self: *BootServices,
+        handle: Handle,
+        status: Status,
+        data: []align(2) const u8,
+    ) ExitError!void {
+        switch (self._exit(handle, status, data.len, data.ptr)) {
             .success => {},
             .invalid_parameter => return error.InvalidParameter,
             else => |exit_status| return uefi.unexpectedStatus(exit_status),
