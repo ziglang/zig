@@ -266,54 +266,61 @@ pub fn float(r: Random, comptime T: type) T {
     // Generate a uniformly random value for the mantissa.
     // Then generate an exponentially biased random value for the exponent.
     // This covers every possible value in the range.
-    switch (T) {
-        f32 => {
-            // Use 23 random bits for the mantissa, and the rest for the exponent.
-            // If all 41 bits are zero, generate additional random bits, until a
-            // set bit is found, or 126 bits have been generated.
-            const rand = r.int(u64);
-            var rand_lz = @clz(rand);
-            if (rand_lz >= 41) {
-                @branchHint(.unlikely);
-                rand_lz = 41 + @clz(r.int(u64));
-                if (rand_lz == 41 + 64) {
-                    @branchHint(.unlikely);
-                    // It is astronomically unlikely to reach this point.
-                    rand_lz += @clz(r.int(u32) | 0x7FF);
-                }
+
+    const TAsInt = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+
+    const fractional_bits = std.math.floatFractionalBits(T);
+
+    const max_lz = (1 << (std.math.floatExponentBits(T) - 1)) - 2;
+
+    const max_random_bits = max_lz + fractional_bits;
+
+    // It's not known yet how many bits are needed.
+    // The first call to r.int(...) will generate
+    // - a maximum of max_random_bits bits
+    // - more than fractional_bits bits
+    // - preferably a multiple of 64 bits
+    const first_random_bits = @min((fractional_bits | 63) + 1, max_random_bits);
+    const max_first_lz = first_random_bits - fractional_bits;
+
+    const rand = r.int(std.meta.Int(.unsigned, first_random_bits));
+
+    // Use fractional_bits random bits for the mantissa, and the rest for the exponent.
+    // If all bits of this rest are zero, generate additional random bits, until a
+    // set bit is found, or max_lz bits have been generated.
+    const mantissa: TAsInt = @intCast(rand & ((1 << fractional_bits) - 1));
+    var rand_lz: TAsInt = @clz(rand);
+
+    if (rand_lz >= max_first_lz) {
+        @branchHint(if (max_first_lz > 1) .unlikely else .none);
+        rand_lz = max_first_lz;
+        for (0..(max_lz - max_first_lz) / 64) |i| {
+            // It is astronomically unlikely for this loop to execute more than once.
+            rand_lz += @clz(r.int(u64));
+            if (rand_lz != 64 * (i + 1) + max_first_lz) {
+                @branchHint(.likely);
+                break;
             }
-            const mantissa: u23 = @truncate(rand);
-            const exponent = @as(u32, 126 - rand_lz) << 23;
-            return @bitCast(exponent | mantissa);
-        },
-        f64 => {
-            // Use 52 random bits for the mantissa, and the rest for the exponent.
-            // If all 12 bits are zero, generate additional random bits, until a
-            // set bit is found, or 1022 bits have been generated.
-            const rand = r.int(u64);
-            var rand_lz: u64 = @clz(rand);
-            if (rand_lz >= 12) {
-                rand_lz = 12;
-                while (true) {
-                    // It is astronomically unlikely for this loop to execute more than once.
-                    const addl_rand_lz = @clz(r.int(u64));
-                    rand_lz += addl_rand_lz;
-                    if (addl_rand_lz != 64) {
-                        @branchHint(.likely);
-                        break;
-                    }
-                    if (rand_lz >= 1022) {
-                        rand_lz = 1022;
-                        break;
-                    }
-                }
+        } else {
+            const missing_bits = (max_lz - max_first_lz) & 63;
+            std.debug.assert(max_lz - rand_lz == missing_bits);
+            if (missing_bits != 0) {
+                rand_lz += @clz(r.int(std.meta.Int(.unsigned, missing_bits)));
             }
-            const mantissa = rand & 0xFFFFFFFFFFFFF;
-            const exponent = (1022 - rand_lz) << 52;
-            return @bitCast(exponent | mantissa);
-        },
-        else => @compileError("unknown floating point type"),
+        }
     }
+
+    std.debug.assert(rand_lz <= max_lz);
+
+    const exponent = max_lz - rand_lz;
+
+    var float_as_int = (exponent << std.math.floatMantissaBits(T)) | mantissa;
+
+    if (T == f80) {
+        float_as_int |= @as(TAsInt, @intFromBool(exponent != 0)) << fractional_bits;
+    }
+
+    return @bitCast(float_as_int);
 }
 
 /// Return a floating point value normally distributed with mean = 0, stddev = 1.
