@@ -8,10 +8,11 @@ const Decl = Walk.Decl;
 const ArrayList = std.ArrayList;
 const Writer = std.Io.Writer;
 
-const fileSourceHtml = @import("html_render.zig").fileSourceHtml;
-const appendEscaped = @import("html_render.zig").appendEscaped;
-const resolveDeclLink = @import("html_render.zig").resolveDeclLink;
-const missing_feature_url_escape = @import("html_render.zig").missing_feature_url_escape;
+const html_render = @import("html_render.zig");
+const fileSourceHtml = html_render.fileSourceHtml;
+const appendEscaped = html_render.appendEscaped;
+const resolveDeclLink = html_render.resolveDeclLink;
+const missing_feature_url_escape = html_render.missing_feature_url_escape;
 
 const gpa = std.heap.wasm_allocator;
 
@@ -543,11 +544,38 @@ export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) Stri
     return String.init(string_result.items);
 }
 
-export fn decl_source_html(decl_index: Decl.Index) String {
+/// `decl_nav_targets`: create targets for jumping to decls. If true, asserts `decl_index` is the
+/// root decl of a file.
+export fn decl_source_html(decl_index: Decl.Index, decl_nav_targets: bool) String {
     const decl = decl_index.get();
 
+    var sla: std.ArrayListUnmanaged(html_render.Annotation) = .empty;
+    defer sla.deinit(gpa);
+    if (decl_nav_targets) {
+        const root_file = decl_index.get().file;
+        assert(decl_index == root_file.findRootDecl());
+
+        const ast = root_file.get_ast();
+        var it = root_file.iterDecls();
+        sla.ensureTotalCapacityPrecise(gpa, it.remaining()) catch @panic("OOM");
+        while (true) {
+            const inner_decl_index = (it.next() orelse break);
+            const inner_decl = inner_decl_index.get();
+            if (!inner_decl.is_pub()) continue;
+            const decl_tok = ast.firstToken(inner_decl.ast_node);
+            const tok_start = ast.tokenStart(decl_tok);
+            sla.appendAssumeCapacity(.{
+                .file_byte_offset = tok_start,
+                .dom_id = @intFromEnum(inner_decl_index),
+            });
+        }
+    }
+
     string_result.clearRetainingCapacity();
-    fileSourceHtml(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
+    fileSourceHtml(decl.file, &string_result, decl.ast_node, .{
+        .source_location_annotations = sla.items,
+        .annotation_prefix = html_render.nav_prefix,
+    }) catch |err| {
         std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
@@ -847,6 +875,11 @@ export fn find_file_root() Decl.Index {
     return file.findRootDecl();
 }
 
+/// Does the decl correspond to the root struct of a file?
+export fn decl_is_root(decl_index: Decl.Index) bool {
+    return decl_index.get().file.findRootDecl() == decl_index;
+}
+
 /// Uses `input_string`.
 /// Tries to look up the Decl component-wise but then falls back to a file path
 /// based scan.
@@ -867,6 +900,13 @@ export fn find_decl() Decl.Index {
         }
     }
     return .none;
+}
+
+/// Uses `input_string` as a decl path.
+/// Start in the namespace corresponding to `decl_index`, find a child decl by path.
+/// The path can contain multiple components e.g. `foo.bar`.
+export fn find_decl_path_in_namespace(decl_index: Decl.Index) Decl.Index {
+    return resolve_decl_path(decl_index, input_string.items) orelse .none;
 }
 
 /// Set only by `categorize_decl`; read only by `get_aliasee`, valid only
