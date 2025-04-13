@@ -155,7 +155,7 @@ pub const BootServices = extern struct {
     _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*const Guid, search_key: ?*const anyopaque, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    _locateProtocol: *const fn (protocol: *const Guid, registration: ?*const anyopaque, interface: ?*?*const EventRegistration) callconv(cc) Status,
+    _locateProtocol: *const fn (protocol: *const Guid, registration: ?*const EventRegistration, interface: *?*const anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
@@ -1105,7 +1105,7 @@ pub const BootServices = extern struct {
         switch (self._locateProtocol(
             &Protocol.guid,
             registration,
-            &interface,
+            @ptrCast(&interface),
         )) {
             .success => return interface,
             .invalid_parameter => return Error.InvalidParameter,
