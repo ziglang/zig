@@ -52,6 +52,7 @@ pub const OpenError = error{
     Unexpected,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     /// On Windows, antivirus software is enabled by default. It can be
     /// disabled, but Windows Update sometimes ignores the user's preference
     /// and re-enables it. When enabled, antivirus software on Windows
