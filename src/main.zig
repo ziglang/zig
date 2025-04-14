@@ -4088,7 +4088,6 @@ fn createModule(
             color,
         ) catch |err| fatal("failed to resolve link inputs: {s}", .{@errorName(err)});
 
-        if (create_module.windows_libs.count() != 0) create_module.opts.any_dyn_libs = true;
         if (!create_module.opts.any_dyn_libs) for (create_module.link_inputs.items) |item| switch (item) {
             .dso, .dso_exact => {
                 create_module.opts.any_dyn_libs = true;
