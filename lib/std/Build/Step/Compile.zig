@@ -411,7 +411,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .linkage = options.linkage,
         .kind = options.kind,
         .name = name,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = step_name,
             .owner = owner,
@@ -1543,7 +1543,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
             try zig_args.append("--version");
-            try zig_args.append(b.fmt("{}", .{version}));
+            try zig_args.append(b.fmt("{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
@@ -1705,7 +1705,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
     else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{}", .{b.graph.zig_lib_directory})
+        b.fmt("{f}", .{b.graph.zig_lib_directory})
     else
         null;
 
@@ -1831,7 +1831,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{}", .{output_dir});
+            lp.path = b.fmt("{f}", .{output_dir});
         }
 
         // -femit-bin[=path]         (default) Output machine code
@@ -1843,17 +1843,17 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         // output PDB if someone requested it
         if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
+            pdb.path = b.fmt("{f}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
         }
 
         // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
         if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
+            implib.path = b.fmt("{f}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
         }
 
         // -femit-h[=path]           Generate a C header file (.h)
         if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
+            lp.path = b.fmt("{f}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
         }
 
         // -femit-docs[=path]        Create a docs/ dir with html documentation
@@ -1863,17 +1863,17 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         // -femit-asm[=path]         Output .s (assembly code)
         if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
+            lp.path = b.fmt("{f}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
         if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
+            lp.path = b.fmt("{f}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
         if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
+            lp.path = b.fmt("{f}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
         }
     }
 
@@ -1987,13 +1987,13 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     const actual_errors = ae: {
         var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.init(arena);
+        aw.init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, bw);
+        }, &aw.buffered_writer);
         break :ae try aw.toOwnedSlice();
     };
 

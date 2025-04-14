@@ -19,7 +19,7 @@ encountered_types: std.StringHashMapUnmanaged(void),
 pub fn create(owner: *std.Build) *Options {
     const options = owner.allocator.create(Options) catch @panic("OOM");
     options.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "options",
             .owner = owner,
@@ -79,15 +79,15 @@ fn printType(
                     std.zig.fmtId(some), std.zig.fmtEscapes(value),
                 });
             } else {
-                try out.print(gpa, "\"{}\",", .{std.zig.fmtEscapes(value)});
+                try out.print(gpa, "\"{f}\",", .{std.zig.fmtEscapes(value)});
             }
             return out.appendSlice(gpa, "\n");
         },
         [:0]const u8 => {
             if (name) |some| {
-                try out.print(gpa, "pub const {}: [:0]const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
+                try out.print(gpa, "pub const {f}: [:0]const u8 = \"{f}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
             } else {
-                try out.print(gpa, "\"{}\",", .{std.zig.fmtEscapes(value)});
+                try out.print(gpa, "\"{f}\",", .{std.zig.fmtEscapes(value)});
             }
             return out.appendSlice(gpa, "\n");
         },
@@ -97,7 +97,7 @@ fn printType(
             }
 
             if (value) |payload| {
-                try out.print(gpa, "\"{}\"", .{std.zig.fmtEscapes(payload)});
+                try out.print(gpa, "\"{f}\"", .{std.zig.fmtEscapes(payload)});
             } else {
                 try out.appendSlice(gpa, "null");
             }
@@ -115,7 +115,7 @@ fn printType(
             }
 
             if (value) |payload| {
-                try out.print(gpa, "\"{}\"", .{std.zig.fmtEscapes(payload)});
+                try out.print(gpa, "\"{f}\"", .{std.zig.fmtEscapes(payload)});
             } else {
                 try out.appendSlice(gpa, "null");
             }
@@ -129,7 +129,7 @@ fn printType(
         },
         std.SemanticVersion => {
             if (name) |some| {
-                try out.print(gpa, "pub const {}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
+                try out.print(gpa, "pub const {f}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
             }
 
             try out.appendSlice(gpa, ".{\n");
@@ -142,11 +142,11 @@ fn printType(
 
             if (value.pre) |some| {
                 try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)});
+                try out.print(gpa, "    .pre = \"{f}\",\n", .{std.zig.fmtEscapes(some)});
             }
             if (value.build) |some| {
                 try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)});
+                try out.print(gpa, "    .build = \"{f}\",\n", .{std.zig.fmtEscapes(some)});
             }
 
             if (name != null) {
@@ -233,7 +233,7 @@ fn printType(
         .null,
         => {
             if (name) |some| {
-                try out.print(gpa, "pub const {}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
+                try out.print(gpa, "pub const {f}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
             } else {
                 try out.print(gpa, "{any},\n", .{value});
             }
@@ -243,7 +243,7 @@ fn printType(
             try printEnum(options, out, T, info, indent);
 
             if (name) |some| {
-                try out.print(gpa, "pub const {}: {} = .{p_};\n", .{
+                try out.print(gpa, "pub const {f}: {f} = .{fp_};\n", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                     std.zig.fmtId(@tagName(value)),
@@ -255,7 +255,7 @@ fn printType(
             try printStruct(options, out, T, info, indent);
 
             if (name) |some| {
-                try out.print(gpa, "pub const {}: {} = ", .{
+                try out.print(gpa, "pub const {f}: {f} = ", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
@@ -291,7 +291,7 @@ fn printEnum(
     if (gop.found_existing) return;
 
     try out.appendNTimes(gpa, ' ', indent);
-    try out.print(gpa, "pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
+    try out.print(gpa, "pub const {f} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
 
     inline for (val.fields) |field| {
         try out.appendNTimes(gpa, ' ', indent);
@@ -464,7 +464,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         error.FileNotFound => {
             const sub_dirname = fs.path.dirname(sub_path).?;
             b.cache_root.handle.makePath(sub_dirname) catch |e| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.cache_root, sub_dirname, @errorName(e),
                 });
             };
@@ -476,13 +476,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
             const tmp_sub_path_dirname = fs.path.dirname(tmp_sub_path).?;
 
             b.cache_root.handle.makePath(tmp_sub_path_dirname) catch |err| {
-                return step.fail("unable to make temporary directory '{}{s}': {s}", .{
+                return step.fail("unable to make temporary directory '{f}{s}': {s}", .{
                     b.cache_root, tmp_sub_path_dirname, @errorName(err),
                 });
             };
 
             b.cache_root.handle.writeFile(.{ .sub_path = tmp_sub_path, .data = options.contents.items }) catch |err| {
-                return step.fail("unable to write options to '{}{s}': {s}", .{
+                return step.fail("unable to write options to '{f}{s}': {s}", .{
                     b.cache_root, tmp_sub_path, @errorName(err),
                 });
             };
@@ -491,7 +491,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 error.PathAlreadyExists => {
                     // Other process beat us to it. Clean up the temp file.
                     b.cache_root.handle.deleteFile(tmp_sub_path) catch |e| {
-                        try step.addError("warning: unable to delete temp file '{}{s}': {s}", .{
+                        try step.addError("warning: unable to delete temp file '{f}{s}': {s}", .{
                             b.cache_root, tmp_sub_path, @errorName(e),
                         });
                     };
@@ -499,7 +499,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                     return;
                 },
                 else => {
-                    return step.fail("unable to rename options from '{}{s}' to '{}{s}': {s}", .{
+                    return step.fail("unable to rename options from '{f}{s}' to '{f}{s}': {s}", .{
                         b.cache_root,    tmp_sub_path,
                         b.cache_root,    sub_path,
                         @errorName(err),
@@ -507,7 +507,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 },
             };
         },
-        else => |e| return step.fail("unable to access options file '{}{s}': {s}", .{
+        else => |e| return step.fail("unable to access options file '{f}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(e),
         }),
     }
