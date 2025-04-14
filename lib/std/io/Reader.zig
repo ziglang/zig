@@ -48,11 +48,45 @@ pub const Status = packed struct(usize) {
 };
 
 pub const Limit = enum(usize) {
+    zero = 0,
     none = std.math.maxInt(usize),
     _,
 
-    pub fn min(l: Limit, int: usize) usize {
-        return @min(int, @intFromEnum(l));
+    /// `std.math.maxInt(usize)` is interpreted to mean "no limit".
+    pub fn init(n: usize) Limit {
+        return @enumFromInt(n);
+    }
+
+    pub fn min(l: Limit, n: usize) usize {
+        return @min(n, @intFromEnum(l));
+    }
+
+    pub fn slice(l: Limit, s: []u8) []u8 {
+        return s[0..min(l, s.len)];
+    }
+
+    pub fn toInt(l: Limit) ?usize {
+        return if (l == .none) null else @intFromEnum(l);
+    }
+
+    /// Reduces a slice to account for the limit, leaving room for one extra
+    /// byte above the limit, allowing for the use case of differentiating
+    /// between end-of-stream and reaching the limit.
+    pub fn slice1(l: Limit, non_empty_buffer: []u8) []u8 {
+        assert(non_empty_buffer.len >= 1);
+        return non_empty_buffer[0..@min(@intFromEnum(l) +| 1, non_empty_buffer.len)];
+    }
+
+    pub fn nonzero(l: Limit) bool {
+        return @intFromEnum(l) > 0;
+    }
+
+    /// Return a new limit reduced by `amount` or return `null` indicating
+    /// limit would be exceeded.
+    pub fn subtract(l: Limit, amount: usize) ?Limit {
+        if (l == .none) return .{ .next = .none };
+        if (amount > @intFromEnum(l)) return null;
+        return @enumFromInt(@intFromEnum(l) - amount);
     }
 };
 

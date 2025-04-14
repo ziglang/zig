@@ -410,19 +410,19 @@ pub fn writeStructEndian(bw: *BufferedWriter, value: anytype, endian: std.builti
 pub fn writeFile(
     bw: *BufferedWriter,
     file: std.fs.File,
-    offset: u64,
-    len: Writer.FileLen,
+    offset: Writer.Offset,
+    limit: Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
-    return passthru_writeFile(bw, file, offset, len, headers_and_trailers, headers_len);
+    return passthru_writeFile(bw, file, offset, limit, headers_and_trailers, headers_len);
 }
 
 fn passthru_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
-    offset: u64,
-    len: Writer.FileLen,
+    offset: Writer.Offset,
+    limit: Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
@@ -430,7 +430,7 @@ fn passthru_writeFile(
     const buffer = bw.buffer;
     if (buffer.len == 0) return track(
         &bw.count,
-        try bw.unbuffered_writer.writeFile(file, offset, len, headers_and_trailers, headers_len),
+        try bw.unbuffered_writer.writeFile(file, offset, limit, headers_and_trailers, headers_len),
     );
     const start_end = bw.end;
     const headers = headers_and_trailers[0..headers_len];
@@ -457,7 +457,7 @@ fn passthru_writeFile(
             @memcpy(remaining_buffers_for_trailers[0..send_trailers_len], trailers[0..send_trailers_len]);
             const send_headers_len = 1 + buffers_len;
             const send_buffers = buffers[0 .. send_headers_len + send_trailers_len];
-            const n = try bw.unbuffered_writer.writeFile(file, offset, len, send_buffers, send_headers_len);
+            const n = try bw.unbuffered_writer.writeFile(file, offset, limit, send_buffers, send_headers_len);
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
@@ -487,7 +487,7 @@ fn passthru_writeFile(
     @memcpy(remaining_buffers[0..send_trailers_len], trailers[0..send_trailers_len]);
     const send_headers_len = 1;
     const send_buffers = buffers[0 .. send_headers_len + send_trailers_len];
-    const n = try bw.unbuffered_writer.writeFile(file, offset, len, send_buffers, send_headers_len);
+    const n = try bw.unbuffered_writer.writeFile(file, offset, limit, send_buffers, send_headers_len);
     if (n < end) {
         @branchHint(.unlikely);
         const remainder = buffer[n..end];
@@ -500,26 +500,26 @@ fn passthru_writeFile(
 }
 
 pub const WriteFileOptions = struct {
-    offset: u64 = 0,
+    offset: Writer.Offset = .none,
     /// If the size of the source file is known, it is likely that passing the
     /// size here will save one syscall.
-    len: Writer.FileLen = .entire_file,
+    limit: Writer.Limit = .none,
     /// Headers and trailers must be passed together so that in case `len` is
     /// zero, they can be forwarded directly to `Writer.VTable.writev`.
     ///
     /// The parameter is mutable because this function needs to mutate the
     /// fields in order to handle partial writes from `Writer.VTable.writeFile`.
     headers_and_trailers: [][]const u8 = &.{},
-    /// The number of trailers is inferred from `headers_and_trailers.len -
-    /// headers_len`.
+    /// The number of trailers is inferred from
+    /// `headers_and_trailers.len - headers_len`.
     headers_len: usize = 0,
 };
 
 pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) anyerror!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
-    if (options.len == .zero) return writevAll(bw, headers_and_trailers);
-    if (options.len == .entire_file) {
+    if (options.limit == .zero) return writevAll(bw, headers_and_trailers);
+    if (options.limit == .none) {
         // When reading the whole file, we cannot include the trailers in the
         // call that reads from the file handle, because we have no way to
         // determine whether a partial write is past the end of the file or
@@ -540,7 +540,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
             offset += n;
         }
     } else {
-        var len = options.len.int();
+        var len = options.limit.toInt().?;
         var i: usize = 0;
         var offset = options.offset;
         while (true) {

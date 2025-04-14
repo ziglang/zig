@@ -43,14 +43,14 @@ fn eof_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
     offset: std.io.Writer.Offset,
-    len: std.io.Writer.FileLen,
+    limit: std.io.Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
     _ = context;
     _ = file;
     _ = offset;
-    _ = len;
+    _ = limit;
     _ = headers_and_trailers;
     _ = headers_len;
     return error.NoSpaceLeft;

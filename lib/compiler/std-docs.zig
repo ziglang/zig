@@ -1,13 +1,12 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
-const io = std.io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Cache = std.Build.Cache;
 
 fn usage() noreturn {
-    io.getStdOut().writeAll(
+    std.fs.File.stdout().writeAll(
         \\Usage: zig std [options]
         \\
         \\Options:
@@ -63,7 +62,7 @@ pub fn main() !void {
     var http_server = try address.listen(.{});
     const port = http_server.listen_address.in.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
-    std.io.getStdOut().writeAll(url_with_newline) catch {};
+    std.fs.File.stdout().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
         openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
             std.log.err("unable to open browser: {s}", .{@errorName(err)});
@@ -155,18 +154,29 @@ fn serveDocsFile(
     name: []const u8,
     content_type: []const u8,
 ) !void {
-    const gpa = context.gpa;
-    // The desired API is actually sendfile, which will require enhancing std.http.Server.
-    // We load the file with every request so that the user can make changes to the file
-    // and refresh the HTML page without restarting this server.
-    const file_contents = try context.lib_dir.readFileAlloc(gpa, name, 10 * 1024 * 1024);
-    defer gpa.free(file_contents);
-    try request.respond(file_contents, .{
-        .extra_headers = &.{
-            .{ .name = "content-type", .value = content_type },
-            cache_control_header,
+    // Open the file with every request so that the user can make changes to
+    // the file and refresh the HTML page without restarting this server.
+    var file = try context.lib_dir.openFile(name, .{});
+    defer file.close();
+    const content_length = std.math.cast(usize, (try file.stat()).size) orelse return error.FileTooBig;
+
+    var send_buffer: [4000]u8 = undefined;
+    var response = request.respondStreaming(.{
+        .send_buffer = &send_buffer,
+        .content_length = content_length,
+        .respond_options = .{
+            .extra_headers = &.{
+                .{ .name = "content-type", .value = content_type },
+                cache_control_header,
+            },
         },
     });
+
+    try response.writer().unbuffered().writeFileAll(file, .{
+        .offset = .zero,
+        .limit = .init(content_length),
+    });
+    try response.end();
 }
 
 fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
