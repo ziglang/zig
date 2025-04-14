@@ -163,7 +163,7 @@ pub const Output = struct {
 pub fn create(owner: *std.Build, name: []const u8) *Run {
     const run = owner.allocator.create(Run) catch @panic("OOM");
     run.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = name,
             .owner = owner,
@@ -763,7 +763,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 else => unreachable,
             };
             b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.cache_root, output_sub_dir_path, @errorName(err),
                 });
             };
@@ -792,7 +792,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             else => unreachable,
         };
         b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-            return step.fail("unable to make path '{}{s}': {s}", .{
+            return step.fail("unable to make path '{f}{s}': {s}", .{
                 b.cache_root, output_sub_dir_path, @errorName(err),
             });
         };
@@ -828,21 +828,21 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |err| {
             if (err == error.PathAlreadyExists) {
                 b.cache_root.handle.deleteTree(o_sub_path) catch |del_err| {
-                    return step.fail("unable to remove dir '{}'{s}: {s}", .{
+                    return step.fail("unable to remove dir '{f}'{s}: {s}", .{
                         b.cache_root,
                         tmp_dir_path,
                         @errorName(del_err),
                     });
                 };
                 b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |retry_err| {
-                    return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                    return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {s}", .{
                         b.cache_root,          tmp_dir_path,
                         b.cache_root,          o_sub_path,
                         @errorName(retry_err),
                     });
                 };
             } else {
-                return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {s}", .{
                     b.cache_root,    tmp_dir_path,
                     b.cache_root,    o_sub_path,
                     @errorName(err),
@@ -889,7 +889,7 @@ pub fn rerunInFuzzMode(
             .artifact => |pa| {
                 const artifact = pa.artifact;
                 const file_path = if (artifact == run.producer.?)
-                    b.fmt("{}", .{run.rebuilt_executable.?})
+                    b.fmt("{f}", .{run.rebuilt_executable.?})
                 else
                     (artifact.installed_path orelse artifact.generated_bin.?.path.?);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));
@@ -935,20 +935,16 @@ fn populateGeneratedPaths(
 
 fn formatTerm(
     term: ?std.process.Child.Term,
+    bw: *std.io.BufferedWriter,
     comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
 ) !void {
     _ = fmt;
-    _ = options;
     if (term) |t| switch (t) {
-        .Exited => |code| try writer.print("exited with code {}", .{code}),
-        .Signal => |sig| try writer.print("terminated with signal {}", .{sig}),
-        .Stopped => |sig| try writer.print("stopped with signal {}", .{sig}),
-        .Unknown => |code| try writer.print("terminated for unknown reason with code {}", .{code}),
-    } else {
-        try writer.writeAll("exited with any code");
-    }
+        .Exited => |code| try bw.print("exited with code {}", .{code}),
+        .Signal => |sig| try bw.print("terminated with signal {}", .{sig}),
+        .Stopped => |sig| try bw.print("stopped with signal {}", .{sig}),
+        .Unknown => |code| try bw.print("terminated for unknown reason with code {}", .{code}),
+    } else try bw.writeAll("exited with any code");
 }
 fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(formatTerm) {
     return .{ .data = term };
@@ -1184,12 +1180,12 @@ fn runCommand(
             const sub_path = b.pathJoin(&output_components);
             const sub_path_dirname = fs.path.dirname(sub_path).?;
             b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.cache_root, sub_path_dirname, @errorName(err),
                 });
             };
             b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = stream.bytes.? }) catch |err| {
-                return step.fail("unable to write file '{}{s}': {s}", .{
+                return step.fail("unable to write file '{f}{s}': {s}", .{
                     b.cache_root, sub_path, @errorName(err),
                 });
             };
@@ -1268,7 +1264,7 @@ fn runCommand(
             },
             .expect_term => |expected_term| {
                 if (!termMatches(expected_term, result.term)) {
-                    return step.fail("the following command {} (expected {}):\n{s}", .{
+                    return step.fail("the following command {f} (expected {f}):\n{s}", .{
                         fmtTerm(result.term),
                         fmtTerm(expected_term),
                         try Step.allocPrintCmd(arena, cwd, final_argv),
@@ -1288,7 +1284,7 @@ fn runCommand(
             };
             const expected_term: std.process.Child.Term = .{ .Exited = 0 };
             if (!termMatches(expected_term, result.term)) {
-                return step.fail("{s}the following command {} (expected {}):\n{s}", .{
+                return step.fail("{s}the following command {f} (expected {f}):\n{s}", .{
                     prefix,
                     fmtTerm(result.term),
                     fmtTerm(expected_term),
@@ -1457,13 +1453,10 @@ fn evalZigTest(
     defer if (sub_prog_node) |n| n.end();
 
     const any_write_failed = first_write_failed or poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll false;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll false;
-        }
+        while (stdout.readableLength() < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+        var header: Header = undefined;
+        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(Header));
+        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll false;
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
         switch (header.tag) {
@@ -1719,10 +1712,10 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
             stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
         } else {
-            stdout_bytes = try stdout.reader().readAllAlloc(arena, run.max_stdio_size);
+            stdout_bytes = try stdout.reader().readAlloc(arena, run.max_stdio_size);
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes = try stderr.reader().readAllAlloc(arena, run.max_stdio_size);
+        stderr_bytes = try stderr.reader().readAlloc(arena, run.max_stdio_size);
     }
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {

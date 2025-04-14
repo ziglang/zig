@@ -333,7 +333,7 @@ pub const Manifest = struct {
     pub const Diagnostic = union(enum) {
         none,
         manifest_create: fs.File.OpenError,
-        manifest_read: fs.File.ReadError,
+        manifest_read: anyerror,
         manifest_lock: fs.File.LockError,
         manifest_seek: fs.File.SeekError,
         file_open: FileOp,
@@ -1062,7 +1062,7 @@ pub const Manifest = struct {
 
     fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         const gpa = self.cache.gpa;
-        const dep_file_contents = try dir.readFileAlloc(gpa, dep_file_basename, manifest_file_size_max);
+        const dep_file_contents = try dir.readFileAlloc(dep_file_basename, gpa, .limited(manifest_file_size_max));
         defer gpa.free(dep_file_contents);
 
         var error_buf: std.ArrayListUnmanaged(u8) = .empty;

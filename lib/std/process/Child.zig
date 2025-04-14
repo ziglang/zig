@@ -1004,13 +1004,17 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const file: File = .{ .handle = fd };
-    var bw = file.writer().unbuffered();
-    bw.writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
+    var buffer: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buffer, @intCast(value), .little);
+    file.writeAll(&buffer) catch return error.SystemResorces;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     const file: File = .{ .handle = fd };
-    return @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources);
+    var buffer: [8]u8 = undefined;
+    const n = file.readAll(&buffer) catch return error.SystemResources;
+    if (n != buffer.len) return error.SystemResources;
+    return @intCast(std.mem.readInt(u64, &buffer, .little));
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
