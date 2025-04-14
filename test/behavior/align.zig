@@ -635,3 +635,13 @@ test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
 
     try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
 }
+
+test "function pointer align mask" {
+    if (!(builtin.cpu.arch.isArm() or builtin.cpu.arch.isMIPS())) return error.SkipZigTest;
+
+    const a: *const fn () callconv(.c) void = @ptrFromInt(0x20202021);
+    _ = &a;
+
+    const b: *align(16) const fn () callconv(.c) void = @alignCast(a);
+    _ = &b;
+}
