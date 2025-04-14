@@ -67,7 +67,7 @@ pub const Contents = union(enum) {
 pub fn create(owner: *std.Build) *WriteFile {
     const write_file = owner.allocator.create(WriteFile) catch @panic("OOM");
     write_file.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "WriteFile",
             .owner = owner,
@@ -217,7 +217,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         const src_dir_path = dir.source.getPath3(b, step);
 
         var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-            return step.fail("unable to open source directory '{}': {s}", .{
+            return step.fail("unable to open source directory '{f}': {s}", .{
                 src_dir_path, @errorName(err),
             });
         };
@@ -258,7 +258,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     write_file.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
 
     var cache_dir = b.cache_root.handle.makeOpenPath(cache_path, .{}) catch |err| {
-        return step.fail("unable to make path '{}{s}': {s}", .{
+        return step.fail("unable to make path '{f}{s}': {s}", .{
             b.cache_root, cache_path, @errorName(err),
         });
     };
@@ -269,7 +269,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     for (write_file.files.items) |file| {
         if (fs.path.dirname(file.sub_path)) |dirname| {
             cache_dir.makePath(dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}{c}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}{c}{s}': {s}", .{
                     b.cache_root, cache_path, fs.path.sep, dirname, @errorName(err),
                 });
             };
@@ -277,7 +277,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         switch (file.contents) {
             .bytes => |bytes| {
                 cache_dir.writeFile(.{ .sub_path = file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{}{s}{c}{s}': {s}", .{
+                    return step.fail("unable to write file '{f}{s}{c}{s}': {s}", .{
                         b.cache_root, cache_path, fs.path.sep, file.sub_path, @errorName(err),
                     });
                 };
@@ -291,7 +291,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     file.sub_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{}{s}{c}{s}': {s}", .{
+                    return step.fail("unable to update file from '{s}' to '{f}{s}{c}{s}': {s}", .{
                         source_path,
                         b.cache_root,
                         cache_path,
@@ -315,7 +315,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         if (dest_dirname.len != 0) {
             cache_dir.makePath(dest_dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}{c}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}{c}{s}': {s}", .{
                     b.cache_root, cache_path, fs.path.sep, dest_dirname, @errorName(err),
                 });
             };
@@ -338,7 +338,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                         dest_path,
                         .{},
                     ) catch |err| {
-                        return step.fail("unable to update file from '{}' to '{}{s}{c}{s}': {s}", .{
+                        return step.fail("unable to update file from '{f}' to '{f}{s}{c}{s}': {s}", .{
                             src_entry_path, b.cache_root, cache_path, fs.path.sep, dest_path, @errorName(err),
                         });
                     };

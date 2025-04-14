@@ -152,15 +152,13 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
 
 pub fn format(
     self: Version,
+    bw: *std.io.BufferedWriter,
     comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    out_stream: anytype,
 ) !void {
-    _ = options;
     if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-    try std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
-    if (self.pre) |pre| try std.fmt.format(out_stream, "-{s}", .{pre});
-    if (self.build) |build| try std.fmt.format(out_stream, "+{s}", .{build});
+    try bw.print("{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
+    if (self.pre) |pre| try bw.print("-{s}", .{pre});
+    if (self.build) |build| try bw.print("+{s}", .{build});
 }
 
 const expect = std.testing.expect;

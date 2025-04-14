@@ -75,7 +75,7 @@ const CheckOutputCaching = struct {
     pub fn init(owner: *std.Build, expect_caching: bool, output_paths: []const std.Build.LazyPath) *CheckOutputCaching {
         const check = owner.allocator.create(CheckOutputCaching) catch @panic("OOM");
         check.* = .{
-            .step = std.Build.Step.init(.{
+            .step = .init(.{
                 .id = .custom,
                 .name = "check output caching",
                 .owner = owner,
@@ -112,7 +112,7 @@ const CheckPathEquality = struct {
     pub fn init(owner: *std.Build, expected_equality: bool, output_paths: []const std.Build.LazyPath) *CheckPathEquality {
         const check = owner.allocator.create(CheckPathEquality) catch @panic("OOM");
         check.* = .{
-            .step = std.Build.Step.init(.{
+            .step = .init(.{
                 .id = .custom,
                 .name = "check output path equality",
                 .owner = owner,

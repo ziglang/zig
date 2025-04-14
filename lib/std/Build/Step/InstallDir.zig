@@ -43,7 +43,7 @@ pub const Options = struct {
 pub fn create(owner: *std.Build, options: Options) *InstallDir {
     const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
     install_dir.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = owner.fmt("install {s}/", .{options.source_dir.getDisplayName()}),
             .owner = owner,
@@ -65,7 +65,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
     const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
     var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{}': {s}", .{
+        return step.fail("unable to open source directory '{f}': {s}", .{
             src_dir_path, @errorName(err),
         });
     };

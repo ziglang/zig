@@ -330,7 +330,7 @@ pub fn main() !void {
         }
     }
 
-    const stderr = std.io.getStdErr();
+    const stderr: std.fs.File = .stderr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
@@ -365,7 +365,7 @@ pub fn main() !void {
             .data = buffer.items,
             .flags = .{ .exclusive = true },
         }) catch |err| {
-            fatal("unable to write configuration results to '{}{s}': {s}", .{
+            fatal("unable to write configuration results to '{f}{s}': {s}", .{
                 local_cache_directory, tmp_sub_path, @errorName(err),
             });
         };
@@ -378,16 +378,11 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    var stdout_writer: std.io.BufferedWriter = .{
-        .buffer = &stdout_buffer,
-        .unbuffered_writer = std.io.getStdOut().writer(),
-    };
-
-    if (help_menu)
-        return usage(builder, &stdout_writer);
-
-    if (steps_menu)
-        return steps(builder, &stdout_writer);
+    {
+        var stdout_bw = std.fs.File.stdout().writer().buffered(&stdio_buffer);
+        if (help_menu) return usage(builder, &stdout_bw);
+        if (steps_menu) return steps(builder, &stdout_bw);
+    }
 
     var run: Run = .{
         .max_rss = max_rss,
@@ -699,7 +694,7 @@ fn runStepNames(
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        var bw = std.debug.lockStdErr2();
+        var bw = std.debug.lockStdErr2(&stdio_buffer);
         defer std.debug.unlockStdErr();
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
@@ -1131,7 +1126,7 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        var bw = std.debug.lockStdErr2();
+        var bw = std.debug.lockStdErr2(&stdio_buffer);
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
@@ -1256,7 +1251,7 @@ fn steps(builder: *std.Build, bw: *std.io.BufferedWriter) !void {
     }
 }
 
-var stdout_buffer: [256]u8 = undefined;
+var stdio_buffer: [256]u8 = undefined;
 
 fn usage(b: *std.Build, bw: *std.io.BufferedWriter) !void {
     try bw.print(

@@ -1853,7 +1853,7 @@ pub const Stream = struct {
                 },
                 else => &.{
                     .writeSplat = posix_writeSplat,
-                    .writeFile = std.fs.File.writer_writeFile,
+                    .writeFile = std.fs.File.writeFile,
                 },
             },
         };
@@ -1960,7 +1960,7 @@ pub const Stream = struct {
         return n;
     }
 
-    fn posix_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn posix_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
         const sock_fd = opaqueToHandle(context);
         comptime assert(native_os != .windows);
         var splat_buffer: [256]u8 = undefined;
@@ -2029,7 +2029,7 @@ pub const Stream = struct {
 
     const max_buffers_len = 8;
 
-    fn handleToOpaque(handle: Handle) *anyopaque {
+    fn handleToOpaque(handle: Handle) ?*anyopaque {
         return switch (@typeInfo(Handle)) {
             .pointer => @ptrCast(handle),
             .int => @ptrFromInt(@as(u32, @bitCast(handle))),
@@ -2037,7 +2037,7 @@ pub const Stream = struct {
         };
     }
 
-    fn opaqueToHandle(userdata: *anyopaque) Handle {
+    fn opaqueToHandle(userdata: ?*anyopaque) Handle {
         return switch (@typeInfo(Handle)) {
             .pointer => @ptrCast(userdata),
             .int => @intCast(@intFromPtr(userdata)),

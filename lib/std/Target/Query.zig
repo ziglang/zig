@@ -423,7 +423,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
                 try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
-                try result.print(gpa, "{s}", .{v});
+                try result.print(gpa, "{d}", .{v});
             },
         }
     }
@@ -437,7 +437,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
             .windows => |v| {
                 // This is counting on a custom format() function defined on `WindowsVersion`
                 // to add a prefix '.' and make there be a total of three dots.
-                try result.print(gpa, "..{s}", .{v});
+                try result.print(gpa, "..{d}", .{v});
             },
         }
     }

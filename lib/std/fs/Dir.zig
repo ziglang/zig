@@ -1979,10 +1979,45 @@ pub fn readFileAlloc(
     /// * `error.FileTooBig` is returned.
     limit: std.io.Reader.Limit,
 ) (File.OpenError || File.ReadAllocError)![]u8 {
-    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    return dir.readFileAllocOptions(file_path, gpa, limit, null, .of(u8), null);
+}
+
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+pub fn readFileAllocOptions(
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    file_path: []const u8,
+    /// Used to allocate the result.
+    gpa: mem.Allocator,
+    /// If exceeded:
+    /// * The array list's length is increased by exactly one byte past `limit`.
+    /// * The file seek position is advanced by exactly one byte past `limit`.
+    /// * `error.FileTooBig` is returned.
+    limit: std.io.Reader.Limit,
+    /// If specified, the initial buffer size is calculated using this value,
+    /// otherwise the effective file size is used instead.
+    size_hint: ?usize,
+    comptime alignment: std.mem.Alignment,
+    comptime optional_sentinel: ?u8,
+) (File.OpenError || File.ReadAllocError)!(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var buffer: std.ArrayListAlignedUnmanaged(u8, alignment) = .empty;
     defer buffer.deinit(gpa);
-    try readFileIntoArrayList(dir, file_path, gpa, limit, null, &buffer);
-    return buffer.toOwnedSlice(gpa);
+    try readFileIntoArrayList(
+        dir,
+        file_path,
+        gpa,
+        limit,
+        if (size_hint) |sh| sh +| 1 else null,
+        alignment,
+        &buffer,
+    );
+    return if (optional_sentinel) |sentinel|
+        buffer.toOwnedSliceSentinel(gpa, sentinel)
+    else
+        buffer.toOwnedSlice(gpa);
 }
 
 /// Reads all the bytes from the named file, appending them into the provided
@@ -2004,7 +2039,7 @@ pub fn readFileIntoArrayList(
     /// otherwise the effective file size is used instead.
     size_hint: ?usize,
     comptime alignment: ?std.mem.Alignment,
-    list: *std.ArrayListAligned(u8, alignment),
+    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
 ) (File.OpenError || File.ReadAllocError)!void {
     var file = try dir.openFile(file_path, .{});
     defer file.close();

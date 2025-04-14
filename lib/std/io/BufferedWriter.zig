@@ -503,7 +503,7 @@ pub const WriteFileOptions = struct {
     offset: Writer.Offset = .none,
     /// If the size of the source file is known, it is likely that passing the
     /// size here will save one syscall.
-    limit: Writer.Limit = .none,
+    limit: Writer.Limit = .unlimited,
     /// Headers and trailers must be passed together so that in case `len` is
     /// zero, they can be forwarded directly to `Writer.VTable.writev`.
     ///
@@ -518,55 +518,58 @@ pub const WriteFileOptions = struct {
 pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) anyerror!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
-    if (options.limit == .zero) return writevAll(bw, headers_and_trailers);
-    if (options.limit == .none) {
-        // When reading the whole file, we cannot include the trailers in the
-        // call that reads from the file handle, because we have no way to
-        // determine whether a partial write is past the end of the file or
-        // not.
-        var i: usize = 0;
-        var offset = options.offset;
-        while (true) {
-            var n = try writeFile(bw, file, offset, .entire_file, headers[i..], headers.len - i);
-            while (i < headers.len and n >= headers[i].len) {
-                n -= headers[i].len;
-                i += 1;
-            }
-            if (i < headers.len) {
-                headers[i] = headers[i][n..];
-                continue;
-            }
-            if (n == 0) break;
-            offset += n;
-        }
-    } else {
-        var len = options.limit.toInt().?;
-        var i: usize = 0;
-        var offset = options.offset;
-        while (true) {
-            var n = try writeFile(bw, file, offset, .init(len), headers_and_trailers[i..], headers.len - i);
-            while (i < headers.len and n >= headers[i].len) {
-                n -= headers[i].len;
-                i += 1;
-            }
-            if (i < headers.len) {
-                headers[i] = headers[i][n..];
-                continue;
-            }
-            if (n >= len) {
-                n -= len;
-                if (i >= headers_and_trailers.len) return;
-                while (n >= headers_and_trailers[i].len) {
-                    n -= headers_and_trailers[i].len;
+    switch (options.limit) {
+        .nothing => return writevAll(bw, headers_and_trailers),
+        .unlimited => {
+            // When reading the whole file, we cannot include the trailers in the
+            // call that reads from the file handle, because we have no way to
+            // determine whether a partial write is past the end of the file or
+            // not.
+            var i: usize = 0;
+            var offset = options.offset;
+            while (true) {
+                var n = try writeFile(bw, file, offset, .unlimited, headers[i..], headers.len - i);
+                while (i < headers.len and n >= headers[i].len) {
+                    n -= headers[i].len;
                     i += 1;
-                    if (i >= headers_and_trailers.len) return;
                 }
-                headers_and_trailers[i] = headers_and_trailers[i][n..];
-                return writevAll(bw, headers_and_trailers[i..]);
+                if (i < headers.len) {
+                    headers[i] = headers[i][n..];
+                    continue;
+                }
+                if (n == 0) break;
+                offset = offset.advance(n);
             }
-            offset += n;
-            len -= n;
-        }
+        },
+        else => {
+            var len = options.limit.toInt().?;
+            var i: usize = 0;
+            var offset = options.offset;
+            while (true) {
+                var n = try writeFile(bw, file, offset, .limited(len), headers_and_trailers[i..], headers.len - i);
+                while (i < headers.len and n >= headers[i].len) {
+                    n -= headers[i].len;
+                    i += 1;
+                }
+                if (i < headers.len) {
+                    headers[i] = headers[i][n..];
+                    continue;
+                }
+                if (n >= len) {
+                    n -= len;
+                    if (i >= headers_and_trailers.len) return;
+                    while (n >= headers_and_trailers[i].len) {
+                        n -= headers_and_trailers[i].len;
+                        i += 1;
+                        if (i >= headers_and_trailers.len) return;
+                    }
+                    headers_and_trailers[i] = headers_and_trailers[i][n..];
+                    return writevAll(bw, headers_and_trailers[i..]);
+                }
+                offset = offset.advance(n);
+                len -= n;
+            }
+        },
     }
 }
 
@@ -717,9 +720,9 @@ pub fn printValue(
                 }
             }
 
-            try bw.writeByteCount('(');
+            try bw.writeByte('(');
             try printValue(bw, actual_fmt, options, @intFromEnum(value), max_depth);
-            try bw.writeByteCount(')');
+            try bw.writeByte(')');
         },
         .@"union" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
