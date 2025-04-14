@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   x86_64-linux-debug:
-    timeout-minutes: 420
+    timeout-minutes: 480
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
@@ -21,7 +21,7 @@ jobs:
       - name: Build and Test
         run: sh ci/x86_64-linux-debug.sh
   x86_64-linux-release:
-    timeout-minutes: 420
+    timeout-minutes: 480
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
