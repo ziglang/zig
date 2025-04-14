@@ -31,9 +31,11 @@ pub const VTable = struct {
     writeFile: *const fn (
         ctx: ?*anyopaque,
         file: std.fs.File,
+        /// If this is `none`, `file` will be streamed. Otherwise, it will be
+        /// read positionally without affecting the seek position.
         offset: Offset,
-        /// When zero, it means copy until the end of the file is reached.
-        len: FileLen,
+        /// Maximum amount of bytes to read from the file.
+        limit: Limit,
         /// Headers and trailers must be passed together so that in case `len` is
         /// zero, they can be forwarded directly to `VTable.writev`.
         headers_and_trailers: []const []const u8,
@@ -41,7 +43,10 @@ pub const VTable = struct {
     ) anyerror!usize,
 };
 
+pub const Limit = std.io.Reader.Limit;
+
 pub const Offset = enum(u64) {
+    zero = 0,
     /// Indicates to read the file as a stream.
     none = std.math.maxInt(u64),
     _,
@@ -53,24 +58,7 @@ pub const Offset = enum(u64) {
     }
 
     pub fn toInt(o: Offset) ?u64 {
-        if (o == .none) return null;
-        return @intFromEnum(o);
-    }
-};
-
-pub const FileLen = enum(u64) {
-    zero = 0,
-    entire_file = std.math.maxInt(u64),
-    _,
-
-    pub fn init(integer: u64) FileLen {
-        const result: FileLen = @enumFromInt(integer);
-        assert(result != .entire_file);
-        return result;
-    }
-
-    pub fn int(len: FileLen) u64 {
-        return @intFromEnum(len);
+        return if (o == .none) null else @intFromEnum(o);
     }
 };
 
@@ -85,26 +73,26 @@ pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) anyerror!us
 pub fn writeFile(
     w: Writer,
     file: std.fs.File,
-    offset: u64,
-    len: FileLen,
+    offset: Offset,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
-    return w.vtable.writeFile(w.context, file, offset, len, headers_and_trailers, headers_len);
+    return w.vtable.writeFile(w.context, file, offset, limit, headers_and_trailers, headers_len);
 }
 
 pub fn unimplemented_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
     offset: Offset,
-    len: FileLen,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
     _ = context;
     _ = file;
     _ = offset;
-    _ = len;
+    _ = limit;
     _ = headers_and_trailers;
     _ = headers_len;
     return error.Unimplemented;
@@ -143,7 +131,7 @@ fn null_writeFile(
     context: ?*anyopaque,
     file: std.fs.File,
     offset: Offset,
-    len: FileLen,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
@@ -152,7 +140,7 @@ fn null_writeFile(
     if (offset == .none) {
         @panic("TODO seek the file forwards");
     }
-    if (len == .entire_file) {
+    const limit_int = limit.toInt() orelse {
         const headers = headers_and_trailers[0..headers_len];
         for (headers) |bytes| n += bytes.len;
         if (offset.toInt()) |off| {
@@ -162,9 +150,9 @@ fn null_writeFile(
             return n;
         }
         @panic("TODO stream from file until eof, counting");
-    }
+    };
     for (headers_and_trailers) |bytes| n += bytes.len;
-    return len.int() + n;
+    return limit_int + n;
 }
 
 test @"null" {
