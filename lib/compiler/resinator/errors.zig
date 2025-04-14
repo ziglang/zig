@@ -11,7 +11,6 @@ const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const SupportedCodePage = code_pages.SupportedCodePage;
 const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const Diagnostics = struct {
     errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
@@ -705,19 +704,19 @@ pub const ErrorDetails = struct {
             },
             .bmp_ignored_palette_bytes => {
                 const bytes = strings[self.extra.number];
-                const ignored_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
+                const ignored_bytes = std.mem.readInt(u64, bytes[0..8], .native);
                 try writer.print("bitmap has {d} extra bytes preceding the pixel data which will be ignored", .{ignored_bytes});
             },
             .bmp_missing_palette_bytes => {
                 const bytes = strings[self.extra.number];
-                const missing_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
+                const missing_bytes = std.mem.readInt(u64, bytes[0..8], .native);
                 try writer.print("bitmap has {d} missing color palette bytes", .{missing_bytes});
             },
             .rc_would_miscompile_bmp_palette_padding => {
                 try writer.writeAll("the Win32 RC compiler would erroneously pad out the missing bytes");
                 if (self.extra.number != 0) {
                     const bytes = strings[self.extra.number];
-                    const miscompiled_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
+                    const miscompiled_bytes = std.mem.readInt(u64, bytes[0..8], .native);
                     try writer.print(" (and the added padding bytes would include {d} bytes of the pixel data)", .{miscompiled_bytes});
                 }
             },
