@@ -12,7 +12,7 @@ pub fn create(owner: *std.Build, error_msg: []const u8) *Fail {
     const fail = owner.allocator.create(Fail) catch @panic("OOM");
 
     fail.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "fail",
             .owner = owner,

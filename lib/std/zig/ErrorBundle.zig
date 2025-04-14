@@ -190,7 +190,7 @@ fn renderErrorMessageToWriter(
 ) anyerror!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
-    const prefix_start = bw.bytes_written;
+    const prefix_start = bw.count;
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
         try bw.splatByteAll(' ', indent);
@@ -205,7 +205,7 @@ fn renderErrorMessageToWriter(
         try bw.writeAll(": ");
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len = bw.bytes_written - prefix_start;
+        const prefix_len = bw.count - prefix_start;
         try ttyconf.setColor(bw, .reset);
         try ttyconf.setColor(bw, .bold);
         if (err_msg.count == 1) {

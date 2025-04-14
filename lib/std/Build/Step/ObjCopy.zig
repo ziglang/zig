@@ -111,8 +111,8 @@ pub fn create(
     options: Options,
 ) *ObjCopy {
     const objcopy = owner.allocator.create(ObjCopy) catch @panic("OOM");
-    objcopy.* = ObjCopy{
-        .step = Step.init(.{
+    objcopy.* = .{
+        .step = .init(.{
             .id = base_id,
             .name = owner.fmt("objcopy {s}", .{input_file.getDisplayName()}),
             .owner = owner,

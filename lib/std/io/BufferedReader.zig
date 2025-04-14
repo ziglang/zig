@@ -253,18 +253,17 @@ pub fn discardUpTo(br: *BufferedReader, n: usize) anyerror!usize {
         const proposed_seek = br.seek + remaining;
         if (proposed_seek <= storage.end) {
             br.seek = proposed_seek;
-            return;
+            return n;
         }
         remaining -= (storage.end - br.seek);
         storage.end = 0;
         br.seek = 0;
-        const result = try br.unbuffered_reader.read(&storage, .none);
-        result.write_err catch unreachable;
-        try result.read_err;
+        const result = try br.unbuffered_reader.read(storage, .unlimited);
         assert(result.len == storage.end);
         if (remaining <= storage.end) continue;
         if (result.end) return n - remaining;
     }
+    return n;
 }
 
 /// Reads the stream until the end, ignoring all the data.
@@ -302,7 +301,7 @@ pub fn read(br: *BufferedReader, buffer: []u8) anyerror!void {
     br.seek = 0;
     var i: usize = in_buffer.len;
     while (true) {
-        const status = try br.unbuffered_reader.read(storage, .none);
+        const status = try br.unbuffered_reader.read(storage, .unlimited);
         const next_i = i + storage.end;
         if (next_i >= buffer.len) {
             const remaining = buffer[i..];
@@ -389,7 +388,7 @@ pub fn peekDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 
 /// * `peekDelimiterConclusive`
 pub fn takeDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
     const result = try peekDelimiterConclusive(br, delimiter);
-    toss(result.len);
+    br.toss(result.len);
     return result;
 }
 
@@ -407,7 +406,7 @@ pub fn peekDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8
     storage.end = i;
     br.seek = 0;
     while (i < storage.buffer.len) {
-        const status = try br.unbuffered_reader.read(storage, .none);
+        const status = try br.unbuffered_reader.read(storage, .unlimited);
         if (std.mem.indexOfScalarPos(u8, storage.buffer[0..storage.end], i, delimiter)) |end| {
             return storage.buffer[0 .. end + 1];
         }
@@ -505,7 +504,7 @@ pub fn fill(br: *BufferedReader, n: usize) anyerror!void {
     storage.end = remainder.len;
     br.seek = 0;
     while (true) {
-        const status = try br.unbuffered_reader.read(storage, .none);
+        const status = try br.unbuffered_reader.read(storage, .unlimited);
         if (n <= storage.end) return;
         if (status.end) return error.EndOfStream;
     }
@@ -589,7 +588,7 @@ fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) anyerror!Re
         const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try br.peekAll(1));
         for (buffer, 1..) |byte, len| {
             if (remaining_bits > 0) {
-                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) | @shrExact(result, 7);
+                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) | if (result_info.bits > 7) @shrExact(result, 7) else 0;
                 remaining_bits -= 7;
             } else if (fits) fits = switch (result_info.signedness) {
                 .signed => @as(i7, @bitCast(byte.bits)) == @as(i7, @truncate(@as(Result, @bitCast(result)) >> (result_info.bits - 1))),

@@ -57,8 +57,8 @@ pub fn init(
 
     ws.* = .{
         .key = key,
-        .recv_fifo = std.fifo.LinearFifo(u8, .Slice).init(recv_buffer),
-        .reader = try request.reader(),
+        .recv_fifo = .init(recv_buffer),
+        .reader = undefined,
         .response = request.respondStreaming(.{
             .send_buffer = send_buffer,
             .respond_options = .{
@@ -74,6 +74,7 @@ pub fn init(
         .request = request,
         .outstanding_len = 0,
     };
+    ws.reader.init(try request.reader(), &.{});
     return true;
 }
 

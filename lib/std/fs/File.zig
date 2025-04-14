@@ -1169,7 +1169,7 @@ pub fn readIntoArrayList(
     gpa: Allocator,
     limit: std.io.Reader.Limit,
     comptime alignment: ?std.mem.Alignment,
-    list: *std.ArrayListAligned(u8, alignment),
+    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
 ) ReadAllocError!void {
     var remaining = limit;
     while (true) {
@@ -1676,7 +1676,7 @@ fn streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reade
     return .{ .len = @intCast(n), .end = n == 0 };
 }
 
-fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+pub fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const handle = opaqueToHandle(context);
     var splat_buffer: [256]u8 = undefined;
     if (is_windows) {
@@ -1716,7 +1716,7 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anye
     return std.posix.writev(handle, iovecs[0..len]);
 }
 
-fn writeFile(
+pub fn writeFile(
     context: ?*anyopaque,
     in_file: std.fs.File,
     in_offset: std.io.Writer.Offset,
@@ -1727,8 +1727,8 @@ fn writeFile(
     const out_fd = opaqueToHandle(context);
     const in_fd = in_file.handle;
     const len_int = switch (in_limit) {
-        .zero => return writeSplat(context, headers_and_trailers, 1),
-        .none => 0,
+        .nothing => return writeSplat(context, headers_and_trailers, 1),
+        .unlimited => 0,
         else => in_limit.toInt().?,
     };
     if (native_os == .linux) sf: {

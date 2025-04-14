@@ -451,12 +451,10 @@ fn SliceEscape(comptime case: Case) type {
     return struct {
         pub fn format(
             bytes: []const u8,
+            bw: *std.io.BufferedWriter,
             comptime fmt: []const u8,
-            options: std.fmt.Options,
-            writer: anytype,
         ) !void {
             _ = fmt;
-            _ = options;
             var buf: [4]u8 = undefined;
 
             buf[0] = '\\';
@@ -464,11 +462,11 @@ fn SliceEscape(comptime case: Case) type {
 
             for (bytes) |c| {
                 if (std.ascii.isPrint(c)) {
-                    try writer.writeByte(c);
+                    try bw.writeByte(c);
                 } else {
                     buf[2] = charset[c >> 4];
                     buf[3] = charset[c & 15];
-                    try writer.writeAll(&buf);
+                    try bw.writeAll(&buf);
                 }
             }
         }
@@ -535,11 +533,10 @@ pub fn Formatter(comptime formatFn: anytype) type {
         data: Data,
         pub fn format(
             self: @This(),
-            comptime fmt: []const u8,
-            options: std.fmt.Options,
             writer: *std.io.BufferedWriter,
+            comptime fmt: []const u8,
         ) anyerror!void {
-            try formatFn(self.data, fmt, options, writer);
+            try formatFn(self.data, writer, fmt);
         }
     };
 }

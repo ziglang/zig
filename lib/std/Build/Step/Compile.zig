@@ -409,7 +409,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .linkage = options.linkage,
         .kind = options.kind,
         .name = name,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = step_name,
             .owner = owner,
@@ -1542,7 +1542,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
             try zig_args.append("--version");
-            try zig_args.append(b.fmt("{}", .{version}));
+            try zig_args.append(b.fmt("{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
@@ -1704,7 +1704,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
     else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{}", .{b.graph.zig_lib_directory})
+        b.fmt("{f}", .{b.graph.zig_lib_directory})
     else
         null;
 
@@ -1830,7 +1830,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{}", .{output_dir});
+            lp.path = b.fmt("{f}", .{output_dir});
         }
 
         // zig fmt: off
@@ -1970,13 +1970,13 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     const actual_errors = ae: {
         var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.init(arena);
+        aw.init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, bw);
+        }, &aw.buffered_writer);
         break :ae try aw.toOwnedSlice();
     };
 

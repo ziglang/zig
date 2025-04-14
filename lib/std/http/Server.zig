@@ -593,8 +593,46 @@ pub const Request = struct {
         HttpHeadersOversize,
     };
 
+    fn contentLengthReader_read(
+        ctx: ?*anyopaque,
+        bw: *std.io.BufferedWriter,
+        limit: std.io.Reader.Limit,
+    ) anyerror!std.io.Reader.Status {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = bw;
+        _ = limit;
+        @panic("TODO");
+    }
+
+    fn contentLengthReader_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = data;
+        @panic("TODO");
+    }
+
+    fn chunkedReader_read(
+        ctx: ?*anyopaque,
+        bw: *std.io.BufferedWriter,
+        limit: std.io.Reader.Limit,
+    ) anyerror!std.io.Reader.Status {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = bw;
+        _ = limit;
+        @panic("TODO");
+    }
+
+    fn chunkedReader_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = data;
+        @panic("TODO");
+    }
+
     fn read_cl(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @constCast(@alignCast(@ptrCast(context)));
+        const request: *Request = @alignCast(@ptrCast(context));
         const s = request.server;
 
         const remaining_content_length = &request.reader_state.remaining_content_length;
@@ -622,7 +660,7 @@ pub const Request = struct {
     }
 
     fn read_chunked(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @constCast(@alignCast(@ptrCast(context)));
+        const request: *Request = @alignCast(@ptrCast(context));
         const s = request.server;
 
         const cp = &request.reader_state.chunk_parser;
@@ -724,7 +762,7 @@ pub const Request = struct {
     /// request's expect field to `null`.
     ///
     /// Asserts that this function is only called once.
-    pub fn reader(request: *Request) ReaderError!std.io.AnyReader {
+    pub fn reader(request: *Request) ReaderError!std.io.Reader {
         const s = request.server;
         assert(s.state == .received_head);
         s.state = .receiving_body;
@@ -747,8 +785,11 @@ pub const Request = struct {
             .chunked => {
                 request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
                 return .{
-                    .readFn = read_chunked,
                     .context = request,
+                    .vtable = &.{
+                        .read = &chunkedReader_read,
+                        .readv = &chunkedReader_readv,
+                    },
                 };
             },
             .none => {
@@ -756,8 +797,11 @@ pub const Request = struct {
                     .remaining_content_length = request.head.content_length orelse 0,
                 };
                 return .{
-                    .readFn = read_cl,
                     .context = request,
+                    .vtable = &.{
+                        .read = &contentLengthReader_read,
+                        .readv = &contentLengthReader_readv,
+                    },
                 };
             },
         }
@@ -779,7 +823,7 @@ pub const Request = struct {
         if (keep_alive and request.head.keep_alive) switch (s.state) {
             .received_head => {
                 const r = request.reader() catch return false;
-                _ = r.discard() catch return false;
+                _ = r.discardUntilEnd() catch return false;
                 assert(s.state == .ready);
                 return true;
             },
@@ -868,30 +912,30 @@ pub const Response = struct {
         }
     }
 
-    fn cl_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn cl_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
         _ = splat;
         return cl_write(context, data[0]); // TODO: try to send all the data
     }
 
     fn cl_writeFile(
-        context: *anyopaque,
+        context: ?*anyopaque,
         file: std.fs.File,
-        offset: u64,
-        len: std.io.Writer.FileLen,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize {
         _ = context;
         _ = file;
         _ = offset;
-        _ = len;
+        _ = limit;
         _ = headers_and_trailers;
         _ = headers_len;
         return error.Unimplemented;
     }
 
-    fn cl_write(context: *anyopaque, bytes: []const u8) anyerror!usize {
-        const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+    fn cl_write(context: ?*anyopaque, bytes: []const u8) anyerror!usize {
+        const r: *Response = @alignCast(@ptrCast(context));
 
         var trash: u64 = std.math.maxInt(u64);
         const len = switch (r.transfer_encoding) {
@@ -935,30 +979,30 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn chunked_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn chunked_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
         _ = splat;
         return chunked_write(context, data[0]); // TODO: try to send all the data
     }
 
     fn chunked_writeFile(
-        context: *anyopaque,
+        context: ?*anyopaque,
         file: std.fs.File,
-        offset: u64,
-        len: std.io.Writer.FileLen,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize {
         _ = context;
         _ = file;
         _ = offset;
-        _ = len;
+        _ = limit;
         _ = headers_and_trailers;
         _ = headers_len;
         return error.Unimplemented; // TODO lower to a call to writeFile on the output
     }
 
-    fn chunked_write(context: *anyopaque, bytes: []const u8) anyerror!usize {
-        const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+    fn chunked_write(context: ?*anyopaque, bytes: []const u8) anyerror!usize {
+        const r: *Response = @alignCast(@ptrCast(context));
         assert(r.transfer_encoding == .chunked);
 
         if (r.elide_body)

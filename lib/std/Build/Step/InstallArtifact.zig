@@ -63,7 +63,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         .override => |o| o,
     };
     install_artifact.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = owner.fmt("install {s}", .{artifact.name}),
             .owner = owner,
@@ -164,7 +164,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
                 var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-                    return step.fail("unable to open source directory '{}': {s}", .{
+                    return step.fail("unable to open source directory '{f}': {s}", .{
                         src_dir_path, @errorName(err),
                     });
                 };

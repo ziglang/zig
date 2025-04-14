@@ -57,15 +57,13 @@ pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
 
 pub fn format(
     self: Directory,
+    bw: *std.io.BufferedWriter,
     comptime fmt_string: []const u8,
-    options: fmt.FormatOptions,
-    writer: anytype,
 ) !void {
-    _ = options;
     if (fmt_string.len != 0) fmt.invalidFmtError(fmt_string, self);
     if (self.path) |p| {
-        try writer.writeAll(p);
-        try writer.writeAll(fs.path.sep_str);
+        try bw.writeAll(p);
+        try bw.writeAll(fs.path.sep_str);
     }
 }
 

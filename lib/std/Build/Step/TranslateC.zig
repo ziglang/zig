@@ -31,7 +31,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const translate_c = owner.allocator.create(TranslateC) catch @panic("OOM");
     const source = options.root_source_file.dupe(owner);
     translate_c.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "translate-c",
             .owner = owner,

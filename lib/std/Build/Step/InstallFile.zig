@@ -21,7 +21,7 @@ pub fn create(
     assert(dest_rel_path.len != 0);
     const install_file = owner.allocator.create(InstallFile) catch @panic("OOM");
     install_file.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = owner.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
             .owner = owner,

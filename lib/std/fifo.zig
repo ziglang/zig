@@ -38,8 +38,6 @@ pub fn LinearFifo(
         count: usize,
 
         const Self = @This();
-        pub const Reader = std.io.Reader(*Self, error{}, readFn);
-        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
         // Type of Self argument for slice operations.
         // If buffer is inline (Static) then we need to ensure we haven't
@@ -236,8 +234,31 @@ pub fn LinearFifo(
             return self.read(dest);
         }
 
-        pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
+        pub fn reader(self: *Self) std.io.Reader {
+            return .{
+                .context = self,
+                .vtable = &.{
+                    .read = &reader_read,
+                    .readv = &reader_readv,
+                },
+            };
+        }
+        fn reader_read(
+            ctx: ?*anyopaque,
+            bw: *std.io.BufferedWriter,
+            limit: std.io.Reader.Limit,
+        ) anyerror!std.io.Reader.Status {
+            const fifo: *Self = @alignCast(@ptrCast(ctx));
+            _ = fifo;
+            _ = bw;
+            _ = limit;
+            @panic("TODO");
+        }
+        fn reader_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+            const fifo: *Self = @alignCast(@ptrCast(ctx));
+            _ = fifo;
+            _ = data;
+            @panic("TODO");
         }
 
         /// Returns number of items available in fifo
@@ -326,8 +347,38 @@ pub fn LinearFifo(
             return bytes.len;
         }
 
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+        pub fn writer(fifo: *Self) std.io.Writer {
+            return .{
+                .context = fifo,
+                .vtable = &.{
+                    .writeSplat = writer_writeSplat,
+                    .writeFile = writer_writeFile,
+                },
+            };
+        }
+        fn writer_writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+            const fifo: *Self = @alignCast(@ptrCast(ctx));
+            _ = fifo;
+            _ = data;
+            _ = splat;
+            @panic("TODO");
+        }
+        fn writer_writeFile(
+            ctx: ?*anyopaque,
+            file: std.fs.File,
+            offset: std.io.Writer.Offset,
+            limit: std.io.Writer.Limit,
+            headers_and_trailers: []const []const u8,
+            headers_len: usize,
+        ) anyerror!usize {
+            const fifo: *Self = @alignCast(@ptrCast(ctx));
+            _ = fifo;
+            _ = file;
+            _ = offset;
+            _ = limit;
+            _ = headers_and_trailers;
+            _ = headers_len;
+            @panic("TODO");
         }
 
         /// Make `count` items available before the current read location

@@ -48,12 +48,12 @@ pub const Status = packed struct(usize) {
 };
 
 pub const Limit = enum(usize) {
-    zero = 0,
-    none = std.math.maxInt(usize),
+    nothing = 0,
+    unlimited = std.math.maxInt(usize),
     _,
 
-    /// `std.math.maxInt(usize)` is interpreted to mean "no limit".
-    pub fn init(n: usize) Limit {
+    /// `std.math.maxInt(usize)` is interpreted to mean `.unlimited`.
+    pub fn limited(n: usize) Limit {
         return @enumFromInt(n);
     }
 
@@ -66,7 +66,10 @@ pub const Limit = enum(usize) {
     }
 
     pub fn toInt(l: Limit) ?usize {
-        return if (l == .none) null else @intFromEnum(l);
+        return switch (l) {
+            else => @intFromEnum(l),
+            .unlimited => null,
+        };
     }
 
     /// Reduces a slice to account for the limit, leaving room for one extra
@@ -84,7 +87,7 @@ pub const Limit = enum(usize) {
     /// Return a new limit reduced by `amount` or return `null` indicating
     /// limit would be exceeded.
     pub fn subtract(l: Limit, amount: usize) ?Limit {
-        if (l == .none) return .{ .next = .none };
+        if (l == .unlimited) return .unlimited;
         if (amount > @intFromEnum(l)) return null;
         return @enumFromInt(@intFromEnum(l) - amount);
     }
@@ -103,7 +106,7 @@ pub fn readAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
     const readFn = r.vtable.read;
     var offset: usize = 0;
     while (true) {
-        const status = try readFn(r.context, w, .none);
+        const status = try readFn(r.context, w, .unlimited);
         offset += status.len;
         if (status.end) return offset;
     }
@@ -119,21 +122,21 @@ pub fn readAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) anyerror![]
     const readFn = r.vtable.read;
     var aw: std.io.AllocatingWriter = undefined;
     errdefer aw.deinit();
-    const bw = aw.init(gpa);
+    aw.init(gpa);
     var remaining = max_size;
     while (remaining > 0) {
-        const status = try readFn(r.context, bw, .init(remaining));
+        const status = try readFn(r.context, &aw.buffered_writer, .limited(remaining));
         if (status.end) break;
         remaining -= status.len;
     }
-    return aw.toOwnedSlice(gpa);
+    return aw.toOwnedSlice();
 }
 
 /// Reads the stream until the end, ignoring all the data.
 /// Returns the number of bytes discarded.
 pub fn discardUntilEnd(r: Reader) anyerror!usize {
-    var bw = std.io.null_writer.unbuffered();
-    return readAll(r, &bw);
+    var bw = std.io.Writer.null.unbuffered();
+    return r.readAll(&bw);
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {

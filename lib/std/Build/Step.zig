@@ -516,13 +516,10 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     const stdout = zp.poller.fifo(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try zp.poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try zp.poller.poll())) break :poll;
-        }
+        while (stdout.readableLength() < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
+        var header: Header = undefined;
+        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(Header));
+        while (stdout.readableLength() < header.bytes_len) if (!try zp.poller.poll()) break :poll;
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
         switch (header.tag) {

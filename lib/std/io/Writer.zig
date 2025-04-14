@@ -60,6 +60,13 @@ pub const Offset = enum(u64) {
     pub fn toInt(o: Offset) ?u64 {
         return if (o == .none) null else @intFromEnum(o);
     }
+
+    pub fn advance(o: Offset, amount: u64) Offset {
+        return switch (o) {
+            .none => .none,
+            else => .init(@intFromEnum(o) + amount),
+        };
+    }
 };
 
 pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
@@ -106,7 +113,7 @@ pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
 }
 
 pub fn unbuffered(w: Writer) std.io.BufferedWriter {
-    return buffered(w, &.{});
+    return w.buffered(&.{});
 }
 
 /// A `Writer` that discards all data.

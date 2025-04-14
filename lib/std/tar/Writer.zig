@@ -44,7 +44,7 @@ pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
     try header.setMtime(mtime);
     try header.write(self.underlying_writer);
 
-    try self.underlying_writer.writeFileAll(file, .{ .len = .init(stat.size) });
+    try self.underlying_writer.writeFileAll(file, .{ .limit = .limited(stat.size) });
     try self.writePadding(stat.size);
 }
 

@@ -23,7 +23,7 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     const fmt = owner.allocator.create(Fmt) catch @panic("OOM");
     const name = if (options.check) "zig fmt --check" else "zig fmt";
     fmt.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = name,
             .owner = owner,

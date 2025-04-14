@@ -414,9 +414,8 @@ test fmtId {
 /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
 fn formatId(
     bytes: []const u8,
+    bw: *std.io.BufferedWriter,
     comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: *std.io.BufferedWriter,
 ) !void {
     const allow_primitive, const allow_underscore = comptime parse_fmt: {
         var allow_primitive = false;
@@ -442,11 +441,11 @@ fn formatId(
         (allow_primitive or !std.zig.isPrimitive(bytes)) and
         (allow_underscore or !isUnderscore(bytes)))
     {
-        return writer.writeAll(bytes);
+        return bw.writeAll(bytes);
     }
-    try writer.writeAll("@\"");
-    try stringEscape(bytes, "", options, writer);
-    try writer.writeByte('"');
+    try bw.writeAll("@\"");
+    try stringEscape(bytes, bw, "");
+    try bw.writeByte('"');
 }
 
 /// Return a Formatter for Zig Escapes of a double quoted string.
@@ -473,11 +472,9 @@ test fmtEscapes {
 /// Format `{'}` treats contents as a single-quoted string.
 pub fn stringEscape(
     bytes: []const u8,
-    comptime f: []const u8,
-    options: std.fmt.FormatOptions,
     bw: *std.io.BufferedWriter,
+    comptime f: []const u8,
 ) !void {
-    _ = options;
     for (bytes) |byte| switch (byte) {
         '\n' => try bw.writeAll("\\n"),
         '\r' => try bw.writeAll("\\r"),

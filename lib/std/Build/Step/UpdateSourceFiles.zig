@@ -27,7 +27,7 @@ pub const Contents = union(enum) {
 pub fn create(owner: *std.Build) *UpdateSourceFiles {
     const usf = owner.allocator.create(UpdateSourceFiles) catch @panic("OOM");
     usf.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "UpdateSourceFiles",
             .owner = owner,
@@ -76,7 +76,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     for (usf.output_source_files.items) |output_source_file| {
         if (fs.path.dirname(output_source_file.sub_path)) |dirname| {
             b.build_root.handle.makePath(dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.build_root, dirname, @errorName(err),
                 });
             };
@@ -84,7 +84,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         switch (output_source_file.contents) {
             .bytes => |bytes| {
                 b.build_root.handle.writeFile(.{ .sub_path = output_source_file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{}{s}': {s}", .{
+                    return step.fail("unable to write file '{f}{s}': {s}", .{
                         b.build_root, output_source_file.sub_path, @errorName(err),
                     });
                 };
@@ -101,7 +101,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     output_source_file.sub_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{}{s}': {s}", .{
+                    return step.fail("unable to update file from '{s}' to '{f}{s}': {s}", .{
                         source_path, b.build_root, output_source_file.sub_path, @errorName(err),
                     });
                 };
