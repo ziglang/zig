@@ -22614,8 +22614,16 @@ fn ptrFromIntVal(
     const addr = try operand_val.toUnsignedIntSema(pt);
     if (!ptr_ty.isAllowzeroPtr(zcu) and addr == 0)
         return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{ptr_ty.fmt(pt)});
-    if (addr != 0 and ptr_align != .none and !ptr_align.check(addr))
-        return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
+    if (addr != 0 and ptr_align != .none) {
+        const masked_addr = if (ptr_ty.childType(zcu).fnPtrMaskOrNull(zcu)) |mask|
+            addr & mask
+        else
+            addr;
+
+        if (!ptr_align.check(masked_addr)) {
+            return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
+        }
+    }
 
     return switch (ptr_ty.zigTypeTag(zcu)) {
         .optional => Value.fromInterned(try pt.intern(.{ .opt = .{
@@ -23131,7 +23139,12 @@ fn ptrCastFull(
 
         if (dest_align.compare(.gt, src_align)) {
             if (try ptr_val.getUnsignedIntSema(pt)) |addr| {
-                if (!dest_align.check(addr)) {
+                const masked_addr = if (Type.fromInterned(dest_info.child).fnPtrMaskOrNull(zcu)) |mask|
+                    addr & mask
+                else
+                    addr;
+
+                if (!dest_align.check(masked_addr)) {
                     return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{
                         addr,
                         dest_align.toByteUnits().?,
