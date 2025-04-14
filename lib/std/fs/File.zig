@@ -1631,7 +1631,7 @@ fn posReadVec(context: *anyopaque, data: []const []u8, offset: u64) anyerror!std
     };
 }
 
-fn streamRead(
+pub fn streamRead(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
@@ -1644,7 +1644,7 @@ fn streamRead(
     };
 }
 
-fn streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+pub fn streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
     const handle = opaqueToHandle(context);
 
     if (is_windows) {
