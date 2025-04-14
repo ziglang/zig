@@ -1142,46 +1142,43 @@ pub fn updateTimes(
     try posix.futimens(self.handle, &times);
 }
 
+pub const ReadAllocError = ReadError || Allocator.Error || error{FileTooBig};
+
 /// Reads all the bytes from the current position to the end of the file.
+///
 /// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-pub fn readToEndAlloc(self: File, allocator: Allocator, max_bytes: usize) ![]u8 {
-    return self.readToEndAllocOptions(allocator, max_bytes, null, .of(u8), null);
+///
+/// If `limit` is exceeded, returns `error.FileTooBig`.
+pub fn readToEndAlloc(file: File, gpa: Allocator, limit: std.io.Reader.Limit) ReadAllocError![]u8 {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer buffer.deinit(gpa);
+    try buffer.ensureUnusedCapacity(gpa, std.heap.page_size_min);
+    try readIntoArrayList(file, gpa, limit, null, &buffer);
+    return buffer.toOwnedSlice(gpa);
 }
 
-/// Reads all the bytes from the current position to the end of the file.
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// If `size_hint` is specified the initial buffer size is calculated using
-/// that value, otherwise an arbitrary value is used instead.
-/// Allows specifying alignment and a sentinel value.
-pub fn readToEndAllocOptions(
-    self: File,
-    allocator: Allocator,
-    max_bytes: usize,
-    size_hint: ?usize,
-    comptime alignment: Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    // If no size hint is provided fall back to the size=0 code path
-    const size = size_hint orelse 0;
-
-    // The file size returned by stat is used as hint to set the buffer
-    // size. If the reported size is zero, as it happens on Linux for files
-    // in /proc, a small buffer is allocated instead.
-    const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
-    defer array_list.deinit();
-
-    self.reader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
-        error.StreamTooLong => return error.FileTooBig,
-        else => |e| return e,
-    };
-
-    if (optional_sentinel) |sentinel| {
-        return try array_list.toOwnedSliceSentinel(sentinel);
-    } else {
-        return try array_list.toOwnedSlice();
+/// Reads all the bytes from the current position to the end of the file,
+/// appending them into the provided array list.
+///
+/// If `limit` is exceeded:
+/// * The array list's length is increased by exactly one byte past `limit`.
+/// * The file seek position is advanced by exactly one byte past `limit`.
+/// * `error.FileTooBig` is returned.
+pub fn readIntoArrayList(
+    file: File,
+    gpa: Allocator,
+    limit: std.io.Reader.Limit,
+    comptime alignment: ?std.mem.Alignment,
+    list: *std.ArrayListAligned(u8, alignment),
+) ReadAllocError!void {
+    var remaining = limit;
+    while (true) {
+        try list.ensureUnusedCapacity(gpa, 1);
+        const buffer = remaining.slice1(list.unusedCapacitySlice());
+        const n = try read(file, buffer);
+        if (n == 0) return;
+        list.items.len += n;
+        remaining = remaining.subtract(n) orelse return error.FileTooBig;
     }
 }
 
@@ -1584,35 +1581,19 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
 pub fn reader(file: File) std.io.Reader {
     return .{
         .context = handleToOpaque(file.handle),
-        .vtable = .{
-            .posRead = reader_posRead,
-            .posReadVec = reader_posReadVec,
-            .streamRead = reader_streamRead,
-            .streamReadVec = reader_streamReadVec,
+        .vtable = &.{
+            .read = streamRead,
+            .readv = streamReadVec,
         },
     };
 }
 
-pub fn unseekableReader(file: File) std.io.Reader {
+pub fn positionalReader(file: File) std.io.PositionalReader {
     return .{
         .context = handleToOpaque(file.handle),
-        .vtable = .{
-            .posRead = null,
-            .posReadVec = null,
-            .streamRead = reader_streamRead,
-            .streamReadVec = reader_streamReadVec,
-        },
-    };
-}
-
-pub fn unstreamableReader(file: File) std.io.Reader {
-    return .{
-        .context = handleToOpaque(file.handle),
-        .vtable = .{
-            .posRead = reader_posRead,
-            .posReadVec = reader_posReadVec,
-            .streamRead = null,
-            .streamReadVec = null,
+        .vtable = &.{
+            .read = posRead,
+            .readv = posReadVec,
         },
     };
 }
@@ -1621,8 +1602,8 @@ pub fn writer(file: File) std.io.Writer {
     return .{
         .context = handleToOpaque(file.handle),
         .vtable = &.{
-            .writeSplat = writer_writeSplat,
-            .writeFile = writer_writeFile,
+            .writeSplat = writeSplat,
+            .writeFile = writeFile,
         },
     };
 }
@@ -1631,19 +1612,18 @@ pub fn writer(file: File) std.io.Writer {
 /// vectors through the underlying write calls as possible.
 const max_buffers_len = 16;
 
-pub fn reader_posRead(
+fn posRead(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
     offset: u64,
 ) std.io.Reader.Result {
-    const file = opaqueToHandle(context);
-    const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
-    return writer.writeFile(bw, file, .init(offset), len, &.{}, 0);
+    const file = opaqueToFile(context);
+    return bw.writeFile(file, .init(offset), limit, &.{}, 0);
 }
 
-pub fn reader_posReadVec(context: *anyopaque, data: []const []u8, offset: u64) anyerror!std.io.Reader.Status {
-    const file = opaqueToHandle(context);
+fn posReadVec(context: *anyopaque, data: []const []u8, offset: u64) anyerror!std.io.Reader.Status {
+    const file = opaqueToFile(context);
     const n = try file.preadv(data, offset);
     return .{
         .len = n,
@@ -1651,35 +1631,57 @@ pub fn reader_posReadVec(context: *anyopaque, data: []const []u8, offset: u64) a
     };
 }
 
-pub fn reader_streamRead(
+fn streamRead(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
 ) anyerror!std.io.Reader.Status {
-    const file = opaqueToHandle(context);
-    const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
-    const n = try writer.writeFile(bw, file, .none, len, &.{}, 0);
+    const file = opaqueToFile(context);
+    const n = try bw.writeFile(file, .none, limit, &.{}, 0);
     return .{
-        .len = n,
+        .len = @intCast(n),
         .end = n == 0,
     };
 }
 
-pub fn reader_streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
-    const file = opaqueToHandle(context);
-    const n = try file.readv(data);
-    return .{
-        .len = n,
-        .end = n == 0,
-    };
+fn streamReadVec(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+    const handle = opaqueToHandle(context);
+
+    if (is_windows) {
+        // Unfortunately, `ReadFileScatter` cannot be used since it requires
+        // page alignment, so we are stuck using only the first slice.
+        // Avoid empty slices to prevent false positive end detections.
+        var i: usize = 0;
+        while (true) : (i += 1) {
+            if (i >= data.len) return .{};
+            if (data[i].len > 0) break;
+        }
+        const n = try windows.ReadFile(handle, data[i], null);
+        return .{ .len = n, .end = n == 0 };
+    }
+
+    var iovecs: [max_buffers_len]std.posix.iovec = undefined;
+    var iovecs_i: usize = 0;
+    for (data) |d| {
+        // Since the OS checks pointer address before length, we must omit
+        // length-zero vectors.
+        if (d.len == 0) continue;
+        iovecs[iovecs_i] = .{ .base = d.ptr, .len = d.len };
+        iovecs_i += 1;
+        if (iovecs_i >= iovecs.len) break;
+    }
+    const send_vecs = iovecs[0..iovecs_i];
+    if (send_vecs.len == 0) return .{}; // Prevent false positive end detection on empty `data`.
+    const n = try posix.readv(handle, send_vecs);
+    return .{ .len = @intCast(n), .end = n == 0 };
 }
 
-pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
-    const file = opaqueToHandle(context);
+fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    const handle = opaqueToHandle(context);
     var splat_buffer: [256]u8 = undefined;
     if (is_windows) {
         if (data.len == 1 and splat == 0) return 0;
-        return windows.WriteFile(file, data[0], null);
+        return windows.WriteFile(handle, data[0], null);
     }
     var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
     var len: usize = @min(iovecs.len, data.len);
@@ -1688,8 +1690,8 @@ pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: 
         .len = d.len,
     };
     switch (splat) {
-        0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
-        1 => return std.posix.writev(file, iovecs[0..len]),
+        0 => return std.posix.writev(handle, iovecs[0 .. len - 1]),
+        1 => return std.posix.writev(handle, iovecs[0..len]),
         else => {
             const pattern = data[data.len - 1];
             if (pattern.len == 1) {
@@ -1707,38 +1709,38 @@ pub fn writer_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: 
                     iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
                     len += 1;
                 }
-                return std.posix.writev(file, iovecs[0..len]);
+                return std.posix.writev(handle, iovecs[0..len]);
             }
         },
     }
-    return std.posix.writev(file, iovecs[0..len]);
+    return std.posix.writev(handle, iovecs[0..len]);
 }
 
-pub fn writer_writeFile(
+fn writeFile(
     context: ?*anyopaque,
     in_file: std.fs.File,
     in_offset: std.io.Writer.Offset,
-    in_len: std.io.Writer.FileLen,
+    in_limit: std.io.Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
     const out_fd = opaqueToHandle(context);
     const in_fd = in_file.handle;
-    const len_int = switch (in_len) {
-        .zero => return writer_writeSplat(context, headers_and_trailers, 1),
-        .entire_file => 0,
-        else => in_len.int(),
+    const len_int = switch (in_limit) {
+        .zero => return writeSplat(context, headers_and_trailers, 1),
+        .none => 0,
+        else => in_limit.toInt().?,
     };
     if (native_os == .linux) sf: {
         // Linux sendfile does not support headers or trailers but it does
         // support a streaming read from in_file.
-        if (headers_len > 0) return writer_writeSplat(context, headers_and_trailers[0..headers_len], 1);
+        if (headers_len > 0) return writeSplat(context, headers_and_trailers[0..headers_len], 1);
         const max_count = 0x7ffff000; // Avoid EINVAL.
         const smaller_len = if (len_int == 0) max_count else @min(len_int, max_count);
         var off: std.os.linux.off_t = undefined;
         const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
             off = std.math.cast(std.os.linux.off_t, offset) orelse
-                return writer_writeSplat(context, headers_and_trailers, 1);
+                return writeSplat(context, headers_and_trailers, 1);
             break :b &off;
         } else null;
         if (true) @panic("TODO");
@@ -1753,7 +1755,7 @@ pub fn writer_writeFile(
         } else if (n == 0 and len_int == 0) {
             // The caller wouldn't be able to tell that the file transfer is
             // done and would incorrectly repeat the same call.
-            return writer_writeSplat(context, headers_and_trailers, 1);
+            return writeSplat(context, headers_and_trailers, 1);
         }
         return n;
     }
@@ -1770,7 +1772,7 @@ pub fn writer_writeFile(
         error.FileDescriptorNotASocket,
         error.NetworkUnreachable,
         error.NetworkSubsystemFailed,
-        => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers_and_trailers, headers_len),
+        => return writeFileUnseekable(out_fd, in_fd, in_offset, in_limit, headers_and_trailers, headers_len),
 
         else => |e| return e,
     };
@@ -1780,14 +1782,14 @@ fn writeFileUnseekable(
     out_fd: Handle,
     in_fd: Handle,
     in_offset: u64,
-    in_len: std.io.Writer.FileLen,
+    in_limit: std.io.Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
     _ = out_fd;
     _ = in_fd;
     _ = in_offset;
-    _ = in_len;
+    _ = in_limit;
     _ = headers_and_trailers;
     _ = headers_len;
     @panic("TODO writeFileUnseekable");
@@ -1807,6 +1809,10 @@ fn opaqueToHandle(userdata: ?*anyopaque) Handle {
         .int => @intCast(@intFromPtr(userdata)),
         else => @compileError("unhandled"),
     };
+}
+
+fn opaqueToFile(userdata: ?*anyopaque) File {
+    return .{ .handle = opaqueToHandle(userdata) };
 }
 
 pub const SeekableStream = io.SeekableStream(

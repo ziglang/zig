@@ -1963,41 +1963,65 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     return buffer[0..end_index];
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+pub fn readFileAlloc(
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    file_path: []const u8,
+    /// Used to allocate the result.
+    gpa: mem.Allocator,
+    /// If exceeded:
+    /// * The array list's length is increased by exactly one byte past `limit`.
+    /// * The file seek position is advanced by exactly one byte past `limit`.
+    /// * `error.FileTooBig` is returned.
+    limit: std.io.Reader.Limit,
+) (File.OpenError || File.ReadAllocError)![]u8 {
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer buffer.deinit(gpa);
+    try readFileIntoArrayList(dir, file_path, gpa, limit, null, &buffer);
+    return buffer.toOwnedSlice(gpa);
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// If `size_hint` is specified the initial buffer size is calculated using
-/// that value, otherwise the effective file size is used instead.
-/// Allows specifying alignment and a sentinel value.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFileAllocOptions(
-    self: Dir,
-    allocator: mem.Allocator,
+/// Reads all the bytes from the named file, appending them into the provided
+/// array list.
+///
+/// If `limit` is exceeded:
+/// * The array list's length is increased by exactly one byte past `limit`.
+/// * The file seek position is advanced by exactly one byte past `limit`.
+/// * `error.FileTooBig` is returned.
+pub fn readFileIntoArrayList(
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
     file_path: []const u8,
-    max_bytes: usize,
+    gpa: Allocator,
+    limit: std.io.Reader.Limit,
+    /// If specified, the initial buffer size is calculated using this value,
+    /// otherwise the effective file size is used instead.
     size_hint: ?usize,
-    comptime alignment: std.mem.Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    var file = try self.openFile(file_path, .{});
+    comptime alignment: ?std.mem.Alignment,
+    list: *std.ArrayListAligned(u8, alignment),
+) (File.OpenError || File.ReadAllocError)!void {
+    var file = try dir.openFile(file_path, .{});
     defer file.close();
 
-    // If the file size doesn't fit a usize it'll be certainly greater than
-    // `max_bytes`
-    const stat_size = size_hint orelse std.math.cast(usize, try file.getEndPos()) orelse
-        return error.FileTooBig;
+    // Apply size hint by adjusting the array list's capacity.
+    if (size_hint) |size| {
+        try list.ensureUnusedCapacity(gpa, size);
+    } else if (file.getEndPos()) |size| {
+        // If the file size doesn't fit a usize it'll be certainly exceed the limit.
+        try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.FileTooBig);
+    } else |err| switch (err) {
+        // Ignore most errors; size hint is only an optimization.
+        error.Unseekable, error.Unexpected, error.AccessDenied, error.PermissionDenied => {},
+        else => |e| return e,
+    }
 
-    return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
+    try file.readIntoArrayList(gpa, limit, alignment, list);
 }
 
 pub const DeleteTreeError = error{
