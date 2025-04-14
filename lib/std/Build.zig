@@ -2829,11 +2829,6 @@ pub fn makeTempPath(b: *Build) []const u8 {
     return result_path;
 }
 
-/// Deprecated; use `std.fmt.hex` instead.
-pub fn hex64(x: u64) [16]u8 {
-    return std.fmt.hex(x);
-}
-
 /// A pair of target query and fully resolved target.
 /// This type is generally required by build system API that need to be given a
 /// target. The query is kept because the Zig toolchain needs to know which parts

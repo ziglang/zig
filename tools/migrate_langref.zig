@@ -7,7 +7,7 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const max_doc_file_size = 10 * 1024 * 1024;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);

@@ -35,8 +35,6 @@ pub const realpathW = posix.realpathW;
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
 
-pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes");
-
 /// The maximum length of a file path that the operating system will accept.
 ///
 /// Paths, including those returned from file system operations, may be longer
@@ -90,9 +88,6 @@ pub const max_name_bytes = switch (native_os) {
         @compileError("NAME_MAX not implemented for " ++ @tagName(native_os)),
 };
 
-/// Deprecated: use `max_name_bytes`
-pub const MAX_NAME_BYTES = max_name_bytes;
-
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
@@ -100,11 +95,6 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
-
-/// Deprecated. Use `cwd().atomicSymLink()` instead.
-pub fn atomicSymLink(_: Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    try cwd().atomicSymLink(existing_path, new_path, .{});
-}
 
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.updateFile` for a function that operates on both
