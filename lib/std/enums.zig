@@ -197,8 +197,7 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
-/// Cast an enum literal, value, or string to the enum value of type E
-/// with the same name.
+/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
     return comptime blk: {
         const V = @TypeOf(value);
