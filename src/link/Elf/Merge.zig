@@ -157,16 +157,10 @@ pub const Section = struct {
         }
     };
 
-    pub fn format(
-        msec: Section,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(msec: Section, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = msec;
+        _ = bw;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
         @compileError("do not format directly");
     }
 
@@ -182,17 +176,11 @@ pub const Section = struct {
         elf_file: *Elf,
     };
 
-    pub fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
+    pub fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
         const msec = ctx.msec;
         const elf_file = ctx.elf_file;
-        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
+        try bw.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
             msec.name(elf_file),
             msec.address(elf_file),
             msec.size,
@@ -202,7 +190,7 @@ pub const Section = struct {
             msec.flags,
         });
         for (msec.subsections.items) |msub| {
-            try writer.print("   {}\n", .{msub.fmt(elf_file)});
+            try bw.print("   {f}\n", .{msub.fmt(elf_file)});
         }
     }
 
@@ -231,16 +219,10 @@ pub const Subsection = struct {
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
-    pub fn format(
-        msub: Subsection,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(msub: Subsection, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = msub;
+        _ = bw;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
         @compileError("do not format directly");
     }
 
@@ -256,22 +238,16 @@ pub const Subsection = struct {
         elf_file: *Elf,
     };
 
-    pub fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
+    pub fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
         const msub = ctx.msub;
         const elf_file = ctx.elf_file;
-        try writer.print("@{x} : align({x}) : size({x})", .{
+        try bw.print("@{x} : align({x}) : size({x})", .{
             msub.address(elf_file),
             msub.alignment,
             msub.size,
         });
-        if (!msub.alive) try writer.writeAll(" : [*]");
+        if (!msub.alive) try bw.writeAll(" : [*]");
     }
 
     pub const Index = u32;

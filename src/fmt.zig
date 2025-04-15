@@ -89,7 +89,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, .stdin(), null) catch |err| {
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, .stdin(), 0) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -134,9 +134,9 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             process.exit(2);
         }
         var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.init(gpa);
+        aw.init(gpa);
         defer aw.deinit();
-        try tree.render(gpa, bw, .{});
+        try tree.render(gpa, &aw.buffered_writer, .{});
         const formatted = aw.getWritten();
 
         if (check_flag) {

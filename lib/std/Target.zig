@@ -301,28 +301,23 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(
-            ver: WindowsVersion,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: *std.io.BufferedWriter,
-        ) anyerror!void {
+        pub fn format(ver: WindowsVersion, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) anyerror!void {
             const maybe_name = std.enums.tagName(WindowsVersion, ver);
             if (comptime std.mem.eql(u8, fmt_str, "s")) {
                 if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
+                    try bw.print(".{s}", .{name})
                 else
-                    try writer.print(".{d}", .{@intFromEnum(ver)});
+                    try bw.print(".{d}", .{@intFromEnum(ver)});
             } else if (comptime std.mem.eql(u8, fmt_str, "c")) {
                 if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
+                    try bw.print(".{s}", .{name})
                 else
-                    try writer.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
+                    try bw.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
             } else if (fmt_str.len == 0) {
                 if (maybe_name) |name|
-                    try writer.print("WindowsVersion.{s}", .{name})
+                    try bw.print("WindowsVersion.{s}", .{name})
                 else
-                    try writer.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
+                    try bw.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
             } else std.fmt.invalidFmtError(fmt_str, ver);
         }
     };

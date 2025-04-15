@@ -746,12 +746,14 @@ pub const Object = struct {
         try wip.finish();
     }
 
-    fn genModuleLevelAssembly(object: *Object) !void {
-        const writer = object.builder.setModuleAsm();
+    fn genModuleLevelAssembly(object: *Object) Allocator.Error!void {
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = object.builder.setModuleAsm(&aw);
+        errdefer aw.deinit();
         for (object.pt.zcu.global_assembly.values()) |assembly| {
-            try writer.print("{s}\n", .{assembly});
+            bw.print("{s}\n", .{assembly}) catch |err| return @errorCast(err);
         }
-        try object.builder.finishModuleAsm();
+        try object.builder.finishModuleAsm(&aw);
     }
 
     pub const EmitOptions = struct {
@@ -939,7 +941,7 @@ pub const Object = struct {
                 if (std.mem.eql(u8, path, "-")) {
                     o.builder.dump();
                 } else {
-                    _ = try o.builder.printToFile(path);
+                    _ = o.builder.printToFile(path);
                 }
             }
 
@@ -2677,9 +2679,9 @@ pub const Object = struct {
 
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
         var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.init(o.gpa);
+        aw.init(o.gpa);
         defer aw.deinit();
-        try ty.print(bw, o.pt);
+        ty.print(&aw.buffered_writer, o.pt) catch |err| return @errorCast(err);
         return aw.toOwnedSliceSentinel(0);
     }
 
@@ -4479,7 +4481,7 @@ pub const Object = struct {
         const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_tag_name_{}", .{enum_type.name.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -4630,7 +4632,7 @@ pub const NavGen = struct {
                     if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                         if (lib_name.toSlice(ip)) |lib_name_slice| {
                             if (!std.mem.eql(u8, lib_name_slice, "c")) {
-                                break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                                break :decl_name try o.builder.strtabStringFmt("{f}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
                             }
                         }
                     }
@@ -7469,7 +7471,7 @@ pub const FuncGen = struct {
                 llvm_param_types[llvm_param_i] = llvm_elem_ty;
             }
 
-            try llvm_constraints.writer(self.gpa).print(",{d}", .{output_index});
+            try llvm_constraints.print(self.gpa, ",{d}", .{output_index});
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
@@ -7570,7 +7572,7 @@ pub const FuncGen = struct {
                             // we should validate the assembly in Sema; by now it is too late
                             return self.todo("unknown input or output name: '{s}'", .{name});
                         };
-                        try rendered_template.writer().print("{d}", .{index});
+                        try rendered_template.print("{d}", .{index});
                         if (byte == ':') {
                             try rendered_template.append(':');
                             modifier_start = i + 1;
@@ -10377,7 +10379,7 @@ pub const FuncGen = struct {
         const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{enum_type.name.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 

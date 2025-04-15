@@ -401,7 +401,7 @@ fn findDef(
     };
 
     var override_path: std.io.AllocatingWriter = undefined;
-    const override_path_writer = override_path.init(gpa);
+    override_path.init(gpa);
     defer override_path.deinit();
 
     const s = path.sep_str;
@@ -410,9 +410,9 @@ fn findDef(
         // Try the archtecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
+            try override_path.buffered_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
         } else {
-            try override_path_writer.print(fmt_path, .{ lib_path, lib_name });
+            try override_path.buffered_writer.print(fmt_path, .{ lib_path, lib_name });
         }
         if (std.fs.cwd().access(override_path.getWritten(), .{})) |_| {
             return override_path.toOwnedSlice();
@@ -427,9 +427,9 @@ fn findDef(
         override_path.clearRetainingCapacity();
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.buffered_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path_writer.print(fmt_path, .{lib_name});
+            try override_path.buffered_writer.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.getWritten(), .{})) |_| {
             return override_path.toOwnedSlice();
@@ -444,9 +444,9 @@ fn findDef(
         override_path.clearRetainingCapacity();
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
         if (zig_lib_directory.path) |p| {
-            try override_path_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.buffered_writer.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path_writer.print(fmt_path, .{lib_name});
+            try override_path.buffered_writer.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.getWritten(), .{})) |_| {
             return override_path.toOwnedSlice();

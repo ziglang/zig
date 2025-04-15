@@ -110,7 +110,7 @@ const ModuleInfo = struct {
                 .TypeDeclaration, .ConstantCreation => {
                     const entry = try entities.getOrPut(result_id);
                     if (entry.found_existing) {
-                        log.err("type or constant {} has duplicate definition", .{result_id});
+                        log.err("type or constant {f} has duplicate definition", .{result_id});
                         return error.DuplicateId;
                     }
                     entry.value_ptr.* = entity;

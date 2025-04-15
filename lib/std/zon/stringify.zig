@@ -583,7 +583,7 @@ pub const Serializer = struct {
 
     /// Serialize an integer.
     pub fn int(self: *Serializer, val: anytype) anyerror!void {
-        try std.fmt.formatInt(val, 10, .lower, .{}, self.writer);
+        try self.writer.printIntOptions(val, 10, .lower, .{});
     }
 
     /// Serialize a float.
@@ -613,7 +613,7 @@ pub const Serializer = struct {
     ///
     /// Escapes the identifier if necessary.
     pub fn ident(self: *Serializer, name: []const u8) anyerror!void {
-        try self.writer.print(".{p_}", .{std.zig.fmtId(name)});
+        try self.writer.print(".{fp_}", .{std.zig.fmtId(name)});
     }
 
     /// Serialize `val` as a Unicode codepoint.
@@ -626,7 +626,7 @@ pub const Serializer = struct {
         var buf: [8]u8 = undefined;
         const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
         const str = buf[0..len];
-        try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
+        try std.fmt.format(self.writer, "'{f'}'", .{std.zig.fmtEscapes(str)});
     }
 
     /// Like `value`, but always serializes `val` as a tuple.
@@ -684,7 +684,7 @@ pub const Serializer = struct {
 
     /// Like `value`, but always serializes `val` as a string.
     pub fn string(self: *Serializer, val: []const u8) anyerror!void {
-        try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+        try std.fmt.format(self.writer, "\"{f}\"", .{std.zig.fmtEscapes(val)});
     }
 
     /// Options for formatting multiline strings.
@@ -758,7 +758,7 @@ pub const Serializer = struct {
 
     fn indent(self: *Serializer) anyerror!void {
         if (self.options.whitespace) {
-            try self.writer.writeByteNTimes(' ', 4 * self.indent_level);
+            try self.writer.splatByteAll(' ', 4 * self.indent_level);
         }
     }
 

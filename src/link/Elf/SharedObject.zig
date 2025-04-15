@@ -509,16 +509,10 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn format(
-    self: SharedObject,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(self: SharedObject, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = self;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("unreachable");
 }
 
@@ -534,23 +528,17 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const shared = ctx.shared;
     const elf_file = ctx.elf_file;
-    try writer.writeAll("  globals\n");
+    try bw.writeAll("  globals\n");
     for (shared.symbols.items, 0..) |sym, i| {
         const ref = shared.resolveSymbol(@intCast(i), elf_file);
         if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+            try bw.print("    {f}\n", .{ref_sym.fmt(elf_file)});
         } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            try bw.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
         }
     }
 }

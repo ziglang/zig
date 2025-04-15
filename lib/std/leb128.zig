@@ -55,10 +55,10 @@ test writeUnsignedFixed {
 }
 
 /// This is an "advanced" function. It allows one to use a fixed amount of memory to store an
-/// ILEB128. This defeats the entire purpose of using this data encoding; it will no longer use
+/// SLEB128. This defeats the entire purpose of using this data encoding; it will no longer use
 /// fewer bytes to store smaller numbers. The advantage of using a fixed width is that it makes
 /// fields have a predictable size and so depending on the use case this tradeoff can be worthwhile.
-/// An example use case of this is in emitting DWARF info where one wants to make a ILEB128 field
+/// An example use case of this is in emitting DWARF info where one wants to make a SLEB128 field
 /// "relocatable", meaning that it becomes possible to later go back and patch the number to be a
 /// different value without shifting all the following code.
 pub fn writeSignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(.signed, l * 7)) void {

@@ -544,9 +544,9 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: u
     var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
     defer buffer.deinit(gpa);
 
-    try buffer.ensureUnusedCapacity(size_hint);
+    try buffer.ensureUnusedCapacity(gpa, size_hint);
 
-    input.readIntoArrayList(gpa, .init(max_src_size), .@"2", &buffer) catch |err| switch (err) {
+    input.readIntoArrayList(gpa, .limited(max_src_size), .@"2", &buffer) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
         error.ConnectionTimedOut => unreachable,
         error.NotOpenForReading => unreachable,
@@ -568,7 +568,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: u
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
         if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
-        return std.unicode.utf16LeToUtf8AllocZ(gpa, buffer.items) catch |err| switch (err) {
+        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(buffer.items)) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
@@ -576,7 +576,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: u
         };
     }
 
-    return buffer.toOwnedSliceSentinel(0);
+    return buffer.toOwnedSliceSentinel(gpa, 0);
 }
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {

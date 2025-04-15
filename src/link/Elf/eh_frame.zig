@@ -49,14 +49,12 @@ pub const Fde = struct {
 
     pub fn format(
         fde: Fde,
+        bw: *std.io.BufferedWriter,
         comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: *std.io.BufferedWriter,
     ) !void {
         _ = fde;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
+        _ = bw;
         @compileError("do not format FDEs directly");
     }
 
@@ -74,24 +72,22 @@ pub const Fde = struct {
 
     fn format2(
         ctx: FdeFormatContext,
+        bw: *std.io.BufferedWriter,
         comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: *std.io.BufferedWriter,
     ) !void {
         _ = unused_fmt_string;
-        _ = options;
         const fde = ctx.fde;
         const elf_file = ctx.elf_file;
         const base_addr = fde.address(elf_file);
         const object = elf_file.file(fde.file_index).?.object;
         const atom_name = fde.atom(object).name(elf_file);
-        try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
+        try bw.print("@{x} : size({x}) : cie({d}) : {s}", .{
             base_addr + fde.out_offset,
             fde.calcSize(),
             fde.cie_index,
             atom_name,
         });
-        if (!fde.alive) try writer.writeAll(" : [*]");
+        if (!fde.alive) try bw.writeAll(" : [*]");
     }
 };
 
@@ -152,14 +148,12 @@ pub const Cie = struct {
 
     pub fn format(
         cie: Cie,
+        bw: *std.io.BufferedWriter,
         comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: *std.io.BufferedWriter,
     ) !void {
         _ = cie;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
+        _ = bw;
         @compileError("do not format CIEs directly");
     }
 
@@ -177,26 +171,23 @@ pub const Cie = struct {
 
     fn format2(
         ctx: CieFormatContext,
+        bw: *std.io.BufferedWriter,
         comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: *std.io.BufferedWriter,
     ) !void {
         _ = unused_fmt_string;
-        _ = options;
         const cie = ctx.cie;
         const elf_file = ctx.elf_file;
         const base_addr = cie.address(elf_file);
-        try writer.print("@{x} : size({x})", .{
+        try bw.print("@{x} : size({x})", .{
             base_addr + cie.out_offset,
             cie.calcSize(),
         });
-        if (!cie.alive) try writer.writeAll(" : [*]");
+        if (!cie.alive) try bw.writeAll(" : [*]");
     }
 };
 
 pub const Iterator = struct {
-    data: []const u8,
-    pos: usize = 0,
+    br: std.io.BufferedReader,
 
     pub const Record = struct {
         tag: enum { fde, cie },
@@ -205,22 +196,18 @@ pub const Iterator = struct {
     };
 
     pub fn next(it: *Iterator) !?Record {
-        if (it.pos >= it.data.len) return null;
+        if (it.br.seek >= it.br.storageBuffer().len) return null;
 
-        var stream = std.io.fixedBufferStream(it.data[it.pos..]);
-        const reader = stream.reader();
+        const size = try it.br.takeInt(u32, .little);
+        if (size == 0xFFFFFFFF) @panic("DWARF CFI is 32bit on macOS");
 
-        const size = try reader.readInt(u32, .little);
-        if (size == 0) return null;
-        if (size == 0xFFFFFFFF) @panic("TODO");
-
-        const id = try reader.readInt(u32, .little);
-        const record = Record{
+        const id = try it.br.takeInt(u32, .little);
+        const record: Record = .{
             .tag = if (id == 0) .cie else .fde,
-            .offset = it.pos,
+            .offset = it.br.seek,
             .size = size,
         };
-        it.pos += size + 4;
+        try it.br.discard(size);
 
         return record;
     }
@@ -316,7 +303,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     const S = math.cast(i64, sym.address(.{}, elf_file)) orelse return error.Overflow;
     const A = rel.r_addend;
 
-    relocs_log.debug("  {s}: {x}: [{x} => {x}] ({s})", .{
+    relocs_log.debug("  {f}: {x}: [{x} => {x}] ({s})", .{
         relocation.fmtRelocType(rel.r_type(), cpu_arch),
         offset,
         P,
@@ -332,7 +319,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     }
 }
 
-pub fn writeEhFrame(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
+pub fn writeEhFrame(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
     relocs_log.debug("{x}: .eh_frame", .{
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
@@ -356,7 +343,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
                 };
             }
 
-            try writer.writeAll(contents);
+            try bw.writeAll(contents);
         }
     }
 
@@ -384,22 +371,22 @@ pub fn writeEhFrame(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
                 };
             }
 
-            try writer.writeAll(contents);
+            try bw.writeAll(contents);
         }
     }
 
-    try writer.writeInt(u32, 0, .little);
+    try bw.writeInt(u32, 0, .little);
 
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
-            try writer.writeAll(cie.data(elf_file));
+            try bw.writeAll(cie.data(elf_file));
         }
     }
 
@@ -418,7 +405,7 @@ pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: *std.io.BufferedWriter) !
                 .little,
             );
 
-            try writer.writeAll(contents);
+            try bw.writeAll(contents);
         }
     }
 }
@@ -438,7 +425,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
         },
     }
 
-    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+    relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
         relocation.fmtRelocType(r_type, cpu_arch),
         r_offset,
         r_sym,
@@ -495,14 +482,14 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)
     }
 }
 
-pub fn writeEhFrameHdr(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
+pub fn writeEhFrameHdr(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 
-    try writer.writeByte(1); // version
-    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
-    try writer.writeByte(DW_EH_PE.udata4);
-    try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
+    try bw.writeByte(1); // version
+    try bw.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
+    try bw.writeByte(DW_EH_PE.udata4);
+    try bw.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
 
     const shdrs = elf_file.sections.items(.shdr);
     const eh_frame_shdr = shdrs[elf_file.section_indexes.eh_frame.?];
@@ -513,7 +500,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
         const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
         break :existing_size sym.atom(elf_file).?.size;
     };
-    try writer.writeInt(
+    try bw.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
@@ -521,7 +508,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
         ))),
         .little,
     );
-    try writer.writeInt(u32, num_fdes, .little);
+    try bw.writeInt(u32, num_fdes, .little);
 
     const Entry = struct {
         init_addr: u32,
@@ -561,7 +548,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
     }
 
     std.mem.sort(Entry, entries.items, {}, Entry.lessThan);
-    try writer.writeAll(std.mem.sliceAsBytes(entries.items));
+    try bw.writeAll(std.mem.sliceAsBytes(entries.items));
 }
 
 const eh_frame_hdr_header_size: usize = 12;
@@ -607,11 +594,11 @@ const riscv = struct {
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
-    try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
+    try err.addMsg("invalid relocation type {f} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    err.addNote("in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    err.addNote("in {f}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
     return error.RelocFailure;
 }
 

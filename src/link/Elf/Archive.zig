@@ -44,7 +44,7 @@ pub fn parse(
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
+            return diags.failParse(path, "invalid archive header delimiter: {f}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
         }
@@ -83,8 +83,8 @@ pub fn parse(
             .alive = false,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{
-            @as(Path, object.path), @as(Path, path),
+        log.debug("extracting object '{f}' from archive '{f}'", .{
+            object.path, path,
         });
 
         try objects.append(gpa, object);
@@ -110,33 +110,16 @@ pub fn setArHdr(opts: struct {
     },
     size: usize,
 }) elf.ar_hdr {
-    var hdr: elf.ar_hdr = .{
-        .ar_name = undefined,
-        .ar_date = undefined,
-        .ar_uid = undefined,
-        .ar_gid = undefined,
-        .ar_mode = undefined,
-        .ar_size = undefined,
-        .ar_fmag = undefined,
-    };
-    @memset(mem.asBytes(&hdr), 0x20);
+    var hdr: elf.ar_hdr = undefined;
+    @memset(mem.asBytes(&hdr), ' ');
     @memcpy(&hdr.ar_fmag, elf.ARFMAG);
-
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        const writer = stream.writer();
-        switch (opts.name) {
-            .symtab => writer.print("{s}", .{elf.SYM64NAME}) catch unreachable,
-            .strtab => writer.print("//", .{}) catch unreachable,
-            .name => |x| writer.print("{s}/", .{x}) catch unreachable,
-            .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
-        }
+    switch (opts.name) {
+        .symtab => _ = std.fmt.bufPrint(&hdr.ar_name, "{s}", .{elf.SYM64NAME}) catch unreachable,
+        .strtab => _ = std.fmt.bufPrint(&hdr.ar_name, "//", .{}) catch unreachable,
+        .name => |x| _ = std.fmt.bufPrint(&hdr.ar_name, "{s}/", .{x}) catch unreachable,
+        .name_off => |x| _ = std.fmt.bufPrint(&hdr.ar_name, "/{d}", .{x}) catch unreachable,
     }
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{opts.size}) catch unreachable;
-    }
-
+    _ = std.fmt.bufPrint(&hdr.ar_size, "{d}", .{opts.size}) catch unreachable;
     return hdr;
 }
 
@@ -201,16 +184,10 @@ pub const ArSymtab = struct {
         }
     }
 
-    pub fn format(
-        ar: ArSymtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(ar: ArSymtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = ar;
+        _ = bw;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
         @compileError("do not format ar symtab directly; use fmt instead");
     }
 
@@ -226,20 +203,14 @@ pub const ArSymtab = struct {
         } };
     }
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
         const ar = ctx.ar;
         const elf_file = ctx.elf_file;
         for (ar.symtab.items, 0..) |entry, i| {
             const name = ar.strtab.getAssumeExists(entry.off);
             const file = elf_file.file(entry.file_index).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file_index, file.fmtPath() });
+            try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file_index, file.fmtPath() });
         }
     }
 
@@ -264,9 +235,9 @@ pub const ArStrtab = struct {
         ar.buffer.deinit(allocator);
     }
 
-    pub fn insert(ar: *ArStrtab, allocator: Allocator, name: []const u8) error{OutOfMemory}!u32 {
-        const off = @as(u32, @intCast(ar.buffer.items.len));
-        try ar.buffer.writer(allocator).print("{s}/{c}", .{ name, strtab_delimiter });
+    pub fn insert(ar: *ArStrtab, gpa: Allocator, name: []const u8) error{OutOfMemory}!u32 {
+        const off: u32 = @intCast(ar.buffer.items.len);
+        try ar.buffer.print(gpa, "{s}/{c}", .{ name, strtab_delimiter });
         return off;
     }
 
@@ -280,15 +251,9 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(
-        ar: ArStrtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(ar: ArStrtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
-        try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
+        try bw.print("{f}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
     }
 };
 

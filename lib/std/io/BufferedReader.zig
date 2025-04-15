@@ -201,8 +201,8 @@ pub fn toss(br: *BufferedReader, n: usize) void {
 
 /// Equivalent to `peek` + `toss`.
 pub fn take(br: *BufferedReader, n: usize) anyerror![]u8 {
-    const result = try peek(br, n);
-    toss(br, n);
+    const result = try br.peek(n);
+    br.toss(n);
     return result;
 }
 
@@ -218,7 +218,7 @@ pub fn take(br: *BufferedReader, n: usize) anyerror![]u8 {
 /// See also:
 /// * `take`
 pub fn takeArray(br: *BufferedReader, comptime n: usize) anyerror!*[n]u8 {
-    return (try take(br, n))[0..n];
+    return (try br.take(n))[0..n];
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position.
@@ -232,7 +232,7 @@ pub fn takeArray(br: *BufferedReader, comptime n: usize) anyerror!*[n]u8 {
 /// * `discardUntilEnd`
 /// * `discardUpTo`
 pub fn discard(br: *BufferedReader, n: usize) anyerror!void {
-    if ((try discardUpTo(br, n)) != n) return error.EndOfStream;
+    if ((try br.discardUpTo(n)) != n) return error.EndOfStream;
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position.
@@ -326,6 +326,34 @@ pub fn partialRead(br: *BufferedReader, buffer: []u8) anyerror!usize {
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
+/// `sentinel` is found, advancing the seek position.
+///
+/// Returned slice has a sentinel.
+///
+/// If the stream ends before the sentinel is found, `error.EndOfStream` is
+/// returned.
+///
+/// If the sentinel is not found within a number of bytes matching the
+/// capacity of the `BufferedReader`, `error.StreamTooLong` is returned.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// See also:
+/// * `peekSentinel`
+/// * `takeDelimiterExclusive`
+/// * `takeDelimiterInclusive`
+pub fn takeSentinel(br: *BufferedReader, comptime sentinel: u8) anyerror![:sentinel]u8 {
+    const result = try br.peekSentinel(sentinel);
+    br.toss(result.len + 1);
+    return result;
+}
+
+pub fn peekSentinel(br: *BufferedReader, comptime sentinel: u8) anyerror![:sentinel]u8 {
+    const result = try br.takeDelimiterInclusive(sentinel);
+    return result[0 .. result.len - 1 :sentinel];
+}
+
+/// Returns a slice of the next bytes of buffered data from the stream until
 /// `delimiter` is found, advancing the seek position.
 ///
 /// Returned slice includes the delimiter as the last byte.
@@ -339,36 +367,17 @@ pub fn partialRead(br: *BufferedReader, buffer: []u8) anyerror!usize {
 /// Invalidates previously returned values from `peek`.
 ///
 /// See also:
-/// * `takeDelimiterConclusive`
+/// * `takeSentinel`
+/// * `takeDelimiterExclusive`
 /// * `peekDelimiterInclusive`
 pub fn takeDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
-    const result = try peekDelimiterInclusive(br, delimiter);
-    toss(result.len);
+    const result = try br.peekDelimiterInclusive(delimiter);
+    br.toss(result.len);
     return result;
 }
 
 pub fn peekDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
-    const storage = &br.storage;
-    const buffer = storage.buffer[0..storage.end];
-    const seek = br.seek;
-    if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |end| {
-        @branchHint(.likely);
-        return buffer[seek .. end + 1];
-    }
-    const remainder = buffer[seek..];
-    std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-    var i = remainder.len;
-    storage.end = i;
-    br.seek = 0;
-    while (i < storage.buffer.len) {
-        const status = try br.unbuffered_reader.read(storage, .none);
-        if (std.mem.indexOfScalarPos(u8, storage.buffer[0..storage.end], i, delimiter)) |end| {
-            return storage.buffer[0 .. end + 1];
-        }
-        if (status.end) return error.EndOfStream;
-        i = storage.end;
-    }
-    return error.StreamTooLong;
+    return (try br.peekDelimiterInclusiveUnlessEnd(delimiter)) orelse error.EndOfStream;
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
@@ -384,21 +393,32 @@ pub fn peekDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 
 /// Invalidates previously returned values from `peek`.
 ///
 /// See also:
+/// * `takeSentinel`
 /// * `takeDelimiterInclusive`
-/// * `peekDelimiterConclusive`
-pub fn takeDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
-    const result = try peekDelimiterConclusive(br, delimiter);
+/// * `peekDelimiterExclusive`
+pub fn takeDelimiterExclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
+    const result_unless_end = try br.peekDelimiterInclusiveUnlessEnd(delimiter);
+    const result = result_unless_end orelse {
+        br.toss(br.storage.end);
+        return br.storage.buffer[0..br.storage.end];
+    };
     br.toss(result.len);
-    return result;
+    return result[0 .. result.len - 1];
 }
 
-pub fn peekDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
+pub fn peekDelimiterExclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8 {
+    const result_unless_end = try br.peekDelimiterInclusiveUnlessEnd(delimiter);
+    const result = result_unless_end orelse return br.storage.buffer[0..br.storage.end];
+    return result[0 .. result.len - 1];
+}
+
+fn peekDelimiterInclusiveUnlessEnd(br: *BufferedReader, delimiter: u8) anyerror!?[]u8 {
     const storage = &br.storage;
     const buffer = storage.buffer[0..storage.end];
     const seek = br.seek;
     if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |end| {
         @branchHint(.likely);
-        return buffer[seek..end];
+        return buffer[seek .. end + 1];
     }
     const remainder = buffer[seek..];
     std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
@@ -407,10 +427,8 @@ pub fn peekDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror![]u8
     br.seek = 0;
     while (i < storage.buffer.len) {
         const status = try br.unbuffered_reader.read(storage, .unlimited);
-        if (std.mem.indexOfScalarPos(u8, storage.buffer[0..storage.end], i, delimiter)) |end| {
-            return storage.buffer[0 .. end + 1];
-        }
-        if (status.end) return storage.buffer[0..storage.end];
+        if (std.mem.indexOfScalarPos(u8, storage.buffer[0..storage.end], i, delimiter)) |end| return storage.buffer[0 .. end + 1];
+        if (status.end) return null;
         i = storage.end;
     }
     return error.StreamTooLong;
@@ -436,7 +454,7 @@ pub fn streamReadDelimiter(br: *BufferedReader, bw: *std.io.BufferedWriter, deli
 ///
 /// Returns number of bytes streamed as well as whether the input reached the end.
 /// The end is not signaled to the writer.
-pub fn streamReadDelimiterConclusive(
+pub fn streamReadDelimiterExclusive(
     br: *BufferedReader,
     bw: *std.io.BufferedWriter,
     delimiter: u8,
@@ -468,7 +486,7 @@ pub fn streamReadDelimiterLimited(
 /// including the delimiter.
 ///
 /// If end of stream is found, this function succeeds.
-pub fn discardDelimiterConclusive(br: *BufferedReader, delimiter: u8) anyerror!void {
+pub fn discardDelimiterExclusive(br: *BufferedReader, delimiter: u8) anyerror!void {
     _ = br;
     _ = delimiter;
     @panic("TODO");
@@ -517,7 +535,7 @@ pub fn takeByte(br: *BufferedReader) anyerror!u8 {
     const seek = br.seek;
     if (seek >= buffer.len) {
         @branchHint(.unlikely);
-        try fill(br, 1);
+        try br.fill(1);
     }
     br.seek = seek + 1;
     return buffer[seek];
@@ -531,20 +549,20 @@ pub fn takeByteSigned(br: *BufferedReader) anyerror!i8 {
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 pub inline fn takeInt(br: *BufferedReader, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     const n = @divExact(@typeInfo(T).int.bits, 8);
-    return std.mem.readInt(T, try takeArray(br, n), endian);
+    return std.mem.readInt(T, try br.takeArray(n), endian);
 }
 
 /// Asserts the buffer was initialized with a capacity at least `n`.
 pub fn takeVarInt(br: *BufferedReader, comptime Int: type, endian: std.builtin.Endian, n: usize) anyerror!Int {
     assert(n <= @sizeOf(Int));
-    return std.mem.readVarInt(Int, try take(br, n), endian);
+    return std.mem.readVarInt(Int, try br.take(n), endian);
 }
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 pub fn takeStruct(br: *BufferedReader, comptime T: type) anyerror!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
-    return @ptrCast(try takeArray(br, @sizeOf(T)));
+    return @ptrCast(try br.takeArray(@sizeOf(T)));
 }
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
@@ -561,7 +579,7 @@ pub fn takeStructEndian(br: *BufferedReader, comptime T: type, endian: std.built
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
 pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) anyerror!Enum {
     const Tag = @typeInfo(Enum).@"enum".tag_type;
-    const int = try takeInt(br, Tag, endian);
+    const int = try br.takeInt(Tag, endian);
     return std.meta.intToEnum(Enum, int);
 }
 
@@ -588,10 +606,12 @@ fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) anyerror!Re
         const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try br.peekAll(1));
         for (buffer, 1..) |byte, len| {
             if (remaining_bits > 0) {
-                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) | if (result_info.bits > 7) @shrExact(result, 7) else 0;
+                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) |
+                    if (result_info.bits > 7) @shrExact(result, 7) else 0;
                 remaining_bits -= 7;
             } else if (fits) fits = switch (result_info.signedness) {
-                .signed => @as(i7, @bitCast(byte.bits)) == @as(i7, @truncate(@as(Result, @bitCast(result)) >> (result_info.bits - 1))),
+                .signed => @as(i7, @bitCast(byte.bits)) ==
+                    @as(i7, @truncate(@as(Result, @bitCast(result)) >> (result_info.bits - 1))),
                 .unsigned => byte.bits == 0,
             };
             if (byte.more) continue;
@@ -652,6 +672,14 @@ test read {
     return error.Unimplemented;
 }
 
+test takeSentinel {
+    return error.Unimplemented;
+}
+
+test peekSentinel {
+    return error.Unimplemented;
+}
+
 test takeDelimiterInclusive {
     return error.Unimplemented;
 }
@@ -660,11 +688,11 @@ test peekDelimiterInclusive {
     return error.Unimplemented;
 }
 
-test takeDelimiterConclusive {
+test takeDelimiterExclusive {
     return error.Unimplemented;
 }
 
-test peekDelimiterConclusive {
+test peekDelimiterExclusive {
     return error.Unimplemented;
 }
 
@@ -672,7 +700,7 @@ test streamReadDelimiter {
     return error.Unimplemented;
 }
 
-test streamReadDelimiterConclusive {
+test streamReadDelimiterExclusive {
     return error.Unimplemented;
 }
 
@@ -680,7 +708,7 @@ test streamReadDelimiterLimited {
     return error.Unimplemented;
 }
 
-test discardDelimiterConclusive {
+test discardDelimiterExclusive {
     return error.Unimplemented;
 }
 

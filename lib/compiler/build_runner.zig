@@ -695,7 +695,10 @@ fn runStepNames(
 
     if (run.summary != .none) {
         var bw = std.debug.lockStdErr2(&stdio_buffer);
-        defer std.debug.unlockStdErr();
+        defer {
+            bw.flush() catch {};
+            std.debug.unlockStdErr();
+        }
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(&bw, .cyan) catch {};
@@ -710,7 +713,7 @@ fn runStepNames(
         if (test_fail_count > 0) bw.print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) bw.print("; {d} leaked", .{test_leak_count}) catch {};
 
-        bw.writeAll("\n") catch {};
+        bw.writeByte('\n') catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);

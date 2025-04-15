@@ -261,7 +261,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 
     sect.offset = @intCast(self.objc_methnames.items.len);
     try self.objc_methnames.ensureUnusedCapacity(gpa, methname.len + 1);
-    self.objc_methnames.writer(gpa).print("{s}\x00", .{methname}) catch unreachable;
+    self.objc_methnames.print(gpa, "{s}\x00", .{methname}) catch unreachable;
 
     const name_str = try self.addString(gpa, "ltmp");
     const sym_index = try self.addSymbol(gpa);
@@ -848,18 +848,12 @@ pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  atoms\n");
+    try bw.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
         const atom = ctx.self.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
+        try bw.print("    {f}\n", .{atom.fmt(ctx.macho_file)});
     }
 }
 
@@ -870,24 +864,18 @@ pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(fo
     } };
 }
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const macho_file = ctx.macho_file;
     const self = ctx.self;
-    try writer.writeAll("  symbols\n");
+    try bw.writeAll("  symbols\n");
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         if (ref.getFile(macho_file) == null) {
             // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
         }
     }
 }

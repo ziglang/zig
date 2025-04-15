@@ -111,7 +111,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
                     const target_sym = elf_file.symbol(ref) orelse continue;
                     const target_atom = target_sym.atom(elf_file) orelse continue;
                     target_atom.alive = true;
-                    gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
+                    gc_track_live_log.debug("{f}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
                     if (markAtom(target_atom)) markLive(target_atom, elf_file);
                 }
             }
@@ -128,7 +128,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
         }
         const target_atom = target_sym.atom(elf_file) orelse continue;
         target_atom.alive = true;
-        gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
+        gc_track_live_log.debug("{f}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
         if (markAtom(target_atom)) markLive(target_atom, elf_file);
     }
 }
@@ -170,7 +170,7 @@ pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
         for (file.atoms()) |atom_index| {
             const atom = file.atom(atom_index) orelse continue;
             if (!atom.alive)
-                try stderr.print("link: removing unused section '{s}' in file '{}'\n", .{
+                try stderr.print("link: removing unused section '{s}' in file '{f}'\n", .{
                     atom.name(elf_file),
                     atom.file(elf_file).?.fmtPath(),
                 });
@@ -185,15 +185,9 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: *const @This(), bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
-        try writer.writeByteNTimes(' ', self.value);
+        try bw.splatByteAll(' ', self.value);
     }
 };
 

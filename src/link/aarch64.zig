@@ -4,7 +4,7 @@ pub inline fn isArithmeticOp(inst: *const [4]u8) bool {
 }
 
 pub fn writeAddImmInst(value: u12, code: *[4]u8) void {
-    var inst = Instruction{
+    var inst: Instruction = .{
         .add_subtract_immediate = mem.bytesToValue(@FieldType(
             Instruction,
             @tagName(Instruction.add_subtract_immediate),
@@ -33,7 +33,7 @@ pub fn calcNumberOfPages(saddr: i64, taddr: i64) error{Overflow}!i21 {
 }
 
 pub fn writeAdrpInst(pages: u21, code: *[4]u8) void {
-    var inst = Instruction{
+    var inst: Instruction = .{
         .pc_relative_address = mem.bytesToValue(@FieldType(
             Instruction,
             @tagName(Instruction.pc_relative_address),
@@ -45,7 +45,7 @@ pub fn writeAdrpInst(pages: u21, code: *[4]u8) void {
 }
 
 pub fn writeBranchImm(disp: i28, code: *[4]u8) void {
-    var inst = Instruction{
+    var inst: Instruction = .{
         .unconditional_branch_immediate = mem.bytesToValue(@FieldType(
             Instruction,
             @tagName(Instruction.unconditional_branch_immediate),

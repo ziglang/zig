@@ -142,9 +142,9 @@ const FormatContext = struct {
     pt: Zcu.PerThread,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime f: []const u8) anyerror!usize {
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime f: []const u8) anyerror!void {
     comptime assert(f.len == 0);
-    return print(ctx.ty, bw, ctx.pt);
+    try print(ctx.ty, bw, ctx.pt);
 }
 
 pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
@@ -153,20 +153,14 @@ pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(
-    start_type: Type,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    _ = options;
+pub fn dump(start_type: Type, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
     comptime assert(unused_format_string.len == 0);
-    return writer.print("{any}", .{start_type.ip_index});
+    return bw.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, bw: *std.io.BufferedWriter, pt: Zcu.PerThread) anyerror!usize {
+pub fn print(ty: Type, bw: *std.io.BufferedWriter, pt: Zcu.PerThread) anyerror!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
@@ -176,23 +170,22 @@ pub fn print(ty: Type, bw: *std.io.BufferedWriter, pt: Zcu.PerThread) anyerror!u
                 .signed => 'i',
                 .unsigned => 'u',
             };
-            return bw.print("{c}{d}", .{ sign_char, int_type.bits });
+            try bw.print("{c}{d}", .{ sign_char, int_type.bits });
         },
         .ptr_type => {
-            var n: usize = 0;
             const info = ty.ptrInfo(zcu);
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .one, .c => unreachable,
-                .many => n += try bw.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
-                .slice => n += try bw.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .many => try bw.print("[*:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .slice => try bw.print("[:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
-                .one => n += try bw.writeAll("*"),
-                .many => n += try bw.writeAll("[*]"),
-                .c => n += try bw.writeAll("[*c]"),
-                .slice => n += try bw.writeAll("[]"),
+                .one => try bw.writeAll("*"),
+                .many => try bw.writeAll("[*]"),
+                .c => try bw.writeAll("[*c]"),
+                .slice => try bw.writeAll("[]"),
             }
-            if (info.flags.is_allowzero and info.flags.size != .c) n += try bw.writeAll("allowzero ");
+            if (info.flags.is_allowzero and info.flags.size != .c) try bw.writeAll("allowzero ");
             if (info.flags.alignment != .none or
                 info.packed_offset.host_size != 0 or
                 info.flags.vector_index != .none)
@@ -201,83 +194,72 @@ pub fn print(ty: Type, bw: *std.io.BufferedWriter, pt: Zcu.PerThread) anyerror!u
                     info.flags.alignment
                 else
                     Type.fromInterned(info.child).abiAlignment(pt.zcu);
-                n += try bw.print("align({d}", .{alignment.toByteUnits() orelse 0});
+                try bw.print("align({d}", .{alignment.toByteUnits() orelse 0});
 
                 if (info.packed_offset.bit_offset != 0 or info.packed_offset.host_size != 0) {
-                    n += try bw.print(":{d}:{d}", .{
+                    try bw.print(":{d}:{d}", .{
                         info.packed_offset.bit_offset, info.packed_offset.host_size,
                     });
                 }
                 if (info.flags.vector_index == .runtime) {
-                    n += try bw.writeAll(":?");
+                    try bw.writeAll(":?");
                 } else if (info.flags.vector_index != .none) {
-                    n += try bw.print(":{d}", .{@intFromEnum(info.flags.vector_index)});
+                    try bw.print(":{d}", .{@intFromEnum(info.flags.vector_index)});
                 }
-                n += try bw.writeAll(") ");
+                try bw.writeAll(") ");
             }
             if (info.flags.address_space != .generic) {
-                n += try bw.print("addrspace(.{s}) ", .{@tagName(info.flags.address_space)});
+                try bw.print("addrspace(.{s}) ", .{@tagName(info.flags.address_space)});
             }
-            if (info.flags.is_const) n += try bw.writeAll("const ");
-            if (info.flags.is_volatile) n += try bw.writeAll("volatile ");
+            if (info.flags.is_const) try bw.writeAll("const ");
+            if (info.flags.is_volatile) try bw.writeAll("volatile ");
 
-            n += try print(Type.fromInterned(info.child), bw, pt);
-            return n;
+            try print(Type.fromInterned(info.child), bw, pt);
         },
         .array_type => |array_type| {
-            var n: usize = 0;
             if (array_type.sentinel == .none) {
-                n += try bw.print("[{d}]", .{array_type.len});
-                n += try print(Type.fromInterned(array_type.child), bw, pt);
+                try bw.print("[{d}]", .{array_type.len});
+                try print(Type.fromInterned(array_type.child), bw, pt);
             } else {
-                n += try bw.print("[{d}:{}]", .{
+                try bw.print("[{d}:{f}]", .{
                     array_type.len,
                     Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
-                n += try print(Type.fromInterned(array_type.child), bw, pt);
+                try print(Type.fromInterned(array_type.child), bw, pt);
             }
-            return n;
         },
         .vector_type => |vector_type| {
-            var n: usize = 0;
-            n += try bw.print("@Vector({d}, ", .{vector_type.len});
-            n += try print(Type.fromInterned(vector_type.child), bw, pt);
-            n += try bw.writeAll(")");
-            return n;
+            try bw.print("@Vector({d}, ", .{vector_type.len});
+            try print(Type.fromInterned(vector_type.child), bw, pt);
+            try bw.writeAll(")");
         },
         .opt_type => |child| {
-            var n: usize = 0;
-            n += try bw.writeByte('?');
-            n += try print(Type.fromInterned(child), bw, pt);
-            return n;
+            try bw.writeByte('?');
+            try print(Type.fromInterned(child), bw, pt);
         },
         .error_union_type => |error_union_type| {
-            var n: usize = 0;
-            n += try print(Type.fromInterned(error_union_type.error_set_type), bw, pt);
-            n += try bw.writeByte('!');
+            try print(Type.fromInterned(error_union_type.error_set_type), bw, pt);
+            try bw.writeByte('!');
             if (error_union_type.payload_type == .generic_poison_type) {
-                n += try bw.writeAll("anytype");
+                try bw.writeAll("anytype");
             } else {
-                n += try print(Type.fromInterned(error_union_type.payload_type), bw, pt);
+                try print(Type.fromInterned(error_union_type.payload_type), bw, pt);
             }
-            return n;
         },
         .inferred_error_set_type => |func_index| {
             const func_nav = ip.getNav(zcu.funcInfo(func_index).owner_nav);
-            return bw.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{
+            return bw.print("@typeInfo(@typeInfo(@TypeOf({f})).@\"fn\".return_type.?).error_union.error_set", .{
                 func_nav.fqn.fmt(ip),
             });
         },
         .error_set_type => |error_set_type| {
-            var n: usize = 0;
             const names = error_set_type.names;
-            n += try bw.writeAll("error{");
+            try bw.writeAll("error{");
             for (names.get(ip), 0..) |name, i| {
-                if (i != 0) n += try bw.writeByte(',');
-                n += try bw.print("{}", .{name.fmt(ip)});
+                if (i != 0) try bw.writeByte(',');
+                try bw.print("{f}", .{name.fmt(ip)});
             }
-            n += try bw.writeAll("}");
-            return n;
+            try bw.writeAll("}");
         },
         .simple_type => |s| switch (s) {
             .f16,
@@ -318,91 +300,85 @@ pub fn print(ty: Type, bw: *std.io.BufferedWriter, pt: Zcu.PerThread) anyerror!u
         },
         .struct_type => {
             const name = ip.loadStructType(ty.toIntern()).name;
-            return bw.print("{}", .{name.fmt(ip)});
+            return bw.print("{f}", .{name.fmt(ip)});
         },
         .tuple_type => |tuple| {
             if (tuple.types.len == 0) {
                 return bw.writeAll("@TypeOf(.{})");
             }
-            var n: usize = 0;
-            n += try bw.writeAll("struct {");
+            try bw.writeAll("struct {");
             for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, val, i| {
-                n += try bw.writeAll(if (i == 0) " " else ", ");
-                if (val != .none) n += try bw.writeAll("comptime ");
-                n += try print(Type.fromInterned(field_ty), bw, pt);
-                if (val != .none) n += try bw.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
+                try bw.writeAll(if (i == 0) " " else ", ");
+                if (val != .none) try bw.writeAll("comptime ");
+                try print(Type.fromInterned(field_ty), bw, pt);
+                if (val != .none) try bw.print(" = {f}", .{Value.fromInterned(val).fmtValue(pt)});
             }
-            n += try bw.writeAll(" }");
-            return n;
+            try bw.writeAll(" }");
         },
 
         .union_type => {
             const name = ip.loadUnionType(ty.toIntern()).name;
-            return bw.print("{}", .{name.fmt(ip)});
+            return bw.print("{f}", .{name.fmt(ip)});
         },
         .opaque_type => {
             const name = ip.loadOpaqueType(ty.toIntern()).name;
-            return bw.print("{}", .{name.fmt(ip)});
+            return bw.print("{f}", .{name.fmt(ip)});
         },
         .enum_type => {
             const name = ip.loadEnumType(ty.toIntern()).name;
-            return bw.print("{}", .{name.fmt(ip)});
+            return bw.print("{f}", .{name.fmt(ip)});
         },
         .func_type => |fn_info| {
-            var n: usize = 0;
             if (fn_info.is_noinline) {
-                n += try bw.writeAll("noinline ");
+                try bw.writeAll("noinline ");
             }
-            n += try bw.writeAll("fn (");
+            try bw.writeAll("fn (");
             const param_types = fn_info.param_types.get(&zcu.intern_pool);
             for (param_types, 0..) |param_ty, i| {
-                if (i != 0) n += try bw.writeAll(", ");
+                if (i != 0) try bw.writeAll(", ");
                 if (std.math.cast(u5, i)) |index| {
                     if (fn_info.paramIsComptime(index)) {
-                        n += try bw.writeAll("comptime ");
+                        try bw.writeAll("comptime ");
                     }
                     if (fn_info.paramIsNoalias(index)) {
-                        n += try bw.writeAll("noalias ");
+                        try bw.writeAll("noalias ");
                     }
                 }
                 if (param_ty == .generic_poison_type) {
-                    n += try bw.writeAll("anytype");
+                    try bw.writeAll("anytype");
                 } else {
-                    n += try print(Type.fromInterned(param_ty), bw, pt);
+                    try print(Type.fromInterned(param_ty), bw, pt);
                 }
             }
             if (fn_info.is_var_args) {
                 if (param_types.len != 0) {
-                    n += try bw.writeAll(", ");
+                    try bw.writeAll(", ");
                 }
-                n += try bw.writeAll("...");
+                try bw.writeAll("...");
             }
-            n += try bw.writeAll(") ");
+            try bw.writeAll(") ");
             if (fn_info.cc != .auto) print_cc: {
                 if (zcu.getTarget().cCallingConvention()) |ccc| {
                     if (fn_info.cc.eql(ccc)) {
-                        n += try bw.writeAll("callconv(.c) ");
+                        try bw.writeAll("callconv(.c) ");
                         break :print_cc;
                     }
                 }
                 switch (fn_info.cc) {
-                    .auto, .@"async", .naked, .@"inline" => n += try bw.print("callconv(.{}) ", .{std.zig.fmtId(@tagName(fn_info.cc))}),
-                    else => n += try bw.print("callconv({any}) ", .{fn_info.cc}),
+                    .auto, .@"async", .naked, .@"inline" => try bw.print("callconv(.{f}) ", .{std.zig.fmtId(@tagName(fn_info.cc))}),
+                    else => try bw.print("callconv({any}) ", .{fn_info.cc}),
                 }
             }
             if (fn_info.return_type == .generic_poison_type) {
-                n += try bw.writeAll("anytype");
+                try bw.writeAll("anytype");
             } else {
-                n += try print(Type.fromInterned(fn_info.return_type), bw, pt);
+                try print(Type.fromInterned(fn_info.return_type), bw, pt);
             }
-            return n;
         },
         .anyframe_type => |child| {
             if (child == .none) return bw.writeAll("anyframe");
-            var n: usize = 0;
-            n += try bw.writeAll("anyframe->");
-            n += print(Type.fromInterned(child), bw, pt);
-            return n;
+            try bw.writeAll("anyframe->");
+            try print(Type.fromInterned(child), bw, pt);
         },
 
         // values, not types

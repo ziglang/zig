@@ -101,7 +101,7 @@ const Writer = struct {
     fn writeInst(w: *Writer, s: *std.io.BufferedWriter, inst: Air.Inst.Index) anyerror!void {
         const tag = w.air.instructions.items(.tag)[@intFromEnum(inst)];
         try s.splatByteAll(' ', w.indent);
-        try s.print("{}{c}= {s}(", .{
+        try s.print("{f}{c}= {s}(", .{
             inst,
             @as(u8, if (if (w.liveness) |liveness| liveness.isUnused(inst) else false) '!' else ' '),
             @tagName(tag),
@@ -416,7 +416,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_block.deaths) |operand| {
-            try s.print(" {}!", .{operand});
+            try s.print(" {f}!", .{operand});
         }
     }
 
@@ -708,7 +708,7 @@ const Writer = struct {
             }
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
-        try s.print(", \"{}\"", .{std.zig.fmtEscapes(asm_source)});
+        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(asm_source)});
     }
 
     fn writeDbgStmt(w: *Writer, s: *std.io.BufferedWriter, inst: Air.Inst.Index) anyerror!void {
@@ -720,7 +720,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
         const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-        try s.print(", \"{}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
+        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
     }
 
     fn writeCall(w: *Writer, s: *std.io.BufferedWriter, inst: Air.Inst.Index) anyerror!void {
@@ -767,7 +767,7 @@ const Writer = struct {
             try s.splatByteAll(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("{}!", .{operand});
+                try s.print("{f}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -778,7 +778,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_condbr.then_deaths) |operand| {
-            try s.print(" {}!", .{operand});
+            try s.print(" {f}!", .{operand});
         }
     }
 
@@ -804,7 +804,7 @@ const Writer = struct {
             try s.splatByteAll(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("{}!", .{operand});
+                try s.print("{f}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -815,7 +815,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_condbr.then_deaths) |operand| {
-            try s.print(" {}!", .{operand});
+            try s.print(" {f}!", .{operand});
         }
     }
 
@@ -846,7 +846,7 @@ const Writer = struct {
             try s.splatByteAll(' ', w.indent);
             for (liveness_condbr.then_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("{}!", .{operand});
+                try s.print("{f}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -866,7 +866,7 @@ const Writer = struct {
             try s.splatByteAll(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("{}!", .{operand});
+                try s.print("{f}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -923,7 +923,7 @@ const Writer = struct {
                 try s.splatByteAll(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
-                    try s.print("{}!", .{operand});
+                    try s.print("{f}!", .{operand});
                 }
                 try s.writeAll("\n");
             }
@@ -949,7 +949,7 @@ const Writer = struct {
                 try s.splatByteAll(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
-                    try s.print("{}!", .{operand});
+                    try s.print("{f}!", .{operand});
                 }
                 try s.writeAll("\n");
             }
@@ -1017,7 +1017,7 @@ const Writer = struct {
         } else if (operand.toInterned()) |ip_index| {
             const pt = w.pt;
             const ty = Type.fromInterned(pt.zcu.intern_pool.indexToKey(ip_index).typeOf());
-            try s.print("<{}, {}>", .{
+            try s.print("<{f}, {f}>", .{
                 ty.fmt(pt),
                 Value.fromInterned(ip_index).fmtValue(pt),
             });
@@ -1033,7 +1033,7 @@ const Writer = struct {
         dies: bool,
     ) anyerror!void {
         _ = w;
-        try s.print("{}", .{inst});
+        try s.print("{f}", .{inst});
         if (dies) try s.writeByte('!');
     }
 

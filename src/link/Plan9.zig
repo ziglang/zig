@@ -202,7 +202,7 @@ pub const Atom = struct {
 /// after every opcode, add the quanta of the instruction size to the pc
 pub const DebugInfoOutput = struct {
     /// the actual opcodes
-    dbg_line: std.ArrayList(u8),
+    dbg_line: std.ArrayListUnmanaged(u8),
     /// what line the debuginfo starts on
     /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
     start_line: ?u32,
@@ -336,23 +336,26 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         };
         try fn_map_res.value_ptr.functions.put(gpa, nav_index, out);
 
-        var a = std.ArrayList(u8).init(arena);
-        errdefer a.deinit();
+        var aw: std.io.AllocatingWriter = undefined;
+        aw.init(arena);
+        defer aw.deinit();
+        const bw = &aw.buffered_writer;
+
         // every 'z' starts with 0
-        try a.append(0);
+        try bw.writeByte(0);
         // path component value of '/'
-        try a.writer().writeInt(u16, 1, .big);
+        try bw.writeInt(u16, 1, .big);
 
         // getting the full file path
         {
             const full_path = try file.path.toAbsolute(comp.dirs, gpa);
             defer gpa.free(full_path);
-            try self.addPathComponents(full_path, &a);
+            try self.addPathComponents(full_path, bw);
         }
 
         // null terminate
-        try a.append(0);
-        const final = try a.toOwnedSlice();
+        try bw.writeByte(0);
+        const final = try aw.toOwnedSlice();
         self.syms.items[fn_map_res.value_ptr.sym_index - 1] = .{
             .type = .z,
             .value = 1,
@@ -367,17 +370,17 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
     }
 }
 
-fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !void {
+fn addPathComponents(self: *Plan9, path: []const u8, bw: *std.io.BufferedWriter) !void {
     const gpa = self.base.comp.gpa;
     const sep = std.fs.path.sep;
     var it = std.mem.tokenizeScalar(u8, path, sep);
     while (it.next()) |component| {
         if (self.file_segments.get(component)) |num| {
-            try a.writer().writeInt(u16, num, .big);
+            try bw.writeInt(u16, num, .big);
         } else {
             self.file_segments_i += 1;
             try self.file_segments.put(gpa, component, self.file_segments_i);
-            try a.writer().writeInt(u16, self.file_segments_i, .big);
+            try bw.writeInt(u16, self.file_segments_i, .big);
         }
     }
 }
@@ -402,14 +405,14 @@ pub fn updateFunc(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
     var dbg_info_output: DebugInfoOutput = .{
-        .dbg_line = std.ArrayList(u8).init(gpa),
+        .dbg_line = .empty,
         .start_line = null,
         .end_line = undefined,
         .pcop_change_index = null,
         // we have already checked the target in the linker to make sure it is compatable
         .pc_quanta = aout.getPCQuant(target.cpu.arch) catch unreachable,
     };
-    defer dbg_info_output.dbg_line.deinit();
+    defer dbg_info_output.dbg_line.deinit(gpa);
 
     try codegen.emitFunction(
         &self.base,
@@ -427,7 +430,7 @@ pub fn updateFunc(
     };
     const out: FnNavOutput = .{
         .code = code,
-        .lineinfo = try dbg_info_output.dbg_line.toOwnedSlice(),
+        .lineinfo = try dbg_info_output.dbg_line.toOwnedSlice(gpa),
         .start_line = dbg_info_output.start_line.?,
         .end_line = dbg_info_output.end_line,
     };
@@ -445,7 +448,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => {
-            log.debug("found extern decl: {}", .{nav.name.fmt(ip)});
+            log.debug("found extern decl: {f}", .{nav.name.fmt(ip)});
             return;
         },
         else => nav_val,
@@ -524,16 +527,14 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
+pub fn changeLine(bw: *std.io.Writer, delta_line: i32) !void {
     if (delta_line > 0 and delta_line < 65) {
-        const toappend = @as(u8, @intCast(delta_line));
-        try l.append(toappend);
+        try bw.writeByte(@intCast(delta_line));
     } else if (delta_line < 0 and delta_line > -65) {
-        const toadd: u8 = @as(u8, @intCast(-delta_line + 64));
-        try l.append(toadd);
+        try bw.writeByte(@intCast(-delta_line + 64));
     } else if (delta_line != 0) {
-        try l.append(0);
-        try l.writer().writeInt(i32, delta_line, .big);
+        try bw.writeByte(0);
+        try bw.writeInt(i32, delta_line, .big);
     }
 }
 
@@ -645,10 +646,12 @@ pub fn flush(
     var iovecs_i: usize = 1;
     var text_i: u64 = 0;
 
-    var linecountinfo = std.ArrayList(u8).init(gpa);
-    defer linecountinfo.deinit();
+    var linecountinfo_aw: std.io.AllocatingWriter = undefined;
+    linecountinfo_aw.init(gpa);
+    defer linecountinfo_aw.deinit();
     // text
     {
+        const linecountinfo_bw = &linecountinfo_aw.buffered_writer;
         var linecount: i64 = -1;
         var it_file = self.fn_nav_table.iterator();
         while (it_file.next()) |fentry| {
@@ -662,11 +665,11 @@ pub fn flush(
                     // connect the previous decl to the next
                     const delta_line = @as(i32, @intCast(out.start_line)) - @as(i32, @intCast(linecount));
 
-                    try changeLine(&linecountinfo, delta_line);
+                    changeLine(linecountinfo_bw, delta_line) catch |err| return @errorCast(err);
                     // TODO change the pc too (maybe?)
 
                     // write out the actual info that was generated in codegen now
-                    try linecountinfo.appendSlice(out.lineinfo);
+                    linecountinfo_bw.writeAll(out.lineinfo) catch |err| return @errorCast(err);
                     linecount = out.end_line;
                 }
                 foff += out.code.len;
@@ -675,7 +678,7 @@ pub fn flush(
                 const off = self.getAddr(text_i, .t);
                 text_i += out.code.len;
                 atom.offset = off;
-                log.debug("write text nav 0x{x} ({}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ nav_index, nav.name.fmt(&pt.zcu.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
+                log.debug("write text nav 0x{x} ({f}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ nav_index, nav.name.fmt(&pt.zcu.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
                 if (!self.sixtyfour_bit) {
                     mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(off), target.cpu.arch.endian());
                 } else {
@@ -687,11 +690,12 @@ pub fn flush(
                 }
             }
         }
-        if (linecountinfo.items.len & 1 == 1) {
+        if (linecountinfo_aw.getWritten().len & 1 == 1) {
             // just a nop to make it even, the plan9 linker does this
-            try linecountinfo.append(129);
+            linecountinfo_bw.writeByte(129) catch |err| return @errorCast(err);
         }
     }
+    const linecountinfo = linecountinfo_aw.getWritten();
     // the text lazy symbols
     {
         var it = self.lazy_syms.iterator();
@@ -815,25 +819,26 @@ pub fn flush(
             }
         }
     }
-    var sym_buf = std.ArrayList(u8).init(gpa);
-    try self.writeSyms(&sym_buf);
-    const syms = try sym_buf.toOwnedSlice();
-    defer gpa.free(syms);
+    var syms_aw: std.io.AllocatingWriter = undefined;
+    syms_aw.init(gpa);
+    defer syms_aw.deinit();
+    self.writeSyms(&syms_aw.buffered_writer) catch |err| return @errorCast(err);
+    const syms = syms_aw.getWritten();
     assert(2 + self.atomCount() - self.externCount() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .base = syms.ptr, .len = syms.len };
     iovecs_i += 1;
-    iovecs[iovecs_i] = .{ .base = linecountinfo.items.ptr, .len = linecountinfo.items.len };
+    iovecs[iovecs_i] = .{ .base = linecountinfo.ptr, .len = linecountinfo.len };
     iovecs_i += 1;
     // generate the header
     self.hdr = .{
         .magic = self.magic,
-        .text = @as(u32, @intCast(text_i)),
-        .data = @as(u32, @intCast(data_i)),
-        .syms = @as(u32, @intCast(syms.len)),
+        .text = @intCast(text_i),
+        .data = @intCast(data_i),
+        .syms = @intCast(syms.len),
         .bss = 0,
         .spsz = 0,
-        .pcsz = @as(u32, @intCast(linecountinfo.items.len)),
-        .entry = @as(u32, @intCast(self.entry_val.?)),
+        .pcsz = @intCast(linecountinfo.len),
+        .entry = @intCast(self.entry_val.?),
     };
     @memcpy(hdr_slice, self.hdr.toU8s()[0..hdr_size]);
     // write the fat header for 64 bit entry points
@@ -974,11 +979,11 @@ pub fn seeNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
             self.etext_edata_end_atom_indices[2] = atom_idx;
         }
         try self.updateFinish(pt, nav_index);
-        log.debug("seeNav(extern) for {} (got_addr=0x{x})", .{
+        log.debug("seeNav(extern) for {f} (got_addr=0x{x})", .{
             nav.name.fmt(ip),
             self.getAtom(atom_idx).getOffsetTableAddress(self),
         });
-    } else log.debug("seeNav for {}", .{nav.name.fmt(ip)});
+    } else log.debug("seeNav for {f}", .{nav.name.fmt(ip)});
     return atom_idx;
 }
 
@@ -1043,7 +1048,7 @@ fn updateLazySymbolAtom(
     defer code_buffer.deinit(gpa);
 
     // create the symbol for the name
-    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
         Type.fromInterned(sym.ty).fmt(pt),
     });
@@ -1200,17 +1205,16 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
     try w.writeByte(0);
 }
 
-pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
+pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
     const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const writer = buf.writer();
     // write __GOT
-    try self.writeSym(writer, self.syms.items[0]);
+    try self.writeSym(bw, self.syms.items[0]);
     // write the f symbols
     {
         var it = self.file_segments.iterator();
         while (it.next()) |entry| {
-            try self.writeSym(writer, .{
+            try self.writeSym(bw, .{
                 .type = .f,
                 .value = entry.value_ptr.*,
                 .name = entry.key_ptr.*,
@@ -1226,12 +1230,12 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const nav_metadata = self.navs.get(nav_index).?;
             const atom = self.getAtom(nav_metadata.index);
             const sym = self.syms.items[atom.sym_index.?];
-            try self.writeSym(writer, sym);
+            try self.writeSym(bw, sym);
             if (self.nav_exports.get(nav_index)) |export_indices| {
                 for (export_indices) |export_idx| {
                     const exp = export_idx.ptr(zcu);
                     if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
-                        try self.writeSym(writer, self.syms.items[exp_i]);
+                        try self.writeSym(bw, self.syms.items[exp_i]);
                     }
                 }
             }
@@ -1244,7 +1248,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const meta = kv.value_ptr;
             const data_atom = if (meta.rodata_state != .unused) self.getAtomPtr(meta.rodata_atom) else continue;
             const sym = self.syms.items[data_atom.sym_index.?];
-            try self.writeSym(writer, sym);
+            try self.writeSym(bw, sym);
         }
     }
     // text symbols are the hardest:
@@ -1255,8 +1259,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         while (it_file.next()) |fentry| {
             var symidx_and_submap = fentry.value_ptr;
             // write the z symbols
-            try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index - 1]);
-            try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index]);
+            try self.writeSym(bw, self.syms.items[symidx_and_submap.sym_index - 1]);
+            try self.writeSym(bw, self.syms.items[symidx_and_submap.sym_index]);
 
             // write all the decls come from the file of the z symbol
             var submap_it = symidx_and_submap.functions.iterator();
@@ -1265,7 +1269,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const nav_metadata = self.navs.get(nav_index).?;
                 const atom = self.getAtom(nav_metadata.index);
                 const sym = self.syms.items[atom.sym_index.?];
-                try self.writeSym(writer, sym);
+                try self.writeSym(bw, sym);
                 if (self.nav_exports.get(nav_index)) |export_indices| {
                     for (export_indices) |export_idx| {
                         const exp = export_idx.ptr(zcu);
@@ -1273,7 +1277,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                             const s = self.syms.items[exp_i];
                             if (mem.eql(u8, s.name, "_start"))
                                 self.entry_val = s.value;
-                            try self.writeSym(writer, s);
+                            try self.writeSym(bw, s);
                         }
                     }
                 }
@@ -1286,7 +1290,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const meta = kv.value_ptr;
                 const text_atom = if (meta.text_state != .unused) self.getAtomPtr(meta.text_atom) else continue;
                 const sym = self.syms.items[text_atom.sym_index.?];
-                try self.writeSym(writer, sym);
+                try self.writeSym(bw, sym);
             }
         }
     }
@@ -1295,7 +1299,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         if (idx) |atom_idx| {
             const atom = self.getAtom(atom_idx);
             const sym = self.syms.items[atom.sym_index.?];
-            try self.writeSym(writer, sym);
+            try self.writeSym(bw, sym);
         }
     }
 }
@@ -1314,7 +1318,7 @@ pub fn getNavVAddr(
 ) !u64 {
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
+    log.debug("getDeclVAddr for {f}", .{nav.name.fmt(ip)});
     if (nav.getExtern(ip) != null) {
         if (nav.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent.atom_index, .{

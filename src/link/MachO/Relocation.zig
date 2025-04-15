@@ -76,16 +76,10 @@ pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatt
     return .{ .data = .{ rel, cpu_arch } };
 }
 
-fn formatPretty(
-    ctx: FormatCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
+fn formatPretty(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
     const rel, const cpu_arch = ctx;
-    const str = switch (rel.type) {
+    try bw.writeAll(switch (rel.type) {
         .signed => "X86_64_RELOC_SIGNED",
         .signed1 => "X86_64_RELOC_SIGNED_1",
         .signed2 => "X86_64_RELOC_SIGNED_2",
@@ -118,8 +112,7 @@ fn formatPretty(
             .aarch64 => "ARM64_RELOC_UNSIGNED",
             else => unreachable,
         },
-    };
-    try writer.writeAll(str);
+    });
 }
 
 pub const Type = enum {

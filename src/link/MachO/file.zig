@@ -14,19 +14,13 @@ pub const File = union(enum) {
         return .{ .data = file };
     }
 
-    fn formatPath(
-        file: File,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn formatPath(file: File, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
         switch (file) {
-            .zig_object => |zo| try writer.writeAll(zo.basename),
-            .internal => try writer.writeAll("internal"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .dylib => |dl| try writer.print("{}", .{@as(Path, dl.path)}),
+            .zig_object => |zo| try bw.writeAll(zo.basename),
+            .internal => try bw.writeAll("internal"),
+            .object => |x| try bw.print("{f}", .{x.fmtPath()}),
+            .dylib => |dl| try bw.print("{f}", .{@as(Path, dl.path)}),
         }
     }
 
@@ -328,11 +322,11 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn writeAr(file: File, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
+    pub fn writeAr(file: File, bw: *std.io.BufferedWriter, ar_format: Archive.Format, macho_file: *MachO) anyerror!void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .zig_object => |x| x.writeAr(ar_format, writer),
-            .object => |x| x.writeAr(ar_format, macho_file, writer),
+            .zig_object => |x| x.writeAr(bw, ar_format),
+            .object => |x| x.writeAr(bw, ar_format, macho_file),
         };
     }
 

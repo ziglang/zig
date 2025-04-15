@@ -31,7 +31,7 @@
 
 /// The root node of the trie.
 root: ?Node.Index = null,
-buffer: std.ArrayListUnmanaged(u8) = .empty,
+buffer: []u8 = &.{},
 nodes: std.MultiArrayList(Node) = .{},
 edges: std.ArrayListUnmanaged(Edge) = .empty,
 
@@ -123,7 +123,7 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
 
     try self.finalize(gpa);
 
-    macho_file.dyld_info_cmd.export_size = mem.alignForward(u32, @intCast(self.buffer.items.len), @alignOf(u64));
+    macho_file.dyld_info_cmd.export_size = mem.alignForward(u32, @intCast(self.buffer.len), @alignOf(u64));
 }
 
 /// Finalizes this trie for writing to a byte stream.
@@ -164,9 +164,12 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
         }
     }
 
-    try self.buffer.ensureTotalCapacityPrecise(allocator, size);
+    assert(self.buffer.len == 0);
+    self.buffer = try allocator.alloc(u8, size);
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(self.buffer);
     for (ordered_nodes.items) |node_index| {
-        try self.writeNode(node_index, self.buffer.writer(allocator));
+        try self.writeNode(node_index, &bw);
     }
 }
 
@@ -181,17 +184,20 @@ const FinalizeNodeResult = struct {
 
 /// Updates offset of this node in the output byte stream.
 fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !FinalizeNodeResult {
-    var stream = std.io.countingWriter(std.io.null_writer);
-    const writer = stream.writer();
+    var buf: [1024]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = .null,
+        .buffer = &buf,
+    };
     const slice = self.nodes.slice();
 
     var node_size: u32 = 0;
     if (slice.items(.is_terminal)[node_index]) {
         const export_flags = slice.items(.export_flags)[node_index];
         const vmaddr_offset = slice.items(.vmaddr_offset)[node_index];
-        try leb.writeULEB128(writer, export_flags);
-        try leb.writeULEB128(writer, vmaddr_offset);
-        try leb.writeULEB128(writer, stream.bytes_written);
+        try bw.writeLeb128(export_flags);
+        try bw.writeLeb128(vmaddr_offset);
+        try bw.writeLeb128(bw.count);
     } else {
         node_size += 1; // 0x0 for non-terminal nodes
     }
@@ -201,13 +207,13 @@ fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !Final
         const edge = &self.edges.items[edge_index];
         const next_node_offset = slice.items(.trie_offset)[edge.node];
         node_size += @intCast(edge.label.len + 1);
-        try leb.writeULEB128(writer, next_node_offset);
+        try bw.writeLeb128(next_node_offset);
     }
 
     const trie_offset = slice.items(.trie_offset)[node_index];
     const updated = offset_in_trie != trie_offset;
     slice.items(.trie_offset)[node_index] = offset_in_trie;
-    node_size += @intCast(stream.bytes_written);
+    node_size += @intCast(bw.count);
 
     return .{ .node_size = node_size, .updated = updated };
 }
@@ -223,12 +229,11 @@ pub fn deinit(self: *Trie, allocator: Allocator) void {
     }
     self.nodes.deinit(allocator);
     self.edges.deinit(allocator);
-    self.buffer.deinit(allocator);
+    allocator.free(self.buffer);
 }
 
-pub fn write(self: Trie, writer: anytype) !void {
-    if (self.buffer.items.len == 0) return;
-    try writer.writeAll(self.buffer.items);
+pub fn write(self: Trie, bw: *std.io.BufferedWriter) anyerror!void {
+    try bw.writeAll(self.buffer);
 }
 
 /// Writes this node to a byte stream.
@@ -237,7 +242,7 @@ pub fn write(self: Trie, writer: anytype) !void {
 /// iterate over `Trie.ordered_nodes` and call this method on each node.
 /// This is one of the requirements of the MachO.
 /// Panics if `finalize` was not called before calling this method.
-fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
+fn writeNode(self: *Trie, node_index: Node.Index, bw: *std.io.BufferedWriter) !void {
     const slice = self.nodes.slice();
     const edges = slice.items(.edges)[node_index];
     const is_terminal = slice.items(.is_terminal)[node_index];
@@ -245,36 +250,28 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
     const vmaddr_offset = slice.items(.vmaddr_offset)[node_index];
 
     if (is_terminal) {
-        // Terminal node info: encode export flags and vmaddr offset of this symbol.
-        var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
-        var info_stream = std.io.fixedBufferStream(&info_buf);
+        const start = bw.count;
         // TODO Implement for special flags.
         assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
             export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-        try leb.writeULEB128(info_stream.writer(), export_flags);
-        try leb.writeULEB128(info_stream.writer(), vmaddr_offset);
-
+        // Terminal node info: encode export flags and vmaddr offset of this symbol.
+        try bw.writeLeb128(export_flags);
+        try bw.writeLeb128(vmaddr_offset);
         // Encode the size of the terminal node info.
-        var size_buf: [@sizeOf(u64)]u8 = undefined;
-        var size_stream = std.io.fixedBufferStream(&size_buf);
-        try leb.writeULEB128(size_stream.writer(), info_stream.pos);
-
-        // Now, write them to the output stream.
-        try writer.writeAll(size_buf[0..size_stream.pos]);
-        try writer.writeAll(info_buf[0..info_stream.pos]);
+        try bw.writeLeb128(bw.count - start);
     } else {
         // Non-terminal node is delimited by 0 byte.
-        try writer.writeByte(0);
+        try bw.writeByte(0);
     }
-    // Write number of edges (max legal number of edges is 256).
-    try writer.writeByte(@as(u8, @intCast(edges.items.len)));
+    // Write number of edges (max legal number of edges is 255).
+    try bw.writeByte(@intCast(edges.items.len));
 
     for (edges.items) |edge_index| {
         const edge = self.edges.items[edge_index];
         // Write edge label and offset to next node in trie.
-        try writer.writeAll(edge.label);
-        try writer.writeByte(0);
-        try leb.writeULEB128(writer, slice.items(.trie_offset)[edge.node]);
+        try bw.writeAll(edge.label);
+        try bw.writeByte(0);
+        try bw.writeLeb128(slice.items(.trie_offset)[edge.node]);
     }
 }
 

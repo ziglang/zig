@@ -27,9 +27,9 @@ fn print(arena: Allocator, output: *std.io.BufferedWriter, host: *const Target) 
     defer zig_lib_directory.handle.close();
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
-        arena,
         glibc.abilists_path,
-        glibc.abilists_max_size,
+        arena,
+        .limited(glibc.abilists_max_size),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
@@ -37,7 +37,7 @@ fn print(arena: Allocator, output: *std.io.BufferedWriter, host: *const Target) 
 
     const glibc_abi = try glibc.loadMetaData(arena, abilists_contents);
 
-    var sz = std.zon.stringify.serializer(output, .{});
+    var sz: std.zon.stringify.Serializer = .{ .writer = output };
 
     {
         var root_obj = try sz.beginStruct(.{});
@@ -60,7 +60,7 @@ fn print(arena: Allocator, output: *std.io.BufferedWriter, host: *const Target) 
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(arena, "{}", .{ver});
+                const tmp = try std.fmt.allocPrint(arena, "{f}", .{ver});
                 try glibc_obj.field(tmp, .{});
             }
             try glibc_obj.end();

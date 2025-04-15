@@ -108,7 +108,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
         const off = math.cast(usize, atom_ptr.value - list.value) orelse return error.Overflow;
         const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-        log.debug("  atom({}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
+        log.debug("  atom({f}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
 
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
@@ -144,7 +144,7 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *E
         const off = math.cast(usize, atom_ptr.value - list.value) orelse return error.Overflow;
         const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-        log.debug("  atom({}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
+        log.debug("  atom({f}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
 
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
@@ -167,16 +167,10 @@ pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
     return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
-pub fn format(
-    list: AtomList,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(list: AtomList, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = list;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format AtomList directly");
 }
 
@@ -186,25 +180,19 @@ pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(format2) {
     return .{ .data = .{ list, elf_file } };
 }
 
-fn format2(
-    ctx: FormatCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const list, const elf_file = ctx;
-    try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
+    try bw.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
         list.address(elf_file),                list.output_section_index,
         list.alignment.toByteUnits() orelse 0, list.size,
     });
-    try writer.writeAll(" : atoms{ ");
+    try bw.writeAll(" : atoms{ ");
     for (list.atoms.keys(), 0..) |ref, i| {
-        try writer.print("{}", .{ref});
-        if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
+        try bw.print("{f}", .{ref});
+        if (i < list.atoms.keys().len - 1) try bw.writeAll(", ");
     }
-    try writer.writeAll(" }");
+    try bw.writeAll(" }");
 }
 
 const assert = std.debug.assert;

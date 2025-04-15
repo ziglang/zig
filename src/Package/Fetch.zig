@@ -185,7 +185,7 @@ pub const JobQueue = struct {
             const hash_slice = hash.toSlice();
 
             try buf.print(
-                \\    pub const {} = struct {{
+                \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
 
@@ -211,13 +211,13 @@ pub const JobQueue = struct {
             }
 
             try buf.print(
-                \\        pub const build_root = "{q}";
+                \\        pub const build_root = "{fq}";
                 \\
             , .{fetch.package_root});
 
             if (fetch.has_build_zig) {
                 try buf.print(
-                    \\        pub const build_zig = @import("{}");
+                    \\        pub const build_zig = @import("{f}");
                     \\
                 , .{std.zig.fmtEscapes(hash_slice)});
             }
@@ -230,7 +230,7 @@ pub const JobQueue = struct {
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.print(
-                        "            .{{ \"{}\", \"{}\" }},\n",
+                        "            .{{ \"{f}\", \"{f}\" }},\n",
                         .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
                     );
                 }
@@ -262,7 +262,7 @@ pub const JobQueue = struct {
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.print(
-                "    .{{ \"{}\", \"{}\" }},\n",
+                "    .{{ \"{f}\", \"{f}\" }},\n",
                 .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
             );
         }
@@ -353,7 +353,7 @@ pub fn run(f: *Fetch) RunError!void {
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
-                        try eb.printString("dependency path outside project: '{}'", .{pkg_root}),
+                        try eb.printString("dependency path outside project: '{f}'", .{pkg_root}),
                     );
                 }
             }
@@ -604,7 +604,7 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
     const saturated_size = std.math.cast(u32, f.computed_hash.total_size) orelse std.math.maxInt(u32);
     if (f.manifest) |man| {
         var version_buffer: [32]u8 = undefined;
-        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
         return .init(f.computed_hash.digest, man.name, version, man.id, saturated_size);
     }
     // In the future build.zig.zon fields will be added to allow overriding these values
@@ -622,7 +622,7 @@ fn checkBuildFileExistence(f: *Fetch) RunError!void {
         error.FileNotFound => {},
         else => |e| {
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to access '{}{s}': {s}", .{
+                .msg = try eb.printString("unable to access '{f}{s}': {s}", .{
                     f.package_root, Package.build_zig_basename, @errorName(e),
                 }),
             });
@@ -636,9 +636,9 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
-        arena,
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
-        Manifest.max_bytes,
+        arena,
+        .limited(Manifest.max_bytes),
         null,
         .@"1",
         0,
@@ -647,7 +647,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         else => |e| {
             const file_path = try pkg_root.join(arena, Manifest.basename);
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to load package manifest '{}': {s}", .{
+                .msg = try eb.printString("unable to load package manifest '{f}': {s}", .{
                     file_path, @errorName(e),
                 }),
             });
@@ -659,7 +659,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     ast.* = try std.zig.Ast.parse(arena, manifest_bytes, .zon);
 
     if (ast.errors.len > 0) {
-        const file_path = try std.fmt.allocPrint(arena, "{}" ++ fs.path.sep_str ++ Manifest.basename, .{pkg_root});
+        const file_path = try std.fmt.allocPrint(arena, "{f}" ++ fs.path.sep_str ++ Manifest.basename, .{pkg_root});
         try std.zig.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
         return error.FetchFailed;
     }
@@ -672,7 +672,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const manifest = &f.manifest.?;
 
     if (manifest.errors.len > 0) {
-        const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
+        const src_path = try eb.printString("{f}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
         try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }
@@ -827,7 +827,7 @@ fn srcLoc(
     const ast = f.parent_manifest_ast orelse return .none;
     const eb = &f.error_bundle;
     const start_loc = ast.tokenLocation(0, tok);
-    const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
+    const src_path = try eb.printString("{f}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
     const msg_off = 0;
     return eb.addSourceLocation(.{
         .src_path = src_path,
@@ -1512,7 +1512,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
         while (walker.next() catch |err| {
             try eb.addRootErrorMessage(.{ .msg = try eb.printString(
-                "unable to walk temporary directory '{}': {s}",
+                "unable to walk temporary directory '{f}': {s}",
                 .{ pkg_path, @errorName(err) },
             ) });
             return error.FetchFailed;

@@ -281,7 +281,7 @@ fn initAtoms(
             elf.SHT_GROUP => {
                 if (shdr.sh_info >= self.symtab.items.len) {
                     // TODO convert into an error
-                    log.debug("{}: invalid symbol index in sh_info", .{self.fmtPath()});
+                    log.debug("{f}: invalid symbol index in sh_info", .{self.fmtPath()});
                     continue;
                 }
                 const group_info_sym = self.symtab.items[shdr.sh_info];
@@ -448,7 +448,8 @@ fn parseEhFrame(
     const fdes_start = self.fdes.items.len;
     const cies_start = self.cies.items.len;
 
-    var it = eh_frame.Iterator{ .data = raw };
+    var it: eh_frame.Iterator = undefined;
+    it.br.initFixed(raw);
     while (try it.next()) |rec| {
         const rel_range = filterRelocs(self.relocs.items[rel_start..][0..relocs.len], rec.offset, rec.size + 4);
         switch (rec.tag) {
@@ -488,7 +489,7 @@ fn parseEhFrame(
             if (cie.offset == cie_ptr) break @as(u32, @intCast(cie_index));
         } else {
             // TODO convert into an error
-            log.debug("{s}: no matching CIE found for FDE at offset {x}", .{
+            log.debug("{f}: no matching CIE found for FDE at offset {x}", .{
                 self.fmtPath(),
                 fde.offset,
             });
@@ -582,7 +583,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
-                    log.debug("{s}: {s}: CIE referencing external data reference", .{
+                    log.debug("{fs}: {s}: CIE referencing external data reference", .{
                         self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
@@ -796,7 +797,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 if (!isNull(data[end .. end + sh_entsize])) {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
-                    err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
                 }
                 end += sh_entsize;
@@ -811,7 +812,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             if (shdr.sh_size % sh_entsize != 0) {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             }
 
@@ -889,7 +890,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             err.addNote("for symbol {s}", .{sym.name(elf_file)});
-            err.addNote("in {}", .{self.fmtPath()});
+            err.addNote("in {f}", .{self.fmtPath()});
             return error.LinkFailure;
         };
 
@@ -914,7 +915,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             };
 
@@ -952,7 +953,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const is_tls = sym.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.writer(gpa).print("{s}\x00", .{name});
+        try self.strtab.print(gpa, "{s}\x00", .{name});
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -1191,28 +1192,26 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
     const atom_ptr = self.atom(atom_index).?;
     const shdr = atom_ptr.inputShdr(elf_file);
     const handle = elf_file.fileHandle(self.file_handle);
-    const data = try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index);
-    defer if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) gpa.free(data);
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index));
+    defer if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) gpa.free(br.storageBuffer());
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
+        const chdr = (try br.takeStruct(elf.Elf64_Chdr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
-                var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = std.compress.zlib.decompressor(stream.reader());
-                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
-                const decomp = try gpa.alloc(u8, size);
-                const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
-                if (nread != decomp.len) {
-                    return error.InputOutput;
-                }
-                return decomp;
+                var bw: std.io.BufferedWriter = undefined;
+                bw.initFixed(try gpa.alloc(u8, std.math.cast(usize, chdr.ch_size) orelse return error.Overflow));
+                errdefer gpa.free(bw.buffer);
+                try std.compress.zlib.decompress(&br, &bw);
+                if (bw.end != bw.buffer.len) return error.InputOutput;
+                return bw.buffer;
             },
             else => @panic("TODO unhandled compression scheme"),
         }
     }
 
-    return data;
+    return br.storageBuffer();
 }
 
 fn locals(self: *Object) []Symbol {
@@ -1432,16 +1431,10 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = self;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format objects directly");
 }
 
@@ -1457,28 +1450,22 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
+    try bw.writeAll("  locals\n");
     for (object.locals()) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
+        try bw.print("    {f}\n", .{sym.fmt(elf_file)});
     }
-    try writer.writeAll("  globals\n");
+    try bw.writeAll("  globals\n");
     for (object.globals(), 0..) |sym, i| {
         const first_global = object.first_global.?;
         const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
         if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+            try bw.print("    {f}\n", .{ref_sym.fmt(elf_file)});
         } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            try bw.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
         }
     }
 }
@@ -1490,19 +1477,13 @@ pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
-    try writer.writeAll("  atoms\n");
+    try bw.writeAll("  atoms\n");
     for (object.atoms_indexes.items) |atom_index| {
         const atom_ptr = object.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
+        try bw.print("    {f}\n", .{atom_ptr.fmt(ctx.elf_file)});
     }
 }
 
@@ -1513,18 +1494,12 @@ pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
-    try writer.writeAll("  cies\n");
+    try bw.writeAll("  cies\n");
     for (object.cies.items, 0..) |cie, i| {
-        try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(ctx.elf_file) });
+        try bw.print("    cie({d}) : {f}\n", .{ i, cie.fmt(ctx.elf_file) });
     }
 }
 
@@ -1535,18 +1510,12 @@ pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
-    try writer.writeAll("  fdes\n");
+    try bw.writeAll("  fdes\n");
     for (object.fdes.items, 0..) |fde, i| {
-        try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(ctx.elf_file) });
+        try bw.print("    fde({d}) : {f}\n", .{ i, fde.fmt(ctx.elf_file) });
     }
 }
 
@@ -1557,26 +1526,20 @@ pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatGroups) 
     } };
 }
 
-fn formatGroups(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatGroups(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
-    try writer.writeAll("  groups\n");
+    try bw.writeAll("  groups\n");
     for (object.groups.items, 0..) |g, g_index| {
-        try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
-        if (!g.alive) try writer.writeAll(" : [*]");
-        try writer.writeByte('\n');
+        try bw.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
+        if (!g.alive) try bw.writeAll(" : [*]");
+        try bw.writeByte('\n');
         const g_members = g.members(elf_file);
         for (g_members) |shndx| {
             const atom_index = object.atoms_indexes.items[shndx];
             const atom_ptr = object.atom(atom_index) orelse continue;
-            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
+            try bw.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
         }
     }
 }
@@ -1585,18 +1548,12 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     if (object.archive) |ar| {
-        try writer.print("{}({})", .{ ar.path, object.path });
+        try bw.print("{f}({f})", .{ ar.path, object.path });
     } else {
-        try writer.print("{}", .{object.path});
+        try bw.print("{f}", .{object.path});
     }
 }
 

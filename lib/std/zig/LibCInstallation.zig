@@ -43,7 +43,7 @@ pub fn parse(
         }
     }
 
-    const contents = try std.fs.cwd().readFileAlloc(allocator, libc_file, std.math.maxInt(usize));
+    const contents = try std.fs.cwd().readFileAlloc(libc_file, allocator, .unlimited);
     defer allocator.free(contents);
 
     var it = std.mem.tokenizeScalar(u8, contents, '\n');

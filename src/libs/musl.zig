@@ -115,7 +115,8 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(comp.gpa);
             defer c_source_files.deinit();
 
-            var override_path = std.ArrayList(u8).init(comp.gpa);
+            var override_path: std.io.AllocatingWriter = undefined;
+            override_path.init(comp.gpa);
             defer override_path.deinit();
 
             const s = path.sep_str;
@@ -139,26 +140,23 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 }
                 if (!is_arch_specific) {
                     // Look for an arch specific override.
-                    override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
+                    override_path.clearRetainingCapacity();
+                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
                         dirname, arch_name, noextbasename,
                     });
-                    if (source_table.contains(override_path.items))
-                        continue;
+                    if (source_table.contains(override_path.getWritten())) continue;
 
-                    override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
+                    override_path.clearRetainingCapacity();
+                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
                         dirname, arch_name, noextbasename,
                     });
-                    if (source_table.contains(override_path.items))
-                        continue;
+                    if (source_table.contains(override_path.getWritten())) continue;
 
-                    override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
+                    override_path.clearRetainingCapacity();
+                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
                         dirname, arch_name, noextbasename,
                     });
-                    if (source_table.contains(override_path.items))
-                        continue;
+                    if (source_table.contains(override_path.getWritten())) continue;
                 }
 
                 var args = std.ArrayList([]const u8).init(arena);

@@ -1888,17 +1888,12 @@ pub const NullTerminatedString = enum(u32) {
         string: NullTerminatedString,
         ip: *const InternPool,
     };
-    fn format(
-        data: FormatData,
-        comptime specifier: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime specifier: []const u8) anyerror!void {
         const slice = data.string.toSlice(data.ip);
         if (comptime std.mem.eql(u8, specifier, "")) {
-            try writer.writeAll(slice);
+            try bw.writeAll(slice);
         } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try writer.print("{p}", .{std.zig.fmtId(slice)});
+            try bw.print("{fp}", .{std.zig.fmtId(slice)});
         } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
     }
 
@@ -9758,7 +9753,7 @@ fn finishFuncInstance(
     const fn_namespace = fn_owner_nav.analysis.?.namespace;
 
     // TODO: improve this name
-    const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
+    const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{f}__anon_{d}", .{
         fn_owner_nav.name.fmt(ip), @intFromEnum(func_index),
     }, .no_embedded_nulls);
     const nav_index = try ip.createNav(gpa, tid, .{
@@ -11415,12 +11410,12 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var it = instances.iterator();
     while (it.next()) |entry| {
         const generic_fn_owner_nav = ip.getNav(ip.funcDeclInfo(entry.key_ptr.*).owner_nav);
-        try bw.print("{} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
+        try bw.print("{f} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
         for (entry.value_ptr.items) |index| {
             const unwrapped_index = index.unwrap(ip);
             const func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), unwrapped_index.getData(ip));
             const owner_nav = ip.getNav(func.owner_nav);
-            try bw.print("  {}: (", .{owner_nav.name.fmt(ip)});
+            try bw.print("  {f}: (", .{owner_nav.name.fmt(ip)});
             for (func.comptime_args.get(ip)) |arg| {
                 if (arg != .none) {
                     const key = ip.indexToKey(arg);

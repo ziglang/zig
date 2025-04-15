@@ -148,19 +148,13 @@ pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatte
     } };
 }
 
-fn formatRelocType(
-    ctx: FormatRelocTypeCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatRelocType(ctx: FormatRelocTypeCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const r_type = ctx.r_type;
     switch (ctx.cpu_arch) {
-        .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
-        .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
-        .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+        .x86_64 => try bw.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
+        .aarch64 => try bw.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
+        .riscv64 => try bw.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
         else => unreachable,
     }
 }

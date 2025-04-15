@@ -778,7 +778,7 @@ fn lowerStrLitError(
         zg,
         token,
         @intCast(offset + err.offset()),
-        "{}",
+        "{f}",
         .{err.fmt(raw_string)},
     );
 }
@@ -885,8 +885,9 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     assert(tree.errors.len > 0);
 
     var msg: std.io.AllocatingWriter = undefined;
-    const msg_bw = msg.init(gpa);
+    msg.init(gpa);
     defer msg.deinit();
+    const msg_bw = &msg.buffered_writer;
 
     var notes: std.ArrayListUnmanaged(Zoir.CompileError.Note) = .empty;
     defer notes.deinit(gpa);
