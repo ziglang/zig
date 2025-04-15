@@ -18,15 +18,10 @@ pub const IdResult = enum(Word) {
     none,
     _,
 
-    pub fn format(
-        self: IdResult,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(self: IdResult, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
         switch (self) {
-            .none => try writer.writeAll("(none)"),
-            else => try writer.print("%{}", .{@intFromEnum(self)}),
+            .none => try bw.writeAll("(none)"),
+            else => try bw.print("%{}", .{@intFromEnum(self)}),
         }
     }
 };

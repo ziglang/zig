@@ -15,20 +15,29 @@ pub const Error = Lower.Error || error{
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
+    return @errorCast(emit.emitMirInner());
+}
+
+fn emitMirInner(emit: *Emit) anyerror!void {
     const gpa = emit.lower.bin_file.comp.gpa;
+    var aw: std.io.AllocatingWriter = undefined;
+    const bw = aw.fromArrayList(gpa, emit.code);
+    defer emit.code.* = aw.toArrayList();
+
     const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
     defer emit.lower.allocator.free(code_offset_mapping);
     var relocs: std.ArrayListUnmanaged(Reloc) = .empty;
     defer relocs.deinit(emit.lower.allocator);
     var table_relocs: std.ArrayListUnmanaged(TableReloc) = .empty;
     defer table_relocs.deinit(emit.lower.allocator);
+
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
-        code_offset_mapping[mir_index] = @intCast(emit.code.items.len);
+        code_offset_mapping[mir_index] = @intCast(bw.count);
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset: u32 = @intCast(emit.code.items.len);
+            const start_offset: u32 = @intCast(bw.count);
             if (lowered_inst.prefix == .directive) {
                 switch (emit.debug_output) {
                     .dwarf => |dwarf| switch (lowered_inst.encoding.mnemonic) {
@@ -82,8 +91,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }
                 continue;
             }
-            try lowered_inst.encode(emit.code.writer(gpa), .{});
-            const end_offset: u32 = @intCast(emit.code.items.len);
+            try lowered_inst.encode(bw, .{});
+            const end_offset: u32 = @intCast(bw.count);
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
@@ -296,19 +305,19 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .line = mir_inst.data.line_column.line,
                         .column = mir_inst.data.line_column.column,
                         .is_stmt = true,
-                    }),
+                    }, bw.count),
                     .pseudo_dbg_line_line_column => try emit.dbgAdvancePCAndLine(.{
                         .line = mir_inst.data.line_column.line,
                         .column = mir_inst.data.line_column.column,
                         .is_stmt = false,
-                    }),
+                    }, bw.count),
                     .pseudo_dbg_epilogue_begin_none => switch (emit.debug_output) {
                         .dwarf => |dwarf| {
                             try dwarf.setEpilogueBegin();
                             log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try emit.dbgAdvancePCAndLine(emit.prev_di_loc);
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_loc, bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -318,7 +327,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterBlock (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterBlock(emit.code.items.len);
+                            try dwarf.enterBlock(bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -328,7 +337,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveBlock (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveBlock(emit.code.items.len);
+                            try dwarf.leaveBlock(bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -338,7 +347,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
+                            try dwarf.enterInlineFunc(mir_inst.data.func, bw.count, emit.prev_di_loc.line, emit.prev_di_loc.column);
                         },
                         .plan9 => {},
                         .none => {},
@@ -348,7 +357,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
+                            try dwarf.leaveInlineFunc(mir_inst.data.func, bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -490,7 +499,7 @@ pub fn emitMir(emit: *Emit) Error!void {
     for (relocs.items) |reloc| {
         const target = code_offset_mapping[reloc.target];
         const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.inst_offset + reloc.inst_length)) + reloc.target_offset;
-        const inst_bytes = emit.code.items[reloc.inst_offset..][0..reloc.inst_length];
+        const inst_bytes = aw.getWritten()[reloc.inst_offset..][0..reloc.inst_length];
         switch (reloc.source_length) {
             else => unreachable,
             inline 1, 4 => |source_length| std.mem.writeInt(
@@ -507,7 +516,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
 
             const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
-            var table_offset = std.mem.alignForward(u32, @intCast(emit.code.items.len), ptr_size);
+            var table_offset = std.mem.alignForward(u32, @intCast(bw.count), ptr_size);
             for (table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
                 .r_offset = table_reloc.source_offset,
                 .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32"),
@@ -521,7 +530,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }, zo);
                 table_offset += ptr_size;
             }
-            try emit.code.appendNTimes(gpa, 0, table_offset - emit.code.items.len);
+            try bw.splatByteAll(0, table_offset - emit.code.items.len);
         } else unreachable;
     }
 }
@@ -561,9 +570,9 @@ const Loc = struct {
     is_stmt: bool,
 };
 
-fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
+fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc, pc: usize) anyerror!void {
     const delta_line = @as(i33, loc.line) - @as(i33, emit.prev_di_loc.line);
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    const delta_pc = pc - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dwarf| {
@@ -571,30 +580,25 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
             if (loc.column != emit.prev_di_loc.column) try dwarf.setColumn(loc.column);
             try dwarf.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_loc = loc;
-            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_pc = pc;
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
 
+            var aw: std.io.AllocatingWriter = undefined;
+            const bw = aw.fromArrayList(emit.lower.bin_file.comp.gpa, &dbg_out.dbg_line);
+            defer dbg_out.dbg_line = aw.toArrayList();
+
             // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, @intCast(delta_line));
+            try link.File.Plan9.changeLine(bw, @intCast(delta_line));
             // increasing the pc
             const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
                 // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
-                var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
-                while (diff > 0) {
-                    if (diff < 64) {
-                        try dbg_out.dbg_line.append(@intCast(diff + 128));
-                        diff = 0;
-                    } else {
-                        try dbg_out.dbg_line.append(@intCast(64 + 128));
-                        diff -= 64;
-                    }
-                }
-                if (dbg_out.pcop_change_index) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @intCast(dbg_out.dbg_line.items.len - 1);
+                try bw.writeByte(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
+                const dbg_line = aw.getWritten();
+                if (dbg_out.pcop_change_index) |pci| dbg_line[pci] += 1;
+                dbg_out.pcop_change_index = @intCast(dbg_line.len - 1);
             } else if (d_pc_p9 == 0) {
                 // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
@@ -603,7 +607,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
             dbg_out.end_line = loc.line;
             // only do this if the pc changed
             emit.prev_di_loc = loc;
-            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_pc = pc;
         },
         .none => {},
     }

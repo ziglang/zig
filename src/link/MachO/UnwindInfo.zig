@@ -133,7 +133,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {f}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
@@ -202,7 +202,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             if (i >= max_common_encodings) break;
             if (slice[i].count < 2) continue;
             info.appendCommonEncoding(slice[i].enc);
-            log.debug("adding common encoding: {d} => {}", .{ i, slice[i].enc });
+            log.debug("adding common encoding: {d} => {f}", .{ i, slice[i].enc });
         }
     }
 
@@ -255,7 +255,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
                 page.kind = .compressed;
             }
 
-            log.debug("{}", .{page.fmt(info.*)});
+            log.debug("{f}", .{page.fmt(info.*)});
 
             try info.pages.append(gpa, page);
         }
@@ -289,12 +289,9 @@ pub fn calcSize(info: UnwindInfo) usize {
     return total_size;
 }
 
-pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
+pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *std.io.BufferedWriter) anyerror!void {
     const seg = macho_file.getTextSegment();
     const header = macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
-
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
 
     const common_encodings_offset: u32 = @sizeOf(macho.unwind_info_section_header);
     const common_encodings_count: u32 = info.common_encodings_count;
@@ -303,7 +300,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     const indexes_offset: u32 = personalities_offset + personalities_count * @sizeOf(u32);
     const indexes_count: u32 = @as(u32, @intCast(info.pages.items.len + 1));
 
-    try writer.writeStruct(macho.unwind_info_section_header{
+    try bw.writeStruct(macho.unwind_info_section_header{
         .commonEncodingsArraySectionOffset = common_encodings_offset,
         .commonEncodingsArrayCount = common_encodings_count,
         .personalityArraySectionOffset = personalities_offset,
@@ -312,11 +309,11 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
         .indexCount = indexes_count,
     });
 
-    try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
+    try bw.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
 
     for (info.personalities[0..info.personalities_count]) |ref| {
         const sym = ref.getSymbol(macho_file).?;
-        try writer.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
+        try bw.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
     }
 
     const pages_base_offset = @as(u32, @intCast(header.size - (info.pages.items.len * second_level_page_bytes)));
@@ -325,7 +322,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     for (info.pages.items, 0..) |page, i| {
         assert(page.count > 0);
         const rec = info.records.items[page.start].getUnwindRecord(macho_file);
-        try writer.writeStruct(macho.unwind_info_section_header_index_entry{
+        try bw.writeStruct(macho.unwind_info_section_header_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .secondLevelPagesSectionOffset = @as(u32, @intCast(pages_base_offset + i * second_level_page_bytes)),
             .lsdaIndexArraySectionOffset = lsda_base_offset +
@@ -335,7 +332,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
 
     const last_rec = info.records.items[info.records.items.len - 1].getUnwindRecord(macho_file);
     const sentinel_address = @as(u32, @intCast(last_rec.getAtomAddress(macho_file) + last_rec.length - seg.vmaddr));
-    try writer.writeStruct(macho.unwind_info_section_header_index_entry{
+    try bw.writeStruct(macho.unwind_info_section_header_index_entry{
         .functionOffset = sentinel_address,
         .secondLevelPagesSectionOffset = 0,
         .lsdaIndexArraySectionOffset = lsda_base_offset +
@@ -344,23 +341,20 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
 
     for (info.lsdas.items) |index| {
         const rec = info.records.items[index].getUnwindRecord(macho_file);
-        try writer.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
+        try bw.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .lsdaOffset = @as(u32, @intCast(rec.getLsdaAddress(macho_file) - seg.vmaddr)),
         });
     }
 
     for (info.pages.items) |page| {
-        const start = stream.pos;
-        try page.write(info, macho_file, writer);
-        const nwritten = stream.pos - start;
-        if (nwritten < second_level_page_bytes) {
-            const padding = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
-            try writer.writeByteNTimes(0, padding);
-        }
+        const start = bw.count;
+        try page.write(info, macho_file, bw);
+        const nwritten = bw.count - start;
+        try bw.splatByteAll(0, math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow);
     }
 
-    @memset(buffer[stream.pos..], 0);
+    @memset(bw.unusedCapacitySlice(), 0);
 }
 
 fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: MachO.Ref) error{TooManyPersonalities}!u2 {
@@ -455,15 +449,9 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(
-        enc: Encoding,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(enc: Encoding, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
-        try writer.print("0x{x:0>8}", .{enc.enc});
+        try bw.print("0x{x:0>8}", .{enc.enc});
     }
 };
 
@@ -517,16 +505,10 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn format(
-        rec: Record,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(rec: Record, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = rec;
+        _ = bw;
         _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
         @compileError("do not format UnwindInfo.Records directly");
     }
 
@@ -542,22 +524,16 @@ pub const Record = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
         const rec = ctx.rec;
         const macho_file = ctx.macho_file;
-        try writer.print("{x} : len({x})", .{
+        try bw.print("{x} : len({x})", .{
             rec.enc.enc, rec.length,
         });
-        if (rec.enc.isDwarf(macho_file)) try writer.print(" : fde({d})", .{rec.fde});
-        try writer.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
-        if (!rec.alive) try writer.writeAll(" : [*]");
+        if (rec.enc.isDwarf(macho_file)) try bw.print(" : fde({d})", .{rec.fde});
+        try bw.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
+        if (!rec.alive) try bw.writeAll(" : [*]");
     }
 
     pub const Index = u32;
@@ -613,16 +589,10 @@ const Page = struct {
         return null;
     }
 
-    fn format(
-        page: *const Page,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn format(page: *const Page, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
         _ = page;
+        _ = bw;
         _ = unused_format_string;
-        _ = options;
-        _ = writer;
         @compileError("do not format Page directly; use page.fmt()");
     }
 
@@ -631,23 +601,17 @@ const Page = struct {
         info: UnwindInfo,
     };
 
-    fn format2(
-        ctx: FormatPageContext,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
+    fn format2(ctx: FormatPageContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
         _ = unused_format_string;
-        try writer.writeAll("Page:\n");
-        try writer.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});
-        try writer.print("  entries: {d} - {d}\n", .{
+        try bw.writeAll("Page:\n");
+        try bw.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});
+        try bw.print("  entries: {d} - {d}\n", .{
             ctx.page.start,
             ctx.page.start + ctx.page.count,
         });
-        try writer.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
+        try bw.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
         for (ctx.page.page_encodings[0..ctx.page.page_encodings_count], 0..) |enc, i| {
-            try writer.print("    {d}: {}\n", .{ ctx.info.common_encodings_count + i, enc });
+            try bw.print("    {d}: {f}\n", .{ ctx.info.common_encodings_count + i, enc });
         }
     }
 

@@ -77,7 +77,7 @@ const Render = struct {
 
 pub fn renderTree(gpa: Allocator, bw: *std.io.BufferedWriter, tree: Ast, fixups: Fixups) anyerror!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
-    var auto_indenting_stream: AutoIndentingStream = .init(bw, indent_delta);
+    var auto_indenting_stream: AutoIndentingStream = .init(gpa, bw, indent_delta);
     defer auto_indenting_stream.deinit();
     var r: Render = .{
         .gpa = gpa,
@@ -2135,13 +2135,13 @@ fn renderArrayInit(
         const section_exprs = row_exprs[0..section_end];
 
         var sub_expr_buffer: std.io.AllocatingWriter = undefined;
-        const sub_expr_buffer_writer = sub_expr_buffer.init(gpa);
+        sub_expr_buffer.init(gpa);
         defer sub_expr_buffer.deinit();
 
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
         defer gpa.free(sub_expr_buffer_starts);
 
-        var auto_indenting_stream: AutoIndentingStream = .init(sub_expr_buffer_writer, indent_delta);
+        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.buffered_writer, indent_delta);
         defer auto_indenting_stream.deinit();
         var sub_render: Render = .{
             .gpa = r.gpa,
@@ -2160,8 +2160,9 @@ fn renderArrayInit(
 
             if (i + 1 < section_exprs.len) {
                 try renderExpression(&sub_render, expr, .none);
-                const width = sub_expr_buffer.getWritten().len - start;
-                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.getWritten()[start..], '\n') != null;
+                const written = sub_expr_buffer.getWritten();
+                const width = written.len - start;
+                const this_contains_newline = mem.indexOfScalar(u8, written[start..], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = this_contains_newline;
@@ -2183,8 +2184,9 @@ fn renderArrayInit(
                 try renderExpression(&sub_render, expr, .comma);
                 ais.popSpace();
 
-                const width = sub_expr_buffer.items.len - start - 2;
-                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.getWritten()[start .. sub_expr_buffer.items.len - 1], '\n') != null;
+                const written = sub_expr_buffer.getWritten();
+                const width = written.len - start - 2;
+                const this_contains_newline = mem.indexOfScalar(u8, written[start .. written.len - 1], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = contains_newline;
@@ -2682,7 +2684,7 @@ fn renderTokenOverrideSpaceMode(r: *Render, token_index: Ast.TokenIndex, space: 
     const tree = r.tree;
     const ais = r.ais;
     const lexeme = tokenSliceForRender(tree, token_index);
-    try ais.writer().writeAll(lexeme);
+    try ais.writeAll(lexeme);
     ais.enableSpaceMode(override_space);
     defer ais.disableSpaceMode();
     try renderSpace(r, token_index, lexeme.len, space);
@@ -3259,6 +3261,14 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
 const AutoIndentingStream = struct {
     underlying_writer: *std.io.BufferedWriter,
 
+    /// Offset into the source at which formatting has been disabled with
+    /// a `zig fmt: off` comment.
+    ///
+    /// If non-null, the AutoIndentingStream will not write any bytes
+    /// to the underlying writer. It will however continue to track the
+    /// indentation level.
+    disabled_offset: ?usize = null,
+
     indent_count: usize = 0,
     indent_delta: usize,
     indent_stack: std.ArrayList(StackElem),
@@ -3284,12 +3294,12 @@ const AutoIndentingStream = struct {
         indent_count: usize,
     };
 
-    pub fn init(buffer: *std.ArrayList(u8), indent_delta_: usize) AutoIndentingStream {
+    pub fn init(gpa: Allocator, bw: *std.io.BufferedWriter, indent_delta_: usize) AutoIndentingStream {
         return .{
-            .underlying_writer = buffer.writer(),
+            .underlying_writer = bw,
             .indent_delta = indent_delta_,
-            .indent_stack = std.ArrayList(StackElem).init(buffer.allocator),
-            .space_stack = std.ArrayList(SpaceElem).init(buffer.allocator),
+            .indent_stack = .init(gpa),
+            .space_stack = .init(gpa),
         };
     }
 
@@ -3477,7 +3487,7 @@ const AutoIndentingStream = struct {
         const current_indent = ais.currentIndent();
         if (ais.current_line_empty and current_indent > 0) {
             if (ais.disabled_offset == null) {
-                try ais.underlying_writer.writeByteNTimes(' ', current_indent);
+                try ais.underlying_writer.splatByteAll(' ', current_indent);
             }
             ais.applied_indent = current_indent;
         }

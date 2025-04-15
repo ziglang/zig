@@ -70,8 +70,8 @@ const PrintZon = struct {
             },
             .float_literal => |x| try pz.w.print("float({d})", .{x}),
             .char_literal => |x| try pz.w.print("char({d})", .{x}),
-            .enum_literal => |x| try pz.w.print("enum_literal({p})", .{std.zig.fmtId(x.get(zoir))}),
-            .string_literal => |x| try pz.w.print("str(\"{}\")", .{std.zig.fmtEscapes(x)}),
+            .enum_literal => |x| try pz.w.print("enum_literal({fp})", .{std.zig.fmtId(x.get(zoir))}),
+            .string_literal => |x| try pz.w.print("str(\"{f}\")", .{std.zig.fmtEscapes(x)}),
             .empty_literal => try pz.w.writeAll("empty_literal(.{})"),
             .array_literal => |vals| {
                 try pz.w.writeAll("array_literal({");
@@ -90,7 +90,7 @@ const PrintZon = struct {
                 pz.indent += 1;
                 for (s.names, 0..s.vals.len) |name, idx| {
                     try pz.newline();
-                    try pz.w.print("[{p}] ", .{std.zig.fmtId(name.get(zoir))});
+                    try pz.w.print("[{fp}] ", .{std.zig.fmtId(name.get(zoir))});
                     try pz.renderNode(s.vals.at(@intCast(idx)));
                     try pz.w.writeByte(',');
                 }

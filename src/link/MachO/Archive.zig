@@ -29,7 +29,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            return diags.failParse(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+            return diags.failParse(path, "invalid header delimiter: expected '{f}', found '{f}'", .{
                 std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
         }
@@ -71,53 +71,29 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
+        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
 }
 
 pub fn writeHeader(
+    bw: *std.io.BufferedWriter,
     object_name: []const u8,
     object_size: usize,
     format: Format,
-    writer: anytype,
-) !void {
-    var hdr: ar_hdr = .{
-        .ar_name = undefined,
-        .ar_date = undefined,
-        .ar_uid = undefined,
-        .ar_gid = undefined,
-        .ar_mode = undefined,
-        .ar_size = undefined,
-        .ar_fmag = undefined,
-    };
-    @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
-        var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
-        stream.writer().print("0", .{}) catch unreachable;
-    }
+) anyerror!void {
+    var hdr: ar_hdr = undefined;
+    @memset(mem.asBytes(&hdr), ' ');
+    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| @field(hdr, field.name)[0] = '0';
     @memcpy(&hdr.ar_fmag, ARFMAG);
-
     const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
+    _ = std.fmt.bufPrint(&hdr.ar_name, "#1/{d}", .{object_name_len}) catch unreachable;
     const total_object_size = object_size + object_name_len;
-
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        stream.writer().print("#1/{d}", .{object_name_len}) catch unreachable;
-    }
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{total_object_size}) catch unreachable;
-    }
-
-    try writer.writeAll(mem.asBytes(&hdr));
-    try writer.print("{s}\x00", .{object_name});
-
-    const padding = object_name_len - object_name.len - 1;
-    if (padding > 0) {
-        try writer.writeByteNTimes(0, padding);
-    }
+    _ = std.fmt.bufPrint(&hdr.ar_size, "{d}", .{total_object_size}) catch unreachable;
+    try bw.writeStruct(hdr);
+    try bw.writeAll(object_name);
+    try bw.splatByteAll(0, object_name_len - object_name.len);
 }
 
 // Archive files start with the ARMAG identifying string.  Then follows a
@@ -201,12 +177,12 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
+    pub fn write(ar: ArSymtab, bw: *std.io.BufferedWriter, format: Format, macho_file: *MachO) anyerror!void {
         const ptr_width = ptrWidth(format);
         // Header
-        try writeHeader(SYMDEF, ar.size(format), format, writer);
+        try writeHeader(bw, SYMDEF, ar.size(format), format);
         // Symtab size
-        try writeInt(format, ar.entries.items.len * 2 * ptr_width, writer);
+        try writeInt(bw, format, ar.entries.items.len * 2 * ptr_width);
         // Symtab entries
         for (ar.entries.items) |entry| {
             const file_off = switch (macho_file.getFile(entry.file).?) {
@@ -215,19 +191,16 @@ pub const ArSymtab = struct {
                 else => unreachable,
             };
             // Name offset
-            try writeInt(format, entry.off, writer);
+            try writeInt(bw, format, entry.off);
             // File offset
-            try writeInt(format, file_off, writer);
+            try writeInt(bw, format, file_off);
         }
         // Strtab size
         const strtab_size = mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
-        const padding = strtab_size - ar.strtab.buffer.items.len;
-        try writeInt(format, strtab_size, writer);
+        try writeInt(bw, format, strtab_size);
         // Strtab
-        try writer.writeAll(ar.strtab.buffer.items);
-        if (padding > 0) {
-            try writer.writeByteNTimes(0, padding);
-        }
+        try bw.writeAll(ar.strtab.buffer.items);
+        try bw.splatByteAll(0, strtab_size - ar.strtab.buffer.items.len);
     }
 
     const FormatContext = struct {
@@ -239,20 +212,14 @@ pub const ArSymtab = struct {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
     }
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
         const ar = ctx.ar;
         const macho_file = ctx.macho_file;
         for (ar.entries.items, 0..) |entry, i| {
             const name = ar.strtab.getAssumeExists(entry.off);
             const file = macho_file.getFile(entry.file).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file, file.fmtPath() });
+            try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file, file.fmtPath() });
         }
     }
 
@@ -282,10 +249,10 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
+pub fn writeInt(bw: *std.io.BufferedWriter, format: Format, value: u64) anyerror!void {
     switch (format) {
-        .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
-        .p64 => try writer.writeInt(u64, value, .little),
+        .p32 => try bw.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
+        .p64 => try bw.writeInt(u64, value, .little),
     }
 }
 

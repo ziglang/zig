@@ -531,11 +531,7 @@ pub fn Formatter(comptime formatFn: anytype) type {
     const Data = @typeInfo(@TypeOf(formatFn)).@"fn".params[0].type.?;
     return struct {
         data: Data,
-        pub fn format(
-            self: @This(),
-            writer: *std.io.BufferedWriter,
-            comptime fmt: []const u8,
-        ) anyerror!void {
+        pub fn format(self: @This(), writer: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
             try formatFn(self.data, writer, fmt);
         }
     };

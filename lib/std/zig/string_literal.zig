@@ -44,50 +44,44 @@ pub const Error = union(enum) {
         raw_string: []const u8,
     };
 
-    fn formatMessage(
-        self: FormatMessage,
-        comptime f: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn formatMessage(self: FormatMessage, bw: *std.io.BufferedWriter, comptime f: []const u8) anyerror!void {
         _ = f;
-        _ = options;
         switch (self.err) {
-            .invalid_escape_character => |bad_index| try writer.print(
+            .invalid_escape_character => |bad_index| try bw.print(
                 "invalid escape character: '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_hex_digit => |bad_index| try writer.print(
+            .expected_hex_digit => |bad_index| try bw.print(
                 "expected hex digit, found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .empty_unicode_escape_sequence => try writer.writeAll(
+            .empty_unicode_escape_sequence => try bw.writeAll(
                 "empty unicode escape sequence",
             ),
-            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
+            .expected_hex_digit_or_rbrace => |bad_index| try bw.print(
                 "expected hex digit or '}}', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .invalid_unicode_codepoint => try writer.writeAll(
+            .invalid_unicode_codepoint => try bw.writeAll(
                 "unicode escape does not correspond to a valid unicode scalar value",
             ),
-            .expected_lbrace => |bad_index| try writer.print(
+            .expected_lbrace => |bad_index| try bw.print(
                 "expected '{{', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_rbrace => |bad_index| try writer.print(
+            .expected_rbrace => |bad_index| try bw.print(
                 "expected '}}', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_single_quote => |bad_index| try writer.print(
+            .expected_single_quote => |bad_index| try bw.print(
                 "expected single quote ('), found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .invalid_character => |bad_index| try writer.print(
+            .invalid_character => |bad_index| try bw.print(
                 "invalid byte in string or character literal: '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .empty_char_literal => try writer.writeAll(
+            .empty_char_literal => try bw.writeAll(
                 "empty character literal",
             ),
         }
@@ -363,13 +357,13 @@ pub fn parseWrite(writer: *std.io.BufferedWriter, bytes: []const u8) anyerror!Re
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
-    var buf: std.io.AllocatingWriter = undefined;
-    const bw = buf.init(allocator);
-    defer buf.deinit();
+    var aw: std.io.AllocatingWriter = undefined;
+    aw.init(allocator);
+    defer aw.deinit();
     // TODO try @errorCast(...)
-    const result = parseWrite(bw, bytes) catch |err| return @errorCast(err);
+    const result = parseWrite(&aw.buffered_writer, bytes) catch |err| return @errorCast(err);
     switch (result) {
-        .success => return buf.toOwnedSlice(),
+        .success => return aw.toOwnedSlice(),
         .failure => return error.InvalidLiteral,
     }
 }

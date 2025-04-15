@@ -92,7 +92,7 @@ pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
         return cap_slice;
     }
     const buffer = bw.buffer[0..bw.end];
-    const n = try bw.unbuffered_writer.write(buffer);
+    const n = try bw.unbuffered_writer.writev(&.{buffer});
     if (n == buffer.len) {
         @branchHint(.likely);
         bw.end = 0;
@@ -306,7 +306,7 @@ pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
 /// transferred.
 pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
     var index: usize = 0;
-    while (index < bytes.len) index += try write(bw, bytes[index..]);
+    while (index < bytes.len) index += try bw.write(bytes[index..]);
 }
 
 pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) anyerror!void {
@@ -354,7 +354,7 @@ pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
 /// many times as necessary.
 pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
     var remaining: usize = n;
-    while (remaining > 0) remaining -= try splatByte(bw, byte, remaining);
+    while (remaining > 0) remaining -= try bw.splatByte(byte, remaining);
 }
 
 /// Writes the same byte many times, allowing short writes.
@@ -368,11 +368,11 @@ pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
 /// many times as necessary.
 pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) anyerror!void {
     var remaining_bytes: usize = bytes.len * splat;
-    remaining_bytes -= try splatBytes(bw, bytes, splat);
+    remaining_bytes -= try bw.splatBytes(bytes, splat);
     while (remaining_bytes > 0) {
         const leftover = remaining_bytes % bytes.len;
         const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try splatBytes(bw, &buffers, splat);
+        remaining_bytes -= try bw.splatBytes(&buffers, splat);
     }
 }
 
@@ -519,7 +519,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
     switch (options.limit) {
-        .nothing => return writevAll(bw, headers_and_trailers),
+        .nothing => return bw.writevAll(headers_and_trailers),
         .unlimited => {
             // When reading the whole file, we cannot include the trailers in the
             // call that reads from the file handle, because we have no way to
@@ -528,7 +528,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
             var i: usize = 0;
             var offset = options.offset;
             while (true) {
-                var n = try writeFile(bw, file, offset, .unlimited, headers[i..], headers.len - i);
+                var n = try bw.writeFile(file, offset, .unlimited, headers[i..], headers.len - i);
                 while (i < headers.len and n >= headers[i].len) {
                     n -= headers[i].len;
                     i += 1;
@@ -546,7 +546,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
             var i: usize = 0;
             var offset = options.offset;
             while (true) {
-                var n = try writeFile(bw, file, offset, .limited(len), headers_and_trailers[i..], headers.len - i);
+                var n = try bw.writeFile(file, offset, .limited(len), headers_and_trailers[i..], headers.len - i);
                 while (i < headers.len and n >= headers[i].len) {
                     n -= headers[i].len;
                     i += 1;
@@ -564,7 +564,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
                         if (i >= headers_and_trailers.len) return;
                     }
                     headers_and_trailers[i] = headers_and_trailers[i][n..];
-                    return writevAll(bw, headers_and_trailers[i..]);
+                    return bw.writevAll(headers_and_trailers[i..]);
                 }
                 offset = offset.advance(n);
                 len -= n;
@@ -605,7 +605,7 @@ pub fn alignBuffer(
 }
 
 pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.fmt.Options) anyerror!void {
-    return alignBuffer(bw, buffer, options.width orelse buffer.len, options.alignment, options.fill);
+    return bw.alignBuffer(buffer, options.width orelse buffer.len, options.alignment, options.fill);
 }
 
 pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!void {
@@ -614,15 +614,15 @@ pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!void {
         .pointer => |info| {
             try bw.writeAll(@typeName(info.child) ++ "@");
             if (info.size == .slice)
-                try printIntOptions(bw, @intFromPtr(value.ptr), 16, .lower, .{})
+                try bw.printIntOptions(@intFromPtr(value.ptr), 16, .lower, .{})
             else
-                try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
+                try bw.printIntOptions(@intFromPtr(value), 16, .lower, .{});
             return;
         },
         .optional => |info| {
             if (@typeInfo(info.child) == .pointer) {
                 try bw.writeAll(@typeName(info.child) ++ "@");
-                try printIntOptions(bw, @intFromPtr(value), 16, .lower, .{});
+                try bw.printIntOptions(@intFromPtr(value), 16, .lower, .{});
                 return;
             }
         },
@@ -648,7 +648,7 @@ pub fn printValue(
     } else fmt;
 
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
-        return printAddress(bw, value);
+        return bw.printAddress(value);
     }
 
     if (std.meta.hasMethod(T, "format")) {
@@ -661,24 +661,24 @@ pub fn printValue(
     }
 
     switch (@typeInfo(T)) {
-        .float, .comptime_float => return printFloat(bw, actual_fmt, options, value),
-        .int, .comptime_int => return printInt(bw, actual_fmt, options, value),
+        .float, .comptime_float => return bw.printFloat(actual_fmt, options, value),
+        .int, .comptime_int => return bw.printInt(actual_fmt, options, value),
         .bool => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            return alignBufferOptions(bw, if (value) "true" else "false", options);
+            return bw.alignBufferOptions(if (value) "true" else "false", options);
         },
         .void => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            return alignBufferOptions(bw, "void", options);
+            return bw.alignBufferOptions("void", options);
         },
         .optional => {
             if (actual_fmt.len == 0 or actual_fmt[0] != '?')
                 @compileError("cannot print optional without a specifier (i.e. {?} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return printValue(bw, remaining_fmt, options, payload, max_depth);
+                return bw.printValue(remaining_fmt, options, payload, max_depth);
             } else {
-                return alignBufferOptions(bw, "null", options);
+                return bw.alignBufferOptions("null", options);
             }
         },
         .error_union => {
@@ -686,9 +686,9 @@ pub fn printValue(
                 @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return printValue(bw, remaining_fmt, options, payload, max_depth);
+                return bw.printValue(remaining_fmt, options, payload, max_depth);
             } else |err| {
-                return printValue(bw, "", options, err, max_depth);
+                return bw.printValue("", options, err, max_depth);
             }
         },
         .error_set => {
@@ -721,14 +721,14 @@ pub fn printValue(
             }
 
             try bw.writeByte('(');
-            try printValue(bw, actual_fmt, options, @intFromEnum(value), max_depth);
+            try bw.printValue(actual_fmt, options, @intFromEnum(value), max_depth);
             try bw.writeByte(')');
         },
         .@"union" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try bw.writeAll(@typeName(T));
             if (max_depth == 0) {
-                bw.writeAll("{ ... }");
+                try bw.writeAll("{ ... }");
                 return;
             }
             if (info.tag_type) |UnionTagType| {
@@ -737,13 +737,13 @@ pub fn printValue(
                 try bw.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try printValue(bw, ANY, options, @field(value, u_field.name), max_depth - 1);
+                        try bw.printValue(ANY, options, @field(value, u_field.name), max_depth - 1);
                     }
                 }
                 try bw.writeAll(" }");
             } else {
                 try bw.writeByte('@');
-                try bw.printIntOptions(@intFromPtr(&value), 16, .lower);
+                try bw.printIntOptions(@intFromPtr(&value), 16, .lower, options);
             }
         },
         .@"struct" => |info| {
@@ -761,7 +761,7 @@ pub fn printValue(
                     } else {
                         try bw.writeAll(", ");
                     }
-                    try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
+                    try bw.printValue(ANY, options, @field(value, f.name), max_depth - 1);
                 }
                 try bw.writeAll(" }");
                 return;
@@ -780,19 +780,19 @@ pub fn printValue(
                 }
                 try bw.writeAll(f.name);
                 try bw.writeAll(" = ");
-                try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
+                try bw.printValue(ANY, options, @field(value, f.name), max_depth - 1);
             }
             try bw.writeAll(" }");
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
                 .array, .@"enum", .@"union", .@"struct" => {
-                    return printValue(bw, actual_fmt, options, value.*, max_depth);
+                    return bw.printValue(actual_fmt, options, value.*, max_depth);
                 },
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
-                    try writevAll(bw, &buffers);
-                    try printIntOptions(bw, @intFromPtr(value), 16, .lower, options);
+                    try bw.writevAll(&buffers);
+                    try bw.printIntOptions(@intFromPtr(value), 16, .lower, options);
                     return;
                 },
             },
@@ -800,10 +800,10 @@ pub fn printValue(
                 if (actual_fmt.len == 0)
                     @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
                 if (ptr_info.sentinel() != null) {
-                    return printValue(bw, actual_fmt, options, std.mem.span(value), max_depth);
+                    return bw.printValue(actual_fmt, options, std.mem.span(value), max_depth);
                 }
                 if (actual_fmt[0] == 's' and ptr_info.child == u8) {
-                    return alignBufferOptions(bw, std.mem.span(value), options);
+                    return bw.alignBufferOptions(std.mem.span(value), options);
                 }
                 invalidFmtError(fmt, value);
             },
@@ -815,19 +815,19 @@ pub fn printValue(
                 }
                 if (ptr_info.child == u8) switch (actual_fmt.len) {
                     1 => switch (actual_fmt[0]) {
-                        's' => return alignBufferOptions(bw, value, options),
-                        'x' => return printHex(bw, value, .lower),
-                        'X' => return printHex(bw, value, .upper),
+                        's' => return bw.alignBufferOptions(value, options),
+                        'x' => return bw.printHex(value, .lower),
+                        'X' => return bw.printHex(value, .upper),
                         else => {},
                     },
                     3 => if (actual_fmt[0] == 'b' and actual_fmt[1] == '6' and actual_fmt[2] == '4') {
-                        return printBase64(bw, value);
+                        return bw.printBase64(value);
                     },
                     else => {},
                 };
                 try bw.writeAll("{ ");
                 for (value, 0..) |elem, i| {
-                    try printValue(bw, actual_fmt, options, elem, max_depth - 1);
+                    try bw.printValue(actual_fmt, options, elem, max_depth - 1);
                     if (i != value.len - 1) {
                         try bw.writeAll(", ");
                     }
@@ -843,16 +843,16 @@ pub fn printValue(
             }
             if (info.child == u8) {
                 if (actual_fmt[0] == 's') {
-                    return alignBufferOptions(bw, &value, options);
+                    return bw.alignBufferOptions(&value, options);
                 } else if (actual_fmt[0] == 'x') {
-                    return printHex(bw, &value, .lower);
+                    return bw.printHex(&value, .lower);
                 } else if (actual_fmt[0] == 'X') {
-                    return printHex(bw, &value, .upper);
+                    return bw.printHex(&value, .upper);
                 }
             }
             try bw.writeAll("{ ");
             for (value, 0..) |elem, i| {
-                try printValue(bw, actual_fmt, options, elem, max_depth - 1);
+                try bw.printValue(actual_fmt, options, elem, max_depth - 1);
                 if (i < value.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -866,7 +866,7 @@ pub fn printValue(
             try bw.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try printValue(bw, actual_fmt, options, value[i], max_depth - 1);
+                try bw.printValue(actual_fmt, options, value[i], max_depth - 1);
                 if (i < info.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -876,16 +876,16 @@ pub fn printValue(
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            return alignBufferOptions(bw, @typeName(value), options);
+            return bw.alignBufferOptions(@typeName(value), options);
         },
         .enum_literal => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
-            return alignBufferOptions(bw, buffer, options);
+            return bw.alignBufferOptions(buffer, options);
         },
         .null => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            return alignBufferOptions(bw, "null", options);
+            return bw.alignBufferOptions("null", options);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
     }
@@ -903,34 +903,34 @@ pub fn printInt(
     } else value;
 
     switch (fmt.len) {
-        0 => return printIntOptions(bw, int_value, 10, .lower, options),
+        0 => return bw.printIntOptions(int_value, 10, .lower, options),
         1 => switch (fmt[0]) {
-            'd' => return printIntOptions(bw, int_value, 10, .lower, options),
+            'd' => return bw.printIntOptions(int_value, 10, .lower, options),
             'c' => {
                 if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
-                    return printAsciiChar(bw, @as(u8, int_value), options);
+                    return bw.printAsciiChar(@as(u8, int_value), options);
                 } else {
                     @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
                 }
             },
             'u' => {
                 if (@typeInfo(@TypeOf(int_value)).int.bits <= 21) {
-                    return printUnicodeCodepoint(bw, @as(u21, int_value), options);
+                    return bw.printUnicodeCodepoint(@as(u21, int_value), options);
                 } else {
                     @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
                 }
             },
-            'b' => return printIntOptions(bw, int_value, 2, .lower, options),
-            'x' => return printIntOptions(bw, int_value, 16, .lower, options),
-            'X' => return printIntOptions(bw, int_value, 16, .upper, options),
-            'o' => return printIntOptions(bw, int_value, 8, .lower, options),
-            'B' => return printByteSize(bw, int_value, .decimal, options),
-            'D' => return printDuration(bw, int_value, options),
+            'b' => return bw.printIntOptions(int_value, 2, .lower, options),
+            'x' => return bw.printIntOptions(int_value, 16, .lower, options),
+            'X' => return bw.printIntOptions(int_value, 16, .upper, options),
+            'o' => return bw.printIntOptions(int_value, 8, .lower, options),
+            'B' => return bw.printByteSize(int_value, .decimal, options),
+            'D' => return bw.printDuration(int_value, options),
             else => invalidFmtError(fmt, value),
         },
         2 => {
             if (fmt[0] == 'B' and fmt[1] == 'i') {
-                return printByteSize(bw, int_value, .binary, options);
+                return bw.printByteSize(int_value, .binary, options);
             } else {
                 invalidFmtError(fmt, value);
             }
@@ -941,17 +941,17 @@ pub fn printInt(
 }
 
 pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) anyerror!void {
-    return alignBufferOptions(bw, @as(*const [1]u8, &c), options);
+    return bw.alignBufferOptions(@as(*const [1]u8, &c), options);
 }
 
 pub fn printAscii(bw: *BufferedWriter, bytes: []const u8, options: std.fmt.Options) anyerror!void {
-    return alignBufferOptions(bw, bytes, options);
+    return bw.alignBufferOptions(bytes, options);
 }
 
 pub fn printUnicodeCodepoint(bw: *BufferedWriter, c: u21, options: std.fmt.Options) anyerror!void {
     var buf: [4]u8 = undefined;
     const len = try std.unicode.utf8Encode(c, &buf);
-    return alignBufferOptions(bw, buf[0..len], options);
+    return bw.alignBufferOptions(buf[0..len], options);
 }
 
 pub fn printIntOptions(
@@ -1019,7 +1019,7 @@ pub fn printIntOptions(
         }
     }
 
-    return alignBufferOptions(bw, buf[index..], options);
+    return bw.alignBufferOptions(buf[index..], options);
 }
 
 pub fn printFloat(
@@ -1036,19 +1036,19 @@ pub fn printFloat(
             const s = std.fmt.float.render(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
                 error.BufferTooSmall => "(float)",
             };
-            return alignBufferOptions(bw, s, options);
+            return bw.alignBufferOptions(s, options);
         },
         'd' => {
             const s = std.fmt.float.render(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
                 error.BufferTooSmall => "(float)",
             };
-            return alignBufferOptions(bw, s, options);
+            return bw.alignBufferOptions(s, options);
         },
         'x' => {
             var sub_bw: BufferedWriter = undefined;
             sub_bw.initFixed(&buf);
             sub_bw.printFloatHexadecimal(value, options.precision) catch unreachable;
-            return alignBufferOptions(bw, sub_bw.getWritten(), options);
+            return bw.alignBufferOptions(sub_bw.getWritten(), options);
         },
         else => invalidFmtError(fmt, value),
     }
@@ -1150,7 +1150,7 @@ pub fn printFloatHexadecimal(bw: *BufferedWriter, value: anytype, opt_precision:
             try bw.splatByteAll('0', precision - trimmed.len);
     };
     try bw.writeAll("p");
-    try printIntOptions(bw, exponent - exponent_bias, 10, .lower, .{});
+    try bw.printIntOptions(exponent - exponent_bias, 10, .lower, .{});
 }
 
 pub const ByteSizeUnits = enum {
@@ -1169,7 +1169,7 @@ pub fn printByteSize(
     comptime units: ByteSizeUnits,
     options: std.fmt.Options,
 ) anyerror!void {
-    if (value == 0) return alignBufferOptions(bw, "0B", options);
+    if (value == 0) return bw.alignBufferOptions("0B", options);
     // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
     var buf: [std.fmt.float.min_buffer_size + 3]u8 = undefined;
 
@@ -1213,7 +1213,7 @@ pub fn printByteSize(
         },
     }
 
-    return alignBufferOptions(bw, buf[0..i], options);
+    return bw.alignBufferOptions(buf[0..i], options);
 }
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
@@ -1250,7 +1250,7 @@ pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) noreturn {
 
 pub fn printDurationSigned(bw: *BufferedWriter, ns: i64) anyerror!void {
     if (ns < 0) try bw.writeByte('-');
-    return printDurationUnsigned(bw, @abs(ns));
+    return bw.printDurationUnsigned(@abs(ns));
 }
 
 pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) anyerror!void {
@@ -1296,7 +1296,7 @@ pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) anyerror!void {
         }
     }
 
-    try printIntOptions(bw, ns_remaining, 10, .lower, .{});
+    try bw.printIntOptions(ns_remaining, 10, .lower, .{});
     try bw.writeAll("ns");
 }
 
@@ -1312,7 +1312,7 @@ pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt
         .signed => sub_bw.printDurationSigned(nanoseconds) catch unreachable,
         .unsigned => sub_bw.printDurationUnsigned(nanoseconds) catch unreachable,
     }
-    return alignBufferOptions(bw, sub_bw.getWritten(), options);
+    return bw.alignBufferOptions(sub_bw.getWritten(), options);
 }
 
 pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anyerror!void {
@@ -1321,8 +1321,8 @@ pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anye
         .lower => "0123456789abcdef",
     };
     for (bytes) |c| {
-        try writeByte(bw, charset[c >> 4]);
-        try writeByte(bw, charset[c & 15]);
+        try bw.writeByte(charset[c >> 4]);
+        try bw.writeByte(charset[c & 15]);
     }
 }
 
@@ -1334,50 +1334,67 @@ pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
     }
 }
 
-/// Write a single unsigned integer as unsigned LEB128 to the given writer.
-pub fn writeUleb128(bw: *std.io.BufferedWriter, arg: anytype) anyerror!void {
-    const Arg = @TypeOf(arg);
-    const Int = switch (Arg) {
-        comptime_int => std.math.IntFittingRange(arg, arg),
-        else => Arg,
-    };
-    const Value = if (@typeInfo(Int).int.bits < 8) u8 else Int;
-    var value: Value = arg;
-
-    while (true) {
-        const byte: u8 = @truncate(value & 0x7f);
-        value >>= 7;
-        if (value == 0) {
-            try bw.writeByte(byte);
-            return;
-        } else {
-            try bw.writeByte(byte | 0x80);
-        }
-    }
+/// Write a single unsigned integer as LEB128 to the given writer.
+pub fn writeUleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+    try bw.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
+        .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
+        .int => |value_info| switch (value_info.signedness) {
+            .signed => @as(@Type(.{ .int = .{ .signedness = .unsigned, .bits = value_info.bits -| 1 } }), @intCast(value)),
+            .unsigned => value,
+        },
+        else => comptime unreachable,
+    });
 }
 
-/// Write a single signed integer as signed LEB128 to the given writer.
-pub fn writeIleb128(bw: *std.io.BufferedWriter, arg: anytype) anyerror!void {
-    const Arg = @TypeOf(arg);
-    const Int = switch (Arg) {
-        comptime_int => std.math.IntFittingRange(-@abs(arg), @abs(arg)),
-        else => Arg,
-    };
-    const Signed = if (@typeInfo(Int).int.bits < 8) i8 else Int;
-    const Unsigned = std.meta.Int(.unsigned, @typeInfo(Signed).int.bits);
-    var value: Signed = arg;
+/// Write a single signed integer as LEB128 to the given writer.
+pub fn writeSleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+    try bw.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
+        .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
+        .int => |value_info| switch (value_info.signedness) {
+            .signed => value,
+            .unsigned => @as(@Type(.{ .int = .{ .signedness = .signed, .bits = value_info.bits + 1 } }), value),
+        },
+        else => comptime unreachable,
+    });
+}
 
+/// Write a single integer as LEB128 to the given writer.
+pub fn writeLeb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+    const value_info = @typeInfo(@TypeOf(value)).int;
+    try bw.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
+        .signedness = value_info.signedness,
+        .bits = std.mem.alignForwardAnyAlign(u16, value_info.bits, 7),
+    } }), value));
+}
+
+fn writeMultipleOf7Leb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+    const value_info = @typeInfo(@TypeOf(value)).int;
+    comptime assert(value_info.bits % 7 == 0);
+    var remaining = value;
     while (true) {
-        const unsigned: Unsigned = @bitCast(value);
-        const byte: u8 = @truncate(unsigned);
-        value >>= 6;
-        if (value == -1 or value == 0) {
-            try bw.writeByte(byte & 0x7F);
-            return;
-        } else {
-            value >>= 1;
-            try bw.writeByte(byte | 0x80);
+        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try bw.writableSlice(1));
+        for (buffer, 1..) |*byte, len| {
+            const more = switch (value_info.signedness) {
+                .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
+                .unsigned => remaining > std.math.maxInt(u7),
+            };
+            byte.* = if (@inComptime()) @typeInfo(@TypeOf(buffer)).pointer.child{
+                .bits = @bitCast(@as(@Type(.{ .int = .{
+                    .signedness = value_info.signedness,
+                    .bits = 7,
+                } }), @truncate(remaining))),
+                .more = more,
+            } else .{
+                .bits = @bitCast(@as(@Type(.{ .int = .{
+                    .signedness = value_info.signedness,
+                    .bits = 7,
+                } }), @truncate(remaining))),
+                .more = more,
+            };
+            if (value_info.bits > 7) remaining >>= 7;
+            if (!more) return bw.advance(len);
         }
+        bw.advance(buffer.len);
     }
 }
 

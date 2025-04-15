@@ -1,52 +1,50 @@
-pub fn writeSetSub6(comptime op: enum { set, sub }, code: *[1]u8, addend: anytype) void {
+pub fn writeSetSub6(comptime op: enum { set, sub }, addend: anytype, bw: *std.io.BufferedWriter) anyerror!void {
     const mask: u8 = 0b11_000000;
     const actual: i8 = @truncate(addend);
-    var value: u8 = mem.readInt(u8, code, .little);
-    switch (op) {
-        .set => value = (value & mask) | @as(u8, @bitCast(actual & ~mask)),
-        .sub => value = (value & mask) | (@as(u8, @bitCast(@as(i8, @bitCast(value)) -| actual)) & ~mask),
-    }
-    mem.writeInt(u8, code, value, .little);
+    const old_value = (try bw.writableSlice(1))[0];
+    const new_value = (old_value & mask) | (@as(u8, switch (op) {
+        .set => @bitCast(actual),
+        .sub => @bitCast(@as(i8, @bitCast(old_value)) -| actual),
+    }) & ~mask);
+    try bw.writeByte(new_value);
 }
 
-pub fn writeSetSubUleb(comptime op: enum { set, sub }, stream: *std.io.FixedBufferStream([]u8), addend: i64) !void {
+pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.BufferedWriter) anyerror!void {
     switch (op) {
-        .set => try overwriteUleb(stream, @intCast(addend)),
+        .set => try overwriteUleb(@intCast(addend), bw),
         .sub => {
-            const position = try stream.getPos();
-            const value: u64 = try std.leb.readUleb128(u64, stream.reader());
-            try stream.seekTo(position);
-            try overwriteUleb(stream, value -% @as(u64, @intCast(addend)));
+            var br: std.io.BufferedReader = undefined;
+            br.initFixed(try bw.writableSlice(1));
+            const old_value = try br.takeLeb128(u64);
+            try overwriteUleb(old_value -% @as(u64, @intCast(addend)), bw);
         },
     }
 }
 
-fn overwriteUleb(stream: *std.io.FixedBufferStream([]u8), addend: u64) !void {
-    var value: u64 = addend;
-    const writer = stream.writer();
-
+fn overwriteUleb(new_value: u64, bw: *std.io.BufferedWriter) anyerror!void {
+    var value: u64 = new_value;
     while (true) {
-        const byte = stream.buffer[stream.pos];
+        const byte = (try bw.writableSlice(1))[0];
+        try bw.writeByte((byte & 0x80) | @as(u7, @truncate(value)));
         if (byte & 0x80 == 0) break;
-        try writer.writeByte(0x80 | @as(u8, @truncate(value & 0x7f)));
         value >>= 7;
     }
-    stream.buffer[stream.pos] = @truncate(value & 0x7f);
 }
 
 pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },
-    code: *[@typeInfo(Int).int.bits / 8]u8,
     value: anytype,
-) void {
-    var V: Int = mem.readInt(Int, code, .little);
+    bw: *std.io.BufferedWriter,
+) anyerror!void {
+    const n = @divExact(@bitSizeOf(Int), 8);
+    var V: Int = mem.readInt(Int, (try bw.writableSlice(n))[0..n], .little);
     const addend: Int = @truncate(value);
     switch (op) {
         .add => V +|= addend, // TODO: I think saturating arithmetic is correct here
         .sub => V -|= addend,
     }
-    mem.writeInt(Int, code, V, .little);
+    try bw.writeInt(Int, V, .little);
 }
 
 pub fn writeInstU(code: *[4]u8, value: u32) void {
