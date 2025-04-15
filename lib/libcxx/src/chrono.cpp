@@ -12,7 +12,7 @@
 #  define _LARGE_TIME_API
 #endif
 
-#include <__system_error/system_error.h>
+#include <__system_error/throw_system_error.h>
 #include <cerrno> // errno
 #include <chrono>
 
@@ -31,9 +31,14 @@
 #  include <sys/time.h> // for gettimeofday and timeval
 #endif
 
-// OpenBSD does not have a fully conformant suite of POSIX timers, but
+#if defined(__LLVM_LIBC__)
+#  define _LIBCPP_HAS_TIMESPEC_GET
+#endif
+
+// OpenBSD and GPU do not have a fully conformant suite of POSIX timers, but
 // it does have clock_gettime and CLOCK_MONOTONIC which is all we need.
-#if defined(__APPLE__) || defined(__gnu_hurd__) || defined(__OpenBSD__) || (defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0)
+#if defined(__APPLE__) || defined(__gnu_hurd__) || defined(__OpenBSD__) || defined(__AMDGPU__) ||                      \
+    defined(__NVPTX__) || (defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0)
 #  define _LIBCPP_HAS_CLOCK_GETTIME
 #endif
 
@@ -114,6 +119,15 @@ static system_clock::time_point __libcpp_system_clock_now() {
   return system_clock::time_point(duration_cast<system_clock::duration>(d - nt_to_unix_epoch));
 }
 
+#elif defined(_LIBCPP_HAS_TIMESPEC_GET)
+
+static system_clock::time_point __libcpp_system_clock_now() {
+  struct timespec ts;
+  if (timespec_get(&ts, TIME_UTC) != TIME_UTC)
+    __throw_system_error(errno, "timespec_get(TIME_UTC) failed");
+  return system_clock::time_point(seconds(ts.tv_sec) + microseconds(ts.tv_nsec / 1000));
+}
+
 #elif defined(_LIBCPP_HAS_CLOCK_GETTIME)
 
 static system_clock::time_point __libcpp_system_clock_now() {
@@ -133,7 +147,10 @@ static system_clock::time_point __libcpp_system_clock_now() {
 
 #endif
 
+_LIBCPP_DIAGNOSTIC_PUSH
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wdeprecated")
 const bool system_clock::is_steady;
+_LIBCPP_DIAGNOSTIC_POP
 
 system_clock::time_point system_clock::now() noexcept { return __libcpp_system_clock_now(); }
 
@@ -151,7 +168,7 @@ system_clock::time_point system_clock::from_time_t(time_t t) noexcept { return s
 //  instead.
 //
 
-#ifndef _LIBCPP_HAS_NO_MONOTONIC_CLOCK
+#if _LIBCPP_HAS_MONOTONIC_CLOCK
 
 #  if defined(__APPLE__)
 
@@ -212,6 +229,15 @@ static steady_clock::time_point __libcpp_steady_clock_now() noexcept {
   return steady_clock::time_point(nanoseconds(_zx_clock_get_monotonic()));
 }
 
+#  elif defined(_LIBCPP_HAS_TIMESPEC_GET)
+
+static steady_clock::time_point __libcpp_steady_clock_now() {
+  struct timespec ts;
+  if (timespec_get(&ts, TIME_MONOTONIC) != TIME_MONOTONIC)
+    __throw_system_error(errno, "timespec_get(TIME_MONOTONIC) failed");
+  return steady_clock::time_point(seconds(ts.tv_sec) + microseconds(ts.tv_nsec / 1000));
+}
+
 #  elif defined(_LIBCPP_HAS_CLOCK_GETTIME)
 
 static steady_clock::time_point __libcpp_steady_clock_now() {
@@ -225,11 +251,14 @@ static steady_clock::time_point __libcpp_steady_clock_now() {
 #    error "Monotonic clock not implemented on this platform"
 #  endif
 
+_LIBCPP_DIAGNOSTIC_PUSH
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wdeprecated")
 const bool steady_clock::is_steady;
+_LIBCPP_DIAGNOSTIC_POP
 
 steady_clock::time_point steady_clock::now() noexcept { return __libcpp_steady_clock_now(); }
 
-#endif // !_LIBCPP_HAS_NO_MONOTONIC_CLOCK
+#endif // _LIBCPP_HAS_MONOTONIC_CLOCK
 
 } // namespace chrono
 

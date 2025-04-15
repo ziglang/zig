@@ -2327,11 +2327,11 @@ fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: ?
 }
 
 pub fn failWithUseOfUndef(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
-    return sema.fail(block, src, "use of undefined value here causes undefined behavior", .{});
+    return sema.fail(block, src, "use of undefined value here causes illegal behavior", .{});
 }
 
 pub fn failWithDivideByZero(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
-    return sema.fail(block, src, "division by zero here causes undefined behavior", .{});
+    return sema.fail(block, src, "division by zero here causes illegal behavior", .{});
 }
 
 fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: Type, rhs_ty: Type) CompileError {
@@ -2998,7 +2998,7 @@ fn zirStructDecl(
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
-fn createTypeName(
+pub fn createTypeName(
     sema: *Sema,
     block: *Block,
     name_strategy: Zir.Inst.NameStrategy,
@@ -14065,14 +14065,13 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return Air.internedToRef(ty);
         },
         .zon => {
-            if (extra.res_ty == .none) {
-                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
-            }
-            const res_ty_inst = try sema.resolveInst(extra.res_ty);
-            const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
-            if (res_ty.isGenericPoison()) {
-                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
-            }
+            const res_ty: InternPool.Index = b: {
+                if (extra.res_ty == .none) break :b .none;
+                const res_ty_inst = try sema.resolveInst(extra.res_ty);
+                const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
+                if (res_ty.isGenericPoison()) break :b .none;
+                break :b res_ty.toIntern();
+            };
 
             try sema.declareDependency(.{ .zon_file = result.file_index });
             const interned = try LowerZon.run(
@@ -15496,7 +15495,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     // Depending on whether safety is enabled, we will have a slightly different strategy
-    // here. The `div_exact` AIR instruction causes undefined behavior if a remainder
+    // here. The `div_exact` AIR instruction causes illegal behavior if a remainder
     // is produced, so in the safety check case, it cannot be used. Instead we do a
     // div_trunc and check for remainder.
 
@@ -16662,9 +16661,9 @@ fn zirAsm(
     const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
     const src = block.nodeOffset(extra.data.src_node);
     const ret_ty_src = block.src(.{ .node_offset_asm_ret_ty = extra.data.src_node });
-    const outputs_len: u5 = @truncate(extended.small);
-    const inputs_len: u5 = @truncate(extended.small >> 5);
-    const clobbers_len: u5 = @truncate(extended.small >> 10);
+    const outputs_len: u4 = @truncate(extended.small);
+    const inputs_len: u5 = @truncate(extended.small >> 4);
+    const clobbers_len: u6 = @truncate(extended.small >> 9);
     const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
     const is_global_assembly = sema.func_index == .none;
     const zir_tags = sema.code.instructions.items(.tag);
@@ -19227,7 +19226,7 @@ fn retWithErrTracing(
     const return_err_fn = Air.internedToRef(try sema.getBuiltin(src, .returnError));
 
     if (!need_check) {
-        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &.{}, .@"error return");
+        try sema.callBuiltin(block, src, return_err_fn, .never_tail, &.{}, .@"error return");
         _ = try block.addUnOp(ret_tag, operand);
         return;
     }
@@ -19238,7 +19237,7 @@ fn retWithErrTracing(
 
     var else_block = block.makeSubBlock();
     defer else_block.instructions.deinit(gpa);
-    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &.{}, .@"error return");
+    try sema.callBuiltin(&else_block, src, return_err_fn, .never_tail, &.{}, .@"error return");
     _ = try else_block.addUnOp(ret_tag, operand);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
@@ -22837,11 +22836,14 @@ fn ptrCastFull(
         if (src_slice_like_elem.comptimeOnly(zcu) or dest_elem.comptimeOnly(zcu)) {
             return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
         }
-        const src_elem_size = src_slice_like_elem.abiSize(zcu);
+        // It's okay for `src_slice_like_elem` to be 0-bit; the resulting slice will just always have 0 elements.
+        // However, `dest_elem` can't be 0-bit. If it were, then either the source slice has 0 bits and we don't
+        // know how what `result.len` should be, or the source has >0 bits and there is no valid `result.len`.
         const dest_elem_size = dest_elem.abiSize(zcu);
-        if (src_elem_size == 0 or dest_elem_size == 0) {
+        if (dest_elem_size == 0) {
             return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
         }
+        const src_elem_size = src_slice_like_elem.abiSize(zcu);
         break :need_len_change src_elem_size != dest_elem_size;
     } else false;
 
@@ -25266,7 +25268,7 @@ fn ptrSubtract(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, byte
     };
     if (ptr.byte_offset < byte_subtract) {
         return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(src, "pointer computation here causes undefined behavior", .{});
+            const msg = try sema.errMsg(src, "pointer computation here causes illegal behavior", .{});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(src, msg, "resulting pointer exceeds bounds of containing value which may trigger overflow", .{});
             break :msg msg;
@@ -25726,12 +25728,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             var info = dest_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
         const src_array_ptr_ty = try pt.ptrType(info: {
             var info = src_ty.ptrInfo(zcu);
             info.flags.size = .one;
             info.child = array_ty.toIntern();
+            info.sentinel = .none;
             break :info info;
         });
 
@@ -26012,13 +26016,12 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :cc .auto;
     };
 
-    const ret_ty: Type = if (extra.data.bits.ret_ty_is_generic)
-        .generic_poison
-    else if (extra.data.bits.has_ret_ty_body) blk: {
+    const ret_ty: Type = if (extra.data.bits.has_ret_ty_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
+        if (extra.data.bits.ret_ty_is_generic) break :blk .generic_poison;
 
         const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, .{ .simple = .function_ret_ty });
         const ty = val.toType();
@@ -26026,6 +26029,8 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_ret_ty_ref) blk: {
         const ret_ty_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
+        if (extra.data.bits.ret_ty_is_generic) break :blk .generic_poison;
+
         const ret_ty_air_ref = try sema.resolveInst(ret_ty_ref);
         const ret_ty_val = try sema.resolveConstDefinedValue(block, ret_src, ret_ty_air_ref, .{ .simple = .function_ret_ty });
         break :blk ret_ty_val.toType();
@@ -31693,7 +31698,7 @@ fn addReferenceEntry(
     try zcu.addUnitReference(sema.owner, referenced_unit, src);
 }
 
-fn addTypeReferenceEntry(
+pub fn addTypeReferenceEntry(
     sema: *Sema,
     src: LazySrcLoc,
     referenced_type: InternPool.Index,

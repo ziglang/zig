@@ -234,6 +234,7 @@ pub fn updateFile(
             error.FileTooBig => unreachable, // 0 is not too big
             else => |e| return e,
         };
+        try cache_file.seekTo(0);
 
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
@@ -1443,6 +1444,8 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
         const type_ref = try sema.coerce(&block, .type, uncoerced_type_ref, ty_src);
         break :ty .fromInterned(type_ref.toInterned().?);
     };
+
+    try resolved_ty.resolveLayout(pt);
 
     // In the case where the type is specified, this function is also responsible for resolving
     // the pointer modifiers, i.e. alignment, linksection, addrspace.

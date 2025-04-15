@@ -30,11 +30,9 @@ const TestTarget = struct {
     strip: ?bool = null,
     skip_modules: []const []const u8 = &.{},
 
-    // This is intended for targets that are known to be slow to compile. These are acceptable to
-    // run in CI, but should not be run on developer machines by default. As an example, at the time
-    // of writing, this includes LLVM's MIPS backend which takes upwards of 20 minutes longer to
-    // compile tests than other backends.
-    slow_backend: bool = false,
+    // This is intended for targets that are known to be slow to compile, or require a newer LLVM
+    // version than is present on the CI machines, etc.
+    extra_target: bool = false,
 };
 
 const test_targets = blk: {
@@ -147,7 +145,7 @@ const test_targets = blk: {
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
-            .skip_modules = &.{ "c-import", "universal-libc", "std" },
+            .skip_modules = &.{ "c-import", "zigc", "std" },
         },
         // https://github.com/ziglang/zig/issues/13623
         //.{
@@ -501,11 +499,57 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .hexagon,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            // https://github.com/llvm/llvm-project/pull/111217
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .hexagon,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            // https://github.com/llvm/llvm-project/pull/111217
+            .skip_modules = &.{"std"},
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -513,7 +557,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabihf,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -522,7 +565,6 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -531,7 +573,6 @@ const test_targets = blk: {
                 .abi = .musleabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -540,7 +581,6 @@ const test_targets = blk: {
                 .abi = .gnueabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -549,7 +589,6 @@ const test_targets = blk: {
                 .abi = .gnueabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
 
         .{
@@ -558,7 +597,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabi,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -566,7 +604,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabihf,
             },
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -575,7 +612,6 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -584,7 +620,6 @@ const test_targets = blk: {
                 .abi = .musleabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -593,7 +628,6 @@ const test_targets = blk: {
                 .abi = .gnueabi,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
         .{
             .target = .{
@@ -602,7 +636,6 @@ const test_targets = blk: {
                 .abi = .gnueabihf,
             },
             .link_libc = true,
-            .slow_backend = true,
         },
 
         .{
@@ -1375,7 +1408,7 @@ pub fn addRunTranslatedCTests(
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
-    test_slow_targets: bool,
+    test_extra_targets: bool,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
@@ -1400,7 +1433,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             }
         }
 
-        if (!options.test_slow_targets and test_target.slow_backend) continue;
+        if (!options.test_extra_targets and test_target.extra_target) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
@@ -1430,9 +1463,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
-        // TODO get universal-libc tests passing for other self-hosted backends.
+        // TODO get zigc tests passing for other self-hosted backends.
         if (target.cpu.arch != .x86_64 and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
+            test_target.use_llvm == false and mem.eql(u8, options.name, "zigc"))
             continue;
 
         // TODO get std lib tests passing for other self-hosted backends.
@@ -1668,7 +1701,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
-            test_step.want_lto = false;
+            test_step.lto = .none;
 
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;

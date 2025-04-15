@@ -172,6 +172,9 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
+        .spirv,
+        .spirv32,
+        .spirv64,
         .s390x,
         .thumb,
         .thumbeb,
@@ -186,12 +189,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .wasm64,
         .ve,
         => true,
-
-        // An LLVM backend exists but we don't currently support using it.
-        .spirv,
-        .spirv32,
-        .spirv64,
-        => false,
 
         // No LLVM backend exists.
         .kalimba,
@@ -213,7 +210,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// debug mode. A given target should only return true here if it is passing greater
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
-    _ = target;
+    if (target.cpu.arch.isSpirV()) return true;
     return false;
 }
 
@@ -293,7 +290,13 @@ pub fn hasDebugInfo(target: std.Target) bool {
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx82) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx83) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx84) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx85) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx86) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx87),
         .bpfel, .bpfeb => false,
         else => true,
     };
@@ -311,8 +314,12 @@ pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .aarch64,
         .aarch64_be,
-        .x86,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
         .x86_64,
+        .x86,
         => true,
 
         else => false,
@@ -490,10 +497,9 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => "aapcs",
-        // TODO: `muslsf` and `muslf32` in LLVM 20.
         .loongarch64 => switch (target.abi) {
-            .gnusf => "lp64s",
-            .gnuf32 => "lp64f",
+            .gnusf, .muslsf => "lp64s",
+            .gnuf32, .muslf32 => "lp64f",
             else => "lp64d",
         },
         .loongarch32 => switch (target.abi) {

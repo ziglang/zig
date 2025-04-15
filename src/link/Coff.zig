@@ -1763,6 +1763,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         man.hash.addOptionalBytes(entry_name);
         man.hash.add(coff.base.stack_size);
         man.hash.add(coff.image_base);
+        man.hash.add(coff.base.build_id);
         {
             // TODO remove this, libraries must instead be resolved by the frontend.
             for (coff.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
@@ -1894,6 +1895,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{coff.base.stack_size}));
         }
         try argv.append(try allocPrint(arena, "-BASE:{d}", .{coff.image_base}));
+
+        switch (coff.base.build_id) {
+            .none => try argv.append("-BUILD-ID:NO"),
+            .fast => try argv.append("-BUILD-ID"),
+            .uuid, .sha1, .md5, .hexstring => {},
+        }
 
         if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");
@@ -2147,6 +2154,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             },
         }
 
+        if (comp.config.link_libc and link_in_crt) {
+            if (comp.zigc_static_lib) |zigc| {
+                try argv.append(try zigc.full_object_path.toString(arena));
+            }
+        }
+
         // libc++ dep
         if (comp.config.link_libcpp) {
             try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
@@ -2172,11 +2185,6 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
-            if (!comp.config.link_libc) {
-                if (comp.libc_static_lib) |lib| {
-                    try argv.append(try lib.full_object_path.toString(arena));
-                }
-            }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
             if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));

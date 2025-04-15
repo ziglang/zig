@@ -313,6 +313,8 @@ pub const BuildId = union(enum) {
     }
 };
 
+pub const LtoMode = enum { none, full, thin };
+
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
@@ -541,7 +543,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?
         gpa,
         max_src_size,
         size_hint,
-        @alignOf(u8),
+        .of(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,

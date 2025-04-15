@@ -202,6 +202,7 @@ pub fn init(options: StepOptions) Step {
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
+            if (!std.debug.sys_can_stack_trace) break :blk &.{};
             const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
             @memset(addresses, 0);
             const first_ret_addr = options.first_ret_addr orelse @returnAddress();

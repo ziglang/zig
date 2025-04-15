@@ -94,6 +94,8 @@ available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
 
+build_id: ?std.zig.BuildId = null,
+
 pub const ReleaseMode = enum {
     off,
     any,

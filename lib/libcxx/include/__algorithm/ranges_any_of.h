@@ -9,9 +9,9 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_ANY_OF_H
 #define _LIBCPP___ALGORITHM_RANGES_ANY_OF_H
 
+#include <__algorithm/any_of.h>
 #include <__config>
 #include <__functional/identity.h>
-#include <__functional/invoke.h>
 #include <__iterator/concepts.h>
 #include <__iterator/projected.h>
 #include <__ranges/access.h>
@@ -30,24 +30,14 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __any_of {
-struct __fn {
-  template <class _Iter, class _Sent, class _Proj, class _Pred>
-  _LIBCPP_HIDE_FROM_ABI constexpr static bool __any_of_impl(_Iter __first, _Sent __last, _Pred& __pred, _Proj& __proj) {
-    for (; __first != __last; ++__first) {
-      if (std::invoke(__pred, std::invoke(__proj, *__first)))
-        return true;
-    }
-    return false;
-  }
-
+struct __any_of {
   template <input_iterator _Iter,
             sentinel_for<_Iter> _Sent,
             class _Proj = identity,
             indirect_unary_predicate<projected<_Iter, _Proj>> _Pred>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
   operator()(_Iter __first, _Sent __last, _Pred __pred = {}, _Proj __proj = {}) const {
-    return __any_of_impl(std::move(__first), std::move(__last), __pred, __proj);
+    return std::__any_of(std::move(__first), std::move(__last), __pred, __proj);
   }
 
   template <input_range _Range,
@@ -55,13 +45,12 @@ struct __fn {
             indirect_unary_predicate<projected<iterator_t<_Range>, _Proj>> _Pred>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool
   operator()(_Range&& __range, _Pred __pred, _Proj __proj = {}) const {
-    return __any_of_impl(ranges::begin(__range), ranges::end(__range), __pred, __proj);
+    return std::__any_of(ranges::begin(__range), ranges::end(__range), __pred, __proj);
   }
 };
-} // namespace __any_of
 
 inline namespace __cpo {
-inline constexpr auto any_of = __any_of::__fn{};
+inline constexpr auto any_of = __any_of{};
 } // namespace __cpo
 } // namespace ranges
 

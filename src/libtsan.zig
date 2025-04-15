@@ -124,7 +124,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
-    const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"tsan"});
+    const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"libtsan"});
     for (tsan_sources) |tsan_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -134,7 +134,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &.{ "tsan", tsan_src }),
+            .src_path = try comp.zig_lib_directory.join(arena, &.{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -155,7 +155,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -179,7 +179,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-DNDEBUG");
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", asm_source }),
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", asm_source }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -187,7 +187,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     try c_source_files.ensureUnusedCapacity(sanitizer_common_sources.len);
     const sanitizer_common_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-        "tsan", "sanitizer_common",
+        "libtsan", "sanitizer_common",
     });
     for (sanitizer_common_sources) |common_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
@@ -201,7 +201,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "tsan", "sanitizer_common", common_src,
+                "libtsan", "sanitizer_common", common_src,
             }),
             .extra_flags = cflags.items,
             .owner = root_mod,
@@ -225,7 +225,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "tsan", "sanitizer_common", c_src,
+                "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
             .owner = root_mod,
@@ -243,7 +243,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "tsan", "sanitizer_common", c_src,
+                "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
             .owner = root_mod,
@@ -269,7 +269,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "tsan", "interception", c_src,
+                "libtsan", "interception", c_src,
             }),
             .extra_flags = cflags.items,
             .owner = root_mod,
@@ -410,9 +410,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_allocator.cpp",
     "sanitizer_chained_origin_depot.cpp",
     "sanitizer_common.cpp",
-    "sanitizer_coverage_win_dll_thunk.cpp",
-    "sanitizer_coverage_win_dynamic_runtime_thunk.cpp",
-    "sanitizer_coverage_win_weak_interception.cpp",
     "sanitizer_deadlock_detector1.cpp",
     "sanitizer_deadlock_detector2.cpp",
     "sanitizer_errno.cpp",
@@ -452,9 +449,7 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_tls_get_addr.cpp",
     "sanitizer_type_traits.cpp",
     "sanitizer_win.cpp",
-    "sanitizer_win_dll_thunk.cpp",
-    "sanitizer_win_dynamic_runtime_thunk.cpp",
-    "sanitizer_win_weak_interception.cpp",
+    "sanitizer_win_interception.cpp",
 };
 
 const sanitizer_nolibc_sources = [_][]const u8{
@@ -490,6 +485,7 @@ const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_symbolizer_report.cpp",
     "sanitizer_symbolizer_report_fuchsia.cpp",
     "sanitizer_symbolizer_win.cpp",
+    "sanitizer_thread_history.cpp",
     "sanitizer_unwind_linux_libcdep.cpp",
     "sanitizer_unwind_fuchsia.cpp",
     "sanitizer_unwind_win.cpp",

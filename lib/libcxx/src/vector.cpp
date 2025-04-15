@@ -17,8 +17,8 @@ struct __vector_base_common;
 
 template <>
 struct __vector_base_common<true> {
-  _LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_length_error() const;
-  _LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_out_of_range() const;
+  [[noreturn]] _LIBCPP_EXPORTED_FROM_ABI void __throw_length_error() const;
+  [[noreturn]] _LIBCPP_EXPORTED_FROM_ABI void __throw_out_of_range() const;
 };
 
 void __vector_base_common<true>::__throw_length_error() const { std::__throw_length_error("vector"); }

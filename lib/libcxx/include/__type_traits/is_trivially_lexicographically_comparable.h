@@ -10,6 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_IS_TRIVIALLY_LEXICOGRAPHICALLY_COMPARABLE_H
 
 #include <__config>
+#include <__fwd/byte.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_unsigned.h>
@@ -40,13 +41,22 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // unsigned integer types with sizeof(T) > 1: depending on the endianness, the LSB might be the first byte to be
 //                                            compared. This means that when comparing unsigned(129) and unsigned(2)
 //                                            using memcmp(), the result would be that 2 > 129.
-//                                            TODO: Do we want to enable this on big-endian systems?
+
+template <class _Tp>
+inline const bool __is_std_byte_v = false;
+
+#if _LIBCPP_STD_VER >= 17
+template <>
+inline const bool __is_std_byte_v<byte> = true;
+#endif
 
 template <class _Tp, class _Up>
-struct __libcpp_is_trivially_lexicographically_comparable
-    : integral_constant<bool,
-                        is_same<__remove_cv_t<_Tp>, __remove_cv_t<_Up> >::value && sizeof(_Tp) == 1 &&
-                            is_unsigned<_Tp>::value> {};
+inline const bool __is_trivially_lexicographically_comparable_v =
+    is_same<__remove_cv_t<_Tp>, __remove_cv_t<_Up> >::value &&
+#ifdef _LIBCPP_LITTLE_ENDIAN
+    sizeof(_Tp) == 1 &&
+#endif
+    (is_unsigned<_Tp>::value || __is_std_byte_v<_Tp>);
 
 _LIBCPP_END_NAMESPACE_STD
 
