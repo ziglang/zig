@@ -67,9 +67,11 @@ const BranchType = enum {
     }
 };
 
-pub fn emitMir(
-    emit: *Emit,
-) !void {
+pub fn emitMir(emit: *Emit) InnerError!void {
+    return @errorCast(emit.emitMirInner());
+}
+
+fn emitMirInner(emit: *Emit) anyerror!void {
     const mir_tags = emit.mir.instructions.items(.tag);
 
     // Find smallest lowerings for branch instructions
@@ -370,16 +372,20 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
 
+            var aw: std.io.AllocatingWriter = undefined;
+            const bw = aw.fromArrayList(self.bin_file.comp.gpa, &dbg_out.dbg_line);
+            defer dbg_out.dbg_line = aw.toArrayList();
+
             // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(bw, delta_line);
             // increasing the pc
             const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
                 // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
-                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
-                if (dbg_out.pcop_change_index) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                try bw.writeByte(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
+                const dbg_line = aw.getWritten();
+                if (dbg_out.pcop_change_index) |pci| dbg_line[pci] += 1;
+                dbg_out.pcop_change_index = @intCast(dbg_line.len - 1);
             } else if (d_pc_p9 == 0) {
                 // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;

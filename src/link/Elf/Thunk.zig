@@ -65,16 +65,10 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) usize {
     };
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(thunk: Thunk, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = thunk;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format Thunk directly");
 }
 
@@ -90,20 +84,14 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
     const thunk = ctx.thunk;
     const elf_file = ctx.elf_file;
-    try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
+    try bw.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
     for (thunk.symbols.keys()) |ref| {
         const sym = elf_file.symbol(ref).?;
-        try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
+        try bw.print("  {f} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
     }
 }
 

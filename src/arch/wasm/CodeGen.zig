@@ -1199,17 +1199,14 @@ pub const Function = extern struct {
         }
     };
 
-    pub fn lower(f: *Function, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
-        const gpa = wasm.base.comp.gpa;
-
+    pub fn lower(f: *Function, wasm: *Wasm, bw: *std.io.BufferedWriter) anyerror!void {
         // Write the locals in the prologue of the function body.
         const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
-        try code.ensureUnusedCapacity(gpa, 5 + locals.len * 6 + 38);
 
-        std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(locals.len))) catch unreachable;
+        try bw.writeLeb128(locals.len);
         for (locals) |local| {
-            std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-            code.appendAssumeCapacity(@intFromEnum(local));
+            try bw.writeUleb128(1);
+            try bw.writeByte(@intFromEnum(local));
         }
 
         // Stack management section of function prologue.
@@ -1217,31 +1214,30 @@ pub const Function = extern struct {
         if (stack_alignment.toByteUnits()) |align_bytes| {
             const sp_global: Wasm.GlobalIndex = .stack_pointer;
             // load stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.global_get));
+            try bw.writeLeb128(@intFromEnum(sp_global));
             // store stack pointer so we can restore it when we return from the function
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.sp_local) catch unreachable;
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.local_tee));
+            try bw.writeLeb128(f.prologue.sp_local);
             // get the total stack size
-            const aligned_stack: i32 = @intCast(stack_alignment.forward(f.prologue.stack_size));
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
+            const aligned_stack: u32 = @intCast(stack_alignment.forward(f.prologue.stack_size));
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.i32_const));
+            try bw.writeLeb128(@as(i32, @bitCast(aligned_stack)));
             // subtract it from the current stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.i32_sub));
             // Get negative stack alignment
-            const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.i32_const));
+            try bw.writeLeb128(-@as(i32, @intCast(align_bytes)));
             // Bitwise-and the value to get the new stack pointer to ensure the
             // pointers are aligned with the abi alignment.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.i32_and));
             // The bottom will be used to calculate all stack pointer offsets.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.bottom_stack_local) catch unreachable;
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.local_tee));
+            try bw.writeLeb128(f.prologue.bottom_stack_local);
             // Store the current stack pointer value into the global stack pointer so other function calls will
             // start from this value instead and not overwrite the current stack.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+            try bw.writeByte(@intFromEnum(std.wasm.Opcode.global_set));
+            try bw.writeLeb128(@intFromEnum(sp_global));
         }
 
         var emit: Emit = .{
@@ -1251,7 +1247,7 @@ pub const Function = extern struct {
                 .extra = wasm.mir_extra.items[f.mir_extra_off..][0..f.mir_extra_len],
             },
             .wasm = wasm,
-            .code = code,
+            .bw = bw,
         };
         try emit.lowerToCode();
     }
@@ -1553,7 +1549,7 @@ fn allocStack(cg: *CodeGen, ty: Type) !WValue {
     }
 
     const abi_size = std.math.cast(u32, ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             ty.fmt(pt), ty.abiSize(zcu),
         });
     };
@@ -1587,7 +1583,7 @@ fn allocStackPtr(cg: *CodeGen, inst: Air.Inst.Index) !WValue {
 
     const abi_alignment = ptr_ty.ptrAlignment(zcu);
     const abi_size = std.math.cast(u32, pointee_ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             pointee_ty.fmt(pt), pointee_ty.abiSize(zcu),
         });
     };
@@ -2492,7 +2488,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
         },
         else => if (abi_size > 8) {
-            return cg.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
+            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{
                 ty.fmt(pt),
                 abi_size,
             });
@@ -2685,7 +2681,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
             return cg.binOpBigInt(lhs, rhs, ty, op);
         } else {
             return cg.fail(
-                "TODO: Implement binary operation for type: {}",
+                "TODO: Implement binary operation for type: {f}",
                 .{ty.fmt(pt)},
             );
         }
@@ -2905,7 +2901,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (scalar_ty.zigTypeTag(zcu)) {
         .int => if (ty.zigTypeTag(zcu) == .vector) {
-            return cg.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
+            return cg.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
         } else {
             const int_bits = ty.intInfo(zcu).bits;
             const wasm_bits = toWasmBits(int_bits) orelse {
@@ -3332,7 +3328,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             return .{ .imm32 = @intFromBool(!val.isNull(zcu)) };
         },
         .aggregate => switch (ip.indexToKey(ty.ip_index)) {
-            .array_type => return cg.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(pt)}),
+            .array_type => return cg.fail("Wasm TODO: LowerConstant for {f}", .{ty.fmt(pt)}),
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, cg.target) == .direct);
                 var buf: [16]u8 = undefined;
@@ -3696,7 +3692,7 @@ fn airNot(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const int_info = operand_ty.intInfo(zcu);
             const wasm_bits = toWasmBits(int_info.bits) orelse {
-                return cg.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(pt)});
+                return cg.fail("TODO: Implement binary NOT for {f}", .{operand_ty.fmt(pt)});
             };
 
             switch (wasm_bits) {
@@ -3962,7 +3958,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         else => result: {
             const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, zcu)) orelse {
-                return cg.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(pt)});
+                return cg.fail("Field type '{f}' too big to fit into stack frame", .{field_ty.fmt(pt)});
             };
             if (isByRef(field_ty, zcu, cg.target)) {
                 switch (operand) {
@@ -4448,7 +4444,7 @@ fn isNull(cg: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.Opc
         // a pointer to the stack value
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-                return cg.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(pt)});
+                return cg.fail("Optional type {f} too big to fit into stack frame", .{optional_ty.fmt(pt)});
             };
             try cg.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
@@ -4518,7 +4514,7 @@ fn airOptionalPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
     }
 
     const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-        return cg.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(pt)});
+        return cg.fail("Optional type {f} too big to fit into stack frame", .{opt_ty.fmt(pt)});
     };
 
     try cg.emitWValue(operand);
@@ -4550,7 +4546,7 @@ fn airWrapOptional(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
         const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-            return cg.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(pt)});
+            return cg.fail("Optional type {f} too big to fit into stack frame", .{op_ty.fmt(pt)});
         };
 
         // Create optional type, set the non-null bit, and store the operand inside the optional type
@@ -6285,7 +6281,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try cg.load(overflow_ret, Type.i32, 0);
         try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
-    } else return cg.fail("TODO: @mulWithOverflow for {}", .{ty.fmt(pt)});
+    } else return cg.fail("TODO: @mulWithOverflow for {f}", .{ty.fmt(pt)});
     var bin_op_local = try mul.toLocal(cg, ty);
     defer bin_op_local.free(cg);
 
@@ -6838,7 +6834,7 @@ fn airMod(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const add = try cg.binOp(rem, rhs, ty, .add);
             break :result try cg.binOp(add, rhs, ty, .rem);
         }
-        return cg.fail("TODO: @mod for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: @mod for {f}", .{ty.fmt(pt)});
     };
 
     return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
@@ -6856,7 +6852,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
     };
 
     switch (wasm_bits) {
@@ -6893,7 +6889,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         64 => {
             if (!(int_info.bits == 64 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             _ = try cg.callIntrinsic(
@@ -6911,7 +6907,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         128 => {
             if (!(int_info.bits == 128 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             const ret = try cg.callIntrinsic(

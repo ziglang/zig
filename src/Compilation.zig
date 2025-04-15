@@ -1051,11 +1051,12 @@ pub const CObject = struct {
                     }
                 };
 
+                var buffer: [1024]u8 = undefined;
                 const file = try std.fs.cwd().openFile(path, .{});
                 defer file.close();
-                var br = std.io.bufferedReader(file.reader());
-                const reader = br.reader();
-                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                var br: std.io.BufferedReader = undefined;
+                br.init(file.reader(), &buffer);
+                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .br = &br });
                 defer bc.deinit();
 
                 var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
@@ -2614,7 +2615,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                         const prefix = man.cache.prefixes()[pp.prefix];
                         return comp.setMiscFailure(
                             .check_whole_cache,
-                            "failed to check cache: '{}{s}' {s} {s}",
+                            "failed to check cache: '{f}{s}' {s} {s}",
                             .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
                         );
                     },
@@ -2849,7 +2850,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
                 return comp.setMiscFailure(
                     .rename_results,
-                    "failed to rename compilation results ('{}{s}') into local cache ('{}{s}'): {s}",
+                    "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {s}",
                     .{
                         comp.dirs.local_cache, tmp_dir_sub_path,
                         comp.dirs.local_cache, o_sub_path,
@@ -4643,7 +4644,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{}{s}': {s}",
+            "unable to create output directory '{f}{s}': {s}",
             .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
@@ -4663,7 +4664,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var tar_file = out_dir.createFile("sources.tar", .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create '{}{s}/sources.tar': {s}",
+            "unable to create '{f}{s}/sources.tar': {s}",
             .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
@@ -4692,7 +4693,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
         const root_dir, const sub_path = root.openInfo(comp.dirs);
         break :d root_dir.openDir(sub_path, .{ .iterate = true });
     } catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{}': {s}", .{
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {s}", .{
             root.fmt(comp), @errorName(err),
         });
     };
@@ -4942,7 +4943,7 @@ fn workerUpdateBuiltinFile(comp: *Compilation, file: *Zcu.File) void {
         defer comp.mutex.unlock();
         comp.setMiscFailure(
             .write_builtin_zig,
-            "unable to write '{}': {s}",
+            "unable to write '{f}': {s}",
             .{ file.path.fmt(comp), @errorName(err) },
         );
     };
@@ -5640,7 +5641,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
+                const stderr = try child.stderr.?.readToEndAlloc(arena, .unlimited);
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -5800,13 +5801,12 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             // In .rc files, a " within a quoted string is escaped as ""
             const fmtRcEscape = struct {
-                fn formatRcEscape(bytes: []const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+                fn formatRcEscape(bytes: []const u8, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
                     _ = fmt;
-                    _ = options;
                     for (bytes) |byte| switch (byte) {
-                        '"' => try writer.writeAll("\"\""),
-                        '\\' => try writer.writeAll("\\\\"),
-                        else => try writer.writeByte(byte),
+                        '"' => try bw.writeAll("\"\""),
+                        '\\' => try bw.writeAll("\\\\"),
+                        else => try bw.writeByte(byte),
                     };
                 }
 
@@ -5824,7 +5824,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // 24 is RT_MANIFEST
             const resource_type = 24;
 
-            const input = try std.fmt.allocPrint(arena, "{} {} \"{s}\"", .{ resource_id, resource_type, fmtRcEscape(src_path) });
+            const input = try std.fmt.allocPrint(arena, "{} {} \"{f}\"", .{ resource_id, resource_type, fmtRcEscape(src_path) });
 
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
@@ -6001,13 +6001,10 @@ fn spawnZigRc(
     const stdout = poller.fifo(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
-        }
+        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) if (!try poller.poll()) break :poll;
+        var header: std.zig.Server.Message.Header = undefined;
+        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(std.zig.Server.Message.Header));
+        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll;
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
         switch (header.tag) {

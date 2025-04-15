@@ -810,7 +810,7 @@ const NavGen = struct {
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &zcu.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}, key = {s}", .{ ty.fmt(pt), val.fmtValue(pt), @tagName(ip.indexToKey(val.toIntern())) });
+        log.debug("lowering constant: ty = {f}, val = {f}, key = {s}", .{ ty.fmt(pt), val.fmtValue(pt), @tagName(ip.indexToKey(val.toIntern())) });
         if (val.isUndefDeep(zcu)) {
             return self.spv.constUndef(result_ty_id);
         }
@@ -1140,7 +1140,7 @@ const NavGen = struct {
                     return result_ptr_id;
                 }
 
-                return self.fail("cannot perform pointer cast: '{}' to '{}'", .{
+                return self.fail("cannot perform pointer cast: '{f}' to '{f}'", .{
                     parent_ptr_ty.fmt(pt),
                     oac.new_ptr_ty.fmt(pt),
                 });
@@ -1252,11 +1252,11 @@ const NavGen = struct {
     }
 
     // Turn a Zig type's name into a cache reference.
-    fn resolveTypeName(self: *NavGen, ty: Type) ![]const u8 {
-        var name = std.ArrayList(u8).init(self.gpa);
-        defer name.deinit();
-        try ty.print(name.writer(), self.pt);
-        return try name.toOwnedSlice();
+    fn resolveTypeName(self: *NavGen, ty: Type) Allocator.Error![]const u8 {
+        var aw: std.io.AllocatingWriter = undefined;
+        aw.init(self.gpa);
+        ty.print(&aw.buffered_writer, self.pt) catch |err| return @errorCast(err);
+        return aw.toOwnedSlice();
     }
 
     /// Create an integer type suitable for storing at least 'bits' bits.
@@ -1453,7 +1453,7 @@ const NavGen = struct {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        log.debug("resolveType: ty = {}", .{ty.fmt(pt)});
+        log.debug("resolveType: ty = {f}", .{ty.fmt(pt)});
         const target = self.spv.target;
 
         const section = &self.spv.sections.types_globals_constants;
@@ -3057,7 +3057,7 @@ const NavGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{nav.fqn.fmt(ip)});
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {f}", .{nav.fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                         .id_result_type = ptr_ty_id,

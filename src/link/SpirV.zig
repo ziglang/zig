@@ -125,7 +125,7 @@ pub fn updateFunc(
 
     const ip = &pt.zcu.intern_pool;
     const func = pt.zcu.funcInfo(func_index);
-    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
+    log.debug("lowering function {f}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
 
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
@@ -136,7 +136,7 @@ pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) lin
     }
 
     const ip = &pt.zcu.intern_pool;
-    log.debug("lowering nav {}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
+    log.debug("lowering nav {f}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
 
     try self.object.updateNav(pt, nav);
 }
@@ -226,10 +226,11 @@ pub fn flushModule(
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-    var error_info = std.ArrayList(u8).init(self.object.gpa);
+    var error_info: std.io.AllocatingWriter = undefined;
+    error_info.init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.appendSlice("zig_errors:");
+    error_info.buffered_writer.writeAll("zig_errors:") catch |err| return @errorCast(err);
     const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -237,9 +238,9 @@ pub fn flushModule(
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        try error_info.append(':');
-        try std.Uri.Component.percentEncode(
-            error_info.writer(),
+        error_info.buffered_writer.writeByte(':') catch |err| return @errorCast(err);
+        std.Uri.Component.percentEncode(
+            &error_info.buffered_writer,
             name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {
@@ -249,10 +250,10 @@ pub fn flushModule(
                     };
                 }
             }.isValidChar,
-        );
+        ) catch |err| return @errorCast(err);
     }
     try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
-        .extension = error_info.items,
+        .extension = error_info.getWritten(),
     });
 
     const module = try spv.finalize(arena);

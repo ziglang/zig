@@ -316,16 +316,10 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     out.st_size = esym.st_size;
 }
 
-pub fn format(
-    symbol: Symbol,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(symbol: Symbol, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = symbol;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format Symbol directly");
 }
 
@@ -341,24 +335,18 @@ pub fn fmtName(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(formatName) {
     } };
 }
 
-fn formatName(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
+fn formatName(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
-    try writer.writeAll(symbol.name(elf_file));
+    try bw.writeAll(symbol.name(elf_file));
     switch (symbol.version_index.VERSION) {
         @intFromEnum(elf.VER_NDX.LOCAL), @intFromEnum(elf.VER_NDX.GLOBAL) => {},
         else => {
             const file_ptr = symbol.file(elf_file).?;
             assert(file_ptr == .shared_object);
             const shared_object = file_ptr.shared_object;
-            try writer.print("@{s}", .{shared_object.versionString(symbol.version_index)});
+            try bw.print("@{s}", .{shared_object.versionString(symbol.version_index)});
         },
     }
 }
@@ -370,17 +358,11 @@ pub fn fmt(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(format2) {
     } };
 }
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
     const elf_file = ctx.elf_file;
-    try writer.print("%{d} : {s} : @{x}", .{
+    try bw.print("%{d} : {f} : @{x}", .{
         symbol.esym_index,
         symbol.fmtName(elf_file),
         symbol.address(.{ .plt = false, .trampoline = false }, elf_file),
@@ -388,25 +370,25 @@ fn format2(
     if (symbol.file(elf_file)) |file_ptr| {
         if (symbol.isAbs(elf_file)) {
             if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
-                try writer.writeAll(" : undef");
+                try bw.writeAll(" : undef");
             } else {
-                try writer.writeAll(" : absolute");
+                try bw.writeAll(" : absolute");
             }
         } else if (symbol.outputShndx(elf_file)) |shndx| {
-            try writer.print(" : shdr({d})", .{shndx});
+            try bw.print(" : shdr({d})", .{shndx});
         }
         if (symbol.atom(elf_file)) |atom_ptr| {
-            try writer.print(" : atom({d})", .{atom_ptr.atom_index});
+            try bw.print(" : atom({d})", .{atom_ptr.atom_index});
         }
         var buf: [2]u8 = .{'_'} ** 2;
         if (symbol.flags.@"export") buf[0] = 'E';
         if (symbol.flags.import) buf[1] = 'I';
-        try writer.print(" : {s}", .{&buf});
-        if (symbol.flags.weak) try writer.writeAll(" : weak");
+        try bw.print(" : {s}", .{&buf});
+        if (symbol.flags.weak) try bw.writeAll(" : weak");
         switch (file_ptr) {
-            inline else => |x| try writer.print(" : {s}({d})", .{ @tagName(file_ptr), x.index }),
+            inline else => |x| try bw.print(" : {s}({d})", .{ @tagName(file_ptr), x.index }),
         }
-    } else try writer.writeAll(" : unresolved");
+    } else try bw.writeAll(" : unresolved");
 }
 
 pub const Flags = packed struct {
