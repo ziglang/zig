@@ -7481,14 +7481,13 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
     {
         return true;
     }
-    // Look for .so.X
+    // Look for .so.X, .so.X.Y, .so.X.Y.Z.*
     var it = mem.splitScalar(u8, filename, '.');
     _ = it.first();
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
         so_txt = it.next() orelse return false;
     }
-
     const n1 = it.next() orelse return false;
     const n2 = it.next();
     const n3 = it.next();
