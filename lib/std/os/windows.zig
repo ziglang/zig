@@ -1913,6 +1913,7 @@ pub fn CreateProcessW(
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIRECTORY => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
