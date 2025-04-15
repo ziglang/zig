@@ -20,16 +20,16 @@ pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
     return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
 }
 
-pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {
+pub fn write(thunk: Thunk, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
     for (thunk.symbols.keys(), 0..) |ref, i| {
         const sym = ref.getSymbol(macho_file).?;
         const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
         const taddr = sym.getAddress(.{}, macho_file);
         const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
-        try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
         const off: u12 = @truncate(taddr);
-        try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
-        try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
     }
 }
 
@@ -61,16 +61,10 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(thunk: Thunk, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = thunk;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format Thunk directly");
 }
 
@@ -86,20 +80,14 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
     const thunk = ctx.thunk;
     const macho_file = ctx.macho_file;
-    try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
+    try bw.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
     for (thunk.symbols.keys()) |ref| {
         const sym = ref.getSymbol(macho_file).?;
-        try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+        try bw.print("  {f} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
     }
 }
 

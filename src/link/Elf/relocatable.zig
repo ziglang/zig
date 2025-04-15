@@ -31,7 +31,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         try elf_file.allocateNonAllocSections();
 
         if (build_options.enable_logging) {
-            state_log.debug("{}", .{elf_file.dumpState()});
+            state_log.debug("{f}", .{elf_file.dumpState()});
         }
 
         try elf_file.writeMergeSections();
@@ -96,36 +96,35 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(elf_file)});
-        state_log.debug("ar_strtab\n{}\n", .{ar_strtab});
+        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(elf_file)});
+        state_log.debug("ar_strtab\n{f}\n", .{ar_strtab});
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-    try buffer.ensureTotalCapacityPrecise(total_size);
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(try gpa.alloc(u8, total_size));
+    defer gpa.free(bw.buffer);
 
     // Write magic
-    try buffer.writer().writeAll(elf.ARMAG);
+    try bw.writeAll(elf.ARMAG);
 
     // Write symtab
-    try ar_symtab.write(.p64, elf_file, buffer.writer());
+    try ar_symtab.write(.p64, elf_file, &bw);
 
     // Write strtab
     if (ar_strtab.size() > 0) {
-        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try ar_strtab.write(buffer.writer());
+        if (!mem.isAligned(bw.count, 2)) try bw.writeByte(0);
+        try ar_strtab.write(&bw);
     }
 
     // Write object files
     for (files.items) |index| {
-        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try elf_file.file(index).?.writeAr(elf_file, buffer.writer());
+        if (!mem.isAligned(bw.count, 2)) try bw.writeByte(0);
+        try elf_file.file(index).?.writeAr(elf_file, &bw);
     }
 
-    assert(buffer.items.len == total_size);
-
+    assert(bw.end == bw.buffer.len);
     try elf_file.base.file.?.setEndPos(total_size);
-    try elf_file.base.file.?.pwriteAll(buffer.items, 0);
+    try elf_file.base.file.?.pwriteAll(bw.buffer, 0);
 
     if (diags.hasErrors()) return error.LinkFailure;
 }
@@ -170,7 +169,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     try elf_file.allocateNonAllocSections();
 
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{elf_file.dumpState()});
+        state_log.debug("{f}", .{elf_file.dumpState()});
     }
 
     try writeAtoms(elf_file);
@@ -407,17 +406,16 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer: std.io.AllocatingWriter = undefined;
-        const bw = buffer.init(gpa);
-        defer buffer.deinit();
-        try buffer.ensureTotalCapacity(gpa, sh_size - existing_size);
-        try eh_frame.writeEhFrameRelocatable(elf_file, bw);
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(try gpa.alloc(u8, sh_size - existing_size));
+        defer gpa.free(bw.buffer);
+        try eh_frame.writeEhFrameRelocatable(elf_file, &bw);
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
             shdr.sh_offset + existing_size,
             shdr.sh_offset + sh_size,
         });
-        assert(buffer.getWritten().len == sh_size - existing_size);
-        try elf_file.base.file.?.pwriteAll(buffer.getWritten(), shdr.sh_offset + existing_size);
+        assert(bw.end == bw.buffer.len);
+        try elf_file.base.file.?.pwriteAll(bw.buffer, shdr.sh_offset + existing_size);
     }
     if (elf_file.section_indexes.eh_frame_rela) |shndx| {
         const shdr = slice.items(.shdr)[shndx];

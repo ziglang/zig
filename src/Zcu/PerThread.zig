@@ -190,7 +190,7 @@ pub fn updateFile(
                 // failure was a race, or ENOENT, indicating deletion of the
                 // directory of our open handle.
                 if (builtin.os.tag != .macos) {
-                    std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                    std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                         cache_directory,
                     });
                 }
@@ -202,7 +202,7 @@ pub fn updateFile(
                 }) catch |excl_err| switch (excl_err) {
                     error.PathAlreadyExists => continue,
                     error.FileNotFound => {
-                        std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                        std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                             cache_directory,
                         });
                     },
@@ -646,7 +646,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -751,7 +751,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
 
     const anal_unit: AnalUnit = .wrap(.{ .@"comptime" = cu_id });
 
-    log.debug("ensureComptimeUnitUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureComptimeUnitUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -802,7 +802,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             return error.AnalysisFail;
         },
@@ -832,7 +832,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     const anal_unit: AnalUnit = .wrap(.{ .@"comptime" = cu_id });
     const comptime_unit = ip.getComptimeUnit(cu_id);
 
-    log.debug("analyzeComptimeUnit {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeComptimeUnit {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = comptime_unit.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -878,7 +878,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
             .r = .{ .simple = .comptime_keyword },
         } },
         .src_base_inst = comptime_unit.zir_index,
-        .type_name_ctx = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.comptime", .{
+        .type_name_ctx = try ip.getOrPutStringFmt(gpa, pt.tid, "{f}.comptime", .{
             Type.fromInterned(zcu.namespacePtr(comptime_unit.namespace).owner_type).containerTypeName(ip).fmt(ip),
         }, .no_embedded_nulls),
     };
@@ -930,7 +930,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
     const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
     const nav = ip.getNav(nav_id);
 
-    log.debug("ensureNavValUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureNavValUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     // Determine whether or not this `Nav`'s value is outdated. This also includes checking if the
     // status is `.unresolved`, which indicates that the value is outdated because it has *never*
@@ -988,7 +988,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -1059,7 +1059,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
     const old_nav = ip.getNav(nav_id);
 
-    log.debug("analyzeNavVal {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeNavVal {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -1240,10 +1240,10 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     // TODO: this is jank. If #20663 is rejected, let's think about how to better model `usingnamespace`.
     if (zir_decl.kind == .@"usingnamespace") {
         if (nav_ty.toIntern() != .type_type) {
-            return sema.fail(&block, ty_src, "expected type, found {}", .{nav_ty.fmt(pt)});
+            return sema.fail(&block, ty_src, "expected type, found {f}", .{nav_ty.fmt(pt)});
         }
         if (nav_val.toType().getNamespace(zcu) == .none) {
-            return sema.fail(&block, ty_src, "type {} has no namespace", .{nav_val.toType().fmt(pt)});
+            return sema.fail(&block, ty_src, "type {f} has no namespace", .{nav_val.toType().fmt(pt)});
         }
         ip.resolveNavValue(nav_id, .{
             .val = nav_val.toIntern(),
@@ -1339,7 +1339,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
     const anal_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
     const nav = ip.getNav(nav_id);
 
-    log.debug("ensureNavTypeUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureNavTypeUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const type_resolved_by_value: bool = from_val: {
         const analysis = nav.analysis orelse break :from_val false;
@@ -1409,7 +1409,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -1451,7 +1451,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     const anal_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
     const old_nav = ip.getNav(nav_id);
 
-    log.debug("analyzeNavType {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeNavType {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -1582,7 +1582,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
     const anal_unit: AnalUnit = .wrap(.{ .func = func_index });
 
-    log.debug("ensureFuncBodyUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureFuncBodyUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const func = zcu.funcInfo(maybe_coerced_func_index);
 
@@ -1626,7 +1626,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
                 // If this function caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider the IES to be outdated if the function previously succeeded analysis; in this case,
             // we need to re-analyze dependants to ensure they hit a transitive error here, rather than reporting
@@ -1696,7 +1696,7 @@ fn analyzeFuncBody(
     else
         .none;
 
-    log.debug("analyze and generate fn body {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyze and generate fn body {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     var air = try pt.analyzeFnBodyInner(func_index);
     errdefer air.deinit(gpa);
@@ -2615,7 +2615,7 @@ const ScanDeclIter = struct {
         var gop = try iter.seen_decls.getOrPut(gpa, name);
         var next_suffix: u32 = 0;
         while (gop.found_existing) {
-            name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
+            name = try ip.getOrPutStringFmt(gpa, pt.tid, "{f}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
             gop = try iter.seen_decls.getOrPut(gpa, name);
             next_suffix += 1;
         }
@@ -2764,7 +2764,7 @@ const ScanDeclIter = struct {
 
         if (existing_unit == null and (want_analysis or decl.linkage == .@"export")) {
             log.debug(
-                "scanDecl queue analyze_comptime_unit file='{s}' unit={}",
+                "scanDecl queue analyze_comptime_unit file='{s}' unit={f}",
                 .{ namespace.fileScope(zcu).sub_file_path, zcu.fmtAnalUnit(unit) },
             );
             try comp.queueJob(.{ .analyze_comptime_unit = unit });
@@ -3182,7 +3182,7 @@ fn processExportsInner(
         if (gop.found_existing) {
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {}", .{
+            const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {f}", .{
                 new_export.opts.name.fmt(ip),
             });
             errdefer msg.destroy(gpa);

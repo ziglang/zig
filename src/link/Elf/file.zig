@@ -14,19 +14,13 @@ pub const File = union(enum) {
         return .{ .data = file };
     }
 
-    fn formatPath(
-        file: File,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    fn formatPath(file: File, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
         _ = unused_fmt_string;
-        _ = options;
         switch (file) {
-            .zig_object => |zo| try writer.writeAll(zo.basename),
-            .linker_defined => try writer.writeAll("(linker defined)"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .shared_object => |x| try writer.print("{}", .{@as(Path, x.path)}),
+            .zig_object => |zo| try bw.writeAll(zo.basename),
+            .linker_defined => try bw.writeAll("(linker defined)"),
+            .object => |x| try bw.print("{f}", .{x.fmtPath()}),
+            .shared_object => |x| try bw.print("{f}", .{x.path}),
         }
     }
 

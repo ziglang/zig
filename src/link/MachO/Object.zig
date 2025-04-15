@@ -72,7 +72,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("parsing {}", .{self.fmtPath()});
+    log.debug("parsing {f}", .{self.fmtPath()});
 
     const gpa = macho_file.base.comp.gpa;
     const handle = macho_file.getFileHandle(self.file_handle);
@@ -239,7 +239,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
 
     if (self.platform) |platform| {
         if (!macho_file.platform.eqlTarget(platform)) {
-            try macho_file.reportParseError2(self.index, "invalid platform: {}", .{
+            try macho_file.reportParseError2(self.index, "invalid platform: {f}", .{
                 platform.fmtTarget(cpu_arch),
             });
             return error.InvalidTarget;
@@ -247,7 +247,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         // TODO: this causes the CI to fail so I'm commenting this check out so that
         // I can work out the rest of the changes first
         // if (macho_file.platform.version.order(platform.version) == .lt) {
-        //     try macho_file.reportParseError2(self.index, "object file built for newer platform: {}: {} < {}", .{
+        //     try macho_file.reportParseError2(self.index, "object file built for newer platform: {f}: {f} < {f}", .{
         //         macho_file.platform.fmtTarget(macho_file.getTarget().cpu.arch),
         //         macho_file.platform.version,
         //         platform.version,
@@ -1065,7 +1065,8 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
         }
     }
 
-    var it = eh_frame.Iterator{ .data = self.eh_frame_data.items };
+    var it: eh_frame.Iterator = undefined;
+    it.br.initFixed(self.eh_frame_data.items);
     while (try it.next()) |rec| {
         switch (rec.tag) {
             .cie => try self.cies.append(allocator, .{
@@ -1694,11 +1695,11 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
     };
 }
 
-pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
+pub fn writeAr(self: Object, bw: *std.io.BufferedWriter, ar_format: Archive.Format, macho_file: *MachO) !void {
     // Header
     const size = try macho_file.cast(usize, self.output_ar_state.size);
     const basename = std.fs.path.basename(self.path.sub_path);
-    try Archive.writeHeader(basename, size, ar_format, writer);
+    try Archive.writeHeader(bw, basename, size, ar_format);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
     // TODO try using copyRangeAll
@@ -1707,7 +1708,7 @@ pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writ
     defer gpa.free(data);
     const amt = try file.preadAll(data, self.offset);
     if (amt != size) return error.InputOutput;
-    try writer.writeAll(data);
+    try bw.writeAll(data);
 }
 
 pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
@@ -1861,7 +1862,7 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
         }
         gpa.free(sections_data);
     }
-    @memset(sections_data, &[0]u8{});
+    @memset(sections_data, &.{});
     const file = macho_file.getFileHandle(self.file_handle);
 
     for (headers, 0..) |header, n_sect| {
@@ -2512,16 +2513,10 @@ pub fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_
     return data;
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = self;
+    _ = bw;
     _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
     @compileError("do not format objects directly");
 }
 
@@ -2537,20 +2532,14 @@ pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatAtoms
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
-    try writer.writeAll("  atoms\n");
+    try bw.writeAll("  atoms\n");
     for (object.getAtoms()) |atom_index| {
         const atom = object.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(macho_file)});
+        try bw.print("    {f}\n", .{atom.fmt(macho_file)});
     }
 }
 
@@ -2561,18 +2550,12 @@ pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatCies) 
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
-    try writer.writeAll("  cies\n");
+    try bw.writeAll("  cies\n");
     for (object.cies.items, 0..) |cie, i| {
-        try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(ctx.macho_file) });
+        try bw.print("    cie({d}) : {f}\n", .{ i, cie.fmt(ctx.macho_file) });
     }
 }
 
@@ -2583,18 +2566,12 @@ pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatFdes) 
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
-    try writer.writeAll("  fdes\n");
+    try bw.writeAll("  fdes\n");
     for (object.fdes.items, 0..) |fde, i| {
-        try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(ctx.macho_file) });
+        try bw.print("    fde({d}) : {f}\n", .{ i, fde.fmt(ctx.macho_file) });
     }
 }
 
@@ -2605,19 +2582,13 @@ pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatUnwindRecords(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatUnwindRecords(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
-    try writer.writeAll("  unwind records\n");
+    try bw.writeAll("  unwind records\n");
     for (object.unwind_records_indexes.items) |rec| {
-        try writer.print("    rec({d}) : {}\n", .{ rec, object.getUnwindRecord(rec).fmt(macho_file) });
+        try bw.print("    rec({d}) : {f}\n", .{ rec, object.getUnwindRecord(rec).fmt(macho_file) });
     }
 }
 
@@ -2628,34 +2599,28 @@ pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatSymt
     } };
 }
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
-    try writer.writeAll("  symbols\n");
+    try bw.writeAll("  symbols\n");
     for (object.symbols.items, 0..) |sym, i| {
         const ref = object.getSymbolRef(@intCast(i), macho_file);
         if (ref.getFile(macho_file) == null) {
             // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
         }
     }
     for (object.stab_files.items) |sf| {
-        try writer.print("  stabs({s},{s},{s})\n", .{
+        try bw.print("  stabs({s},{s},{s})\n", .{
             sf.getCompDir(object.*),
             sf.getTuName(object.*),
             sf.getOsoPath(object.*),
         });
         for (sf.stabs.items) |stab| {
-            try writer.print("    {}", .{stab.fmt(object.*)});
+            try bw.print("    {f}", .{stab.fmt(object.*)});
         }
     }
 }
@@ -2664,20 +2629,14 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
     _ = unused_fmt_string;
-    _ = options;
     if (object.in_archive) |ar| {
-        try writer.print("{}({s})", .{
-            @as(Path, ar.path), object.path.basename(),
+        try bw.print("{f}({s})", .{
+            ar.path, object.path.basename(),
         });
     } else {
-        try writer.print("{}", .{@as(Path, object.path)});
+        try bw.print("{f}", .{object.path});
     }
 }
 
@@ -2731,16 +2690,10 @@ const StabFile = struct {
             return object.symbols.items[index];
         }
 
-        pub fn format(
-            stab: Stab,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        pub fn format(stab: Stab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
             _ = stab;
+            _ = bw;
             _ = unused_fmt_string;
-            _ = options;
-            _ = writer;
             @compileError("do not format stabs directly");
         }
 
@@ -2750,22 +2703,16 @@ const StabFile = struct {
             return .{ .data = .{ stab, object } };
         }
 
-        fn format2(
-            ctx: StabFormatContext,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        fn format2(ctx: StabFormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
             _ = unused_fmt_string;
-            _ = options;
             const stab, const object = ctx;
             const sym = stab.getSymbol(object).?;
             if (stab.is_func) {
-                try writer.print("func({d})", .{stab.index.?});
+                try bw.print("func({d})", .{stab.index.?});
             } else if (sym.visibility == .global) {
-                try writer.print("gsym({d})", .{stab.index.?});
+                try bw.print("gsym({d})", .{stab.index.?});
             } else {
-                try writer.print("stsym({d})", .{stab.index.?});
+                try bw.print("stsym({d})", .{stab.index.?});
             }
         }
     };

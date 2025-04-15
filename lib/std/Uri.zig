@@ -236,44 +236,44 @@ pub const WriteToStreamOptions = struct {
     port: bool = true,
 };
 
-pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.BufferedWriter) anyerror!void {
     if (options.scheme) {
-        try writer.print("{s}:", .{uri.scheme});
+        try bw.print("{s}:", .{uri.scheme});
         if (options.authority and uri.host != null) {
-            try writer.writeAll("//");
+            try bw.writeAll("//");
         }
     }
     if (options.authority) {
         if (options.authentication and uri.host != null) {
             if (uri.user) |user| {
-                try writer.print("{fuser}", .{user});
+                try bw.print("{fuser}", .{user});
                 if (uri.password) |password| {
-                    try writer.print(":{fpassword}", .{password});
+                    try bw.print(":{fpassword}", .{password});
                 }
-                try writer.writeByte('@');
+                try bw.writeByte('@');
             }
         }
         if (uri.host) |host| {
-            try writer.print("{fhost}", .{host});
+            try bw.print("{fhost}", .{host});
             if (options.port) {
-                if (uri.port) |port| try writer.print(":{d}", .{port});
+                if (uri.port) |port| try bw.print(":{d}", .{port});
             }
         }
     }
     if (options.path) {
-        try writer.print("{fpath}", .{
+        try bw.print("{fpath}", .{
             if (uri.path.isEmpty()) Uri.Component{ .percent_encoded = "/" } else uri.path,
         });
         if (options.query) {
-            if (uri.query) |query| try writer.print("?{fquery}", .{query});
+            if (uri.query) |query| try bw.print("?{fquery}", .{query});
         }
         if (options.fragment) {
-            if (uri.fragment) |fragment| try writer.print("#{ffragment}", .{fragment});
+            if (uri.fragment) |fragment| try bw.print("#{ffragment}", .{fragment});
         }
     }
 }
 
-pub fn format(uri: Uri, comptime fmt: []const u8, _: std.fmt.Options, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn format(uri: Uri, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
     const scheme = comptime std.mem.indexOfScalar(u8, fmt, ';') != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOfScalar(u8, fmt, '@') != null or fmt.len == 0;
     const authority = comptime std.mem.indexOfScalar(u8, fmt, '+') != null or fmt.len == 0;
@@ -288,7 +288,7 @@ pub fn format(uri: Uri, comptime fmt: []const u8, _: std.fmt.Options, writer: *s
         .path = path,
         .query = query,
         .fragment = fragment,
-    }, writer);
+    }, bw);
 }
 
 /// Parses the URI or returns an error.

@@ -1523,11 +1523,11 @@ const MachODumper = struct {
         ) !void {
             const size = try br.takeLeb128(u64);
             if (size > 0) {
-                const flags = try br.takeLeb128(u64);
+                const flags = try br.takeLeb128(u8);
                 switch (flags) {
                     macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
                         const ord = try br.takeLeb128(u64);
-                        const name = try br.takeDelimiterConclusive(0);
+                        const name = try br.takeSentinel(0);
                         try exports.append(.{
                             .name = if (name.len > 0) name else prefix,
                             .tag = .reexport,
@@ -1568,8 +1568,8 @@ const MachODumper = struct {
 
             const nedges = try br.takeByte();
             for (0..nedges) |_| {
-                const label = try br.takeDelimiterConclusive(0);
-                const off = try br.takeLeb128(u64);
+                const label = try br.takeSentinel(0);
+                const off = try br.takeLeb128(usize);
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
                 const seek = br.seek;
                 br.seek = off;

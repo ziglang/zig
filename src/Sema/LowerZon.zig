@@ -338,7 +338,7 @@ fn failUnsupportedResultType(
     const gpa = sema.gpa;
     const pt = sema.pt;
     return sema.failWithOwnedErrorMsg(self.block, msg: {
-        const msg = try sema.errMsg(self.import_loc, "type '{}' is not available in ZON", .{ty.fmt(pt)});
+        const msg = try sema.errMsg(self.import_loc, "type '{f}' is not available in ZON", .{ty.fmt(pt)});
         errdefer msg.destroy(gpa);
         if (opt_note) |n| try sema.errNote(self.import_loc, msg, "{s}", .{n});
         break :msg msg;
@@ -362,7 +362,7 @@ fn lowerExprKnownResTy(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) Com
     return self.lowerExprKnownResTyInner(node, res_ty) catch |err| switch (err) {
         error.WrongType => return self.fail(
             node,
-            "expected type '{}'",
+            "expected type '{f}'",
             .{res_ty.fmt(pt)},
         ),
         else => |e| return e,
@@ -428,7 +428,7 @@ fn lowerExprKnownResTyInner(
         .frame,
         .@"anyframe",
         .void,
-        => return self.fail(node, "type '{}' not available in ZON", .{res_ty.fmt(pt)}),
+        => return self.fail(node, "type '{f}' not available in ZON", .{res_ty.fmt(pt)}),
     }
 }
 
@@ -458,7 +458,7 @@ fn lowerInt(
                     // If lhs is unsigned and rhs is less than 0, we're out of bounds
                     if (lhs_info.signedness == .unsigned and rhs < 0) return self.fail(
                         node,
-                        "type '{}' cannot represent integer value '{}'",
+                        "type '{f}' cannot represent integer value '{}'",
                         .{ res_ty.fmt(self.sema.pt), rhs },
                     );
 
@@ -478,7 +478,7 @@ fn lowerInt(
                         if (rhs < min_int or rhs > max_int) {
                             return self.fail(
                                 node,
-                                "type '{}' cannot represent integer value '{}'",
+                                "type '{f}' cannot represent integer value '{}'",
                                 .{ res_ty.fmt(self.sema.pt), rhs },
                             );
                         }
@@ -496,7 +496,7 @@ fn lowerInt(
                     if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
                             node,
-                            "type '{}' cannot represent integer value '{}'",
+                            "type '{f}' cannot represent integer value '{f}'",
                             .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }
@@ -517,7 +517,7 @@ fn lowerInt(
             switch (big_int.setFloat(val, .trunc)) {
                 .inexact => return self.fail(
                     node,
-                    "fractional component prevents float value '{}' from coercion to type '{}'",
+                    "fractional component prevents float value '{}' from coercion to type '{f}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
                 ),
                 .exact => {},
@@ -528,7 +528,7 @@ fn lowerInt(
             if (!big_int.toConst().fitsInTwosComp(int_info.signedness, int_info.bits)) {
                 return self.fail(
                     node,
-                    "type '{}' cannot represent integer value '{}'",
+                    "type '{}' cannot represent integer value '{f}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
                 );
             }
@@ -550,7 +550,7 @@ fn lowerInt(
                     if (val >= out_of_range) {
                         return self.fail(
                             node,
-                            "type '{}' cannot represent integer value '{}'",
+                            "type '{f}' cannot represent integer value '{}'",
                             .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }
@@ -584,7 +584,7 @@ fn lowerFloat(
         .pos_inf => b: {
             if (res_ty.toIntern() == .comptime_float_type) return self.fail(
                 node,
-                "expected type '{}'",
+                "expected type '{f}'",
                 .{res_ty.fmt(self.sema.pt)},
             );
             break :b try self.sema.pt.floatValue(res_ty, std.math.inf(f128));
@@ -592,7 +592,7 @@ fn lowerFloat(
         .neg_inf => b: {
             if (res_ty.toIntern() == .comptime_float_type) return self.fail(
                 node,
-                "expected type '{}'",
+                "expected type '{f}'",
                 .{res_ty.fmt(self.sema.pt)},
             );
             break :b try self.sema.pt.floatValue(res_ty, -std.math.inf(f128));
@@ -600,7 +600,7 @@ fn lowerFloat(
         .nan => b: {
             if (res_ty.toIntern() == .comptime_float_type) return self.fail(
                 node,
-                "expected type '{}'",
+                "expected type '{f}'",
                 .{res_ty.fmt(self.sema.pt)},
             );
             break :b try self.sema.pt.floatValue(res_ty, std.math.nan(f128));
@@ -661,7 +661,7 @@ fn lowerEnum(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
             const field_index = res_ty.enumFieldIndex(field_name_interned, self.sema.pt.zcu) orelse {
                 return self.fail(
                     node,
-                    "enum {} has no member named '{}'",
+                    "enum {f} has no member named '{f}'",
                     .{
                         res_ty.fmt(self.sema.pt),
                         std.zig.fmtId(field_name.get(self.file.zoir.?)),
@@ -795,7 +795,7 @@ fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         const field_node = fields.vals.at(@intCast(i));
 
         const name_index = struct_info.nameIndex(ip, field_name) orelse {
-            return self.fail(field_node, "unexpected field '{}'", .{field_name.fmt(ip)});
+            return self.fail(field_node, "unexpected field '{f}'", .{field_name.fmt(ip)});
         };
 
         const field_type: Type = .fromInterned(struct_info.field_types.get(ip)[name_index]);
@@ -816,7 +816,7 @@ fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
 
     const field_names = struct_info.field_names.get(ip);
     for (field_values, field_names) |*value, name| {
-        if (value.* == .none) return self.fail(node, "missing field '{}'", .{name.fmt(ip)});
+        if (value.* == .none) return self.fail(node, "missing field '{f}'", .{name.fmt(ip)});
     }
 
     return self.sema.pt.intern(.{ .aggregate = .{
@@ -934,7 +934,7 @@ fn lowerUnion(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         .struct_literal => b: {
             const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
                 .struct_literal => |fields| fields,
-                else => return self.fail(node, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
+                else => return self.fail(node, "expected type '{f}'", .{res_ty.fmt(self.sema.pt)}),
             };
             if (fields.names.len != 1) {
                 return error.WrongType;

@@ -133,11 +133,11 @@ pub fn makePath(p: Path, sub_path: []const u8) !void {
 }
 
 pub fn toString(p: Path, allocator: Allocator) Allocator.Error![]u8 {
-    return std.fmt.allocPrint(allocator, "{}", .{p});
+    return std.fmt.allocPrint(allocator, "{f}", .{p});
 }
 
 pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
-    return std.fmt.allocPrintZ(allocator, "{}", .{p});
+    return std.fmt.allocPrintZ(allocator, "{f}", .{p});
 }
 
 pub fn format(

@@ -2322,13 +2322,7 @@ pub const Const = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(
-        self: Const,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
+    pub fn format(self: Const, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
         comptime var base = 10;
         comptime var case: std.fmt.Case = .lower;
 
@@ -2348,19 +2342,21 @@ pub const Const = struct {
             std.fmt.invalidFmtError(fmt, self);
         }
 
-        const available_len = 64;
-        if (self.limbs.len > available_len)
-            return out_stream.writeAll("(BigInt)");
-
-        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
-
-        const biggest: Const = .{
-            .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
-            .positive = false,
-        };
-        var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
-        const len = self.toString(&buf, base, case, &limbs);
-        return out_stream.writeAll(buf[0..len]);
+        const max_str_len = self.sizeInBaseUpperBound(base);
+        const limbs_len = calcToStringLimbsBufferLen(self.limbs.len, base);
+        if (bw.writableSlice(max_str_len + @alignOf(Limb) - 1 + @sizeOf(Limb) * limbs_len)) |buf| {
+            const limbs: [*]Limb = @alignCast(@ptrCast(std.mem.alignPointer(buf[max_str_len..].ptr, @alignOf(Limb))));
+            bw.advance(self.toString(buf[0..max_str_len], base, case, limbs[0..limbs_len]));
+            return;
+        } else |_| if (bw.writableSlice(max_str_len)) |buf| {
+            const available_len = 64;
+            var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
+            if (limbs.len >= limbs_len) {
+                bw.advance(self.toString(buf, base, case, &limbs));
+                return;
+            }
+        } else |_| {}
+        try bw.writeAll("(BigInt)");
     }
 
     /// Converts self to a string in the requested base.

@@ -1358,7 +1358,7 @@ fn linuxLookupNameFromHosts(
 
     var line_buf: [512]u8 = undefined;
     var br = file.reader().buffered(&line_buf);
-    while (br.takeDelimiterConclusive('\n')) |line| {
+    while (br.takeSentinel('\n')) |line| {
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 
@@ -1550,7 +1550,7 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
 
     var line_buf: [512]u8 = undefined;
     var br = file.reader().buffered(&line_buf);
-    while (br.takeDelimiterConclusive('\n')) |line_with_comment| {
+    while (br.takeSentinel('\n')) |line_with_comment| {
         const line = line: {
             var split = mem.splitScalar(u8, line_with_comment, '#');
             break :line split.first();

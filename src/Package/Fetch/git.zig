@@ -119,15 +119,9 @@ pub const Oid = union(Format) {
         } else error.InvalidOid;
     }
 
-    pub fn format(
-        oid: Oid,
-        comptime fmt: []const u8,
-        options: std.fmt.Options,
-        writer: *std.io.BufferedWriter,
-    ) anyerror!void {
+    pub fn format(oid: Oid, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
         _ = fmt;
-        _ = options;
-        try writer.print("{x}", .{oid.slice()});
+        try bw.print("{x}", .{oid.slice()});
     }
 
     pub fn slice(oid: *const Oid) []const u8 {

@@ -1011,7 +1011,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(zcu);
@@ -1022,7 +1022,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst.Index) !MCValue {
     const pt = self.pt;
     const abi_size = math.cast(u32, elem_ty.abiSize(pt.zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     const abi_align = elem_ty.abiAlignment(pt.zcu);
 
@@ -4636,7 +4636,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) InnerError!void {
     const mcv = try self.resolveInst(operand);
     const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
 
-    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), mcv });
+    log.debug("airDbgVar: %{f}: {f}, {}", .{ inst, ty.fmtDebug(), mcv });
 
     try self.dbg_info_relocs.append(self.gpa, .{
         .tag = tag,

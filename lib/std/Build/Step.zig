@@ -469,7 +469,7 @@ pub fn evalZigProcess(
     // This is intentionally printed for failure on the first build but not for
     // subsequent rebuilds.
     if (s.result_error_bundle.errorMessageCount() > 0) {
-        return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
+        return s.fail("the following command failed with {d} compilation errors:\n{s}\n", .{
             s.result_error_bundle.errorMessageCount(),
             try allocPrintCmd(arena, null, argv),
         });
@@ -689,7 +689,7 @@ pub inline fn handleChildProcUnsupported(
 ) error{ OutOfMemory, MakeFailed }!void {
     if (!std.process.can_spawn) {
         return s.fail(
-            "unable to execute the following command: host cannot spawn child processes\n{s}",
+            "unable to execute the following command: host cannot spawn child processes\n{s}\n",
             .{try allocPrintCmd(s.owner.allocator, opt_cwd, argv)},
         );
     }
@@ -706,14 +706,14 @@ pub fn handleChildProcessTerm(
         .Exited => |code| {
             if (code != 0) {
                 return s.fail(
-                    "the following command exited with error code {d}:\n{s}",
+                    "the following command exited with error code {d}:\n{s}\n",
                     .{ code, try allocPrintCmd(arena, opt_cwd, argv) },
                 );
             }
         },
         .Signal, .Stopped, .Unknown => {
             return s.fail(
-                "the following command terminated unexpectedly:\n{s}",
+                "the following command terminated unexpectedly:\n{s}\n",
                 .{try allocPrintCmd(arena, opt_cwd, argv)},
             );
         },

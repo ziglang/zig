@@ -18,20 +18,28 @@ pub const Error = Lower.Error || error{
 };
 
 pub fn emitMir(emit: *Emit) Error!void {
+    return @errorCast(emit.emitMirInner());
+}
+
+fn emitMirInner(emit: *Emit) anyerror!void {
     const gpa = emit.bin_file.comp.gpa;
+    var aw: std.io.AllocatingWriter = undefined;
+    const bw = aw.fromArrayList(gpa, emit.code);
+    defer emit.code.* = aw.toArrayList();
+
     log.debug("mir instruction len: {}", .{emit.lower.mir.instructions.len});
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
         try emit.code_offset_mapping.putNoClobber(
             emit.lower.allocator,
             mir_index,
-            @intCast(emit.code.items.len),
+            @intCast(bw.count),
         );
         const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset: u32 = @intCast(emit.code.items.len);
-            try lowered_inst.encode(emit.code.writer(gpa));
+            const start_offset: u32 = @intCast(bw.count);
+            try lowered_inst.encode(bw);
 
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
@@ -123,7 +131,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
                                 emit.prev_di_line, emit.prev_di_column,
                             });
-                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column, bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -132,6 +140,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .pseudo_dbg_line_column => try emit.dbgAdvancePCAndLine(
                     mir_inst.data.pseudo_dbg_line_column.line,
                     mir_inst.data.pseudo_dbg_line_column.column,
+                    bw.count,
                 ),
                 .pseudo_dbg_epilogue_begin => {
                     switch (emit.debug_output) {
@@ -140,7 +149,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
                                 emit.prev_di_line, emit.prev_di_column,
                             });
-                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column, bw.count);
                         },
                         .plan9 => {},
                         .none => {},
@@ -150,7 +159,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             }
         }
     }
-    try emit.fixupRelocs();
+    try emit.fixupRelocs(aw.getWritten());
 }
 
 pub fn deinit(emit: *Emit) void {
@@ -170,14 +179,14 @@ const Reloc = struct {
     fmt: encoding.Lir.Format,
 };
 
-fn fixupRelocs(emit: *Emit) Error!void {
+fn fixupRelocs(emit: *Emit, written: []u8) Error!void {
     for (emit.relocs.items) |reloc| {
-        log.debug("target inst: {}", .{emit.lower.mir.instructions.get(reloc.target)});
+        log.debug("target inst: {f}", .{emit.lower.mir.instructions.get(reloc.target)});
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("relocation target not found!", .{});
 
         const disp = @as(i32, @intCast(target)) - @as(i32, @intCast(reloc.source));
-        const code: *[4]u8 = emit.code.items[reloc.source + reloc.offset ..][0..4];
+        const code: *[4]u8 = written[reloc.source + reloc.offset ..][0..4];
 
         switch (reloc.fmt) {
             .J => riscv_util.writeInstJ(code, @bitCast(disp)),
@@ -187,9 +196,9 @@ fn fixupRelocs(emit: *Emit) Error!void {
     }
 }
 
-fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32, pc: usize) Error!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    const delta_pc = pc - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {

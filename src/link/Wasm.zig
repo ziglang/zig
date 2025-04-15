@@ -547,7 +547,7 @@ pub const SourceLocation = enum(u32) {
         switch (sl.unpack(wasm)) {
             .none => unreachable,
             .zig_object_nofile => diags.addError("zig compilation unit: " ++ f, args),
-            .object_index => |i| diags.addError("{}: " ++ f, .{i.ptr(wasm).path} ++ args),
+            .object_index => |i| diags.addError("{f}: " ++ f, .{i.ptr(wasm).path} ++ args),
             .source_location_index => @panic("TODO"),
         }
     }
@@ -579,9 +579,9 @@ pub const SourceLocation = enum(u32) {
             .object_index => |i| {
                 const obj = i.ptr(wasm);
                 return if (obj.archive_member_name.slice(wasm)) |obj_name|
-                    try bundle.printString("{} ({s}): {s}", .{ obj.path, std.fs.path.basename(obj_name), msg })
+                    try bundle.printString("{f} ({s}): {s}", .{ obj.path, std.fs.path.basename(obj_name), msg })
                 else
-                    try bundle.printString("{}: {s}", .{ obj.path, msg });
+                    try bundle.printString("{f}: {s}", .{ obj.path, msg });
             },
             .source_location_index => @panic("TODO"),
         };
@@ -2087,11 +2087,10 @@ pub const Expr = enum(u32) {
     pub const end = @intFromEnum(std.wasm.Opcode.end);
 
     pub fn slice(index: Expr, wasm: *const Wasm) [:end]const u8 {
-        const start_slice = wasm.string_bytes.items[@intFromEnum(index)..];
-        const end_pos = Object.exprEndPos(start_slice, 0) catch |err| switch (err) {
-            error.InvalidInitOpcode => unreachable,
-        };
-        return start_slice[0..end_pos :end];
+        var br: std.io.BufferedReader = undefined;
+        br.initFixed(wasm.string_bytes.items[@intFromEnum(index)..]);
+        Object.skipInit(&br) catch unreachable;
+        return br.storageBuffer()[0 .. br.seek - 1 :end];
     }
 };
 
@@ -2126,32 +2125,26 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(
-            self: Formatter,
-            comptime format_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        pub fn format(self: Formatter, bw: *std.io.BufferedWriter, comptime format_string: []const u8) anyerror!void {
             if (format_string.len != 0) std.fmt.invalidFmtError(format_string, self);
-            _ = options;
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
-            try writer.writeByte('(');
+            try bw.writeByte('(');
             for (params, 0..) |param, i| {
-                try writer.print("{s}", .{@tagName(param)});
+                try bw.print("{s}", .{@tagName(param)});
                 if (i + 1 != params.len) {
-                    try writer.writeAll(", ");
+                    try bw.writeAll(", ");
                 }
             }
-            try writer.writeAll(") -> ");
+            try bw.writeAll(") -> ");
             if (returns.len == 0) {
-                try writer.writeAll("nil");
+                try bw.writeAll("nil");
             } else {
                 for (returns, 0..) |return_ty, i| {
-                    try writer.print("{s}", .{@tagName(return_ty)});
+                    try bw.print("{s}", .{@tagName(return_ty)});
                     if (i + 1 != returns.len) {
-                        try writer.writeAll(", ");
+                        try bw.writeAll(", ");
                     }
                 }
             }
@@ -2912,10 +2905,9 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = opt;
+    pub fn format(feature: Feature, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
         _ = fmt;
-        try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
+        try bw.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 
     pub fn lessThan(_: void, a: Feature, b: Feature) bool {
@@ -3036,7 +3028,7 @@ fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
 }
 
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
-    log.debug("parseObject {}", .{obj.path});
+    log.debug("parseObject {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -3046,21 +3038,22 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     const stat = try obj.file.stat();
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    const file_contents = try gpa.alloc(u8, size);
-    defer gpa.free(file_contents);
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(try gpa.alloc(u8, size));
+    defer gpa.free(br.storageBuffer());
 
-    const n = try obj.file.preadAll(file_contents, 0);
-    if (n != file_contents.len) return error.UnexpectedEndOfFile;
+    const n = try obj.file.preadAll(br.storageBuffer(), 0);
+    if (n != br.storageBuffer().len) return error.UnexpectedEndOfFile;
 
     var ss: Object.ScratchSpace = .{};
     defer ss.deinit(gpa);
 
-    const object = try Object.parse(wasm, file_contents, obj.path, null, wasm.object_host_name, &ss, obj.must_link, gc_sections);
+    const object = try Object.parse(wasm, &br, obj.path, null, wasm.object_host_name, &ss, obj.must_link, gc_sections);
     wasm.objects.appendAssumeCapacity(object);
 }
 
 fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
-    log.debug("parseArchive {}", .{obj.path});
+    log.debug("parseArchive {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -3196,7 +3189,7 @@ pub fn updateFunc(
     const is_obj = zcu.comp.config.output_mode == .Obj;
     const target = &zcu.comp.root_mod.resolved_target.result;
     const owner_nav = zcu.funcInfo(func_index).owner_nav;
-    log.debug("updateFunc {}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
+    log.debug("updateFunc {f}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
 
     // For Wasm, we do not lower the MIR to code just yet. That lowering happens during `flush`,
     // after garbage collection, which can affect function and global indexes, which affects the
@@ -4347,7 +4340,7 @@ fn resolveFunctionSynthetic(
     });
     if (import.type != correct_func_type) {
         const diags = &wasm.base.comp.link_diags;
-        return import.source_location.fail(diags, "synthetic function {s} {} imported with incorrect signature {}", .{
+        return import.source_location.fail(diags, "synthetic function {s} {f} imported with incorrect signature {f}", .{
             @tagName(res), correct_func_type.fmt(wasm), import.type.fmt(wasm),
         });
     }
