@@ -3423,13 +3423,22 @@ pub fn optEuBaseType(ty: Type, zcu: *const Zcu) Type {
 
 pub fn toUnsigned(ty: Type, pt: Zcu.PerThread) !Type {
     const zcu = pt.zcu;
-    return switch (ty.zigTypeTag(zcu)) {
-        .int => pt.intType(.unsigned, ty.intInfo(zcu).bits),
-        .vector => try pt.vectorType(.{
-            .len = ty.vectorLen(zcu),
-            .child = (try ty.childType(zcu).toUnsigned(pt)).toIntern(),
-        }),
-        else => unreachable,
+    return switch (ty.toIntern()) {
+        // zig fmt: off
+        .usize_type,       .isize_type      => .usize,
+        .c_ushort_type,    .c_short_type    => .c_ushort,
+        .c_uint_type,      .c_int_type      => .c_uint,
+        .c_ulong_type,     .c_long_type     => .c_ulong,
+        .c_ulonglong_type, .c_longlong_type => .c_ulonglong,
+        // zig fmt: on
+        else => switch (ty.zigTypeTag(zcu)) {
+            .int => pt.intType(.unsigned, ty.intInfo(zcu).bits),
+            .vector => try pt.vectorType(.{
+                .len = ty.vectorLen(zcu),
+                .child = (try ty.childType(zcu).toUnsigned(pt)).toIntern(),
+            }),
+            else => unreachable,
+        },
     };
 }
 
