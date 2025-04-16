@@ -41,6 +41,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -50,6 +51,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
 $HOME/local/bin/ninja install
 
 stage3-debug/bin/zig build test docs \
+  -Dci \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \

@@ -28,7 +28,7 @@ export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 # Test building from source without LLVM.
 cc -o bootstrap bootstrap.c
 ./bootstrap
-./zig2 build -Dno-lib
+./zig2 build -Dci -Dno-lib
 ./zig-out/bin/zig test test/behavior.zig
 
 mkdir build-release
@@ -41,6 +41,7 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -56,10 +57,12 @@ ninja install
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-release/bin/zig build \
+  -Dci \
   -Dtarget=arm-linux-musleabihf \
   -Dno-lib
 
 stage3-release/bin/zig build test docs \
+  -Dci \
   --maxrss 21000000000 \
   -Dlldb=$HOME/deps/lldb-zig/Release-e0a42bb34/bin/lldb \
   -fqemu \
@@ -72,6 +75,7 @@ stage3-release/bin/zig build test docs \
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
+  -Dci \
   --prefix stage4-release \
   -Denable-llvm \
   -Dno-lib \
@@ -98,6 +102,7 @@ export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -110,7 +115,9 @@ unset CXX
 ninja install
 
 stage3/bin/zig test ../test/behavior.zig
-stage3/bin/zig build -p stage4 \
+stage3/bin/zig build \
+  -Dci \
+  --prefix stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \

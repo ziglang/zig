@@ -33,7 +33,7 @@ export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 # Test building from source without LLVM.
 cc -o bootstrap bootstrap.c
 ./bootstrap
-./zig2 build -Dno-lib
+./zig2 build -Dci -Dno-lib
 ./zig-out/bin/zig test test/behavior.zig
 
 mkdir build
@@ -44,6 +44,7 @@ cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
+  -DZIG_CI=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -52,6 +53,7 @@ cmake .. \
 make $JOBS install
 
 stage3/bin/zig build test docs \
+  -Dci \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
@@ -60,6 +62,7 @@ stage3/bin/zig build test docs \
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3/bin/zig build \
+  -Dci \
   --prefix stage4 \
   -Denable-llvm \
   -Dno-lib \
