@@ -4244,7 +4244,6 @@ test "llshl shift by whole number of limb" {
 
     var r: [10]Limb = @splat(padding);
 
-    // arbitrary numbers known to fit ?
     const A: Limb = @truncate(0xCCCCCCCCCCCCCCCCCCCCCCC);
     const B: Limb = @truncate(0x22222222222222222222222);
 
@@ -4270,62 +4269,57 @@ test llshl {
     const maxint: Limb = 0xFFFFFFFFFFFFFFFF;
 
     // zig fmt: off
-    const cases: Cases = &.{
-        .{0,  &.{0},                               &.{0}},
-        .{0,  &.{1},                               &.{1}},
-        .{0,  &.{125484842448},                    &.{125484842448}},
-        .{0,  &.{0xdeadbeef},                      &.{0xdeadbeef}},
-        .{0,  &.{maxint},                          &.{maxint}},
-        .{0,  &.{left_one},                        &.{left_one}},
-        .{0,  &.{0, 1},                            &.{0, 1}},
-        .{0,  &.{1, 2},                            &.{1, 2}},
-        .{0,  &.{left_one, 1},                     &.{left_one, 1}},
-        .{1,  &.{0},                               &.{0}},
-        .{1,  &.{2},                               &.{1}},
-        .{1,  &.{250969684896},                    &.{125484842448}},
-        .{1,  &.{0x1bd5b7dde},                     &.{0xdeadbeef}},
-        .{1,  &.{0xfffffffffffffffe, 1},           &.{maxint}},
-        .{1,  &.{0, 1},                            &.{left_one}},
-        .{1,  &.{0, 2},                            &.{0, 1}},
-        .{1,  &.{2, 4},                            &.{1, 2}},
-        .{1,  &.{0, 3},                            &.{left_one, 1}},
-        .{5,  &.{32},                              &.{1}},
-        .{5,  &.{4015514958336},                   &.{125484842448}},
-        .{5,  &.{0x1bd5b7dde0},                    &.{0xdeadbeef}},
-        .{5,  &.{0xffffffffffffffe0, 0x1f},        &.{maxint}},
-        .{5,  &.{0, 16},                           &.{left_one}},
-        .{5,  &.{0, 32},                           &.{0, 1}},
-        .{5,  &.{32, 64},                          &.{1, 2}},
-        .{5,  &.{0, 48},                           &.{left_one, 1}},
-        .{64, &.{0, 1},                            &.{1}},
-        .{64, &.{0, 125484842448},                 &.{125484842448}},
-        .{64, &.{0, 0xdeadbeef},                   &.{0xdeadbeef}},
-        .{64, &.{0, maxint},                       &.{maxint}},
-        .{64, &.{0, left_one},                     &.{left_one}},
-        .{64, &.{0, 0, 1},                         &.{0, 1}},
-        .{64, &.{0, 1, 2},                         &.{1, 2}},
-        .{64, &.{0, left_one, 1},                  &.{left_one, 1}},
-        .{35, &.{0x800000000},                     &.{1}},
-        .{35, &.{13534986488655118336, 233},       &.{125484842448}},
-        .{35, &.{0xf56df77800000000, 6},           &.{0xdeadbeef}},
-        .{35, &.{0xfffffff800000000, 0x7ffffffff}, &.{maxint}},
-        .{35, &.{0, 17179869184},                  &.{left_one}},
-        .{35, &.{0, 0x800000000},                  &.{0, 1}},
-        .{35, &.{0x800000000, 0x1000000000},       &.{1, 2}},
-        .{35, &.{0, 0xc00000000},                  &.{left_one, 1}},
-        .{70, &.{0, 64},                           &.{1}},
-        .{70, &.{0, 8031029916672},                &.{125484842448}},
-        .{70, &.{0, 0x37ab6fbbc0},                 &.{0xdeadbeef}},
-        .{70, &.{0, 0xffffffffffffffc0, 63},       &.{maxint}},
-        .{70, &.{0, 0, 32},                        &.{left_one}},
-        .{70, &.{0, 0, 64},                        &.{0, 1}},
-        .{70, &.{0, 64, 128},                      &.{1, 2}},
-        .{70, &.{0, 0, 0x60},                      &.{left_one, 1}},
-    };
+    try testOneShiftCase(.llshl, .{0,  &.{0},                               &.{0}});
+    try testOneShiftCase(.llshl, .{0,  &.{1},                               &.{1}});
+    try testOneShiftCase(.llshl, .{0,  &.{125484842448},                    &.{125484842448}});
+    try testOneShiftCase(.llshl, .{0,  &.{0xdeadbeef},                      &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{0,  &.{maxint},                          &.{maxint}});
+    try testOneShiftCase(.llshl, .{0,  &.{left_one},                        &.{left_one}});
+    try testOneShiftCase(.llshl, .{0,  &.{0, 1},                            &.{0, 1}});
+    try testOneShiftCase(.llshl, .{0,  &.{1, 2},                            &.{1, 2}});
+    try testOneShiftCase(.llshl, .{0,  &.{left_one, 1},                     &.{left_one, 1}});
+    try testOneShiftCase(.llshl, .{1,  &.{0},                               &.{0}});
+    try testOneShiftCase(.llshl, .{1,  &.{2},                               &.{1}});
+    try testOneShiftCase(.llshl, .{1,  &.{250969684896},                    &.{125484842448}});
+    try testOneShiftCase(.llshl, .{1,  &.{0x1bd5b7dde},                     &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{1,  &.{0xfffffffffffffffe, 1},           &.{maxint}});
+    try testOneShiftCase(.llshl, .{1,  &.{0, 1},                            &.{left_one}});
+    try testOneShiftCase(.llshl, .{1,  &.{0, 2},                            &.{0, 1}});
+    try testOneShiftCase(.llshl, .{1,  &.{2, 4},                            &.{1, 2}});
+    try testOneShiftCase(.llshl, .{1,  &.{0, 3},                            &.{left_one, 1}});
+    try testOneShiftCase(.llshl, .{5,  &.{32},                              &.{1}});
+    try testOneShiftCase(.llshl, .{5,  &.{4015514958336},                   &.{125484842448}});
+    try testOneShiftCase(.llshl, .{5,  &.{0x1bd5b7dde0},                    &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{5,  &.{0xffffffffffffffe0, 0x1f},        &.{maxint}});
+    try testOneShiftCase(.llshl, .{5,  &.{0, 16},                           &.{left_one}});
+    try testOneShiftCase(.llshl, .{5,  &.{0, 32},                           &.{0, 1}});
+    try testOneShiftCase(.llshl, .{5,  &.{32, 64},                          &.{1, 2}});
+    try testOneShiftCase(.llshl, .{5,  &.{0, 48},                           &.{left_one, 1}});
+    try testOneShiftCase(.llshl, .{64, &.{0, 1},                            &.{1}});
+    try testOneShiftCase(.llshl, .{64, &.{0, 125484842448},                 &.{125484842448}});
+    try testOneShiftCase(.llshl, .{64, &.{0, 0xdeadbeef},                   &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{64, &.{0, maxint},                       &.{maxint}});
+    try testOneShiftCase(.llshl, .{64, &.{0, left_one},                     &.{left_one}});
+    try testOneShiftCase(.llshl, .{64, &.{0, 0, 1},                         &.{0, 1}});
+    try testOneShiftCase(.llshl, .{64, &.{0, 1, 2},                         &.{1, 2}});
+    try testOneShiftCase(.llshl, .{64, &.{0, left_one, 1},                  &.{left_one, 1}});
+    try testOneShiftCase(.llshl, .{35, &.{0x800000000},                     &.{1}});
+    try testOneShiftCase(.llshl, .{35, &.{13534986488655118336, 233},       &.{125484842448}});
+    try testOneShiftCase(.llshl, .{35, &.{0xf56df77800000000, 6},           &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{35, &.{0xfffffff800000000, 0x7ffffffff}, &.{maxint}});
+    try testOneShiftCase(.llshl, .{35, &.{0, 17179869184},                  &.{left_one}});
+    try testOneShiftCase(.llshl, .{35, &.{0, 0x800000000},                  &.{0, 1}});
+    try testOneShiftCase(.llshl, .{35, &.{0x800000000, 0x1000000000},       &.{1, 2}});
+    try testOneShiftCase(.llshl, .{35, &.{0, 0xc00000000},                  &.{left_one, 1}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 64},                           &.{1}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 8031029916672},                &.{125484842448}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 0x37ab6fbbc0},                 &.{0xdeadbeef}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 0xffffffffffffffc0, 63},       &.{maxint}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 0, 32},                        &.{left_one}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 0, 64},                        &.{0, 1}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 64, 128},                      &.{1, 2}});
+    try testOneShiftCase(.llshl, .{70, &.{0, 0, 0x60},                      &.{left_one, 1}});
     // zig fmt: on
-
-    try test_shift_cases(llshl, cases);
-    try test_shift_cases_aliasing(llshl, cases, -1);
 }
 
 test "llshl shift 0" {
@@ -4333,68 +4327,58 @@ test "llshl shift 0" {
     if (n <= 20) return error.SkipZigTest;
 
     // zig fmt: off
-    const cases = &.{
-        .{0,   &.{0},    &.{0}},
-        .{1,   &.{0},    &.{0}},
-        .{5,   &.{0},    &.{0}},
-        .{13,  &.{0},    &.{0}},
-        .{20,  &.{0},    &.{0}},
-        .{0,   &.{0, 0}, &.{0, 0}},
-        .{2,   &.{0, 0}, &.{0, 0}},
-        .{7,   &.{0, 0}, &.{0, 0}},
-        .{11,  &.{0, 0}, &.{0, 0}},
-        .{19,  &.{0, 0}, &.{0, 0}},
+    try testOneShiftCase(.llshl, .{0,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshl, .{1,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshl, .{5,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshl, .{13,  &.{0},    &.{0}});
+    try testOneShiftCase(.llshl, .{20,  &.{0},    &.{0}});
+    try testOneShiftCase(.llshl, .{0,   &.{0, 0}, &.{0, 0}});
+    try testOneShiftCase(.llshl, .{2,   &.{0, 0}, &.{0, 0}});
+    try testOneShiftCase(.llshl, .{7,   &.{0, 0}, &.{0, 0}});
+    try testOneShiftCase(.llshl, .{11,  &.{0, 0}, &.{0, 0}});
+    try testOneShiftCase(.llshl, .{19,  &.{0, 0}, &.{0, 0}});
 
-        .{0,   &.{0},                &.{0}},
-        .{n,   &.{0, 0},             &.{0}},
-        .{2*n, &.{0, 0, 0},          &.{0}},
-        .{3*n, &.{0, 0, 0, 0},       &.{0}},
-        .{4*n, &.{0, 0, 0, 0, 0},    &.{0}},
-        .{0,   &.{0, 0},             &.{0, 0}},
-        .{n,   &.{0, 0, 0},          &.{0, 0}},
-        .{2*n, &.{0, 0, 0, 0},       &.{0, 0}},
-        .{3*n, &.{0, 0, 0, 0, 0},    &.{0, 0}},
-        .{4*n, &.{0, 0, 0, 0, 0, 0}, &.{0, 0}},
-    };
+    try testOneShiftCase(.llshl, .{0,   &.{0},                &.{0}});
+    try testOneShiftCase(.llshl, .{n,   &.{0, 0},             &.{0}});
+    try testOneShiftCase(.llshl, .{2*n, &.{0, 0, 0},          &.{0}});
+    try testOneShiftCase(.llshl, .{3*n, &.{0, 0, 0, 0},       &.{0}});
+    try testOneShiftCase(.llshl, .{4*n, &.{0, 0, 0, 0, 0},    &.{0}});
+    try testOneShiftCase(.llshl, .{0,   &.{0, 0},             &.{0, 0}});
+    try testOneShiftCase(.llshl, .{n,   &.{0, 0, 0},          &.{0, 0}});
+    try testOneShiftCase(.llshl, .{2*n, &.{0, 0, 0, 0},       &.{0, 0}});
+    try testOneShiftCase(.llshl, .{3*n, &.{0, 0, 0, 0, 0},    &.{0, 0}});
+    try testOneShiftCase(.llshl, .{4*n, &.{0, 0, 0, 0, 0, 0}, &.{0, 0}});
     // zig fmt: on
-
-    try test_shift_cases(llshl, cases);
-    try test_shift_cases_aliasing(llshl, cases, -1);
 }
 
 test "llshr shift 0" {
     const n = @bitSizeOf(Limb);
 
     // zig fmt: off
-    const cases = &.{
-        .{0,   &.{0},    &.{0}},
-        .{1,   &.{0},    &.{0}},
-        .{5,   &.{0},    &.{0}},
-        .{13,  &.{0},    &.{0}},
-        .{20,  &.{0},    &.{0}},
-        .{0,   &.{0, 0}, &.{0, 0}},
-        .{2,   &.{0},    &.{0, 0}},
-        .{7,   &.{0},    &.{0, 0}},
-        .{11,  &.{0},    &.{0, 0}},
-        .{19,  &.{0},    &.{0, 0}},
+    try testOneShiftCase(.llshr, .{0,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshr, .{1,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshr, .{5,   &.{0},    &.{0}});
+    try testOneShiftCase(.llshr, .{13,  &.{0},    &.{0}});
+    try testOneShiftCase(.llshr, .{20,  &.{0},    &.{0}});
+    try testOneShiftCase(.llshr, .{0,   &.{0, 0}, &.{0, 0}});
+    try testOneShiftCase(.llshr, .{2,   &.{0},    &.{0, 0}});
+    try testOneShiftCase(.llshr, .{7,   &.{0},    &.{0, 0}});
+    try testOneShiftCase(.llshr, .{11,  &.{0},    &.{0, 0}});
+    try testOneShiftCase(.llshr, .{19,  &.{0},    &.{0, 0}});
 
-        .{n,   &.{0}, &.{0}},
-        .{2*n, &.{0}, &.{0}},
-        .{3*n, &.{0}, &.{0}},
-        .{4*n, &.{0}, &.{0}},
-        .{n,   &.{0}, &.{0, 0}},
-        .{2*n, &.{0}, &.{0, 0}},
-        .{3*n, &.{0}, &.{0, 0}},
-        .{4*n, &.{0}, &.{0, 0}},
+    try testOneShiftCase(.llshr, .{n,   &.{0}, &.{0}});
+    try testOneShiftCase(.llshr, .{2*n, &.{0}, &.{0}});
+    try testOneShiftCase(.llshr, .{3*n, &.{0}, &.{0}});
+    try testOneShiftCase(.llshr, .{4*n, &.{0}, &.{0}});
+    try testOneShiftCase(.llshr, .{n,   &.{0}, &.{0, 0}});
+    try testOneShiftCase(.llshr, .{2*n, &.{0}, &.{0, 0}});
+    try testOneShiftCase(.llshr, .{3*n, &.{0}, &.{0, 0}});
+    try testOneShiftCase(.llshr, .{4*n, &.{0}, &.{0, 0}});
 
-        .{1,  &.{}, &.{}},
-        .{2,  &.{}, &.{}},
-        .{64, &.{}, &.{}},
-    };
+    try testOneShiftCase(.llshr, .{1,  &.{}, &.{}});
+    try testOneShiftCase(.llshr, .{2,  &.{}, &.{}});
+    try testOneShiftCase(.llshr, .{64, &.{}, &.{}});
     // zig fmt: on
-
-    try test_shift_cases(llshr, cases);
-    try test_shift_cases_aliasing(llshr, cases, 1);
 }
 
 test "llshr to 0" {
@@ -4402,19 +4386,14 @@ test "llshr to 0" {
     if (n != 64 and n != 32) return error.SkipZigTest;
 
     // zig fmt: off
-    const cases = &.{
-        .{1,   &.{0}, &.{0}},
-        .{1,   &.{0}, &.{1}},
-        .{5,   &.{0}, &.{1}},
-        .{65,  &.{0}, &.{0, 1}},
-        .{193, &.{0}, &.{0, 0, std.math.maxInt(Limb)}},
-        .{193, &.{0}, &.{std.math.maxInt(Limb), 1, std.math.maxInt(Limb)}},
-        .{193, &.{0}, &.{0xdeadbeef, 0xabcdefab, 0x1234}},
-    };
+    try testOneShiftCase(.llshr, .{1,   &.{0}, &.{0}});
+    try testOneShiftCase(.llshr, .{1,   &.{0}, &.{1}});
+    try testOneShiftCase(.llshr, .{5,   &.{0}, &.{1}});
+    try testOneShiftCase(.llshr, .{65,  &.{0}, &.{0, 1}});
+    try testOneShiftCase(.llshr, .{193, &.{0}, &.{0, 0, std.math.maxInt(Limb)}});
+    try testOneShiftCase(.llshr, .{193, &.{0}, &.{std.math.maxInt(Limb), 1, std.math.maxInt(Limb)}});
+    try testOneShiftCase(.llshr, .{193, &.{0}, &.{0xdeadbeef, 0xabcdefab, 0x1234}});
     // zig fmt: on
-
-    try test_shift_cases(llshr, cases);
-    try test_shift_cases_aliasing(llshr, cases, 1);
 }
 
 test "llshr single" {
@@ -4425,30 +4404,25 @@ test "llshr single" {
     const maxint: Limb = 0xFFFFFFFFFFFFFFFF;
 
     // zig fmt: off
-    const cases: Cases = &.{
-        .{0,  &.{0},                  &.{0}},
-        .{0,  &.{1},                  &.{1}},
-        .{0,  &.{125484842448},       &.{125484842448}},
-        .{0,  &.{0xdeadbeef},         &.{0xdeadbeef}},
-        .{0,  &.{maxint},             &.{maxint}},
-        .{0,  &.{left_one},           &.{left_one}},
-        .{1,  &.{0},                  &.{0}},
-        .{1,  &.{1},                  &.{2}},
-        .{1,  &.{62742421224},        &.{125484842448}},
-        .{1,  &.{62742421223},        &.{125484842447}},
-        .{1,  &.{0x6f56df77},         &.{0xdeadbeef}},
-        .{1,  &.{0x7fffffffffffffff}, &.{maxint}},
-        .{1,  &.{0x4000000000000000}, &.{left_one}},
-        .{8,  &.{1},                  &.{256}},
-        .{8,  &.{490175165},          &.{125484842448}},
-        .{8,  &.{0xdeadbe},           &.{0xdeadbeef}},
-        .{8,  &.{0xffffffffffffff},   &.{maxint}},
-        .{8,  &.{0x80000000000000},   &.{left_one}},
-    };
+    try testOneShiftCase(.llshr, .{0,  &.{0},                  &.{0}});
+    try testOneShiftCase(.llshr, .{0,  &.{1},                  &.{1}});
+    try testOneShiftCase(.llshr, .{0,  &.{125484842448},       &.{125484842448}});
+    try testOneShiftCase(.llshr, .{0,  &.{0xdeadbeef},         &.{0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{0,  &.{maxint},             &.{maxint}});
+    try testOneShiftCase(.llshr, .{0,  &.{left_one},           &.{left_one}});
+    try testOneShiftCase(.llshr, .{1,  &.{0},                  &.{0}});
+    try testOneShiftCase(.llshr, .{1,  &.{1},                  &.{2}});
+    try testOneShiftCase(.llshr, .{1,  &.{62742421224},        &.{125484842448}});
+    try testOneShiftCase(.llshr, .{1,  &.{62742421223},        &.{125484842447}});
+    try testOneShiftCase(.llshr, .{1,  &.{0x6f56df77},         &.{0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{1,  &.{0x7fffffffffffffff}, &.{maxint}});
+    try testOneShiftCase(.llshr, .{1,  &.{0x4000000000000000}, &.{left_one}});
+    try testOneShiftCase(.llshr, .{8,  &.{1},                  &.{256}});
+    try testOneShiftCase(.llshr, .{8,  &.{490175165},          &.{125484842448}});
+    try testOneShiftCase(.llshr, .{8,  &.{0xdeadbe},           &.{0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{8,  &.{0xffffffffffffff},   &.{maxint}});
+    try testOneShiftCase(.llshr, .{8,  &.{0x80000000000000},   &.{left_one}});
     // zig fmt: on
-
-    try test_shift_cases(llshr, cases);
-    try test_shift_cases_aliasing(llshr, cases, 1);
 }
 
 test llshr {
@@ -4459,65 +4433,65 @@ test llshr {
     const maxint: Limb = 0xFFFFFFFFFFFFFFFF;
 
     // zig fmt: off
-    const cases: Cases = &.{
-        .{0,  &.{0, 0},                           &.{0, 0}},
-        .{0,  &.{0, 1},                           &.{0, 1}},
-        .{0,  &.{15, 1},                          &.{15, 1}},
-        .{0,  &.{987656565, 123456789456},        &.{987656565, 123456789456}},
-        .{0,  &.{0xfeebdaed, 0xdeadbeef},         &.{0xfeebdaed, 0xdeadbeef}},
-        .{0,  &.{1, maxint},                      &.{1, maxint}},
-        .{0,  &.{0, left_one},                    &.{0, left_one}},
-        .{1,  &.{0},                              &.{0, 0}},
-        .{1,  &.{left_one},                       &.{0, 1}},
-        .{1,  &.{0x8000000000000007},             &.{15, 1}},
-        .{1,  &.{493828282, 61728394728},         &.{987656565, 123456789456}},
-        .{1,  &.{0x800000007f75ed76, 0x6f56df77}, &.{0xfeebdaed, 0xdeadbeef}},
-        .{1,  &.{left_one, 0x7fffffffffffffff},   &.{1, maxint}},
-        .{1,  &.{0, 0x4000000000000000},          &.{0, left_one}},
-        .{64, &.{0},                              &.{0, 0}},
-        .{64, &.{1},                              &.{0, 1}},
-        .{64, &.{1},                              &.{15, 1}},
-        .{64, &.{123456789456},                   &.{987656565, 123456789456}},
-        .{64, &.{0xdeadbeef},                     &.{0xfeebdaed, 0xdeadbeef}},
-        .{64, &.{maxint},                         &.{1, maxint}},
-        .{64, &.{left_one},                       &.{0, left_one}},
-        .{72, &.{0},                              &.{0, 0}},
-        .{72, &.{0},                              &.{0, 1}},
-        .{72, &.{0},                              &.{15, 1}},
-        .{72, &.{482253083},                      &.{987656565, 123456789456}},
-        .{72, &.{0xdeadbe},                       &.{0xfeebdaed, 0xdeadbeef}},
-        .{72, &.{0xffffffffffffff},               &.{1, maxint}},
-        .{72, &.{0x80000000000000},               &.{0, left_one}},
-    };
+    try testOneShiftCase(.llshr, .{0,  &.{0, 0},                           &.{0, 0}});
+    try testOneShiftCase(.llshr, .{0,  &.{0, 1},                           &.{0, 1}});
+    try testOneShiftCase(.llshr, .{0,  &.{15, 1},                          &.{15, 1}});
+    try testOneShiftCase(.llshr, .{0,  &.{987656565, 123456789456},        &.{987656565, 123456789456}});
+    try testOneShiftCase(.llshr, .{0,  &.{0xfeebdaed, 0xdeadbeef},         &.{0xfeebdaed, 0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{0,  &.{1, maxint},                      &.{1, maxint}});
+    try testOneShiftCase(.llshr, .{0,  &.{0, left_one},                    &.{0, left_one}});
+    try testOneShiftCase(.llshr, .{1,  &.{0},                              &.{0, 0}});
+    try testOneShiftCase(.llshr, .{1,  &.{left_one},                       &.{0, 1}});
+    try testOneShiftCase(.llshr, .{1,  &.{0x8000000000000007},             &.{15, 1}});
+    try testOneShiftCase(.llshr, .{1,  &.{493828282, 61728394728},         &.{987656565, 123456789456}});
+    try testOneShiftCase(.llshr, .{1,  &.{0x800000007f75ed76, 0x6f56df77}, &.{0xfeebdaed, 0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{1,  &.{left_one, 0x7fffffffffffffff},   &.{1, maxint}});
+    try testOneShiftCase(.llshr, .{1,  &.{0, 0x4000000000000000},          &.{0, left_one}});
+    try testOneShiftCase(.llshr, .{64, &.{0},                              &.{0, 0}});
+    try testOneShiftCase(.llshr, .{64, &.{1},                              &.{0, 1}});
+    try testOneShiftCase(.llshr, .{64, &.{1},                              &.{15, 1}});
+    try testOneShiftCase(.llshr, .{64, &.{123456789456},                   &.{987656565, 123456789456}});
+    try testOneShiftCase(.llshr, .{64, &.{0xdeadbeef},                     &.{0xfeebdaed, 0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{64, &.{maxint},                         &.{1, maxint}});
+    try testOneShiftCase(.llshr, .{64, &.{left_one},                       &.{0, left_one}});
+    try testOneShiftCase(.llshr, .{72, &.{0},                              &.{0, 0}});
+    try testOneShiftCase(.llshr, .{72, &.{0},                              &.{0, 1}});
+    try testOneShiftCase(.llshr, .{72, &.{0},                              &.{15, 1}});
+    try testOneShiftCase(.llshr, .{72, &.{482253083},                      &.{987656565, 123456789456}});
+    try testOneShiftCase(.llshr, .{72, &.{0xdeadbe},                       &.{0xfeebdaed, 0xdeadbeef}});
+    try testOneShiftCase(.llshr, .{72, &.{0xffffffffffffff},               &.{1, maxint}});
+    try testOneShiftCase(.llshr, .{72, &.{0x80000000000000},               &.{0, left_one}});
     // zig fmt: on
-
-    try test_shift_cases(llshr, cases);
-    try test_shift_cases_aliasing(llshr, cases, 1);
 }
 
-const Cases = []const struct { usize, []const Limb, []const Limb };
-fn test_shift_cases(func: fn ([]Limb, []const Limb, usize) usize, cases: Cases) !void {
+const Case = struct { usize, []const Limb, []const Limb };
+
+fn testOneShiftCase(comptime function: enum { llshr, llshl }, case: Case) !void {
+    const func = if (function == .llshl) llshl else llshr;
+    const shift_direction = if (function == .llshl) -1 else 1;
+
+    try testOneShiftCaseNoAliasing(func, case);
+    try testOneShiftCaseAliasing(func, case, shift_direction);
+}
+
+fn testOneShiftCaseNoAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: Case) !void {
     const padding = std.math.maxInt(Limb);
     var r: [20]Limb = @splat(padding);
 
-    for (cases) |case| {
-        const shift = case[0];
-        const expected = case[1];
-        const data = case[2];
+    const shift = case[0];
+    const expected = case[1];
+    const data = case[2];
 
-        std.debug.assert(expected.len <= 20);
+    std.debug.assert(expected.len <= 20);
 
-        @memset(&r, padding);
-        const len = func(&r, data, shift);
+    const len = func(&r, data, shift);
 
-        try std.testing.expectEqual(expected.len, len);
-        try std.testing.expectEqualSlices(Limb, expected, r[0..len]);
-        for (r[len..]) |x|
-            try std.testing.expectEqual(padding, x);
-    }
+    try std.testing.expectEqual(expected.len, len);
+    try std.testing.expectEqualSlices(Limb, expected, r[0..len]);
+    try std.testing.expect(mem.allEqual(Limb, r[len..], padding));
 }
 
-fn test_shift_cases_aliasing(func: fn ([]Limb, []const Limb, usize) usize, cases: Cases, shift_direction: isize) !void {
+fn testOneShiftCaseAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: Case, shift_direction: isize) !void {
     const padding = std.math.maxInt(Limb);
     var r: [60]Limb = @splat(padding);
     const base = 20;
@@ -4525,22 +4499,20 @@ fn test_shift_cases_aliasing(func: fn ([]Limb, []const Limb, usize) usize, cases
     assert(shift_direction == 1 or shift_direction == -1);
 
     for (0..10) |limb_shift| {
-        for (cases) |case| {
-            const shift = case[0];
-            const expected = case[1];
-            const data = case[2];
+        const shift = case[0];
+        const expected = case[1];
+        const data = case[2];
 
-            std.debug.assert(expected.len <= 20);
+        std.debug.assert(expected.len <= 20);
 
-            @memset(&r, padding);
-            const final_limb_base: usize = @intCast(base + shift_direction * @as(isize, @intCast(limb_shift)));
-            const written_data = r[final_limb_base..][0..data.len];
-            @memcpy(written_data, data);
+        @memset(&r, padding);
+        const final_limb_base: usize = @intCast(base + shift_direction * @as(isize, @intCast(limb_shift)));
+        const written_data = r[final_limb_base..][0..data.len];
+        @memcpy(written_data, data);
 
-            const len = func(r[base..], written_data, shift);
+        const len = func(r[base..], written_data, shift);
 
-            try std.testing.expectEqual(expected.len, len);
-            try std.testing.expectEqualSlices(Limb, expected, r[base .. base + len]);
-        }
+        try std.testing.expectEqual(expected.len, len);
+        try std.testing.expectEqualSlices(Limb, expected, r[base .. base + len]);
     }
 }
