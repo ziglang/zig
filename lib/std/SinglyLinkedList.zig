@@ -164,3 +164,122 @@ test "basics" {
     try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?.next.?)).data == 2);
     try testing.expect(list.first.?.next.?.next == null);
 }
+
+
+/// implements a "simple" intrusive singly linked list with a "data" field alongside 
+/// "node" field.  This hides @fieldParentPtr complexity and adds type safety for simple
+/// cases.
+/// 
+/// note that the signatures on the member functions of the generated datastructure take
+/// pointers to the payload, not the node.
+pub fn Simple(T: type) type {
+    return struct{
+        first: ?*Node = null,
+
+        pub const Payload = struct {
+            data: T,
+            node: Node = .{},
+
+            pub fn next(payload: *@This()) ?*Payload {
+                return @fieldParentPtr("node", payload.node.next orelse return null);
+            }
+        };
+
+        pub fn prepend(list: *@This(), new_payload: *Payload) void {
+            new_payload.node.next = list.first;
+            list.first = new_payload.node;
+        }
+
+        pub fn remove(list: *SinglyLinkedList, payload: *Payload) void {
+            if (list.first == payload.node) {
+                list.first = payload.node.next;
+            } else {
+                var current_elm = list.first.?;
+                while (current_elm.next != payload.node) {
+                    current_elm = current_elm.next.?;
+                }
+                current_elm.next = payload.node.next;
+            }
+        }
+
+        /// Remove and return the first node in the list.
+        pub fn popFirst(list: *SinglyLinkedList) ?*Payload {
+            const first = list.first orelse return null;
+            list.first = first.next;
+            return @fieldParentPtr("node", first);
+        }
+
+        /// Given a Simple list, returns the payload at position <index>.
+        /// If the list does not have that many elements, returns `null`.
+        /// 
+        /// This is a linear search through the list, consider avoiding this 
+        /// operation, except for index == 0
+        pub fn at(list: *@This(), index: usize) ?*Payload {
+            var thisnode = list.first orelse return null;
+            while (index > 0) {
+                thisnode = thisnode.?.next orelse return null;
+            }
+            return @fieldParentPtr("node", thisnode); 
+        }
+    };
+}
+
+test "Simple singly linked list" {
+    const SimpleList = Simple(u32);
+    const L = SimpleList.Payload();
+
+    var list: SimpleList = .{};
+
+    try testing.expect(list.len() == 0);
+
+    var one: L = .{ .data = 1 };
+    var two: L = .{ .data = 2 };
+    var three: L = .{ .data = 3 };
+    var four: L = .{ .data = 4 };
+    var five: L = .{ .data = 5 };
+
+    try testing.expect(list.at(0) == null);
+
+    list.prepend(&two); // {2}
+    two.node.insertAfter(&five.node); // {2, 5}
+    list.prepend(&one); // {1, 2, 5}
+    two.node.insertAfter(&three.node); // {1, 2, 3, 5}
+    three.node.insertAfter(&four.node); // {1, 2, 3, 4, 5}
+
+    try testing.expect(list.len() == 5);
+
+    try testing.expect(list.at(0).?.data == 1);
+    try testing.expect(list.at(3).?.data == 4);
+    try testing.expect(list.at(7) == null);
+
+    try testing.expect(one.next().?.data == 2);
+    try testing.expect(two.next().?.data == 3);
+    try testing.expect(three.next().?.data == 4);
+    try testing.expect(four.next().?.data == 5);
+    try testing.expect(five.next() == null);
+
+    // Traverse forwards.
+    {
+        var it = list.first;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.next) {
+            const l: *L = @fieldParentPtr("node", node);
+            try testing.expect(l.data == index);
+            index += 1;
+        }
+    }
+
+    _ = list.popFirst(); // {2, 3, 4, 5}
+    _ = list.remove(&five); // {2, 3, 4}
+    _ = two.node.removeNext(); // {2, 4}
+
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 2);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?.next.?)).data == 4);
+    try testing.expect(list.first.?.next.?.next == null);
+
+    SinglyLinkedList.Node.reverse(&list.first);
+
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 4);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?.next.?)).data == 2);
+    try testing.expect(list.first.?.next.?.next == null);
+}
