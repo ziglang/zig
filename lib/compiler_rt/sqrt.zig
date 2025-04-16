@@ -237,21 +237,7 @@ pub fn sqrtq(x: f128) callconv(.c) f128 {
     }
     // x = 4^e m; with int e and m in [1, 4)
     var ml = (ix << 15) | (1 << 127);
-    if (top % 2 != 0)
-        switch (comptime builtin.cpu.arch) {
-            // Do the shift "by hand" to work around a bug on hexagon.
-            .hexagon => {
-                var lo: u64 = @truncate(ml);
-                var hi: u64 = @intCast(ml >> 64);
-                lo >>= 1;
-                lo |= hi << 63;
-                hi >>= 1;
-                ml = hi;
-                ml <<= 64;
-                ml |= lo;
-            },
-            else => ml >>= 1,
-        };
+    if (top % 2 != 0) ml >>= 1;
     top = (top +% 0x3fff) >> 1;
 
     // r ~= 1 / sqrt(m)
