@@ -155,38 +155,35 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             }
 
             // Read a DER-encoded integer.
-            fn readDerInt(out: []u8, reader: anytype) EncodingError!void {
-                var buf: [2]u8 = undefined;
-                _ = reader.readNoEof(&buf) catch return error.InvalidEncoding;
+            // Asserts `br` has storage capacity >= 2.
+            fn readDerInt(out: []u8, br: *std.io.BufferedReader) EncodingError!void {
+                const buf = br.take(2) catch return error.InvalidEncoding;
                 if (buf[0] != 0x02) return error.InvalidEncoding;
-                var expected_len = @as(usize, buf[1]);
+                var expected_len: usize = buf[1];
                 if (expected_len == 0 or expected_len > 1 + out.len) return error.InvalidEncoding;
                 var has_top_bit = false;
                 if (expected_len == 1 + out.len) {
-                    if ((reader.readByte() catch return error.InvalidEncoding) != 0) return error.InvalidEncoding;
+                    if ((br.takeByte() catch return error.InvalidEncoding) != 0) return error.InvalidEncoding;
                     expected_len -= 1;
                     has_top_bit = true;
                 }
                 const out_slice = out[out.len - expected_len ..];
-                reader.readNoEof(out_slice) catch return error.InvalidEncoding;
+                br.read(out_slice) catch return error.InvalidEncoding;
                 if (@intFromBool(has_top_bit) != out[0] >> 7) return error.InvalidEncoding;
             }
 
             /// Create a signature from a DER representation.
             /// Returns InvalidEncoding if the DER encoding is invalid.
             pub fn fromDer(der: []const u8) EncodingError!Signature {
+                if (der.len < 2) return error.InvalidEncoding;
+                var br: std.io.BufferedReader = undefined;
+                br.initFixed(der);
+                const buf = br.take(2) catch return error.InvalidEncoding;
+                if (buf[0] != 0x30 or @as(usize, buf[1]) + 2 != der.len) return error.InvalidEncoding;
                 var sig: Signature = mem.zeroInit(Signature, .{});
-                var fb: std.io.FixedBufferStream = .{ .buffer = der };
-                const reader = fb.reader();
-                var buf: [2]u8 = undefined;
-                _ = reader.readNoEof(&buf) catch return error.InvalidEncoding;
-                if (buf[0] != 0x30 or @as(usize, buf[1]) + 2 != der.len) {
-                    return error.InvalidEncoding;
-                }
-                try readDerInt(&sig.r, reader);
-                try readDerInt(&sig.s, reader);
-                if (fb.getPos() catch unreachable != der.len) return error.InvalidEncoding;
-
+                try readDerInt(&sig.r, &br);
+                try readDerInt(&sig.s, &br);
+                if (br.seek != der.len) return error.InvalidEncoding;
                 return sig;
             }
         };

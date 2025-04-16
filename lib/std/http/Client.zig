@@ -24,6 +24,12 @@ allocator: Allocator,
 
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
+/// Used both for the reader and writer buffers.
+tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
+/// If non-null, ssl secrets are logged to a stream. Creating such a stream
+/// allows other processes with access to that stream to decrypt all
+/// traffic over connections created with this `Client`.
+ssl_key_logger: ?*std.io.BufferedWriter = null,
 
 /// When this is `true`, the next time this client performs an HTTPS request,
 /// it will first rescan the system for root certificates.
@@ -31,6 +37,10 @@ next_https_rescan_certs: bool = true,
 
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
+/// Each `Connection` allocates this amount for the reader buffer.
+read_buffer_size: usize,
+/// Each `Connection` allocates this amount for the writer buffer.
+write_buffer_size: usize,
 
 /// If populated, all http traffic travels through this third party.
 /// This field cannot be modified while the client has active connections.
@@ -41,7 +51,7 @@ http_proxy: ?*Proxy = null,
 /// Pointer to externally-owned memory.
 https_proxy: ?*Proxy = null,
 
-/// A set of linked lists of connections that can be reused.
+/// A Least-Recently-Used cache of open connections to be reused.
 pub const ConnectionPool = struct {
     mutex: std.Thread.Mutex = .{},
     /// Open connections that are currently in use.
@@ -58,8 +68,10 @@ pub const ConnectionPool = struct {
         protocol: Connection.Protocol,
     };
 
-    /// Finds and acquires a connection from the connection pool matching the criteria. This function is threadsafe.
+    /// Finds and acquires a connection from the connection pool matching the criteria.
     /// If no connection is found, null is returned.
+    ///
+    /// Threadsafe.
     pub fn findConnection(pool: *ConnectionPool, criteria: Criteria) ?*Connection {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -96,21 +108,21 @@ pub const ConnectionPool = struct {
         return pool.acquireUnsafe(connection);
     }
 
-    /// Tries to release a connection back to the connection pool. This function is threadsafe.
+    /// Tries to release a connection back to the connection pool.
     /// If the connection is marked as closing, it will be closed instead.
     ///
-    /// The allocator must be the owner of all nodes in this pool.
-    /// The allocator must be the owner of all resources associated with the connection.
+    /// `allocator` must be the same one used to create `connection`.
+    ///
+    /// Threadsafe.
     pub fn release(pool: *ConnectionPool, allocator: Allocator, connection: *Connection) void {
+        if (connection.closing) return connection.destroy(allocator);
+
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
         pool.used.remove(&connection.pool_node);
 
-        if (connection.closing or pool.free_size == 0) {
-            connection.close(allocator);
-            return allocator.destroy(connection);
-        }
+        if (pool.free_size == 0) return connection.destroy(allocator);
 
         if (pool.free_len >= pool.free_size) {
             const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
@@ -138,9 +150,11 @@ pub const ConnectionPool = struct {
         pool.used.append(&connection.pool_node);
     }
 
-    /// Resizes the connection pool. This function is threadsafe.
+    /// Resizes the connection pool.
     ///
     /// If the new size is smaller than the current size, then idle connections will be closed until the pool is the new size.
+    ///
+    /// Threadsafe.
     pub fn resize(pool: *ConnectionPool, allocator: Allocator, new_size: usize) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -158,9 +172,11 @@ pub const ConnectionPool = struct {
         pool.free_size = new_size;
     }
 
-    /// Frees the connection pool and closes all connections within. This function is threadsafe.
+    /// Frees the connection pool and closes all connections within.
     ///
     /// All future operations on the connection pool will deadlock.
+    ///
+    /// Threadsafe.
     pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
         pool.mutex.lock();
 
@@ -184,160 +200,212 @@ pub const ConnectionPool = struct {
     }
 };
 
-/// An interface to either a plain or TLS connection.
 pub const Connection = struct {
+    client: *Client,
     stream: net.Stream,
-    /// Populated when protocol is TLS; this is the writer given to the TLS
-    /// client, which writes directly to `stream`, unbuffered.
-    stream_writer: std.io.BufferedWriter,
-    /// undefined unless protocol is tls.
-    tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
-
+    /// HTTP protocol from client to server.
+    /// This either goes directly to `stream`, or to a TLS client.
+    writer: std.io.BufferedWriter,
     /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
     pool_node: std.DoublyLinkedList.Node,
-
-    /// The protocol that this connection is using.
-    protocol: Protocol,
-
-    /// The host that this connection is connected to.
-    host: []u8,
-
-    /// The port that this connection is connected to.
     port: u16,
-
-    /// Whether this connection is proxied and is not directly connected.
-    proxied: bool = false,
-
-    /// Whether this connection is closing when we're done with it.
-    closing: bool = false,
-
-    read_start: BufferSize = 0,
-    read_end: BufferSize = 0,
-    read_buf: [buffer_size]u8,
-
-    write_buffer: [buffer_size]u8,
-    writer: std.io.BufferedWriter,
-
-    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
-    const BufferSize = std.math.IntFittingRange(0, buffer_size);
+    host_len: u8,
+    proxied: bool,
+    closing: bool,
+    protocol: Protocol,
 
     pub const Protocol = enum { plain, tls };
 
-    pub fn readvDirectTls(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
-        return conn.tls_client.readv(conn.stream, buffers) catch |err| {
-            // https://github.com/ziglang/zig/issues/2473
-            if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
+    const Plain = struct {
+        /// Data from `Connection.stream`.
+        reader: std.io.BufferedReader,
+        connection: Connection,
 
-            switch (err) {
-                error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
-                error.ConnectionTimedOut => return error.ConnectionTimedOut,
-                error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-                else => return error.UnexpectedReadFailure,
-            }
-        };
-    }
-
-    pub fn readvDirect(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
-
-            return conn.readvDirectTls(buffers);
+        fn create(
+            client: *Client,
+            remote_host: []const u8,
+            port: u16,
+            stream: net.Stream,
+        ) error{OutOfMemory}!*Connection {
+            const gpa = client.allocator;
+            const alloc_len = allocLen(client, remote_host.len);
+            const base = try gpa.alignedAlloc(u8, .of(Plain), alloc_len);
+            errdefer gpa.free(base);
+            const host_buffer = base[@sizeOf(Plain)..][0..remote_host.len];
+            const socket_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.read_buffer_size];
+            const socket_write_buffer = socket_read_buffer.ptr[socket_read_buffer.len..][0..client.write_buffer_size];
+            assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
+            @memcpy(host_buffer, remote_host);
+            const plain: *Plain = @ptrCast(base);
+            plain.* = .{
+                .connection = .{
+                    .client = client,
+                    .stream = stream,
+                    .writer = stream.writer().buffered(socket_write_buffer),
+                    .pool_node = .{},
+                    .port = port,
+                    .proxied = false,
+                    .closing = false,
+                    .protocol = .plain,
+                },
+                .reader = undefined,
+            };
+            plain.reader.init(stream.reader(), socket_read_buffer);
         }
 
-        return conn.stream.readv(buffers) catch |err| switch (err) {
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
-        };
-    }
-
-    /// Refills the read buffer with data from the connection.
-    pub fn fill(conn: *Connection) ReadError!void {
-        if (conn.read_end != conn.read_start) return;
-
-        var iovecs = [1]std.posix.iovec{
-            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
-        };
-        const nread = try conn.readvDirect(&iovecs);
-        if (nread == 0) return error.EndOfStream;
-        conn.read_start = 0;
-        conn.read_end = @intCast(nread);
-    }
-
-    /// Returns the current slice of buffered data.
-    pub fn peek(conn: *Connection) []const u8 {
-        return conn.read_buf[conn.read_start..conn.read_end];
-    }
-
-    /// Discards the given number of bytes from the read buffer.
-    pub fn drop(conn: *Connection, num: BufferSize) void {
-        conn.read_start += num;
-    }
-
-    /// Reads data from the connection into the given buffer.
-    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
-        const available_read = conn.read_end - conn.read_start;
-        const available_buffer = buffer.len;
-
-        if (available_read > available_buffer) { // partially read buffered data
-            @memcpy(buffer[0..available_buffer], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
-            conn.read_start += @intCast(available_buffer);
-
-            return available_buffer;
-        } else if (available_read > 0) { // fully read buffered data
-            @memcpy(buffer[0..available_read], conn.read_buf[conn.read_start..conn.read_end]);
-            conn.read_start += available_read;
-
-            return available_read;
+        fn destroy(plain: *Plain) void {
+            const c = &plain.connection;
+            const gpa = c.client.allocator;
+            const base: [*]u8 = @ptrCast(plain);
+            gpa.free(base[0..allocLen(c.client, c.host_len)]);
         }
 
-        var iovecs = [2]std.posix.iovec{
-            .{ .base = buffer.ptr, .len = buffer.len },
-            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
-        };
-        const nread = try conn.readvDirect(&iovecs);
-
-        if (nread > buffer.len) {
-            conn.read_start = 0;
-            conn.read_end = @intCast(nread - buffer.len);
-            return buffer.len;
+        fn allocLen(client: *Client, host_len: usize) usize {
+            return @sizeOf(Plain) + host_len + client.read_buffer_size + client.write_buffer_size;
         }
 
-        return nread;
-    }
-
-    pub const ReadError = error{
-        TlsFailure,
-        TlsAlert,
-        ConnectionTimedOut,
-        ConnectionResetByPeer,
-        UnexpectedReadFailure,
-        EndOfStream,
+        fn host(plain: *Plain) []u8 {
+            const base: [*]u8 = @ptrCast(plain);
+            return base[@sizeOf(Plain)..][0..plain.connection.host_len];
+        }
     };
 
-    pub const Reader = std.io.Reader(*Connection, ReadError, read);
+    const Tls = struct {
+        /// Data from `client` to `Connection.stream`.
+        writer: std.io.BufferedWriter,
+        /// Data from `Connection.stream` to `client`.
+        reader: std.io.BufferedReader,
+        client: std.crypto.tls.Client,
+        connection: Connection,
 
-    pub fn reader(conn: *Connection) Reader {
-        return .{ .context = conn };
-    }
+        fn create(
+            client: *Client,
+            remote_host: []const u8,
+            port: u16,
+            stream: net.Stream,
+        ) error{ OutOfMemory, TlsInitializationFailed }!*Tls {
+            const gpa = client.allocator;
+            const alloc_len = allocLen(client, remote_host.len);
+            const base = try gpa.alignedAlloc(u8, .of(Tls), alloc_len);
+            errdefer gpa.free(base);
+            const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
+            const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.tls_buffer_size];
+            const tls_write_buffer = tls_read_buffer.ptr[tls_read_buffer.len..][0..client.tls_buffer_size];
+            const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
+            assert(base.ptr + alloc_len == socket_write_buffer.ptr + socket_write_buffer.len);
+            @memcpy(host_buffer, remote_host);
+            const tls: *Tls = @ptrCast(base);
+            tls.* = .{
+                .connection = .{
+                    .client = client,
+                    .stream = stream,
+                    .writer = tls.client.writer().buffered(socket_write_buffer),
+                    .pool_node = .{},
+                    .port = port,
+                    .proxied = false,
+                    .closing = false,
+                    .protocol = .tls,
+                },
+                .writer = stream.writer().buffered(tls_write_buffer),
+                .reader = undefined,
+                .client = undefined,
+            };
+            tls.reader.init(stream.reader(), tls_read_buffer);
+            // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
+            tls.client.init(&tls.reader, &tls.writer, .{
+                .host = .{ .explicit = remote_host },
+                .ca = .{ .bundle = client.ca_bundle },
+                .ssl_key_logger = client.ssl_key_logger,
+            }) catch return error.TlsInitializationFailed;
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            tls.client.allow_truncation_attacks = true;
 
-    pub const WriteError = error{
-        ConnectionResetByPeer,
-        UnexpectedWriteFailure,
-    };
-
-    pub fn close(conn: *Connection, allocator: Allocator) void {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
-
-            // try to cleanly close the TLS connection, for any server that cares.
-            _ = conn.tls_client.writeEnd("", true) catch {};
-            if (conn.tls_client.ssl_key_log) |key_log| key_log.file.close();
-            allocator.destroy(conn.tls_client);
+            return tls;
         }
 
-        conn.stream.close();
-        allocator.free(conn.host);
+        fn destroy(tls: *Tls, gpa: Allocator) void {
+            const c = &tls.connection;
+            const base: [*]u8 = @ptrCast(tls);
+            gpa.free(base[0..allocLen(c.client, c.host_len)]);
+        }
+
+        fn allocLen(client: *Client, host_len: usize) usize {
+            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size + client.write_buffer_size;
+        }
+
+        fn host(tls: *Tls) []u8 {
+            const base: [*]u8 = @ptrCast(tls);
+            return base[@sizeOf(Tls)..][0..tls.connection.host_len];
+        }
+    };
+
+    fn host(c: *Connection) []u8 {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *Tls = @fieldParentPtr("connection", c);
+                return tls.host();
+            },
+            .plain => {
+                const plain: *Plain = @fieldParentPtr("connection", c);
+                return plain.host();
+            },
+        };
+    }
+
+    /// This is either data from `stream`, or `Tls.client`.
+    fn reader(c: *Connection) *std.io.BufferedReader {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *Tls = @fieldParentPtr("connection", c);
+                return &tls.client.reader;
+            },
+            .plain => {
+                const plain: *Plain = @fieldParentPtr("connection", c);
+                return &plain.reader;
+            },
+        };
+    }
+
+    /// If this is called without calling `flush` or `end`, data will be
+    /// dropped unsent.
+    pub fn destroy(c: *Connection) void {
+        c.stream.close();
+        switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *Tls = @fieldParentPtr("connection", c);
+                tls.destroy();
+            },
+            .plain => {
+                const plain: *Plain = @fieldParentPtr("connection", c);
+                plain.destroy();
+            },
+        }
+    }
+
+    pub fn flush(c: *Connection) anyerror!void {
+        try c.writer.flush();
+        if (c.protocol == .tls) {
+            if (disable_tls) unreachable;
+            const tls: *Tls = @fieldParentPtr("connection", c);
+            try tls.writer.flush();
+        }
+    }
+
+    /// If the connection is a TLS connection, sends the close_notify alert.
+    ///
+    /// Flushes all buffers.
+    pub fn end(c: *Connection) anyerror!void {
+        try c.writer.flush();
+        if (c.protocol == .tls) {
+            if (disable_tls) unreachable;
+            const tls: *Tls = @fieldParentPtr("connection", c);
+            try tls.client.end();
+            try tls.writer.flush();
+        }
     }
 };
 
@@ -350,10 +418,10 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.Decompressor;
+    pub const GzipDecompressor = std.compress.gzip.Decompressor;
     // https://github.com/ziglang/zig/issues/18937
-    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
+    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(.{});
 
     deflate: DeflateDecompressor,
     gzip: GzipDecompressor,
@@ -617,9 +685,6 @@ pub const Response = struct {
     }
 };
 
-/// A HTTP request that has been sent.
-///
-/// Order of operations: open -> send[ -> write -> finish] -> wait -> read
 pub const Request = struct {
     uri: Uri,
     client: *Client,
@@ -1300,23 +1365,33 @@ pub const basic_authorization = struct {
     }
 };
 
-pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
+pub const ConnectTcpError = Allocator.Error || error{
+    ConnectionRefused,
+    NetworkUnreachable,
+    ConnectionTimedOut,
+    ConnectionResetByPeer,
+    TemporaryNameServerFailure,
+    NameServerFailure,
+    UnknownHostName,
+    HostLacksNetworkAddresses,
+    UnexpectedConnectFailure,
+    TlsInitializationFailed,
+};
 
-/// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+/// Reuses a `Connection` if one matching `host` and `port` is already open.
 ///
-/// This function is threadsafe.
-pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*Connection {
+/// Threadsafe.
+pub fn connectTcp(
+    client: *Client,
+    host: []const u8,
+    port: u16,
+    protocol: Connection.Protocol,
+) ConnectTcpError!*Connection {
     if (client.connection_pool.findConnection(.{
         .host = host,
         .port = port,
         .protocol = protocol,
     })) |conn| return conn;
-
-    if (disable_tls and protocol == .tls)
-        return error.TlsInitializationFailed;
-
-    const conn = try client.allocator.create(Connection);
-    errdefer client.allocator.destroy(conn);
 
     const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
@@ -1331,77 +1406,19 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     };
     errdefer stream.close();
 
-    conn.* = .{
-        .stream = stream,
-        .stream_writer = undefined,
-        .tls_client = undefined,
-        .read_buf = undefined,
-
-        .write_buffer = undefined,
-        .writer = undefined, // populated below
-
-        .protocol = protocol,
-        .host = try client.allocator.dupe(u8, host),
-        .port = port,
-
-        .pool_node = .{},
-    };
-    errdefer client.allocator.free(conn.host);
-
     switch (protocol) {
         .tls => {
-            if (disable_tls) unreachable;
-
-            const tls_client = try client.allocator.create(std.crypto.tls.Client);
-            errdefer client.allocator.destroy(tls_client);
-
-            const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
-                const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
-                    error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                defer client.allocator.free(ssl_key_log_path);
-                break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
-                    .truncate = false,
-                    .mode = switch (builtin.os.tag) {
-                        .windows, .wasi => 0,
-                        else => 0o600,
-                    },
-                }) catch null;
-            } else null;
-            errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
-
-            conn.stream_writer = .{
-                .unbuffered_writer = stream.writer(),
-                .buffer = &.{},
-            };
-
-            tls_client.* = std.crypto.tls.Client.init(stream, &conn.stream_writer, .{
-                .host = .{ .explicit = host },
-                .ca = .{ .bundle = client.ca_bundle },
-                .ssl_key_log_file = ssl_key_log_file,
-            }) catch return error.TlsInitializationFailed;
-            // This is appropriate for HTTPS because the HTTP headers contain
-            // the content length which is used to detect truncation attacks.
-            tls_client.allow_truncation_attacks = true;
-
-            conn.writer = .{
-                .unbuffered_writer = tls_client.writer(),
-                .buffer = &conn.write_buffer,
-            };
-            conn.tls_client = tls_client;
+            if (disable_tls) return error.TlsInitializationFailed;
+            const tc = try Connection.Tls.create(client, host, port, stream);
+            client.connection_pool.addUsed(&tc.connection);
+            return &tc.connection;
         },
         .plain => {
-            conn.writer = .{
-                .unbuffered_writer = stream.writer(),
-                .buffer = &conn.write_buffer,
-            };
+            const pc = try Connection.Plain.create(client, host, port, stream);
+            client.connection_pool.addUsed(&pc.connection);
+            return &pc.connection;
         },
     }
-
-    client.connection_pool.addUsed(conn);
-
-    return conn;
 }
 
 pub const ConnectUnixError = Allocator.Error || std.posix.SocketError || error{NameTooLong} || std.posix.ConnectError;
@@ -1662,16 +1679,17 @@ pub fn open(
     var server_header: std.heap.FixedBufferAllocator = .init(options.server_header_buffer);
     const protocol, const valid_uri = try validateUri(uri, server_header.allocator());
 
-    if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
+    if (protocol == .tls) {
         if (disable_tls) unreachable;
+        if (@atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
+            client.ca_bundle_mutex.lock();
+            defer client.ca_bundle_mutex.unlock();
 
-        client.ca_bundle_mutex.lock();
-        defer client.ca_bundle_mutex.unlock();
-
-        if (client.next_https_rescan_certs) {
-            client.ca_bundle.rescan(client.allocator) catch
-                return error.CertificateBundleLoadFailure;
-            @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
+            if (client.next_https_rescan_certs) {
+                client.ca_bundle.rescan(client.allocator) catch
+                    return error.CertificateBundleLoadFailure;
+                @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
+            }
         }
     }
 
