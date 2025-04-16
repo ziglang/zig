@@ -94,6 +94,11 @@ pub fn storageBuffer(br: *BufferedReader) []u8 {
     return storage.buffer;
 }
 
+pub fn bufferContents(br: *BufferedReader) []u8 {
+    const storage = &br.storage;
+    return storage.buffer[br.seek..storage.end];
+}
+
 /// Although `BufferedReader` can easily satisfy the `Reader` interface, it's
 /// generally more practical to pass a `BufferedReader` instance itself around,
 /// since it will result in fewer calls across vtable boundaries.
@@ -159,16 +164,35 @@ pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) anyerror!void {
 /// is returned instead.
 ///
 /// See also:
-/// * `peekAll`
+/// * `peekGreedy`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) anyerror![]u8 {
-    return (try br.peekAll(n))[0..n];
+    return (try br.peekGreedy(n))[0..n];
 }
 
-/// Returns the next buffered bytes from `unbuffered_reader`, after filling the buffer
-/// with at least `n` bytes.
+/// Returns the next `n` bytes from `unbuffered_reader`, filling the buffer as
+/// necessary.
 ///
 /// Invalidates previously returned values from `peek`.
+///
+/// Asserts that the `BufferedReader` was initialized with a buffer capacity at
+/// least as big as `n`.
+///
+/// If there are fewer than `n` bytes left in the stream, `null` is returned
+/// instead.
+///
+/// See also:
+/// * `peekGreedy`
+/// * `toss`
+pub fn peek2(br: *BufferedReader, n: usize) anyerror!?[]u8 {
+    if (try br.peekGreedy(n)) |buf| return buf[0..n];
+    return null;
+}
+
+/// Returns all the next buffered bytes from `unbuffered_reader`, after filling
+/// the buffer to ensure it contains at least `n` bytes.
+///
+/// Invalidates previously returned values from `peek` and `peekGreedy`.
 ///
 /// Asserts that the `BufferedReader` was initialized with a buffer capacity at
 /// least as big as `n`.
@@ -179,11 +203,30 @@ pub fn peek(br: *BufferedReader, n: usize) anyerror![]u8 {
 /// See also:
 /// * `peek`
 /// * `toss`
-pub fn peekAll(br: *BufferedReader, n: usize) anyerror![]u8 {
-    const storage = &br.storage;
-    assert(n <= storage.buffer.len);
-    try br.fill(n);
-    return storage.buffer[br.seek..storage.end];
+pub fn peekGreedy(br: *BufferedReader, n: usize) anyerror![]u8 {
+    assert(n <= br.storage.buffer.len);
+    if (try br.fill(n)) return br.bufferContents();
+    return error.EndOfStream;
+}
+
+/// Returns all the next buffered bytes from `unbuffered_reader`, after filling
+/// the buffer to ensure it contains at least `n` bytes.
+///
+/// Invalidates previously returned values from `peek` and `peekGreedy`.
+///
+/// Asserts that the `BufferedReader` was initialized with a buffer capacity at
+/// least as big as `n`.
+///
+/// If there are fewer than `n` bytes left in the stream, `null` is returned
+/// instead.
+///
+/// See also:
+/// * `peek`
+/// * `toss`
+pub fn peekGreedy2(br: *BufferedReader, n: usize) anyerror!?[]u8 {
+    assert(n <= br.storage.buffer.len);
+    if (try br.fill(n)) return br.bufferContents();
+    return null;
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position. This
@@ -505,17 +548,17 @@ pub fn discardDelimiterInclusive(br: *BufferedReader, delimiter: u8) anyerror!vo
 /// Fills the buffer such that it contains at least `n` bytes, without
 /// advancing the seek position.
 ///
-/// Returns `error.EndOfStream` if there are fewer than `n` bytes remaining.
+/// Returns `false` if and only if there are fewer than `n` bytes remaining.
 ///
 /// Asserts buffer capacity is at least `n`.
-pub fn fill(br: *BufferedReader, n: usize) anyerror!void {
+pub fn fill(br: *BufferedReader, n: usize) anyerror!bool {
     const storage = &br.storage;
     assert(n <= storage.buffer.len);
     const buffer = storage.buffer[0..storage.end];
     const seek = br.seek;
     if (seek + n <= buffer.len) {
         @branchHint(.likely);
-        return;
+        return true;
     }
     const remainder = buffer[seek..];
     std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
@@ -523,8 +566,8 @@ pub fn fill(br: *BufferedReader, n: usize) anyerror!void {
     br.seek = 0;
     while (true) {
         const status = try br.unbuffered_reader.read(storage, .unlimited);
-        if (n <= storage.end) return;
-        if (status.end) return error.EndOfStream;
+        if (n <= storage.end) return true;
+        if (status.end) return false;
     }
 }
 
@@ -535,7 +578,8 @@ pub fn takeByte(br: *BufferedReader) anyerror!u8 {
     const seek = br.seek;
     if (seek >= buffer.len) {
         @branchHint(.unlikely);
-        try br.fill(1);
+        const filled = try fill(br, 1);
+        if (!filled) return error.EndOfStream;
     }
     br.seek = seek + 1;
     return buffer[seek];
@@ -603,7 +647,7 @@ fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) anyerror!Re
     var result: UnsignedResult = 0;
     var fits = true;
     while (true) {
-        const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try br.peekAll(1));
+        const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try br.peekGreedy(1));
         for (buffer, 1..) |byte, len| {
             if (remaining_bits > 0) {
                 result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) |
@@ -639,7 +683,7 @@ test peek {
     return error.Unimplemented;
 }
 
-test peekAll {
+test peekGreedy {
     return error.Unimplemented;
 }
 
