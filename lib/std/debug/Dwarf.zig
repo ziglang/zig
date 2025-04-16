@@ -24,7 +24,6 @@ const UT = DW.UT;
 const assert = std.debug.assert;
 const cast = std.math.cast;
 const maxInt = std.math.maxInt;
-const MemoryAccessor = std.debug.MemoryAccessor;
 const Path = std.Build.Cache.Path;
 const FixedBufferReader = std.debug.FixedBufferReader;
 
@@ -348,29 +347,9 @@ pub const ExceptionFrameHeader = struct {
         };
     }
 
-    fn isValidPtr(
-        self: ExceptionFrameHeader,
-        comptime T: type,
-        ptr: usize,
-        ma: *MemoryAccessor,
-        eh_frame_len: ?usize,
-    ) bool {
-        if (eh_frame_len) |len| {
-            return ptr >= self.eh_frame_ptr and ptr <= self.eh_frame_ptr + len - @sizeOf(T);
-        } else {
-            return ma.load(T, ptr) != null;
-        }
-    }
-
-    /// Find an entry by binary searching the eh_frame_hdr section.
-    ///
-    /// Since the length of the eh_frame section (`eh_frame_len`) may not be known by the caller,
-    /// MemoryAccessor will be used to verify readability of the header entries.
-    /// If `eh_frame_len` is provided, then these checks can be skipped.
+    /// Find an entry by binary searching the `.eh_frame_hdr` section.
     pub fn findEntry(
         self: ExceptionFrameHeader,
-        ma: *MemoryAccessor,
-        eh_frame_len: ?usize,
         eh_frame_hdr_ptr: usize,
         pc: usize,
         cie: *CommonInformationEntry,
@@ -420,8 +399,7 @@ pub const ExceptionFrameHeader = struct {
 
         if (fde_ptr < self.eh_frame_ptr) return bad();
 
-        // Even if eh_frame_len is not specified, all ranges accssed are checked via MemoryAccessor
-        const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse maxInt(u32)];
+        const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0..maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
         var eh_frame_fbr: FixedBufferReader = .{
@@ -430,15 +408,13 @@ pub const ExceptionFrameHeader = struct {
             .endian = native_endian,
         };
 
-        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (fde_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
         if (fde_entry_header.type != .fde) return bad();
 
         // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_fbr.seekTo(cie_offset);
-        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (cie_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
         if (cie_entry_header.type != .cie) return bad();
 
         cie.* = try CommonInformationEntry.parse(
@@ -483,15 +459,11 @@ pub const EntryHeader = struct {
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
     /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
-    pub fn read(
-        fbr: *FixedBufferReader,
-        opt_ma: ?*MemoryAccessor,
-        dwarf_section: Section.Id,
-    ) !EntryHeader {
+    pub fn read(fbr: *FixedBufferReader, dwarf_section: Section.Id) !EntryHeader {
         assert(dwarf_section == .eh_frame or dwarf_section == .debug_frame);
 
         const length_offset = fbr.pos;
-        const unit_header = try readUnitHeader(fbr, opt_ma);
+        const unit_header = try readUnitHeader(fbr);
         const unit_length = cast(usize, unit_header.unit_length) orelse return bad();
         if (unit_length == 0) return .{
             .length_offset = length_offset,
@@ -503,10 +475,7 @@ pub const EntryHeader = struct {
         const end_offset = start_offset + unit_length;
         defer fbr.pos = end_offset;
 
-        const id = try if (opt_ma) |ma|
-            fbr.readAddressChecked(unit_header.format, ma)
-        else
-            fbr.readAddress(unit_header.format);
+        const id = try fbr.readAddress(unit_header.format);
         const entry_bytes = fbr.buf[fbr.pos..end_offset];
         const cie_id: u64 = switch (dwarf_section) {
             .eh_frame => CommonInformationEntry.eh_id,
@@ -853,7 +822,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
     while (this_unit_offset < fbr.buf.len) {
         try fbr.seekTo(this_unit_offset);
 
-        const unit_header = try readUnitHeader(&fbr, null);
+        const unit_header = try readUnitHeader(&fbr);
         if (unit_header.unit_length == 0) return;
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1042,7 +1011,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     while (this_unit_offset < fbr.buf.len) {
         try fbr.seekTo(this_unit_offset);
 
-        const unit_header = try readUnitHeader(&fbr, null);
+        const unit_header = try readUnitHeader(&fbr);
         if (unit_header.unit_length == 0) return;
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1424,7 +1393,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
     };
     try fbr.seekTo(line_info_offset);
 
-    const unit_header = try readUnitHeader(&fbr, null);
+    const unit_header = try readUnitHeader(&fbr);
     if (unit_header.unit_length == 0) return missing();
 
     const next_offset = unit_header.header_length + unit_header.unit_length;
@@ -1812,7 +1781,7 @@ pub fn scanCieFdeInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !vo
         if (di.section(frame_section)) |section_data| {
             var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
             while (fbr.pos < fbr.buf.len) {
-                const entry_header = try EntryHeader.read(&fbr, null, frame_section);
+                const entry_header = try EntryHeader.read(&fbr, frame_section);
                 switch (entry_header.type) {
                     .cie => {
                         const cie = try CommonInformationEntry.parse(
@@ -1985,8 +1954,8 @@ const UnitHeader = struct {
     unit_length: u64,
 };
 
-fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
-    return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
+fn readUnitHeader(fbr: *FixedBufferReader) ScanError!UnitHeader {
+    return switch (try fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
             .header_length = 4,
@@ -1996,7 +1965,7 @@ fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!U
         0xffffffff => .{
             .format = .@"64",
             .header_length = 12,
-            .unit_length = try if (opt_ma) |ma| fbr.readIntChecked(u64, ma) else fbr.readInt(u64),
+            .unit_length = try fbr.readInt(u64),
         },
     };
 }

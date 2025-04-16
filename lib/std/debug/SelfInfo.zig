@@ -1159,7 +1159,6 @@ pub fn unwindFrameMachO(
     allocator: Allocator,
     base_address: usize,
     context: *UnwindContext,
-    ma: *std.debug.MemoryAccessor,
     unwind_info: []const u8,
     eh_frame: ?[]const u8,
 ) !usize {
@@ -1323,9 +1322,6 @@ pub fn unwindFrameMachO(
                 const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
                 const new_sp = fp + 2 * @sizeOf(usize);
 
-                // Verify the stack range we're about to read register values from
-                if (ma.load(usize, new_sp) == null or ma.load(usize, fp - frame_offset + max_reg * @sizeOf(usize)) == null) return error.InvalidUnwindInfo;
-
                 const ip_ptr = fp + @sizeOf(usize);
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
@@ -1355,7 +1351,6 @@ pub fn unwindFrameMachO(
                         base_address +
                         entry.function_offset +
                         encoding.value.x86_64.frameless.stack.indirect.sub_offset;
-                    if (ma.load(usize, sub_offset_addr) == null) return error.InvalidUnwindInfo;
 
                     // `sub_offset_addr` points to the offset of the literal within the instruction
                     const sub_operand = @as(*align(1) const u32, @ptrFromInt(sub_offset_addr)).*;
@@ -1397,7 +1392,6 @@ pub fn unwindFrameMachO(
                     }
 
                     var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
-                    if (ma.load(usize, reg_addr) == null) return error.InvalidUnwindInfo;
                     for (0..reg_count) |i| {
                         const reg_number = try Dwarf.compactUnwindToDwarfRegNumber(registers[i]);
                         (try regValueNative(context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
@@ -1409,7 +1403,6 @@ pub fn unwindFrameMachO(
 
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_sp = ip_ptr + @sizeOf(usize);
-                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
 
                 (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
                 (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
@@ -1417,7 +1410,7 @@ pub fn unwindFrameMachO(
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+                return unwindFrameMachODwarf(allocator, base_address, context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
@@ -1426,24 +1419,15 @@ pub fn unwindFrameMachO(
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
                 const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
                 const new_ip = (try regValueNative(context.thread_context, 30, reg_context)).*;
-                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
                 (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+                return unwindFrameMachODwarf(allocator, base_address, context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
             },
             .FRAME => blk: {
                 const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
-                const new_sp = fp + 16;
                 const ip_ptr = fp + @sizeOf(usize);
-
-                const num_restored_pairs: usize =
-                    @popCount(@as(u5, @bitCast(encoding.value.arm64.frame.x_reg_pairs))) +
-                    @popCount(@as(u4, @bitCast(encoding.value.arm64.frame.d_reg_pairs)));
-                const min_reg_addr = fp - num_restored_pairs * 2 * @sizeOf(usize);
-
-                if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
 
                 var reg_addr = fp - @sizeOf(usize);
                 inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
@@ -1567,7 +1551,6 @@ pub fn unwindFrameDwarf(
     di: *Dwarf,
     base_address: usize,
     context: *UnwindContext,
-    ma: *std.debug.MemoryAccessor,
     explicit_fde_offset: ?usize,
 ) !usize {
     if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
@@ -1585,14 +1568,14 @@ pub fn unwindFrameDwarf(
             .endian = di.endian,
         };
 
-        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section);
         if (fde_entry_header.type != .fde) return error.MissingFDE;
 
         const cie_offset = fde_entry_header.type.fde;
         try fbr.seekTo(cie_offset);
 
         fbr.endian = native_endian;
-        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section);
         if (cie_entry_header.type != .cie) return Dwarf.bad();
 
         const cie = try Dwarf.CommonInformationEntry.parse(
@@ -1620,14 +1603,10 @@ pub fn unwindFrameDwarf(
         // back to loading `.eh_frame`/`.debug_frame` and using those from that point on.
 
         if (di.eh_frame_hdr) |header| hdr: {
-            const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
-
             var cie: Dwarf.CommonInformationEntry = undefined;
             var fde: Dwarf.FrameDescriptionEntry = undefined;
 
             header.findEntry(
-                ma,
-                eh_frame_len,
                 @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
                 context.pc,
                 &cie,
@@ -1670,7 +1649,6 @@ pub fn unwindFrameDwarf(
 
     var expression_context: Dwarf.expression.Context = .{
         .format = cie.format,
-        .memory_accessor = ma,
         .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
         .thread_context = context.thread_context,
         .reg_context = context.reg_context,
@@ -1705,7 +1683,6 @@ pub fn unwindFrameDwarf(
         else => return error.InvalidCFARule,
     };
 
-    if (ma.load(usize, context.cfa.?) == null) return error.InvalidCFA;
     expression_context.cfa = context.cfa;
 
     // Buffering the modifications is done because copying the thread context is not portable,
@@ -1744,7 +1721,6 @@ pub fn unwindFrameDwarf(
             try column.resolveValue(
                 context,
                 expression_context,
-                ma,
                 src,
             );
         }
@@ -1834,7 +1810,6 @@ fn unwindFrameMachODwarf(
     allocator: Allocator,
     base_address: usize,
     context: *UnwindContext,
-    ma: *std.debug.MemoryAccessor,
     eh_frame: []const u8,
     fde_offset: usize,
 ) !usize {
@@ -1849,7 +1824,7 @@ fn unwindFrameMachODwarf(
         .owned = false,
     };
 
-    return unwindFrameDwarf(allocator, &di, base_address, context, ma, fde_offset);
+    return unwindFrameDwarf(allocator, &di, base_address, context, fde_offset);
 }
 
 /// This is a virtual machine that runs DWARF call frame instructions.
@@ -1899,7 +1874,6 @@ pub const VirtualMachine = struct {
             self: Column,
             context: *SelfInfo.UnwindContext,
             expression_context: std.debug.Dwarf.expression.Context,
-            ma: *std.debug.MemoryAccessor,
             out: []u8,
         ) !void {
             switch (self.rule) {
@@ -1920,7 +1894,6 @@ pub const VirtualMachine = struct {
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
                         const addr = try applyOffset(cfa, offset);
-                        if (ma.load(usize, addr) == null) return error.InvalidAddress;
                         const ptr: *const usize = @ptrFromInt(addr);
                         mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                     } else return error.InvalidCFA;
@@ -1943,7 +1916,6 @@ pub const VirtualMachine = struct {
                         break :blk v.generic;
                     } else return error.NoExpressionValue;
 
-                    if (ma.load(usize, addr) == null) return error.InvalidExpressionAddress;
                     const ptr: *usize = @ptrFromInt(addr);
                     mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                 },
