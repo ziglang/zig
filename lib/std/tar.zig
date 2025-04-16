@@ -82,7 +82,7 @@ pub const Diagnostics = struct {
         };
     }
 
-    test "rootDir" {
+    test rootDir {
         const expectEqualStrings = testing.expectEqualStrings;
         try expectEqualStrings("", rootDir("a", .file));
         try expectEqualStrings("a", rootDir("a", .directory));
