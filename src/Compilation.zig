@@ -1287,7 +1287,14 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables != .none;
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
-        const any_sanitize_c = options.config.any_sanitize_c or options.root_mod.sanitize_c;
+        const any_sanitize_c: std.zig.SanitizeC = switch (options.config.any_sanitize_c) {
+            .off => options.root_mod.sanitize_c,
+            .trap => if (options.root_mod.sanitize_c == .full)
+                .full
+            else
+                .trap,
+            .full => .full,
+        };
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
@@ -1346,7 +1353,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
             const is_spirv = options.root_mod.resolved_target.result.cpu.arch.isSpirV();
-            const want_ubsan_rt = options.want_ubsan_rt orelse (!is_spirv and any_sanitize_c and is_exe_or_dyn_lib);
+            const want_ubsan_rt = options.want_ubsan_rt orelse (!is_spirv and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
             if (have_zcu) break :s .zcu;
@@ -1418,6 +1425,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.lto);
         cache.hash.add(options.config.link_mode);
         cache.hash.add(options.config.any_unwind_tables);
+        cache.hash.add(options.config.any_non_single_threaded);
+        cache.hash.add(options.config.any_sanitize_thread);
+        cache.hash.add(options.config.any_sanitize_c);
+        cache.hash.add(options.config.any_fuzz);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
         cache.hash.add(link_libc);
@@ -5999,7 +6010,7 @@ pub fn addCCArgs(
             {
                 var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
-                if (mod.sanitize_c) {
+                if (mod.sanitize_c != .off) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
                     try san_arg.appendSlice(arena, "undefined,");
                 }
@@ -6015,37 +6026,33 @@ pub fn addCCArgs(
                 if (san_arg.pop()) |_| {
                     try argv.append(san_arg.items);
 
-                    // These args have to be added after the `-fsanitize` arg or
-                    // they won't take effect.
-                    if (mod.sanitize_c) {
-                        // This check requires implementing the Itanium C++ ABI.
-                        // We would make it `-fsanitize-trap=vptr`, however this check requires
-                        // a full runtime due to the type hashing involved.
-                        try argv.append("-fno-sanitize=vptr");
-
-                        // It is very common, and well-defined, for a pointer on one side of a C ABI
-                        // to have a different but compatible element type. Examples include:
-                        // `char*` vs `uint8_t*` on a system with 8-bit bytes
-                        // `const char*` vs `char*`
-                        // `char*` vs `unsigned char*`
-                        // Without this flag, Clang would invoke UBSAN when such an extern
-                        // function was called.
-                        try argv.append("-fno-sanitize=function");
-
-                        if (mod.optimize_mode == .ReleaseSafe) {
-                            // It's recommended to use the minimal runtime in production
-                            // environments due to the security implications of the full runtime.
-                            // The minimal runtime doesn't provide much benefit over simply
-                            // trapping, however, so we do that instead.
+                    switch (mod.sanitize_c) {
+                        .off => {},
+                        .trap => {
                             try argv.append("-fsanitize-trap=undefined");
-                        } else {
+                        },
+                        .full => {
+                            // This check requires implementing the Itanium C++ ABI.
+                            // We would make it `-fsanitize-trap=vptr`, however this check requires
+                            // a full runtime due to the type hashing involved.
+                            try argv.append("-fno-sanitize=vptr");
+
+                            // It is very common, and well-defined, for a pointer on one side of a C ABI
+                            // to have a different but compatible element type. Examples include:
+                            // `char*` vs `uint8_t*` on a system with 8-bit bytes
+                            // `const char*` vs `char*`
+                            // `char*` vs `unsigned char*`
+                            // Without this flag, Clang would invoke UBSAN when such an extern
+                            // function was called.
+                            try argv.append("-fno-sanitize=function");
+
                             // This is necessary because, by default, Clang instructs LLVM to embed
                             // a COFF link dependency on `libclang_rt.ubsan_standalone.a` when the
                             // UBSan runtime is used.
                             if (target.os.tag == .windows) {
                                 try argv.append("-fno-rtlib-defaultlib");
                             }
-                        }
+                        },
                     }
                 }
 
@@ -6748,7 +6755,7 @@ pub fn build_crt_file(
             .strip = comp.compilerRtStrip(),
             .stack_check = false,
             .stack_protector = 0,
-            .sanitize_c = false,
+            .sanitize_c = .off,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
             // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.
