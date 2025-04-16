@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
                 // We are mainly concerned with CFI directives in our non-libc startup code and syscall
                 // code, so make it explicit that we don't want libc.
                 .link_libc = false,
-                .strip = true,
+                .strip = .all,
             }),
         });
 
@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) void {
                 .target = target,
                 .optimize = .Debug,
                 .link_libc = false,
-                .strip = true,
+                .strip = .all,
                 .unwind_tables = .none,
             }),
         });

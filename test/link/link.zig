@@ -9,7 +9,7 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
     use_lld: bool = false,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
@@ -18,7 +18,11 @@ pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
     const use_lld = if (opts.use_lld) "lld" else "no-lld";
     if (opts.strip) |strip| {
-        const s = if (strip) "strip" else "no-strip";
+        const s = switch (strip) {
+            .all => "strip",
+            .debug_info => "strip-debug-info",
+            .none => "no-strip",
+        };
         const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}-{s}", .{
             prefix, target, optimize, use_llvm, use_lld, s,
         }) catch @panic("OOM");
@@ -43,7 +47,7 @@ const OverlayOptions = struct {
     objcpp_source_flags: []const []const u8 = &.{},
     zig_source_bytes: ?[]const u8 = null,
     pic: ?bool = null,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
 };
 
 pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Compile {

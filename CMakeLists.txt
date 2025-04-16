@@ -949,7 +949,7 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
 else()
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip=all)
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)

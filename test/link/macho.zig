@@ -899,7 +899,7 @@ fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
     const obj = addObject(b, opts, .{
         .name = "bobj",
         .zig_source_bytes = "export var bar: i32 = -42;",
-        .strip = true, // TODO for self-hosted, we don't really emit any valid DWARF yet since we only export a global
+        .strip = .all, // TODO for self-hosted, we don't really emit any valid DWARF yet since we only export a global
     });
 
     const lib = addStaticLibrary(b, opts, .{
