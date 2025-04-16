@@ -64,7 +64,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
-            .sanitize_c = false,
+            .sanitize_c = .off,
             .sanitize_thread = false,
             // necessary so that libunwind can unwind through its own stack frames
             // The old 32-bit x86 variant of SEH doesn't use tables.

@@ -231,7 +231,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .strip = strip,
                     .stack_check = false,
                     .stack_protector = 0,
-                    .sanitize_c = false,
+                    .sanitize_c = .off,
                     .sanitize_thread = false,
                     .red_zone = comp.root_mod.red_zone,
                     .omit_frame_pointer = comp.root_mod.omit_frame_pointer,

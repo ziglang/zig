@@ -22,7 +22,7 @@ unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
 stack_check: ?bool,
-sanitize_c: ?bool,
+sanitize_c: ?std.zig.SanitizeC,
 sanitize_thread: ?bool,
 fuzz: ?bool,
 code_model: std.builtin.CodeModel,
@@ -256,7 +256,7 @@ pub const CreateOptions = struct {
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
-    sanitize_c: ?bool = null,
+    sanitize_c: ?std.zig.SanitizeC = null,
     sanitize_thread: ?bool = null,
     fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
@@ -559,12 +559,17 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
     try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
     try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+
+    if (m.sanitize_c) |sc| switch (sc) {
+        .off => try zig_args.append("-fno-sanitize-c"),
+        .trap => try zig_args.append("-fsanitize-c=trap"),
+        .full => try zig_args.append("-fsanitize-c=full"),
+    };
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {
