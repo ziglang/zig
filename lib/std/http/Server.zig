@@ -1,18 +1,25 @@
 //! Blocking HTTP server implementation.
 //! Handles a single connection's lifecycle.
 
-connection: net.Server.Connection,
+const std = @import("../std.zig");
+const http = std.http;
+const mem = std.mem;
+const net = std.net;
+const Uri = std.Uri;
+const assert = std.debug.assert;
+const testing = std.testing;
+
+const Server = @This();
+
+/// The reader's buffer must be large enough to store the client's entire HTTP
+/// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
+in: *std.io.BufferedReader,
+out: *std.io.BufferedWriter,
 /// Keeps track of whether the Server is ready to accept a new request on the
 /// same connection, and makes invalid API usage cause assertion failures
 /// rather than HTTP protocol violations.
 state: State,
-/// User-provided buffer that must outlive this Server.
-/// Used to store the client's entire HTTP header.
-read_buffer: []u8,
-/// Amount of available data inside read_buffer.
-read_buffer_len: usize,
-/// Index into `read_buffer` of the first byte of the next HTTP request.
-next_request_start: usize,
+in_err: anyerror,
 
 pub const State = enum {
     /// The connection is available to be used for the first time, or reused.
@@ -31,14 +38,13 @@ pub const State = enum {
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
 /// connection.
+///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(connection: net.Server.Connection, read_buffer: []u8) Server {
+pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
     return .{
-        .connection = connection,
+        .in = in,
+        .out = out,
         .state = .ready,
-        .read_buffer = read_buffer,
-        .read_buffer_len = 0,
-        .next_request_start = 0,
     };
 }
 
@@ -48,78 +54,55 @@ pub const ReceiveHeadError = error{
     /// before closing the connection.
     HttpHeadersOversize,
     /// Client sent headers that did not conform to the HTTP protocol.
+    /// `in_err` is populated with a `Request.Head.ParseError`.
     HttpHeadersInvalid,
-    /// A low level I/O error occurred trying to read the headers.
-    HttpHeadersUnreadable,
     /// Partial HTTP request was received but the connection was closed before
     /// fully receiving the headers.
     HttpRequestTruncated,
     /// The client sent 0 bytes of headers before closing the stream.
     /// In other words, a keep-alive connection was finally closed.
     HttpConnectionClosing,
+    /// Error occurred reading from `in`; `in_err` is populated.
+    ReadFailure,
 };
 
-/// The header bytes reference the read buffer that Server was initialized with
-/// and remain alive until the next call to receiveHead.
+/// The header bytes reference the internal storage of `in`, which are
+/// invalidated with the next call to `receiveHead`.
 pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     assert(s.state == .ready);
     s.state = .received_head;
     errdefer s.state = .receiving_head;
 
-    // In case of a reused connection, move the next request's bytes to the
-    // beginning of the buffer.
-    if (s.next_request_start > 0) {
-        if (s.read_buffer_len > s.next_request_start) {
-            rebase(s, 0);
-        } else {
-            s.read_buffer_len = 0;
-        }
-    }
-
+    const in = &s.in;
     var hp: http.HeadParser = .{};
-
-    if (s.read_buffer_len > 0) {
-        const bytes = s.read_buffer[0..s.read_buffer_len];
-        const end = hp.feed(bytes);
-        if (hp.state == .finished)
-            return finishReceivingHead(s, end);
-    }
+    var head_end: usize = 0;
 
     while (true) {
-        const buf = s.read_buffer[s.read_buffer_len..];
-        if (buf.len == 0)
-            return error.HttpHeadersOversize;
-        const read_n = s.connection.stream.read(buf) catch
-            return error.HttpHeadersUnreadable;
-        if (read_n == 0) {
-            if (s.read_buffer_len > 0) {
-                return error.HttpRequestTruncated;
-            } else {
-                return error.HttpConnectionClosing;
-            }
-        }
-        s.read_buffer_len += read_n;
-        const bytes = buf[0..read_n];
-        const end = hp.feed(bytes);
-        if (hp.state == .finished)
-            return finishReceivingHead(s, s.read_buffer_len - bytes.len + end);
+        if (head_end >= in.bufferContents().len) return error.HttpHeadersOversize;
+        const buf = (in.peekGreedy(head_end + 1) catch |err| {
+            s.in_err = err;
+            return error.ReadFailure;
+        }) orelse switch (head_end) {
+            0 => return error.HttpConnectionClosing,
+            else => return error.HttpRequestTruncated,
+        };
+        head_end += hp.feed(buf[head_end..]);
+        if (hp.state == .finished) return .{
+            .server = s,
+            .head_end = head_end,
+            .head = Request.Head.parse(buf[0..head_end]) catch |err| {
+                s.in_err = err;
+                return error.HttpHeadersInvalid;
+            },
+            .reader_state = undefined,
+            .write_error = undefined,
+        };
     }
-}
-
-fn finishReceivingHead(s: *Server, head_end: usize) ReceiveHeadError!Request {
-    return .{
-        .server = s,
-        .head_end = head_end,
-        .head = Request.Head.parse(s.read_buffer[0..head_end]) catch
-            return error.HttpHeadersInvalid,
-        .reader_state = undefined,
-        .write_error = undefined,
-    };
 }
 
 pub const Request = struct {
     server: *Server,
-    /// Index into Server's read_buffer.
+    /// Index into `Server.in` internal buffer.
     head_end: usize,
     head: Head,
     reader_state: union {
@@ -299,7 +282,7 @@ pub const Request = struct {
     };
 
     pub fn iterateHeaders(r: *Request) http.HeaderIterator {
-        return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
+        return http.HeaderIterator.init(r.in.bufferContents()[0..r.head_end]);
     }
 
     test iterateHeaders {
@@ -312,13 +295,14 @@ pub const Request = struct {
 
         var read_buffer: [500]u8 = undefined;
         @memcpy(read_buffer[0..request_bytes.len], request_bytes);
+        var br: std.io.BufferedReader = undefined;
+        br.initFixed(&read_buffer);
 
         var server: Server = .{
-            .connection = undefined,
+            .in = &br,
+            .out = undefined,
             .state = .ready,
-            .read_buffer = &read_buffer,
-            .read_buffer_len = request_bytes.len,
-            .next_request_start = 0,
+            .in_err = undefined,
         };
 
         var request: Request = .{
@@ -1158,13 +1142,3 @@ fn rebase(s: *Server, index: usize) void {
     }
     s.read_buffer_len = index + leftover.len;
 }
-
-const std = @import("../std.zig");
-const http = std.http;
-const mem = std.mem;
-const net = std.net;
-const Uri = std.Uri;
-const assert = std.debug.assert;
-const testing = std.testing;
-
-const Server = @This();
