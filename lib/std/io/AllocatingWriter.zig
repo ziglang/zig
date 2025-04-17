@@ -93,9 +93,8 @@ pub fn toArrayList(aw: *AllocatingWriter) std.ArrayListUnmanaged(u8) {
 }
 
 pub fn toOwnedSlice(aw: *AllocatingWriter) error{OutOfMemory}![]u8 {
-    const gpa = aw.allocator;
-    var list = toArrayList(aw);
-    return list.toOwnedSlice(gpa);
+    var list = aw.toArrayList();
+    return list.toOwnedSlice(aw.allocator);
 }
 
 pub fn toOwnedSliceSentinel(aw: *AllocatingWriter, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
