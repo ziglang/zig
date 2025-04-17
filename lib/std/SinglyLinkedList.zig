@@ -165,15 +165,14 @@ test "basics" {
     try testing.expect(list.first.?.next.?.next == null);
 }
 
-
-/// implements a "simple" intrusive singly linked list with a "data" field alongside 
+/// implements a "simple" intrusive singly linked list with a "data" field alongside
 /// "node" field.  This hides @fieldParentPtr complexity and adds type safety for simple
 /// cases.
-/// 
+///
 /// note that the signatures on the member functions of the generated datastructure take
 /// pointers to the payload, not the node.
 pub fn Simple(T: type) type {
-    return struct{
+    return struct {
         first: ?*Node = null,
 
         pub const Payload = struct {
@@ -183,19 +182,23 @@ pub fn Simple(T: type) type {
             pub fn next(payload: *@This()) ?*Payload {
                 return @fieldParentPtr("node", payload.node.next orelse return null);
             }
+
+            pub fn insertAfter(payload: *@This(), new_payload: *Payload) void {
+                payload.node.insertAfter(&new_payload.node);
+            }
         };
 
         pub fn prepend(list: *@This(), new_payload: *Payload) void {
             new_payload.node.next = list.first;
-            list.first = new_payload.node;
+            list.first = &new_payload.node;
         }
 
-        pub fn remove(list: *SinglyLinkedList, payload: *Payload) void {
-            if (list.first == payload.node) {
+        pub fn remove(list: *@This(), payload: *Payload) void {
+            if (list.first == &payload.node) {
                 list.first = payload.node.next;
             } else {
                 var current_elm = list.first.?;
-                while (current_elm.next != payload.node) {
+                while (current_elm.next != &payload.node) {
                     current_elm = current_elm.next.?;
                 }
                 current_elm.next = payload.node.next;
@@ -203,7 +206,7 @@ pub fn Simple(T: type) type {
         }
 
         /// Remove and return the first node in the list.
-        pub fn popFirst(list: *SinglyLinkedList) ?*Payload {
+        pub fn popFirst(list: *@This()) ?*Payload {
             const first = list.first orelse return null;
             list.first = first.next;
             return @fieldParentPtr("node", first);
@@ -211,22 +214,35 @@ pub fn Simple(T: type) type {
 
         /// Given a Simple list, returns the payload at position <index>.
         /// If the list does not have that many elements, returns `null`.
-        /// 
-        /// This is a linear search through the list, consider avoiding this 
+        ///
+        /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
         pub fn at(list: *@This(), index: usize) ?*Payload {
             var thisnode = list.first orelse return null;
-            while (index > 0) {
-                thisnode = thisnode.?.next orelse return null;
+            var ctr: usize = index;
+            while (ctr > 0) : (ctr -= 1) {
+                thisnode = thisnode.next orelse return null;
             }
-            return @fieldParentPtr("node", thisnode); 
+            return @fieldParentPtr("node", thisnode);
+        }
+
+        // Iterate over all nodes, returning the count.
+        ///
+        /// This operation is O(N). Consider tracking the length separately rather than
+        /// computing it.
+        pub fn len(list: @This()) usize {
+            if (list.first) |n| {
+                return 1 + n.countChildren();
+            } else {
+                return 0;
+            }
         }
     };
 }
 
 test "Simple singly linked list" {
     const SimpleList = Simple(u32);
-    const L = SimpleList.Payload();
+    const L = SimpleList.Payload;
 
     var list: SimpleList = .{};
 
@@ -243,7 +259,7 @@ test "Simple singly linked list" {
     list.prepend(&two); // {2}
     two.node.insertAfter(&five.node); // {2, 5}
     list.prepend(&one); // {1, 2, 5}
-    two.node.insertAfter(&three.node); // {1, 2, 3, 5}
+    two.insertAfter(&three); // {1, 2, 3, 5}
     three.node.insertAfter(&four.node); // {1, 2, 3, 4, 5}
 
     try testing.expect(list.len() == 5);
