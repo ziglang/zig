@@ -49,6 +49,52 @@ fn testAbsIntegers() !void {
     }
 }
 
+test "@abs platform-dependent integers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    try comptime testAbsPlatformDependentIntegers();
+    try testAbsPlatformDependentIntegers();
+}
+
+fn testAbsPlatformDependentIntegers() !void {
+    {
+        var x: isize = -1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == usize);
+    }
+    {
+        var x: c_short = -1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ushort);
+    }
+    {
+        var x: c_int = -1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_uint);
+    }
+    {
+        var x: c_long = -1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ulong);
+    }
+    if (!builtin.cpu.arch.isSpirV()) {
+        var x: c_longlong = -1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ulonglong);
+    }
+    try expect(@TypeOf(@abs(@as(isize, -1))) == usize);
+    try expect(@TypeOf(@abs(@as(c_short, -1))) == c_ushort);
+    try expect(@TypeOf(@abs(@as(c_int, -1))) == c_uint);
+    try expect(@TypeOf(@abs(@as(c_long, -1))) == c_ulong);
+    if (!builtin.cpu.arch.isSpirV()) {
+        try expect(@TypeOf(@abs(@as(c_longlong, -1))) == c_ulonglong);
+    }
+}
+
 test "@abs unsigned integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -86,6 +132,51 @@ fn testAbsUnsignedIntegers() !void {
     }
     comptime {
         try expect(@abs(@as(u2, 2)) == 2);
+    }
+}
+
+test "@abs platform-dependent unsigned integers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    try comptime testAbsPlatformDependentUnsignedIntegers();
+    try testAbsPlatformDependentUnsignedIntegers();
+}
+
+fn testAbsPlatformDependentUnsignedIntegers() !void {
+    {
+        var x: usize = 1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == usize);
+    }
+    {
+        var x: c_ushort = 1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ushort);
+    }
+    {
+        var x: c_uint = 1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_uint);
+    }
+    {
+        var x: c_ulong = 1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ulong);
+    }
+    if (!builtin.cpu.arch.isSpirV()) {
+        var x: c_ulonglong = 1;
+        _ = &x;
+        try expect(@TypeOf(@abs(x)) == c_ulonglong);
+    }
+    try expect(@TypeOf(@abs(@as(usize, 1))) == usize);
+    try expect(@TypeOf(@abs(@as(c_ushort, 1))) == c_ushort);
+    try expect(@TypeOf(@abs(@as(c_uint, 1))) == c_uint);
+    try expect(@TypeOf(@abs(@as(c_ulong, 1))) == c_ulong);
+    if (!builtin.cpu.arch.isSpirV()) {
+        try expect(@TypeOf(@abs(@as(c_ulonglong, 1))) == c_ulonglong);
     }
 }
 
