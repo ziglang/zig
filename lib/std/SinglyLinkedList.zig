@@ -172,19 +172,19 @@ test "basics" {
 /// note that the signatures on the member functions of the generated datastructure take
 /// pointers to the payload, not the node.
 pub fn Simple(T: type) type {
-    const SimpleLinkedList = @This();
     return struct {
+        const SimpleLinkedList = @This();
         first: ?*Node = null,
 
         pub const Payload = struct {
             data: T,
             node: Node = .{},
 
-            pub fn next(payload: *SimpleLinkedList) ?*Payload {
+            pub fn next(payload: *Payload) ?*Payload {
                 return @fieldParentPtr("node", payload.node.next orelse return null);
             }
 
-            pub fn insertAfter(payload: *SimpleLinkedList, new_payload: *Payload) void {
+            pub fn insertAfter(payload: *Payload, new_payload: *Payload) void {
                 payload.node.insertAfter(&new_payload.node);
             }
         };
