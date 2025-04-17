@@ -71,6 +71,7 @@ pub const Env = enum {
                 .ast_gen,
                 .sema,
                 .legalize,
+                .c_compiler,
                 .llvm_backend,
                 .c_backend,
                 .wasm_backend,
@@ -120,6 +121,7 @@ pub const Env = enum {
                 .clang_command,
                 .cc_command,
                 .translate_c_command,
+                .c_compiler,
                 => true,
                 else => false,
             },
@@ -228,6 +230,8 @@ pub const Feature = enum {
     ast_gen,
     sema,
     legalize,
+
+    c_compiler,
 
     llvm_backend,
     c_backend,

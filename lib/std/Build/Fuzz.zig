@@ -124,7 +124,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, par
     const show_stderr = compile.step.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        const bw = std.debug.lockStderrWriter();
+        const bw = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, bw, false) catch {};
     }
@@ -151,7 +151,7 @@ fn fuzzWorkerRun(
 
     run.rerunInFuzzMode(web_server, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
-            const bw = std.debug.lockStderrWriter();
+            const bw = std.debug.lockStderrWriter(&.{});
             defer std.debug.unlockStderrWriter();
             build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, bw, false) catch {};
             return;

@@ -1,7 +1,7 @@
 pub fn writeSetSub6(comptime op: enum { set, sub }, addend: anytype, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const mask: u8 = 0b11_000000;
     const actual: i8 = @truncate(addend);
-    const old_value = (try bw.writableSlice(1))[0];
+    const old_value = (try bw.writableArray(1))[0];
     const new_value = (old_value & mask) | (@as(u8, switch (op) {
         .set => @bitCast(actual),
         .sub => @bitCast(@as(i8, @bitCast(old_value)) -| actual),
@@ -14,7 +14,7 @@ pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.
         .set => try overwriteUleb(@intCast(addend), bw),
         .sub => {
             var br: std.io.BufferedReader = undefined;
-            br.initFixed(try bw.writableSlice(1));
+            br.initFixed(try bw.writableArray(1));
             const old_value = try br.takeLeb128(u64);
             try overwriteUleb(old_value -% @as(u64, @intCast(addend)), bw);
         },
@@ -24,7 +24,7 @@ pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.
 fn overwriteUleb(new_value: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     var value: u64 = new_value;
     while (true) {
-        const byte = (try bw.writableSlice(1))[0];
+        const byte = (try bw.writableArray(1))[0];
         try bw.writeByte((byte & 0x80) | @as(u7, @truncate(value)));
         if (byte & 0x80 == 0) break;
         value >>= 7;

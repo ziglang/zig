@@ -21,6 +21,9 @@ out: *std.io.BufferedWriter,
 state: State,
 head_parse_err: Request.Head.ParseError,
 
+/// being deleted...
+next_request_start: usize = 0,
+
 pub const State = enum {
     /// The connection is available to be used for the first time, or reused.
     ready,
@@ -45,6 +48,7 @@ pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
         .in = in,
         .out = out,
         .state = .ready,
+        .head_parse_err = undefined,
     };
 }
 
@@ -63,7 +67,7 @@ pub const ReceiveHeadError = error{
     /// In other words, a keep-alive connection was finally closed.
     HttpConnectionClosing,
     /// Transitive error occurred reading from `in`.
-    ReadFailure,
+    ReadFailed,
 };
 
 /// The header bytes reference the internal storage of `in`, which are
@@ -73,7 +77,7 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     s.state = .received_head;
     errdefer s.state = .receiving_head;
 
-    const in = &s.in;
+    const in = s.in;
     var hp: http.HeadParser = .{};
     var head_end: usize = 0;
 
@@ -84,7 +88,7 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
                 0 => return error.HttpConnectionClosing,
                 else => return error.HttpRequestTruncated,
             },
-            error.ReadFailure => return error.ReadFailure,
+            error.ReadFailed => return error.ReadFailed,
         };
         head_end += hp.feed(buf[head_end..]);
         if (hp.state == .finished) return .{
@@ -279,7 +283,7 @@ pub const Request = struct {
     };
 
     pub fn iterateHeaders(r: *Request) http.HeaderIterator {
-        return http.HeaderIterator.init(r.in.bufferContents()[0..r.head_end]);
+        return http.HeaderIterator.init(r.server.in.bufferContents()[0..r.head_end]);
     }
 
     test iterateHeaders {
@@ -398,8 +402,7 @@ pub const Request = struct {
             h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
             if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            var w = request.server.connection.stream.writer().unbuffered();
-            try w.writeAll(h.items);
+            try request.server.out.writeAll(h.items);
             return;
         }
         h.printAssumeCapacity("{s} {d} {s}\r\n", .{
@@ -472,8 +475,7 @@ pub const Request = struct {
             }
         }
 
-        var w = request.server.connection.stream.writer().unbuffered();
-        try w.writevAll(iovecs[0..iovecs_len]);
+        try request.server.out.writeVecAll(iovecs[0..iovecs_len]);
     }
 
     pub const RespondStreamingOptions = struct {
@@ -553,7 +555,7 @@ pub const Request = struct {
         };
 
         return .{
-            .stream = request.server.connection.stream,
+            .out = request.server.out,
             .send_buffer = options.send_buffer,
             .send_buffer_start = 0,
             .send_buffer_end = h.items.len,
@@ -577,7 +579,7 @@ pub const Request = struct {
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Reader.Limit,
-    ) std.io.Reader.Error!std.io.Reader.Status {
+    ) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = bw;
@@ -585,10 +587,17 @@ pub const Request = struct {
         @panic("TODO");
     }
 
-    fn contentLengthReader_readv(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+    fn contentLengthReader_readVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = data;
+        @panic("TODO");
+    }
+
+    fn contentLengthReader_discard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = limit;
         @panic("TODO");
     }
 
@@ -604,10 +613,17 @@ pub const Request = struct {
         @panic("TODO");
     }
 
-    fn chunkedReader_readv(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+    fn chunkedReader_readVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = data;
+        @panic("TODO");
+    }
+
+    fn chunkedReader_discard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        const request: *Request = @alignCast(@ptrCast(ctx));
+        _ = request;
+        _ = limit;
         @panic("TODO");
     }
 
@@ -751,8 +767,7 @@ pub const Request = struct {
 
         if (request.head.expect) |expect| {
             if (mem.eql(u8, expect, "100-continue")) {
-                var w = request.server.connection.stream.writer().unbuffered();
-                try w.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
+                try request.server.out.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
                 request.head.expect = null;
             } else {
                 return error.HttpExpectationFailed;
@@ -766,7 +781,8 @@ pub const Request = struct {
                     .context = request,
                     .vtable = &.{
                         .read = &chunkedReader_read,
-                        .readv = &chunkedReader_readv,
+                        .readVec = &chunkedReader_readVec,
+                        .discard = &chunkedReader_discard,
                     },
                 };
             },
@@ -778,7 +794,8 @@ pub const Request = struct {
                     .context = request,
                     .vtable = &.{
                         .read = &contentLengthReader_read,
-                        .readv = &contentLengthReader_readv,
+                        .readVec = &contentLengthReader_readVec,
+                        .discard = &contentLengthReader_discard,
                     },
                 };
             },
@@ -801,7 +818,7 @@ pub const Request = struct {
         if (keep_alive and request.head.keep_alive) switch (s.state) {
             .received_head => {
                 const r = request.reader() catch return false;
-                _ = r.discardUntilEnd() catch return false;
+                _ = r.discardRemaining() catch return false;
                 assert(s.state == .ready);
                 return true;
             },
@@ -819,7 +836,7 @@ pub const Request = struct {
 };
 
 pub const Response = struct {
-    stream: net.Stream,
+    out: *std.io.BufferedWriter,
     send_buffer: []u8,
     /// Index of the first byte in `send_buffer`.
     /// This is 0 unless a short write happens in `write`.
@@ -909,7 +926,7 @@ pub const Response = struct {
         _ = limit;
         _ = headers_and_trailers;
         _ = headers_len;
-        return error.Unimplemented;
+        @panic("TODO");
     }
 
     fn cl_write(context: ?*anyopaque, bytes: []const u8) std.io.Writer.Error!usize {
@@ -932,8 +949,7 @@ pub const Response = struct {
                 r.send_buffer[r.send_buffer_start..][0..send_buffer_len],
                 bytes,
             };
-            var w = r.stream.writer().unbuffered();
-            const n = try w.writev(&iovecs);
+            const n = try r.out.writeVec(&iovecs);
 
             if (n >= send_buffer_len) {
                 // It was enough to reset the buffer.
@@ -976,7 +992,7 @@ pub const Response = struct {
         _ = limit;
         _ = headers_and_trailers;
         _ = headers_len;
-        return error.Unimplemented; // TODO lower to a call to writeFile on the output
+        @panic("TODO"); // TODO lower to a call to writeFile on the output
     }
 
     fn chunked_write(context: ?*anyopaque, bytes: []const u8) std.io.Writer.Error!usize {
@@ -1001,8 +1017,7 @@ pub const Response = struct {
             };
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
-            var w = r.stream.writer().unbuffered();
-            try w.writevAll(&iovecs);
+            try r.out.writeVecAll(&iovecs);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1036,8 +1051,7 @@ pub const Response = struct {
     }
 
     fn flush_cl(r: *Response) std.io.Writer.Error!void {
-        var w = r.stream.writer().unbuffered();
-        try w.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
+        try r.out.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
     }
@@ -1050,8 +1064,7 @@ pub const Response = struct {
         const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
 
         if (r.elide_body) {
-            var w = r.stream.writer().unbuffered();
-            try w.writeAll(http_headers);
+            try r.out.writeAll(http_headers);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1102,8 +1115,7 @@ pub const Response = struct {
             iovecs_len += 1;
         }
 
-        var w = r.stream.writer().unbuffered();
-        try w.writevAll(iovecs[0..iovecs_len]);
+        try r.out.writeVecAll(iovecs[0..iovecs_len]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
         r.chunk_len = 0;
