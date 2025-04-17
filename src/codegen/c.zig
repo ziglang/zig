@@ -693,18 +693,22 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
-    /// This is a borrowed reference from `link.C`.
-    code: std.ArrayList(u8),
-    /// Goes before code. Initialized and deinitialized in `genFunc`.
-    code_header: std.ArrayList(u8) = undefined,
-    indent_writer: IndentWriter(std.ArrayList(u8).Writer),
+    code_header: std.io.AllocatingWriter,
+    code: std.io.AllocatingWriter,
+    indent_counter: usize,
 
-    fn writer(o: *Object) IndentWriter(std.ArrayList(u8).Writer).Writer {
-        return o.indent_writer.writer();
+    const indent_width = 1;
+
+    fn nl(o: *Object) anyerror!void {
+        const bw = &o.code.buffered_writer;
+        try bw.writeByte('\n');
+        try bw.splatByteAll(' ', o.indent_counter);
     }
-
-    fn codeHeaderWriter(o: *Object) ArrayListWriter {
-        return arrayListWriter(&o.code_header);
+    fn indent(o: *Object) void {
+        o.indent_counter += indent_width;
+    }
+    fn outdent(o: *Object) void {
+        o.indent_counter -= indent_width;
     }
 };
 
@@ -716,8 +720,7 @@ pub const DeclGen = struct {
     pass: Pass,
     is_naked_fn: bool,
     expected_block: ?u32,
-    /// This is a borrowed reference from `link.C`.
-    fwd_decl: std.ArrayList(u8),
+    fwd_decl: std.io.AllocatingWriter,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
@@ -733,10 +736,6 @@ pub const DeclGen = struct {
         uav: InternPool.Index,
         flush,
     };
-
-    fn fwdDeclWriter(dg: *DeclGen) ArrayListWriter {
-        return arrayListWriter(&dg.fwd_decl);
-    }
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @branchHint(.cold);
@@ -4218,7 +4217,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         var mask = try BigInt.Managed.initCapacity(stack.get(), BigInt.calcTwosCompLimbCount(host_bits));
         defer mask.deinit();
 
-        try mask.setTwosCompIntLimit(.max, .unsigned, @as(usize, @intCast(src_bits)));
+        try mask.setTwosCompIntLimit(.max, .unsigned, @intCast(src_bits));
         try mask.shiftLeft(&mask, ptr_info.packed_offset.bit_offset);
         try mask.bitNotWrap(&mask, .unsigned, host_bits);
 
@@ -7136,9 +7135,10 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index, function_paren: []const u8) !CV
     return .none;
 }
 
-fn writeArrayLen(f: *Function, writer: ArrayListWriter, dest_ptr: CValue, dest_ty: Type) !void {
+fn writeArrayLen(f: *Function, dest_ptr: CValue, dest_ty: Type) !void {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
+    const writer = f.object.writer();
     switch (dest_ty.ptrSize(zcu)) {
         .one => try writer.print("{}", .{
             try f.fmtIntLiteral(try pt.intValue(.usize, dest_ty.childType(zcu).arrayLen(zcu))),
@@ -7968,93 +7968,6 @@ fn toAtomicRmwSuffix(order: std.builtin.AtomicRmwOp) []const u8 {
         .Max => "max",
         .Min => "min",
     };
-}
-
-const ArrayListWriter = ErrorOnlyGenericWriter(std.ArrayList(u8).Writer.Error);
-
-fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
-    return .{ .context = .{
-        .context = list,
-        .writeFn = struct {
-            fn write(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-                const l: *std.ArrayList(u8) = @alignCast(@constCast(@ptrCast(context)));
-                return l.writer().write(bytes);
-            }
-        }.write,
-    } };
-}
-
-fn IndentWriter(comptime UnderlyingWriter: type) type {
-    return struct {
-        const Self = @This();
-        pub const Error = UnderlyingWriter.Error;
-        pub const Writer = ErrorOnlyGenericWriter(Error);
-
-        pub const indent_delta = 1;
-
-        underlying_writer: UnderlyingWriter,
-        indent_count: usize = 0,
-        current_line_empty: bool = true,
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = .{
-                .context = self,
-                .writeFn = writeAny,
-            } };
-        }
-
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len == 0) return 0;
-
-            const current_indent = self.indent_count * Self.indent_delta;
-            if (self.current_line_empty and current_indent > 0) {
-                try self.underlying_writer.writeByteNTimes(' ', current_indent);
-            }
-            self.current_line_empty = false;
-
-            return self.writeNoIndent(bytes);
-        }
-
-        fn writeAny(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const self: *Self = @alignCast(@constCast(@ptrCast(context)));
-            return self.write(bytes);
-        }
-
-        pub fn insertNewline(self: *Self) Error!void {
-            _ = try self.writeNoIndent("\n");
-        }
-
-        pub fn pushIndent(self: *Self) void {
-            self.indent_count += 1;
-        }
-
-        pub fn popIndent(self: *Self) void {
-            assert(self.indent_count != 0);
-            self.indent_count -= 1;
-        }
-
-        fn writeNoIndent(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len == 0) return 0;
-
-            try self.underlying_writer.writeAll(bytes);
-            if (bytes[bytes.len - 1] == '\n') {
-                self.current_line_empty = true;
-            }
-            return bytes.len;
-        }
-    };
-}
-
-/// A wrapper around `std.io.AnyWriter` that maintains a generic error set while
-/// erasing the rest of the implementation. This is intended to avoid duplicate
-/// generic instantiations for writer types which share the same error set, while
-/// maintaining ease of error handling.
-fn ErrorOnlyGenericWriter(comptime Error: type) type {
-    return std.io.GenericWriter(std.io.AnyWriter, Error, struct {
-        fn write(context: std.io.AnyWriter, bytes: []const u8) Error!usize {
-            return @errorCast(context.write(bytes));
-        }
-    }.write);
 }
 
 fn toCIntBits(zig_bits: u32) ?u32 {
