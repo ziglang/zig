@@ -523,7 +523,9 @@ const usage_build_generic =
     \\  -fno-stack-protector      Disable stack protection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
-    \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
+    \\  -fsanitize-c[=mode]       Enable C undefined behavior detection in unsafe builds
+    \\    trap                    Insert trap instructions on undefined behavior
+    \\    full                    (Default) Insert runtime calls on undefined behavior
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fsanitize-thread         Enable Thread Sanitizer
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
@@ -1454,9 +1456,18 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-omit-frame-pointer")) {
                         mod_opts.omit_frame_pointer = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
-                        mod_opts.sanitize_c = true;
+                        mod_opts.sanitize_c = .full;
+                    } else if (mem.startsWith(u8, arg, "-fsanitize-c=")) {
+                        const mode = arg["-fsanitize-c=".len..];
+                        if (mem.eql(u8, mode, "trap")) {
+                            mod_opts.sanitize_c = .trap;
+                        } else if (mem.eql(u8, mode, "full")) {
+                            mod_opts.sanitize_c = .full;
+                        } else {
+                            fatal("Invalid -fsanitize-c mode: '{s}'. Must be 'trap' or 'full'.", .{mode});
+                        }
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
-                        mod_opts.sanitize_c = false;
+                        mod_opts.sanitize_c = .off;
                     } else if (mem.eql(u8, arg, "-fvalgrind")) {
                         mod_opts.valgrind = true;
                     } else if (mem.eql(u8, arg, "-fno-valgrind")) {
@@ -2226,13 +2237,56 @@ fn buildOutputType(
                         var recognized_any = false;
                         while (san_it.next()) |sub_arg| {
                             if (mem.eql(u8, sub_arg, "undefined")) {
-                                mod_opts.sanitize_c = enable;
+                                mod_opts.sanitize_c = if (enable) .full else .off;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "thread")) {
                                 mod_opts.sanitize_thread = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "fuzzer") or mem.eql(u8, sub_arg, "fuzzer-no-link")) {
                                 mod_opts.fuzz = enable;
+                                recognized_any = true;
+                            }
+                        }
+                        if (!recognized_any) {
+                            try cc_argv.appendSlice(arena, it.other_args);
+                        }
+                    },
+                    .sanitize_trap, .no_sanitize_trap => |t| {
+                        const enable = t == .sanitize_trap;
+                        var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
+                        var recognized_any = false;
+                        while (san_it.next()) |sub_arg| {
+                            // This logic doesn't match Clang 1:1, but it's probably good enough, and avoids
+                            // significantly complicating the resolution of the options.
+                            if (mem.eql(u8, sub_arg, "undefined")) {
+                                if (mod_opts.sanitize_c) |sc| switch (sc) {
+                                    .off => if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    },
+                                    .trap => if (!enable) {
+                                        mod_opts.sanitize_c = .full;
+                                    },
+                                    .full => if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    },
+                                } else {
+                                    if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    } else {
+                                        // This means we were passed `-fno-sanitize-trap=undefined` and nothing else. In
+                                        // this case, ideally, we should use whatever value `sanitize_c` resolves to by
+                                        // default, except change `trap` to `full`. However, we don't yet know what
+                                        // `sanitize_c` will resolve to! So we either have to pick `off` or `full`.
+                                        //
+                                        // `full` has the potential to be problematic if `optimize_mode` turns out to
+                                        // be `ReleaseFast`/`ReleaseSmall` because the user will get a slower and larger
+                                        // binary than expected. On the other hand, if `optimize_mode` turns out to be
+                                        // `Debug`/`ReleaseSafe`, `off` would mean UBSan would unexpectedly be disabled.
+                                        //
+                                        // `off` seems very slightly less bad, so let's go with that.
+                                        mod_opts.sanitize_c = .off;
+                                    }
+                                }
                                 recognized_any = true;
                             }
                         }
@@ -2746,7 +2800,7 @@ fn buildOutputType(
             }
 
             if (mod_opts.sanitize_c) |wsc| {
-                if (wsc and mod_opts.optimize_mode == .ReleaseFast) {
+                if (wsc != .off and mod_opts.optimize_mode == .ReleaseFast) {
                     mod_opts.optimize_mode = .ReleaseSafe;
                 }
             }
@@ -2891,6 +2945,13 @@ fn buildOutputType(
             create_module.opts.any_non_single_threaded = true;
         if (mod_opts.sanitize_thread == true)
             create_module.opts.any_sanitize_thread = true;
+        if (mod_opts.sanitize_c) |sc| switch (sc) {
+            .off => {},
+            .trap => if (create_module.opts.any_sanitize_c == .off) {
+                create_module.opts.any_sanitize_c = .trap;
+            },
+            .full => create_module.opts.any_sanitize_c = .full,
+        };
         if (mod_opts.fuzz == true)
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
@@ -5909,6 +5970,8 @@ pub const ClangArgIterator = struct {
         gdwarf64,
         sanitize,
         no_sanitize,
+        sanitize_trap,
+        no_sanitize_trap,
         linker_script,
         dry_run,
         verbose,
@@ -7694,6 +7757,13 @@ fn handleModArg(
         create_module.opts.any_non_single_threaded = true;
     if (mod_opts.sanitize_thread == true)
         create_module.opts.any_sanitize_thread = true;
+    if (mod_opts.sanitize_c) |sc| switch (sc) {
+        .off => {},
+        .trap => if (create_module.opts.any_sanitize_c == .off) {
+            create_module.opts.any_sanitize_c = .trap;
+        },
+        .full => create_module.opts.any_sanitize_c = .full,
+    };
     if (mod_opts.fuzz == true)
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {

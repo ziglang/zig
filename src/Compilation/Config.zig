@@ -32,7 +32,7 @@ any_non_single_threaded: bool,
 /// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
-any_sanitize_c: bool,
+any_sanitize_c: std.zig.SanitizeC,
 any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
@@ -86,7 +86,7 @@ pub const Options = struct {
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
-    any_sanitize_c: bool = false,
+    any_sanitize_c: std.zig.SanitizeC = .off,
     any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
