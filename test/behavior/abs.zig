@@ -81,7 +81,7 @@ fn testAbsPlatformDependentIntegers() !void {
         _ = &x;
         try expect(@TypeOf(@abs(x)) == c_ulong);
     }
-    {
+    if (!builtin.cpu.arch.isSpirV()) {
         var x: c_longlong = -1;
         _ = &x;
         try expect(@TypeOf(@abs(x)) == c_ulonglong);
@@ -90,7 +90,9 @@ fn testAbsPlatformDependentIntegers() !void {
     try expect(@TypeOf(@abs(@as(c_short, -1))) == c_ushort);
     try expect(@TypeOf(@abs(@as(c_int, -1))) == c_uint);
     try expect(@TypeOf(@abs(@as(c_long, -1))) == c_ulong);
-    try expect(@TypeOf(@abs(@as(c_longlong, -1))) == c_ulonglong);
+    if (!builtin.cpu.arch.isSpirV()) {
+        try expect(@TypeOf(@abs(@as(c_longlong, -1))) == c_ulonglong);
+    }
 }
 
 test "@abs unsigned integers" {
@@ -164,7 +166,7 @@ fn testAbsPlatformDependentUnsignedIntegers() !void {
         _ = &x;
         try expect(@TypeOf(@abs(x)) == c_ulong);
     }
-    {
+    if (!builtin.cpu.arch.isSpirV()) {
         var x: c_ulonglong = 1;
         _ = &x;
         try expect(@TypeOf(@abs(x)) == c_ulonglong);
@@ -173,7 +175,9 @@ fn testAbsPlatformDependentUnsignedIntegers() !void {
     try expect(@TypeOf(@abs(@as(c_ushort, 1))) == c_ushort);
     try expect(@TypeOf(@abs(@as(c_uint, 1))) == c_uint);
     try expect(@TypeOf(@abs(@as(c_ulong, 1))) == c_ulong);
-    try expect(@TypeOf(@abs(@as(c_ulonglong, 1))) == c_ulonglong);
+    if (!builtin.cpu.arch.isSpirV()) {
+        try expect(@TypeOf(@abs(@as(c_ulonglong, 1))) == c_ulonglong);
+    }
 }
 
 test "@abs big int <= 128 bits" {
