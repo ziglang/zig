@@ -386,7 +386,7 @@ pub const Connection = struct {
         }
     }
 
-    pub fn flush(c: *Connection) anyerror!void {
+    pub fn flush(c: *Connection) std.io.Writer.Error!void {
         try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
@@ -398,7 +398,7 @@ pub const Connection = struct {
     /// If the connection is a TLS connection, sends the close_notify alert.
     ///
     /// Flushes all buffers.
-    pub fn end(c: *Connection) anyerror!void {
+    pub fn end(c: *Connection) std.io.Writer.Error!void {
         try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
@@ -826,7 +826,7 @@ pub const Request = struct {
     }
 
     /// Send the HTTP request headers to the server.
-    pub fn send(req: *Request) anyerror!void {
+    pub fn send(req: *Request) std.io.Writer.Error!void {
         assert(req.transfer_encoding == .none or req.method.requestHasBody());
 
         const connection = req.connection.?;
@@ -959,7 +959,7 @@ pub const Request = struct {
 
     /// TODO collapse each error set into its own meta error code, and store
     /// the underlying error code as a field on Request
-    pub const WaitError = RequestError || anyerror || TransferReadError ||
+    pub const WaitError = RequestError || std.io.Writer.Error || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
         error{
             TooManyHttpRedirects,
@@ -1156,7 +1156,7 @@ pub const Request = struct {
         };
     }
 
-    fn chunked_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn chunked_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         const req: *Request = @ptrCast(@alignCast(context));
         var total: usize = 0;
         for (data) |bytes| total += bytes.len;
@@ -1187,7 +1187,7 @@ pub const Request = struct {
         len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize {
+    ) std.io.Writer.Error!usize {
         if (len == .entire_file) return error.Unimplemented;
         const req: *Request = @ptrCast(@alignCast(context));
         var total: usize = len.int();
@@ -1213,7 +1213,7 @@ pub const Request = struct {
         return total;
     }
 
-    fn cl_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn cl_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         const req: *Request = @ptrCast(@alignCast(context));
         const n = try req.connection.?.writer.writeSplat(data, splat);
         req.transfer_encoding.content_length -= n;
@@ -1227,7 +1227,7 @@ pub const Request = struct {
         len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize {
+    ) std.io.Writer.Error!usize {
         const req: *Request = @ptrCast(@alignCast(context));
         const n = try req.connection.?.writer.writeFile(file, offset, len, headers_and_trailers, headers_len);
         req.transfer_encoding.content_length -= n;
@@ -1236,7 +1236,7 @@ pub const Request = struct {
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     /// Must be called after `send`.
-    pub fn finish(req: *Request) anyerror!void {
+    pub fn finish(req: *Request) std.io.Writer.Error!void {
         switch (req.transfer_encoding) {
             .chunked => try req.connection.?.writer.writeAll("0\r\n\r\n"),
             .content_length => |len| assert(len == 0),
@@ -1353,7 +1353,7 @@ pub const basic_authorization = struct {
         return bw.getWritten();
     }
 
-    pub fn write(uri: Uri, out: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(uri: Uri, out: *std.io.BufferedWriter) std.io.Writer.Error!void {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
         var bw: std.io.BufferedWriter = undefined;
         bw.initFixed(&buf);
@@ -1574,7 +1574,7 @@ pub fn connect(
 
 /// TODO collapse each error set into its own meta error code, and store
 /// the underlying error code as a field on Request
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || anyerror ||
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || std.io.Writer.Error ||
     std.fmt.ParseIntError || Connection.WriteError ||
     error{
         UnsupportedUriScheme,

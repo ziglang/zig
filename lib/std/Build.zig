@@ -2766,9 +2766,8 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    var buffered_writer = debug.lockStdErr2(&.{});
-    defer debug.unlockStdErr();
-    const w = &buffered_writer;
+    const w = debug.lockStderrWriter();
+    defer debug.unlockStderrWriter();
 
     const stderr: fs.File = .stderr();
     try w.print(msg, args);

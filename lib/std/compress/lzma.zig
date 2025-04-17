@@ -11,7 +11,7 @@ pub const RangeDecoder = struct {
     range: u32,
     code: u32,
 
-    pub fn init(rd: *RangeDecoder, br: *std.io.BufferedReader) anyerror!usize {
+    pub fn init(rd: *RangeDecoder, br: *std.io.BufferedReader) std.io.Reader.Error!usize {
         const reserved = try br.takeByte();
         if (reserved != 0) return error.CorruptInput;
         rd.* = .{
@@ -222,7 +222,7 @@ pub const Decode = struct {
         dict_size: u32,
         unpacked_size: ?u64,
 
-        pub fn readHeader(br: *std.io.BufferedReader, options: Options) anyerror!Params {
+        pub fn readHeader(br: *std.io.BufferedReader, options: Options) std.io.Reader.Error!Params {
             var props = try br.readByte();
             if (props >= 225) {
                 return error.CorruptInput;
@@ -537,7 +537,7 @@ pub const Decode = struct {
 
 pub const Decompress = struct {
     pub const Error =
-        anyerror ||
+        std.io.Reader.Error ||
         Allocator.Error ||
         error{ CorruptInput, EndOfStream, Overflow };
 
@@ -668,7 +668,7 @@ const LzCircularBuffer = struct {
         allocator: Allocator,
         lit: u8,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         try self.set(allocator, self.cursor, lit);
         self.cursor += 1;
         self.len += 1;
@@ -687,7 +687,7 @@ const LzCircularBuffer = struct {
         len: usize,
         dist: usize,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         if (dist > self.dict_size or dist > self.len) {
             return error.CorruptInput;
         }
@@ -704,7 +704,7 @@ const LzCircularBuffer = struct {
         }
     }
 
-    pub fn finish(self: *Self, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn finish(self: *Self, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         if (self.cursor > 0) {
             try bw.writeAll(self.buf.items[0..self.cursor]);
             self.cursor = 0;

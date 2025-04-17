@@ -210,16 +210,19 @@ pub fn unlockStdErr() void {
 ///
 /// Returns a `std.io.BufferedWriter` with empty buffer, meaning that it is
 /// in fact unbuffered and does not need to be flushed.
-pub fn lockStdErr2(buffer: []u8) std.io.BufferedWriter {
-    std.Progress.lockStdErr();
-    return std.fs.File.stderr().writer().buffered(buffer);
+pub fn lockStderrWriter(buffer: []u8) *std.io.BufferedWriter {
+    return std.Progress.lockStderrWriter(buffer);
+}
+
+pub fn unlockStderrWriter() void {
+    std.Progress.unlockStderrWriter();
 }
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
-/// for use in "printf debugging." Use `std.log` functions for proper logging.
+/// for use in "printf debugging". Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    var bw = lockStdErr2(&.{});
-    defer unlockStdErr();
+    const bw = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
     nosuspend bw.print(fmt, args) catch return;
 }
 
@@ -242,10 +245,10 @@ pub fn getSelfDebugInfo() !*SelfInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dumpHex(bytes: []const u8) void {
-    var bw = lockStdErr2(&.{});
-    defer unlockStdErr();
+    const bw = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
     const ttyconf = std.io.tty.detectConfig(.stderr());
-    dumpHexFallible(&bw, ttyconf, bytes) catch {};
+    dumpHexFallible(bw, ttyconf, bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
@@ -320,9 +323,9 @@ test dumpHexFallible {
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    var stderr = lockStdErr2(&.{});
-    defer unlockStdErr();
-    nosuspend dumpCurrentStackTraceToWriter(start_addr, &stderr) catch return;
+    const stderr = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
+    nosuspend dumpCurrentStackTraceToWriter(start_addr, stderr) catch return;
 }
 
 /// Prints the current stack trace to the provided writer.
@@ -516,14 +519,14 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
-                var stderr = lockStdErr2(&.{});
-                defer unlockStdErr();
+                const stderr = lockStderrWriter(&.{});
+                defer unlockStderrWriter();
                 stderr.writeAll("Unable to dump stack trace: not implemented for Wasm\n") catch return;
             }
             return;
         }
-        var stderr = lockStdErr2(&.{});
-        defer unlockStdErr();
+        const stderr = lockStderrWriter(&.{});
+        defer unlockStderrWriter();
         if (builtin.strip_debug_info) {
             stderr.writeAll("Unable to dump stack trace: debug info stripped\n") catch return;
             return;
@@ -532,7 +535,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, &stderr, debug_info, io.tty.detectConfig(.stderr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(.stderr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -683,8 +686,8 @@ pub fn defaultPanic(
             _ = panicking.fetchAdd(1, .seq_cst);
 
             {
-                var stderr = lockStdErr2(&.{});
-                defer unlockStdErr();
+                const stderr = lockStderrWriter(&.{});
+                defer unlockStderrWriter();
 
                 if (builtin.single_threaded) {
                     stderr.print("panic: ", .{}) catch posix.abort();
@@ -695,7 +698,7 @@ pub fn defaultPanic(
                 stderr.print("{s}\n", .{msg}) catch posix.abort();
 
                 if (@errorReturnTrace()) |t| dumpStackTrace(t.*);
-                dumpCurrentStackTraceToWriter(first_trace_addr orelse @returnAddress(), &stderr) catch {};
+                dumpCurrentStackTraceToWriter(first_trace_addr orelse @returnAddress(), stderr) catch {};
             }
 
             waitForOtherThreadToFinishPanicking();
@@ -1468,8 +1471,8 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
 }
 
 fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
-    var stderr = lockStdErr2(&.{});
-    defer unlockStdErr();
+    const stderr = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
@@ -1517,7 +1520,7 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
                 }, @ptrCast(ctx)).__mcontext_data;
             }
             relocateContext(&new_ctx);
-            dumpStackTraceFromBase(&new_ctx, &stderr);
+            dumpStackTraceFromBase(&new_ctx, stderr);
         },
         else => {},
     }
@@ -1547,10 +1550,10 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
             _ = panicking.fetchAdd(1, .seq_cst);
 
             {
-                var stderr = lockStdErr2(&.{});
-                defer unlockStdErr();
+                const stderr = lockStderrWriter(&.{});
+                defer unlockStderrWriter();
 
-                dumpSegfaultInfoWindows(info, msg, label, &stderr);
+                dumpSegfaultInfoWindows(info, msg, label, stderr);
             }
 
             waitForOtherThreadToFinishPanicking();
@@ -1665,8 +1668,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             if (!enabled) return;
 
             const tty_config = io.tty.detectConfig(.stderr());
-            var stderr = lockStdErr2(&.{});
-            defer unlockStdErr();
+            const stderr = lockStderrWriter(&.{});
+            defer unlockStderrWriter();
             const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
                 stderr.print(
@@ -1683,7 +1686,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, &stderr, debug_info, tty_config) catch continue;
+                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

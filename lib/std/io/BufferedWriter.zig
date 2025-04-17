@@ -35,19 +35,19 @@ pub fn writer(bw: *BufferedWriter) Writer {
     return .{
         .context = bw,
         .vtable = &.{
-            .writeSplat = passthru_writeSplat,
-            .writeFile = passthru_writeFile,
+            .writeSplat = passthruWriteSplat,
+            .writeFile = passthruWriteFile,
         },
     };
 }
 
 const fixed_vtable: Writer.VTable = .{
-    .writeSplat = fixed_writeSplat,
-    .writeFile = Writer.unimplemented_writeFile,
+    .writeSplat = fixedWriteSplat,
+    .writeFile = Writer.failingWriteFile,
 };
 
 /// Replaces the `BufferedWriter` with one that writes to `buffer` and returns
-/// `error.NoSpaceLeft` when it is full. `end` and `count` will always be
+/// `error.WriteFailed` when it is full. `end` and `count` will always be
 /// equal.
 pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
     bw.* = .{
@@ -72,10 +72,10 @@ pub fn reset(bw: *BufferedWriter) void {
     bw.count = 0;
 }
 
-pub fn flush(bw: *BufferedWriter) anyerror!void {
+pub fn flush(bw: *BufferedWriter) Writer.Error!void {
     const send_buffer = bw.buffer[0..bw.end];
     var index: usize = 0;
-    while (index < send_buffer.len) index += try bw.unbuffered_writer.writev(&.{send_buffer[index..]});
+    while (index < send_buffer.len) index += try bw.unbuffered_writer.writeVec(&.{send_buffer[index..]});
     bw.end = 0;
 }
 
@@ -84,7 +84,7 @@ pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
 }
 
 /// Asserts the provided buffer has total capacity enough for `minimum_length`.
-pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
+pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) Writer.Error![]u8 {
     assert(bw.buffer.len >= minimum_length);
     const cap_slice = bw.buffer[bw.end..];
     if (cap_slice.len >= minimum_length) {
@@ -92,7 +92,7 @@ pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) anyerror![]u8 {
         return cap_slice;
     }
     const buffer = bw.buffer[0..bw.end];
-    const n = try bw.unbuffered_writer.writev(&.{buffer});
+    const n = try bw.unbuffered_writer.writeVec(&.{buffer});
     if (n == buffer.len) {
         @branchHint(.likely);
         bw.end = 0;
@@ -115,11 +115,11 @@ pub fn advance(bw: *BufferedWriter, n: usize) void {
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
-/// fields in order to handle partial writes from `Writer.VTable.writev`.
-pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
+/// fields in order to handle partial writes from `Writer.VTable.writeVec`.
+pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
     var i: usize = 0;
     while (true) {
-        var n = try passthru_writeSplat(bw, data[i..], 1);
+        var n = try passthruWriteSplat(bw, data[i..], 1);
         const len = data[i].len;
         while (n >= len) {
             n -= len;
@@ -130,15 +130,15 @@ pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
     }
 }
 
-pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) anyerror!usize {
-    return passthru_writeSplat(bw, data, splat);
+pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) Writer.Error!usize {
+    return passthruWriteSplat(bw, data, splat);
 }
 
-pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
-    return passthru_writeSplat(bw, data, 1);
+pub fn writeVec(bw: *BufferedWriter, data: []const []const u8) Writer.Error!usize {
+    return passthruWriteSplat(bw, data, 1);
 }
 
-fn passthru_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn passthruWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const buffer = bw.buffer;
     const start_end = bw.end;
@@ -258,11 +258,11 @@ fn track(count: *usize, n: usize) usize {
 /// When this function is called it means the buffer got full, so it's time
 /// to return an error. However, we still need to make sure all of the
 /// available buffer has been filled.
-fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn fixedWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     for (data) |bytes| {
         const dest = bw.buffer[bw.end..];
-        if (dest.len == 0) return error.NoSpaceLeft;
+        if (dest.len == 0) return error.WriteFailed;
         const len = @min(bytes.len, dest.len);
         @memcpy(dest[0..len], bytes[0..len]);
         bw.end += len;
@@ -277,16 +277,16 @@ fn fixed_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize
     }
     bw.end = bw.buffer.len;
     bw.count = bw.end;
-    return error.NoSpaceLeft;
+    return error.WriteFailed;
 }
 
-pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
+pub fn write(bw: *BufferedWriter, bytes: []const u8) Writer.Error!usize {
     const buffer = bw.buffer;
     const end = bw.end;
     const new_end = end + bytes.len;
     if (new_end > buffer.len) {
         var data: [2][]const u8 = .{ buffer[0..end], bytes };
-        const n = try bw.unbuffered_writer.writev(&data);
+        const n = try bw.unbuffered_writer.writeVec(&data);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
@@ -304,16 +304,16 @@ pub fn write(bw: *BufferedWriter, bytes: []const u8) anyerror!usize {
 
 /// Calls `write` as many times as necessary such that all of `bytes` are
 /// transferred.
-pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
+pub fn writeAll(bw: *BufferedWriter, bytes: []const u8) Writer.Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try bw.write(bytes[index..]);
 }
 
-pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) anyerror!void {
+pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) Writer.Error!void {
     try std.fmt.format(bw, format, args);
 }
 
-pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
+pub fn writeByte(bw: *BufferedWriter, byte: u8) Writer.Error!void {
     const buffer = bw.buffer[0..bw.end];
     if (buffer.len < bw.buffer.len) {
         @branchHint(.likely);
@@ -324,7 +324,7 @@ pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
     }
     var buffers: [2][]const u8 = .{ buffer, &.{byte} };
     while (true) {
-        const n = try bw.unbuffered_writer.writev(&buffers);
+        const n = try bw.unbuffered_writer.writeVec(&buffers);
         if (n == 0) {
             @branchHint(.unlikely);
             continue;
@@ -352,7 +352,7 @@ pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
 
 /// Writes the same byte many times, performing the underlying write call as
 /// many times as necessary.
-pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
+pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) Writer.Error!void {
     var remaining: usize = n;
     while (remaining > 0) remaining -= try bw.splatByte(byte, remaining);
 }
@@ -360,13 +360,13 @@ pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `Writer.VTable.writeSplat`.
-pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
-    return passthru_writeSplat(bw, &.{&.{byte}}, n);
+pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) Writer.Error!usize {
+    return passthruWriteSplat(bw, &.{&.{byte}}, n);
 }
 
 /// Writes the same slice many times, performing the underlying write call as
 /// many times as necessary.
-pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) anyerror!void {
+pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) Writer.Error!void {
     var remaining_bytes: usize = bytes.len * splat;
     remaining_bytes -= try bw.splatBytes(bytes, splat);
     while (remaining_bytes > 0) {
@@ -378,26 +378,28 @@ pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) anyer
 
 /// Writes the same slice many times, allowing short writes.
 ///
-/// Does maximum of one underlying `Writer.VTable.writev`.
-pub fn splatBytes(bw: *BufferedWriter, bytes: []const u8, n: usize) anyerror!usize {
-    return passthru_writeSplat(bw, &.{bytes}, n);
+/// Does maximum of one underlying `Writer.VTable.writeVec`.
+pub fn splatBytes(bw: *BufferedWriter, bytes: []const u8, n: usize) Writer.Error!usize {
+    return passthruWriteSplat(bw, &.{bytes}, n);
 }
 
 /// Asserts the `buffer` was initialized with a capacity of at least `@sizeOf(T)` bytes.
-pub inline fn writeInt(bw: *BufferedWriter, comptime T: type, value: T, endian: std.builtin.Endian) anyerror!void {
+pub inline fn writeInt(bw: *BufferedWriter, comptime T: type, value: T, endian: std.builtin.Endian) Writer.Error!void {
     var bytes: [@divExact(@typeInfo(T).int.bits, 8)]u8 = undefined;
     std.mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
     return bw.writeAll(&bytes);
 }
 
-pub fn writeStruct(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn writeStruct(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
     return bw.writeAll(std.mem.asBytes(&value));
 }
 
-pub fn writeStructEndian(bw: *BufferedWriter, value: anytype, endian: std.builtin.Endian) anyerror!void {
-    // TODO: make sure this value is not a reference type
+/// The function is inline to avoid the dead code in case `endian` is
+/// comptime-known and matches host endianness.
+/// TODO: make sure this value is not a reference type
+pub inline fn writeStructEndian(bw: *BufferedWriter, value: anytype, endian: std.builtin.Endian) Writer.Error!void {
     if (native_endian == endian) {
         return bw.writeStruct(value);
     } else {
@@ -407,6 +409,27 @@ pub fn writeStructEndian(bw: *BufferedWriter, value: anytype, endian: std.builti
     }
 }
 
+pub inline fn writeArrayEndian(
+    bw: *BufferedWriter,
+    Elem: type,
+    array: []const Elem,
+    endian: std.builtin.Endian,
+) Writer.Error!void {
+    if (native_endian == endian) {
+        return writeAll(bw, @ptrCast(array));
+    } else {
+        return bw.writeArraySwap(bw, Elem, array);
+    }
+}
+
+/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
+pub fn writeArraySwap(bw: *BufferedWriter, Elem: type, array: []const Elem) Writer.Error!void {
+    // copy to storage first, then swap in place
+    _ = bw;
+    _ = array;
+    @panic("TODO");
+}
+
 pub fn writeFile(
     bw: *BufferedWriter,
     file: std.fs.File,
@@ -414,18 +437,18 @@ pub fn writeFile(
     limit: Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
-    return passthru_writeFile(bw, file, offset, limit, headers_and_trailers, headers_len);
+) Writer.FileError!usize {
+    return passthruWriteFile(bw, file, offset, limit, headers_and_trailers, headers_len);
 }
 
-fn passthru_writeFile(
+fn passthruWriteFile(
     context: ?*anyopaque,
     file: std.fs.File,
     offset: Writer.Offset,
     limit: Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
+) Writer.FileError!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const buffer = bw.buffer;
     if (buffer.len == 0) return track(
@@ -468,8 +491,8 @@ fn passthru_writeFile(
             bw.end = 0;
             return track(&bw.count, n - start_end);
         }
-        // Have not made it past the headers yet; must call `writev`.
-        const n = try bw.unbuffered_writer.writev(buffers[0 .. buffers_len + 1]);
+        // Have not made it past the headers yet; must call `writeVec`.
+        const n = try bw.unbuffered_writer.writeVec(buffers[0 .. buffers_len + 1]);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
@@ -505,7 +528,7 @@ pub const WriteFileOptions = struct {
     /// size here will save one syscall.
     limit: Writer.Limit = .unlimited,
     /// Headers and trailers must be passed together so that in case `len` is
-    /// zero, they can be forwarded directly to `Writer.VTable.writev`.
+    /// zero, they can be forwarded directly to `Writer.VTable.writeVec`.
     ///
     /// The parameter is mutable because this function needs to mutate the
     /// fields in order to handle partial writes from `Writer.VTable.writeFile`.
@@ -515,11 +538,11 @@ pub const WriteFileOptions = struct {
     headers_len: usize = 0,
 };
 
-pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) anyerror!void {
+pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) Writer.FileError!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
     switch (options.limit) {
-        .nothing => return bw.writevAll(headers_and_trailers),
+        .nothing => return bw.writeVecAll(headers_and_trailers),
         .unlimited => {
             // When reading the whole file, we cannot include the trailers in the
             // call that reads from the file handle, because we have no way to
@@ -564,7 +587,7 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
                         if (i >= headers_and_trailers.len) return;
                     }
                     headers_and_trailers[i] = headers_and_trailers[i][n..];
-                    return bw.writevAll(headers_and_trailers[i..]);
+                    return bw.writeVecAll(headers_and_trailers[i..]);
                 }
                 offset = offset.advance(n);
                 len -= n;
@@ -579,7 +602,7 @@ pub fn alignBuffer(
     width: usize,
     alignment: std.fmt.Alignment,
     fill: u8,
-) anyerror!void {
+) Writer.Error!void {
     const padding = if (buffer.len < width) width - buffer.len else 0;
     if (padding == 0) {
         @branchHint(.likely);
@@ -604,11 +627,11 @@ pub fn alignBuffer(
     }
 }
 
-pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.fmt.Options) anyerror!void {
+pub fn alignBufferOptions(bw: *BufferedWriter, buffer: []const u8, options: std.fmt.Options) Writer.Error!void {
     return bw.alignBuffer(buffer, options.width orelse buffer.len, options.alignment, options.fill);
 }
 
-pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn printAddress(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .pointer => |info| {
@@ -638,7 +661,7 @@ pub fn printValue(
     options: std.fmt.Options,
     value: anytype,
     max_depth: usize,
-) anyerror!void {
+) Writer.Error!void {
     const T = @TypeOf(value);
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
         defaultFormatString(T)
@@ -791,7 +814,7 @@ pub fn printValue(
                 },
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
-                    try bw.writevAll(&buffers);
+                    try bw.writeVecAll(&buffers);
                     try bw.printIntOptions(@intFromPtr(value), 16, .lower, options);
                     return;
                 },
@@ -896,7 +919,7 @@ pub fn printInt(
     comptime fmt: []const u8,
     options: std.fmt.Options,
     value: anytype,
-) anyerror!void {
+) Writer.Error!void {
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = std.math.IntFittingRange(value, value);
         break :blk @as(Int, value);
@@ -940,15 +963,15 @@ pub fn printInt(
     comptime unreachable;
 }
 
-pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) anyerror!void {
+pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) Writer.Error!void {
     return bw.alignBufferOptions(@as(*const [1]u8, &c), options);
 }
 
-pub fn printAscii(bw: *BufferedWriter, bytes: []const u8, options: std.fmt.Options) anyerror!void {
+pub fn printAscii(bw: *BufferedWriter, bytes: []const u8, options: std.fmt.Options) Writer.Error!void {
     return bw.alignBufferOptions(bytes, options);
 }
 
-pub fn printUnicodeCodepoint(bw: *BufferedWriter, c: u21, options: std.fmt.Options) anyerror!void {
+pub fn printUnicodeCodepoint(bw: *BufferedWriter, c: u21, options: std.fmt.Options) Writer.Error!void {
     var buf: [4]u8 = undefined;
     const len = try std.unicode.utf8Encode(c, &buf);
     return bw.alignBufferOptions(buf[0..len], options);
@@ -960,7 +983,7 @@ pub fn printIntOptions(
     base: u8,
     case: std.fmt.Case,
     options: std.fmt.Options,
-) anyerror!void {
+) Writer.Error!void {
     assert(base >= 2);
 
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
@@ -1027,7 +1050,7 @@ pub fn printFloat(
     comptime fmt: []const u8,
     options: std.fmt.Options,
     value: anytype,
-) anyerror!void {
+) Writer.Error!void {
     var buf: [std.fmt.float.bufferSize(.decimal, f64)]u8 = undefined;
 
     if (fmt.len > 1) invalidFmtError(fmt, value);
@@ -1054,7 +1077,7 @@ pub fn printFloat(
     }
 }
 
-pub fn printFloatHexadecimal(bw: *BufferedWriter, value: anytype, opt_precision: ?usize) anyerror!void {
+pub fn printFloatHexadecimal(bw: *BufferedWriter, value: anytype, opt_precision: ?usize) Writer.Error!void {
     if (std.math.signbit(value)) try bw.writeByte('-');
     if (std.math.isNan(value)) return bw.writeAll("nan");
     if (std.math.isInf(value)) return bw.writeAll("inf");
@@ -1168,7 +1191,7 @@ pub fn printByteSize(
     value: u64,
     comptime units: ByteSizeUnits,
     options: std.fmt.Options,
-) anyerror!void {
+) Writer.Error!void {
     if (value == 0) return bw.alignBufferOptions("0B", options);
     // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
     var buf: [std.fmt.float.min_buffer_size + 3]u8 = undefined;
@@ -1248,12 +1271,12 @@ pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) noreturn {
     @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
-pub fn printDurationSigned(bw: *BufferedWriter, ns: i64) anyerror!void {
+pub fn printDurationSigned(bw: *BufferedWriter, ns: i64) Writer.Error!void {
     if (ns < 0) try bw.writeByte('-');
     return bw.printDurationUnsigned(@abs(ns));
 }
 
-pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) anyerror!void {
+pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) Writer.Error!void {
     var ns_remaining = ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
@@ -1303,7 +1326,7 @@ pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) anyerror!void {
 /// Writes number of nanoseconds according to its signed magnitude:
 /// `[#y][#w][#d][#h][#m]#[.###][n|u|m]s`
 /// `nanoseconds` must be an integer that coerces into `u64` or `i64`.
-pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt.Options) anyerror!void {
+pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt.Options) Writer.Error!void {
     // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
     var buf: [24]u8 = undefined;
     var sub_bw: BufferedWriter = undefined;
@@ -1315,7 +1338,7 @@ pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt
     return bw.alignBufferOptions(sub_bw.getWritten(), options);
 }
 
-pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anyerror!void {
+pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) Writer.Error!void {
     const charset = switch (case) {
         .upper => "0123456789ABCDEF",
         .lower => "0123456789abcdef",
@@ -1326,7 +1349,7 @@ pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anye
     }
 }
 
-pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
+pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) Writer.Error!void {
     var chunker = std.mem.window(u8, bytes, 3, 3);
     var temp: [5]u8 = undefined;
     while (chunker.next()) |chunk| {
@@ -1335,7 +1358,7 @@ pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
 }
 
 /// Write a single unsigned integer as LEB128 to the given writer.
-pub fn writeUleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn writeUleb128(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     try bw.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
         .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
         .int => |value_info| switch (value_info.signedness) {
@@ -1347,7 +1370,7 @@ pub fn writeUleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
 }
 
 /// Write a single signed integer as LEB128 to the given writer.
-pub fn writeSleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn writeSleb128(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     try bw.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
         .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
         .int => |value_info| switch (value_info.signedness) {
@@ -1359,7 +1382,7 @@ pub fn writeSleb128(bw: *BufferedWriter, value: anytype) anyerror!void {
 }
 
 /// Write a single integer as LEB128 to the given writer.
-pub fn writeLeb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+pub fn writeLeb128(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
     try bw.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
         .signedness = value_info.signedness,
@@ -1367,7 +1390,7 @@ pub fn writeLeb128(bw: *BufferedWriter, value: anytype) anyerror!void {
     } }), value));
 }
 
-fn writeMultipleOf7Leb128(bw: *BufferedWriter, value: anytype) anyerror!void {
+fn writeMultipleOf7Leb128(bw: *BufferedWriter, value: anytype) Writer.Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
     comptime assert(value_info.bits % 7 == 0);
     var remaining = value;
@@ -1409,7 +1432,7 @@ test "formatValue max_depth" {
             comptime fmt: []const u8,
             options: std.fmt.Options,
             bw: *BufferedWriter,
-        ) anyerror!void {
+        ) Writer.Error!void {
             _ = options;
             if (fmt.len == 0) {
                 return bw.print("({d:.3},{d:.3})", .{ self.x, self.y });

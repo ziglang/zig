@@ -2322,7 +2322,7 @@ pub const Const = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(self: Const, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+    pub fn format(self: Const, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
         comptime var base = 10;
         comptime var case: std.fmt.Case = .lower;
 

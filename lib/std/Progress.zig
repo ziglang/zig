@@ -606,6 +606,38 @@ pub fn unlockStdErr() void {
     stderr_mutex.unlock();
 }
 
+/// Protected by `stderr_mutex`.
+var stderr_buffered_writer: std.io.BufferedWriter = .{
+    .unbuffered_writer = stderr_file_writer.interface(),
+    .buffer = &.{},
+};
+/// Protected by `stderr_mutex`.
+var stderr_file_writer: std.fs.File.Writer = .{
+    .file = if (is_windows) undefined else .stderr(),
+    .mode = .streaming,
+};
+
+/// Allows the caller to freely write to the returned `std.io.BufferedWriter`,
+/// initialized with `buffer`, until `unlockStderrWriter` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+///
+/// The lock is recursive; the same thread may hold the lock multiple times.
+pub fn lockStderrWriter(buffer: []u8) *std.io.BufferedWriter {
+    stderr_mutex.lock();
+    clearWrittenWithEscapeCodes() catch {};
+    if (is_windows) stderr_file_writer.file = .stderr();
+    stderr_buffered_writer.flush() catch {};
+    stderr_buffered_writer.buffer = buffer;
+    return &stderr_buffered_writer;
+}
+
+pub fn unlockStderrWriter() void {
+    stderr_buffered_writer.flush() catch {};
+    stderr_buffered_writer.buffer = &.{};
+    stderr_mutex.unlock();
+}
+
 fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
     // Store this data in the thread so that it does not need to be part of the
     // linker data of the main executable.
