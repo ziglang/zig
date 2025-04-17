@@ -2822,7 +2822,7 @@ fn calcSymtabSize(self: *MachO) !void {
     }
 }
 
-fn writeLoadCommands(self: *MachO) anyerror!struct { usize, usize, u64 } {
+fn writeLoadCommands(self: *MachO) std.io.Writer.Error!struct { usize, usize, u64 } {
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
@@ -3910,7 +3910,7 @@ pub fn dumpState(self: *MachO) std.fmt.Formatter(fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn fmtDumpState(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     if (self.getZigObject()) |zo| {
         try bw.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
@@ -3969,7 +3969,7 @@ fn fmtSections(self: *MachO) std.fmt.Formatter(formatSections) {
     return .{ .data = self };
 }
 
-fn formatSections(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSections(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
@@ -3987,7 +3987,7 @@ fn fmtSegments(self: *MachO) std.fmt.Formatter(formatSegments) {
     return .{ .data = self };
 }
 
-fn formatSegments(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSegments(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     for (self.segments.items, 0..) |seg, i| {
         try bw.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
@@ -4001,7 +4001,7 @@ pub fn fmtSectType(tt: u8) std.fmt.Formatter(formatSectType) {
     return .{ .data = tt };
 }
 
-fn formatSectType(tt: u8, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSectType(tt: u8, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const name = switch (tt) {
         macho.S_REGULAR => "REGULAR",
@@ -4270,7 +4270,7 @@ pub const Platform = struct {
         cpu_arch: std.Target.Cpu.Arch,
     };
 
-    pub fn formatTarget(ctx: FmtCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn formatTarget(ctx: FmtCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
         if (ctx.platform.abi != .none) {
@@ -4483,7 +4483,7 @@ pub const Ref = struct {
         };
     }
 
-    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("%{d} in file({d})", .{ ref.index, ref.file });
     }

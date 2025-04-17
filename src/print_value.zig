@@ -20,7 +20,7 @@ pub const FormatContext = struct {
     depth: u8,
 };
 
-pub fn formatSema(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+pub fn formatSema(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
     const sema = ctx.opt_sema.?;
     comptime std.debug.assert(fmt.len == 0);
     return print(ctx.val, bw, ctx.depth, ctx.pt, sema) catch |err| switch (err) {
@@ -31,7 +31,7 @@ pub fn formatSema(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: 
     };
 }
 
-pub fn format(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+pub fn format(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
     std.debug.assert(ctx.opt_sema == null);
     comptime std.debug.assert(fmt.len == 0);
     return print(ctx.val, bw, ctx.depth, ctx.pt, null) catch |err| switch (err) {
@@ -47,7 +47,7 @@ pub fn print(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
@@ -190,7 +190,7 @@ fn printAggregate(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) anyerror!void {
+) std.io.Writer.Error!void {
     if (level == 0) {
         if (is_ref) try bw.writeByte('&');
         return bw.writeAll(".{ ... }");
@@ -276,7 +276,7 @@ fn printPtr(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const ptr = switch (pt.zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
         .undef => return bw.writeAll("undefined"),
         .ptr => |ptr| ptr,
@@ -336,7 +336,7 @@ pub fn printPtrDerivation(
     /// The maximum recursion depth. We can never recurse infinitely here, but the depth can be arbitrary,
     /// so at this depth we just write "..." to prevent stack overflow.
     ptr_depth: u8,
-) anyerror!Value.PointerDeriveStep {
+) std.io.Writer.Error!Value.PointerDeriveStep {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 

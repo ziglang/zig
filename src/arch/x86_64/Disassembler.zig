@@ -31,10 +31,6 @@ pub fn init(code: []const u8) Disassembler {
 }
 
 pub fn next(dis: *Disassembler) Error!?Instruction {
-    return @errorCast(dis.nextInner());
-}
-
-fn nextInner(dis: *Disassembler) anyerror!?Instruction {
     const prefixes = try dis.parsePrefixes();
 
     const enc = try dis.parseEncoding(prefixes) orelse return error.UnknownOpcode;
@@ -375,7 +371,7 @@ fn parseGpRegister(low_enc: u3, is_extended: bool, rex: Rex, bit_size: u64) Regi
     };
 }
 
-fn parseImm(dis: *Disassembler, kind: Encoding.Op) anyerror!Immediate {
+fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
     var br: std.io.BufferedReader = undefined;
     br.initFixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;
@@ -391,7 +387,7 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) anyerror!Immediate {
     };
 }
 
-fn parseOffset(dis: *Disassembler) anyerror!u64 {
+fn parseOffset(dis: *Disassembler) !u64 {
     var br: std.io.BufferedReader = undefined;
     br.initFixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;
@@ -467,7 +463,7 @@ fn parseSibByte(dis: *Disassembler) !Sib {
     return Sib{ .scale = scale, .index = index, .base = base };
 }
 
-fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) anyerror!i32 {
+fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) !i32 {
     var br: std.io.BufferedReader = undefined;
     br.initFixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;

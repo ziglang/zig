@@ -1888,7 +1888,7 @@ pub const NullTerminatedString = enum(u32) {
         string: NullTerminatedString,
         ip: *const InternPool,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime specifier: []const u8) anyerror!void {
+    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime specifier: []const u8) std.io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
         if (comptime std.mem.eql(u8, specifier, "")) {
             try bw.writeAll(slice);

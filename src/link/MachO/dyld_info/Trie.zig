@@ -232,7 +232,7 @@ pub fn deinit(self: *Trie, allocator: Allocator) void {
     allocator.free(self.buffer);
 }
 
-pub fn write(self: Trie, bw: *std.io.BufferedWriter) anyerror!void {
+pub fn write(self: Trie, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     try bw.writeAll(self.buffer);
 }
 

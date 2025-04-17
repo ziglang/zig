@@ -6024,7 +6024,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             // In .rc files, a " within a quoted string is escaped as ""
             const fmtRcEscape = struct {
-                fn formatRcEscape(bytes: []const u8, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+                fn formatRcEscape(bytes: []const u8, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
                     _ = fmt;
                     for (bytes) |byte| switch (byte) {
                         '"' => try bw.writeAll("\"\""),

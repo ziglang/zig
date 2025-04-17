@@ -22,10 +22,6 @@ pub const Error = error{
 };
 
 pub fn lowerToCode(emit: *Emit) Error!void {
-    return @errorCast(emit.lowerToCodeInner());
-}
-
-fn lowerToCodeInner(emit: *Emit) anyerror!void {
     const mir = &emit.mir;
     const bw = emit.bw;
     const wasm = emit.wasm;
@@ -897,12 +893,12 @@ fn lowerToCodeInner(emit: *Emit) anyerror!void {
 }
 
 /// Asserts 20 unused capacity.
-fn encodeMemArg(bw: *std.io.BufferedWriter, mem_arg: Mir.MemArg) anyerror!void {
+fn encodeMemArg(bw: *std.io.BufferedWriter, mem_arg: Mir.MemArg) std.io.Writer.Error!void {
     try bw.writeLeb128(Wasm.Alignment.fromNonzeroByteUnits(mem_arg.alignment).toLog2Units());
     try bw.writeLeb128(mem_arg.offset);
 }
 
-fn uavRefObj(wasm: *Wasm, bw: *std.io.BufferedWriter, value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
+fn uavRefObj(wasm: *Wasm, bw: *std.io.BufferedWriter, value: InternPool.Index, offset: i32, is_wasm32: bool) std.io.Writer.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -951,6 +947,6 @@ fn navRefOff(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.NavRefOff, is_wa
     }
 }
 
-fn appendOutputFunctionIndex(bw: *std.io.BufferedWriter, i: Wasm.OutputFunctionIndex) anyerror!void {
+fn appendOutputFunctionIndex(bw: *std.io.BufferedWriter, i: Wasm.OutputFunctionIndex) std.io.Writer.Error!void {
     return bw.writeLeb128(@intFromEnum(i));
 }

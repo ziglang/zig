@@ -2996,7 +2996,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     }
 }
 
-fn writeAtoms(self: *Elf) anyerror!void {
+fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
     var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
@@ -3130,7 +3130,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     strtab.sh_size = strsize + 1;
 }
 
-fn writeSyntheticSections(self: *Elf) anyerror!void {
+fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const slice = self.sections.slice();
 
@@ -3883,7 +3883,7 @@ fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(formatShdr) {
     } };
 }
 
-fn formatShdr(ctx: FormatShdrCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatShdr(ctx: FormatShdrCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const shdr = ctx.shdr;
     try bw.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
@@ -4216,7 +4216,7 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("ref({},{})", .{ ref.index, ref.file });
     }

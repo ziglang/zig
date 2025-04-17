@@ -71,10 +71,6 @@ const BranchType = enum {
 };
 
 pub fn emitMir(emit: *Emit) InnerError!void {
-    return @errorCast(emit.emitMirInner());
-}
-
-fn emitMirInner(emit: *Emit) anyerror!void {
     const mir_tags = emit.mir.instructions.items(.tag);
 
     // Find smallest lowerings for branch instructions
@@ -441,7 +437,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     return error.EmitFail;
 }
 
-fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) anyerror!void {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });

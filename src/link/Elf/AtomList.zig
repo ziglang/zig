@@ -167,7 +167,7 @@ pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
     return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
-pub fn format(list: AtomList, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(list: AtomList, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = list;
     _ = bw;
     _ = unused_fmt_string;
@@ -180,7 +180,7 @@ pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(format2) {
     return .{ .data = .{ list, elf_file } };
 }
 
-fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const list, const elf_file = ctx;
     try bw.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{

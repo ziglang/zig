@@ -639,7 +639,7 @@ fn resolveRelocInner(
     code: []u8,
     macho_file: *MachO,
     bw: *std.io.BufferedWriter,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
@@ -1140,7 +1140,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;

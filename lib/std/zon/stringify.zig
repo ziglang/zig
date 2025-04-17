@@ -40,7 +40,7 @@ pub const SerializeOptions = struct {
 /// Serialize the given value as ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
-pub fn serialize(val: anytype, options: SerializeOptions, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn serialize(val: anytype, options: SerializeOptions, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -61,7 +61,7 @@ pub fn serializeMaxDepth(
     options: SerializeOptions,
     writer: *std.io.BufferedWriter,
     depth: usize,
-) anyerror!void {
+) std.io.Writer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -80,7 +80,7 @@ pub fn serializeArbitraryDepth(
     val: anytype,
     options: SerializeOptions,
     writer: *std.io.BufferedWriter,
-) anyerror!void {
+) std.io.Writer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -438,26 +438,28 @@ pub const Serializer = struct {
     indent_level: u8 = 0,
     writer: *std.io.BufferedWriter,
 
+    pub const Error = std.io.Writer.Error;
+
     pub const Options = struct {
         /// If false, only syntactically necessary whitespace is emitted.
         whitespace: bool = true,
     };
 
     /// Serialize a value, similar to `serialize`.
-    pub fn value(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+    pub fn value(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
         comptime assert(!typeIsRecursive(@TypeOf(val)));
         return self.valueArbitraryDepth(val, options);
     }
 
     /// Serialize a value, similar to `serializeMaxDepth`.
     /// Can return `error.ExceededMaxDepth`.
-    pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, depth: usize) anyerror!void {
+    pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, depth: usize) Error!void {
         try checkValueDepth(val, depth);
         return self.valueArbitraryDepth(val, options);
     }
 
     /// Serialize a value, similar to `serializeArbitraryDepth`.
-    pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+    pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
         comptime assert(canSerializeType(@TypeOf(val)));
         switch (@typeInfo(@TypeOf(val))) {
             .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
@@ -582,12 +584,12 @@ pub const Serializer = struct {
     }
 
     /// Serialize an integer.
-    pub fn int(self: *Serializer, val: anytype) anyerror!void {
+    pub fn int(self: *Serializer, val: anytype) Error!void {
         try self.writer.printIntOptions(val, 10, .lower, .{});
     }
 
     /// Serialize a float.
-    pub fn float(self: *Serializer, val: anytype) anyerror!void {
+    pub fn float(self: *Serializer, val: anytype) Error!void {
         switch (@typeInfo(@TypeOf(val))) {
             .float => if (std.math.isNan(val)) {
                 return self.writer.writeAll("nan");
@@ -612,7 +614,7 @@ pub const Serializer = struct {
     /// Serialize `name` as an identifier prefixed with `.`.
     ///
     /// Escapes the identifier if necessary.
-    pub fn ident(self: *Serializer, name: []const u8) anyerror!void {
+    pub fn ident(self: *Serializer, name: []const u8) Error!void {
         try self.writer.print(".{fp_}", .{std.zig.fmtId(name)});
     }
 
@@ -622,7 +624,7 @@ pub const Serializer = struct {
     pub fn codePoint(
         self: *Serializer,
         val: u21,
-    ) anyerror!void {
+    ) Error!void {
         var buf: [8]u8 = undefined;
         const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
         const str = buf[0..len];
@@ -632,7 +634,7 @@ pub const Serializer = struct {
     /// Like `value`, but always serializes `val` as a tuple.
     ///
     /// Will fail at comptime if `val` is not a tuple, array, pointer to an array, or slice.
-    pub fn tuple(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+    pub fn tuple(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
         comptime assert(!typeIsRecursive(@TypeOf(val)));
         try self.tupleArbitraryDepth(val, options);
     }
@@ -645,7 +647,7 @@ pub const Serializer = struct {
         val: anytype,
         options: ValueOptions,
         depth: usize,
-    ) anyerror!void {
+    ) Error!void {
         try checkValueDepth(val, depth);
         try self.tupleArbitraryDepth(val, options);
     }
@@ -657,11 +659,11 @@ pub const Serializer = struct {
         self: *Serializer,
         val: anytype,
         options: ValueOptions,
-    ) anyerror!void {
+    ) Error!void {
         try self.tupleImpl(val, options);
     }
 
-    fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+    fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
         comptime assert(canSerializeType(@TypeOf(val)));
         switch (@typeInfo(@TypeOf(val))) {
             .@"struct" => {
@@ -683,7 +685,7 @@ pub const Serializer = struct {
     }
 
     /// Like `value`, but always serializes `val` as a string.
-    pub fn string(self: *Serializer, val: []const u8) anyerror!void {
+    pub fn string(self: *Serializer, val: []const u8) Error!void {
         try std.fmt.format(self.writer, "\"{f}\"", .{std.zig.fmtEscapes(val)});
     }
 
@@ -703,7 +705,7 @@ pub const Serializer = struct {
         self: *Serializer,
         val: []const u8,
         options: MultilineStringOptions,
-    ) anyerror!void {
+    ) Error!void {
         // Make sure the string does not contain any carriage returns not followed by a newline
         var i: usize = 0;
         while (i < val.len) : (i += 1) {
@@ -744,7 +746,7 @@ pub const Serializer = struct {
     pub fn beginStruct(
         self: *Serializer,
         options: SerializeContainerOptions,
-    ) anyerror!Struct {
+    ) Error!Struct {
         return Struct.begin(self, options);
     }
 
@@ -752,23 +754,23 @@ pub const Serializer = struct {
     pub fn beginTuple(
         self: *Serializer,
         options: SerializeContainerOptions,
-    ) anyerror!Tuple {
+    ) Error!Tuple {
         return Tuple.begin(self, options);
     }
 
-    fn indent(self: *Serializer) anyerror!void {
+    fn indent(self: *Serializer) Error!void {
         if (self.options.whitespace) {
             try self.writer.splatByteAll(' ', 4 * self.indent_level);
         }
     }
 
-    fn newline(self: *Serializer) anyerror!void {
+    fn newline(self: *Serializer) Error!void {
         if (self.options.whitespace) {
             try self.writer.writeByte('\n');
         }
     }
 
-    fn newlineOrSpace(self: *Serializer, len: usize) anyerror!void {
+    fn newlineOrSpace(self: *Serializer, len: usize) Error!void {
         if (self.containerShouldWrap(len)) {
             try self.newline();
         } else {
@@ -776,7 +778,7 @@ pub const Serializer = struct {
         }
     }
 
-    fn space(self: *Serializer) anyerror!void {
+    fn space(self: *Serializer) Error!void {
         if (self.options.whitespace) {
             try self.writer.writeByte(' ');
         }
@@ -786,7 +788,7 @@ pub const Serializer = struct {
     pub const Tuple = struct {
         container: Container,
 
-        fn begin(parent: *Serializer, options: SerializeContainerOptions) anyerror!Tuple {
+        fn begin(parent: *Serializer, options: SerializeContainerOptions) Error!Tuple {
             return .{
                 .container = try Container.begin(parent, .anon, options),
             };
@@ -795,7 +797,7 @@ pub const Serializer = struct {
         /// Finishes serializing the tuple.
         ///
         /// Prints a trailing comma as configured when appropriate, and the closing bracket.
-        pub fn end(self: *Tuple) anyerror!void {
+        pub fn end(self: *Tuple) Error!void {
             try self.container.end();
             self.* = undefined;
         }
@@ -805,7 +807,7 @@ pub const Serializer = struct {
             self: *Tuple,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.field(null, val, options);
         }
 
@@ -816,7 +818,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.fieldMaxDepth(null, val, options, depth);
         }
 
@@ -826,7 +828,7 @@ pub const Serializer = struct {
             self: *Tuple,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.fieldArbitraryDepth(null, val, options);
         }
 
@@ -834,7 +836,7 @@ pub const Serializer = struct {
         pub fn beginStructField(
             self: *Tuple,
             options: SerializeContainerOptions,
-        ) anyerror!Struct {
+        ) Error!Struct {
             try self.fieldPrefix();
             return self.container.serializer.beginStruct(options);
         }
@@ -843,14 +845,14 @@ pub const Serializer = struct {
         pub fn beginTupleField(
             self: *Tuple,
             options: SerializeContainerOptions,
-        ) anyerror!Tuple {
+        ) Error!Tuple {
             try self.fieldPrefix();
             return self.container.serializer.beginTuple(options);
         }
 
         /// Print a field prefix. This prints any necessary commas, and whitespace as
         /// configured. Useful if you want to serialize the field value yourself.
-        pub fn fieldPrefix(self: *Tuple) anyerror!void {
+        pub fn fieldPrefix(self: *Tuple) Error!void {
             try self.container.fieldPrefix(null);
         }
     };
@@ -859,7 +861,7 @@ pub const Serializer = struct {
     pub const Struct = struct {
         container: Container,
 
-        fn begin(parent: *Serializer, options: SerializeContainerOptions) anyerror!Struct {
+        fn begin(parent: *Serializer, options: SerializeContainerOptions) Error!Struct {
             return .{
                 .container = try Container.begin(parent, .named, options),
             };
@@ -868,7 +870,7 @@ pub const Serializer = struct {
         /// Finishes serializing the struct.
         ///
         /// Prints a trailing comma as configured when appropriate, and the closing bracket.
-        pub fn end(self: *Struct) anyerror!void {
+        pub fn end(self: *Struct) Error!void {
             try self.container.end();
             self.* = undefined;
         }
@@ -879,7 +881,7 @@ pub const Serializer = struct {
             name: []const u8,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.field(name, val, options);
         }
 
@@ -891,7 +893,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.fieldMaxDepth(name, val, options, depth);
         }
 
@@ -902,7 +904,7 @@ pub const Serializer = struct {
             name: []const u8,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             try self.container.fieldArbitraryDepth(name, val, options);
         }
 
@@ -911,7 +913,7 @@ pub const Serializer = struct {
             self: *Struct,
             name: []const u8,
             options: SerializeContainerOptions,
-        ) anyerror!Struct {
+        ) Error!Struct {
             try self.fieldPrefix(name);
             return self.container.serializer.beginStruct(options);
         }
@@ -921,7 +923,7 @@ pub const Serializer = struct {
             self: *Struct,
             name: []const u8,
             options: SerializeContainerOptions,
-        ) anyerror!Tuple {
+        ) Error!Tuple {
             try self.fieldPrefix(name);
             return self.container.serializer.beginTuple(options);
         }
@@ -929,7 +931,7 @@ pub const Serializer = struct {
         /// Print a field prefix. This prints any necessary commas, the field name (escaped if
         /// necessary) and whitespace as configured. Useful if you want to serialize the field
         /// value yourself.
-        pub fn fieldPrefix(self: *Struct, name: []const u8) anyerror!void {
+        pub fn fieldPrefix(self: *Struct, name: []const u8) Error!void {
             try self.container.fieldPrefix(name);
         }
     };
@@ -946,7 +948,7 @@ pub const Serializer = struct {
             sz: *Serializer,
             field_style: FieldStyle,
             options: SerializeContainerOptions,
-        ) anyerror!Container {
+        ) Error!Container {
             if (options.shouldWrap()) sz.indent_level +|= 1;
             try sz.writer.writeAll(".{");
             return .{
@@ -957,7 +959,7 @@ pub const Serializer = struct {
             };
         }
 
-        fn end(self: *Container) anyerror!void {
+        fn end(self: *Container) Error!void {
             if (self.options.shouldWrap()) self.serializer.indent_level -|= 1;
             if (!self.empty) {
                 if (self.options.shouldWrap()) {
@@ -974,7 +976,7 @@ pub const Serializer = struct {
             self.* = undefined;
         }
 
-        fn fieldPrefix(self: *Container, name: ?[]const u8) anyerror!void {
+        fn fieldPrefix(self: *Container, name: ?[]const u8) Error!void {
             if (!self.empty) {
                 try self.serializer.writer.writeByte(',');
             }
@@ -998,7 +1000,7 @@ pub const Serializer = struct {
             name: ?[]const u8,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             comptime assert(!typeIsRecursive(@TypeOf(val)));
             try self.fieldArbitraryDepth(name, val, options);
         }
@@ -1010,7 +1012,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) anyerror!void {
+        ) Error!void {
             try checkValueDepth(val, depth);
             try self.fieldArbitraryDepth(name, val, options);
         }
@@ -1020,7 +1022,7 @@ pub const Serializer = struct {
             name: ?[]const u8,
             val: anytype,
             options: ValueOptions,
-        ) anyerror!void {
+        ) Error!void {
             try self.fieldPrefix(name);
             try self.serializer.valueArbitraryDepth(val, options);
         }

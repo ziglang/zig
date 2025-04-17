@@ -104,7 +104,7 @@ pub const Cie = struct {
         macho_file: *MachO,
     };
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const cie = ctx.cie;
         try bw.print("@{x} : size({x})", .{
@@ -250,7 +250,7 @@ pub const Fde = struct {
         macho_file: *MachO,
     };
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const fde = ctx.fde;
         const macho_file = ctx.macho_file;

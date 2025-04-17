@@ -158,7 +158,7 @@ pub fn modRmExt(encoding: Encoding) u3 {
     };
 }
 
-pub fn format(encoding: Encoding, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+pub fn format(encoding: Encoding, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
     _ = fmt;
 
     var opc = encoding.opcode();

@@ -184,7 +184,7 @@ pub const ArSymtab = struct {
         }
     }
 
-    pub fn format(ar: ArSymtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(ar: ArSymtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = ar;
         _ = bw;
         _ = unused_fmt_string;
@@ -203,7 +203,7 @@ pub const ArSymtab = struct {
         } };
     }
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const ar = ctx.ar;
         const elf_file = ctx.elf_file;
@@ -251,7 +251,7 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(ar: ArStrtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(ar: ArStrtab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("{f}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
     }

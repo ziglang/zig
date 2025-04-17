@@ -82,7 +82,7 @@ pub fn writeHeader(
     object_name: []const u8,
     object_size: usize,
     format: Format,
-) anyerror!void {
+) std.io.Writer.Error!void {
     var hdr: ar_hdr = undefined;
     @memset(mem.asBytes(&hdr), ' ');
     inline for (@typeInfo(ar_hdr).@"struct".fields) |field| @field(hdr, field.name)[0] = '0';
@@ -177,7 +177,7 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, bw: *std.io.BufferedWriter, format: Format, macho_file: *MachO) anyerror!void {
+    pub fn write(ar: ArSymtab, bw: *std.io.BufferedWriter, format: Format, macho_file: *MachO) std.io.Writer.Error!void {
         const ptr_width = ptrWidth(format);
         // Header
         try writeHeader(bw, SYMDEF, ar.size(format), format);
@@ -212,7 +212,7 @@ pub const ArSymtab = struct {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
     }
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const ar = ctx.ar;
         const macho_file = ctx.macho_file;
@@ -249,7 +249,7 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(bw: *std.io.BufferedWriter, format: Format, value: u64) anyerror!void {
+pub fn writeInt(bw: *std.io.BufferedWriter, format: Format, value: u64) std.io.Writer.Error!void {
     switch (format) {
         .p32 => try bw.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
         .p64 => try bw.writeInt(u64, value, .little),
