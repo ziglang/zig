@@ -360,8 +360,9 @@ pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]
     var aw: std.io.AllocatingWriter = undefined;
     aw.init(allocator);
     defer aw.deinit();
-    // TODO try @errorCast(...)
-    const result = parseWrite(&aw.buffered_writer, bytes) catch |err| return @errorCast(err);
+    const result = parseWrite(&aw.buffered_writer, bytes) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
     switch (result) {
         .success => return aw.toOwnedSlice(),
         .failure => return error.InvalidLiteral,

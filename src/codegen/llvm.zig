@@ -751,7 +751,7 @@ pub const Object = struct {
         const bw = object.builder.setModuleAsm(&aw);
         errdefer aw.deinit();
         for (object.pt.zcu.global_assembly.values()) |assembly| {
-            bw.print("{s}\n", .{assembly}) catch |err| return @errorCast(err);
+            bw.print("{s}\n", .{assembly}) catch return error.OutOfMemory;
         }
         try object.builder.finishModuleAsm(&aw);
     }
@@ -2681,7 +2681,7 @@ pub const Object = struct {
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(o.gpa);
         defer aw.deinit();
-        ty.print(&aw.buffered_writer, o.pt) catch |err| return @errorCast(err);
+        ty.print(&aw.buffered_writer, o.pt) catch return error.OutOfMemory;
         return aw.toOwnedSliceSentinel(0);
     }
 

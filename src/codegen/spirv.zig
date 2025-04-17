@@ -1262,7 +1262,7 @@ const NavGen = struct {
     fn resolveTypeName(self: *NavGen, ty: Type) Allocator.Error![]const u8 {
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(self.gpa);
-        ty.print(&aw.buffered_writer, self.pt) catch |err| return @errorCast(err);
+        ty.print(&aw.buffered_writer, self.pt) catch return error.OutOfMemory;
         return aw.toOwnedSlice();
     }
 

@@ -428,11 +428,11 @@ fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Co
     var aux: std.io.BufferedWriter = undefined;
     aux.initFixed(aux_buf.*);
     if (!base.isEmpty()) {
-        aux.print("{fpath}", .{base}) catch |err| return @errorCast(err);
+        aux.print("{fpath}", .{base}) catch return error.NoSpaceLeft;
         aux.end = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
             return remove_dot_segments(new);
     }
-    aux.print("/{s}", .{new}) catch |err| return @errorCast(err);
+    aux.print("/{s}", .{new}) catch return error.NoSpaceLeft;
     const merged_path = remove_dot_segments(aux.getWritten());
     aux_buf.* = aux_buf.*[merged_path.percent_encoded.len..];
     return merged_path;

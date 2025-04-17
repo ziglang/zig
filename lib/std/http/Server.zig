@@ -902,8 +902,8 @@ pub const Response = struct {
     /// when the end of stream occurs by calling `end`.
     pub fn write(r: *Response, bytes: []const u8) std.io.Writer.Error!usize {
         switch (r.transfer_encoding) {
-            .content_length, .none => return @errorCast(cl_writeSplat(r, &.{bytes}, 1)),
-            .chunked => return @errorCast(chunked_writeSplat(r, &.{bytes}, 1)),
+            .content_length, .none => return cl_writeSplat(r, &.{bytes}, 1),
+            .chunked => return chunked_writeSplat(r, &.{bytes}, 1),
         }
     }
 

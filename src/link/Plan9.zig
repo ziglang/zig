@@ -665,11 +665,11 @@ pub fn flush(
                     // connect the previous decl to the next
                     const delta_line = @as(i32, @intCast(out.start_line)) - @as(i32, @intCast(linecount));
 
-                    changeLine(linecountinfo_bw, delta_line) catch |err| return @errorCast(err);
+                    try changeLine(linecountinfo_bw, delta_line);
                     // TODO change the pc too (maybe?)
 
                     // write out the actual info that was generated in codegen now
-                    linecountinfo_bw.writeAll(out.lineinfo) catch |err| return @errorCast(err);
+                    try linecountinfo_bw.writeAll(out.lineinfo);
                     linecount = out.end_line;
                 }
                 foff += out.code.len;
@@ -692,7 +692,7 @@ pub fn flush(
         }
         if (linecountinfo_aw.getWritten().len & 1 == 1) {
             // just a nop to make it even, the plan9 linker does this
-            linecountinfo_bw.writeByte(129) catch |err| return @errorCast(err);
+            try linecountinfo_bw.writeByte(129);
         }
     }
     const linecountinfo = linecountinfo_aw.getWritten();
@@ -822,7 +822,7 @@ pub fn flush(
     var syms_aw: std.io.AllocatingWriter = undefined;
     syms_aw.init(gpa);
     defer syms_aw.deinit();
-    self.writeSyms(&syms_aw.buffered_writer) catch |err| return @errorCast(err);
+    try self.writeSyms(&syms_aw.buffered_writer);
     const syms = syms_aw.getWritten();
     assert(2 + self.atomCount() - self.externCount() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .base = syms.ptr, .len = syms.len };

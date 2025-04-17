@@ -1482,8 +1482,8 @@ pub const WipNav = struct {
         assert(wip_nav.func != .none);
         if (wip_nav.dwarf.debug_frame.header.format == .none) return;
         const loc_cfa: Cfa = .{ .advance_loc = loc };
-        loc_cfa.write(wip_nav) catch |err| return @errorCast(err);
-        cfa.write(wip_nav) catch |err| return @errorCast(err);
+        try loc_cfa.write(wip_nav);
+        try cfa.write(wip_nav);
     }
 
     pub const LocalVarTag = enum { arg, local_var };
@@ -1541,7 +1541,7 @@ pub const WipNav = struct {
 
     pub fn genVarArgsDebugInfo(wip_nav: *WipNav) UpdateError!void {
         assert(wip_nav.func != .none);
-        wip_nav.abbrevCode(.is_var_args) catch |err| return @errorCast(err);
+        try wip_nav.abbrevCode(.is_var_args);
         wip_nav.any_children = true;
     }
 
@@ -1560,8 +1560,8 @@ pub const WipNav = struct {
             delta_line - header.line_base >= header.line_range)
         remaining: {
             assert(delta_line != 0);
-            dlbw.writeByte(DW.LNS.advance_line) catch |err| return @errorCast(err);
-            dlbw.writeLeb128(delta_line) catch |err| return @errorCast(err);
+            try dlbw.writeByte(DW.LNS.advance_line);
+            try dlbw.writeLeb128(delta_line);
             break :remaining 0;
         } else delta_line);
 
@@ -1569,39 +1569,39 @@ pub const WipNav = struct {
             header.maximum_operations_per_instruction + delta_op;
         const max_op_advance: u9 = (std.math.maxInt(u8) - header.opcode_base) / header.line_range;
         const remaining_op_advance: u8 = @intCast(if (op_advance >= 2 * max_op_advance) remaining: {
-            dlbw.writeByte(DW.LNS.advance_pc) catch |err| return @errorCast(err);
-            dlbw.writeLeb128(op_advance) catch |err| return @errorCast(err);
+            try dlbw.writeByte(DW.LNS.advance_pc);
+            try dlbw.writeLeb128(op_advance);
             break :remaining 0;
         } else if (op_advance >= max_op_advance) remaining: {
-            dlbw.writeByte(DW.LNS.const_add_pc) catch |err| return @errorCast(err);
+            try dlbw.writeByte(DW.LNS.const_add_pc);
             break :remaining op_advance - max_op_advance;
         } else op_advance);
 
-        dlbw.writeByte(
+        try dlbw.writeByte(
             if (remaining_delta_line == 0 and remaining_op_advance == 0)
                 DW.LNS.copy
             else
                 @intCast((remaining_delta_line - header.line_base) +
                     (header.line_range * remaining_op_advance) + header.opcode_base),
-        ) catch |err| return @errorCast(err);
+        );
     }
 
     pub fn setColumn(wip_nav: *WipNav, column: u32) Allocator.Error!void {
         const dlbw = &wip_nav.debug_line.buffered_writer;
-        dlbw.writeByte(DW.LNS.set_column) catch |err| return @errorCast(err);
-        dlbw.writeLeb128(column + 1) catch |err| return @errorCast(err);
+        try dlbw.writeByte(DW.LNS.set_column);
+        try dlbw.writeLeb128(column + 1);
     }
 
     pub fn negateStmt(wip_nav: *WipNav) Allocator.Error!void {
-        return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.negate_stmt));
+        return wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.negate_stmt);
     }
 
     pub fn setPrologueEnd(wip_nav: *WipNav) Allocator.Error!void {
-        return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_prologue_end));
+        return wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_prologue_end);
     }
 
     pub fn setEpilogueBegin(wip_nav: *WipNav) Allocator.Error!void {
-        return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_epilogue_begin));
+        return wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_epilogue_begin);
     }
 
     pub fn enterBlock(wip_nav: *WipNav, code_off: u64) UpdateError!void {
@@ -2432,7 +2432,7 @@ pub fn initWipNav(
     nav_index: InternPool.Nav.Index,
     sym_index: u32,
 ) error{ OutOfMemory, CodegenFail }!?WipNav {
-    return dwarf.initWipNavInner(pt, nav_index, sym_index) catch |err| switch (@as(UpdateError, @errorCast(err))) {
+    return dwarf.initWipNavInner(pt, nav_index, sym_index) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to init dwarf nav: {s}", .{@errorName(e)}),
     };
@@ -2445,7 +2445,7 @@ pub fn finishWipNavFunc(
     code_size: u64,
     wip_nav: *WipNav,
 ) error{ OutOfMemory, CodegenFail }!void {
-    return dwarf.finishWipNavFuncInner(pt, nav_index, code_size, wip_nav) catch |err| switch (@as(UpdateError, @errorCast(err))) {
+    return dwarf.finishWipNavFuncInner(pt, nav_index, code_size, wip_nav) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to finish dwarf func nav: {s}", .{@errorName(e)}),
     };
@@ -2457,7 +2457,7 @@ pub fn finishWipNav(
     nav_index: InternPool.Nav.Index,
     wip_nav: *WipNav,
 ) error{ OutOfMemory, CodegenFail }!void {
-    return dwarf.finishWipNavInner(pt, nav_index, wip_nav) catch |err| switch (@as(UpdateError, @errorCast(err))) {
+    return dwarf.finishWipNavInner(pt, nav_index, wip_nav) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
     };
@@ -2468,7 +2468,7 @@ pub fn updateComptimeNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
 ) error{ OutOfMemory, CodegenFail }!void {
-    return dwarf.updateComptimeNavInner(pt, nav_index) catch |err| switch (@as(UpdateError, @errorCast(err))) {
+    return dwarf.updateComptimeNavInner(pt, nav_index) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to update dwarf comptime nav: {s}", .{@errorName(e)}),
     };
@@ -2479,14 +2479,14 @@ pub fn updateContainerType(
     pt: Zcu.PerThread,
     type_index: InternPool.Index,
 ) error{ OutOfMemory, CodegenFail }!void {
-    return dwarf.updateContainerType(pt, type_index) catch |err| switch (@as(UpdateError, @errorCast(err))) {
+    return dwarf.updateContainerType(pt, type_index) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return pt.zcu.codegenFailType(type_index, "failed to update dwarf comptime nav: {s}", .{@errorName(e)}),
     };
 }
 
 pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
-    return @errorCast(dwarf.flushModuleInner(pt));
+    return dwarf.flushModuleInner(pt);
 }
 
 fn initWipNavInner(

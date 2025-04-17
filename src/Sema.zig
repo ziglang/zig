@@ -3032,7 +3032,7 @@ pub fn createTypeName(
             aw.init(gpa);
             defer aw.deinit();
             const bw = &aw.buffered_writer;
-            bw.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch |err| return @errorCast(err);
+            bw.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch return error.OutOfMemory;
 
             var arg_i: usize = 0;
             for (fn_info.param_body) |zir_inst| switch (zir_tags[@intFromEnum(zir_inst)]) {
@@ -3045,7 +3045,7 @@ pub fn createTypeName(
                     // result in a compile error.
                     const arg_val = try sema.resolveValue(arg) orelse break :func_strat; // fall through to anon strat
 
-                    if (arg_i != 0) bw.writeByte(',') catch |err| return @errorCast(err);
+                    if (arg_i != 0) bw.writeByte(',') catch return error.OutOfMemory;
 
                     // Limiting the depth here helps avoid type names getting too long, which
                     // in turn helps to avoid unreasonably long symbol names for namespaced
@@ -3056,7 +3056,7 @@ pub fn createTypeName(
                         .pt = pt,
                         .opt_sema = sema,
                         .depth = 1,
-                    })}) catch |err| return @errorCast(err);
+                    })}) catch return error.OutOfMemory;
 
                     arg_i += 1;
                     continue;
@@ -5920,19 +5920,19 @@ fn zirCompileLog(
     const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args, 0..) |arg_ref, i| {
-        if (i != 0) bw.writeAll(", ") catch |err| return @errorCast(err);
+        if (i != 0) bw.writeAll(", ") catch return error.OutOfMemory;
 
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveValueResolveLazy(arg)) |val| {
             bw.print("@as({f}, {f})", .{
                 arg_ty.fmt(pt), val.fmtValueSema(pt, sema),
-            }) catch |err| return @errorCast(err);
+            }) catch return error.OutOfMemory;
         } else {
-            bw.print("@as({f}, [runtime value])", .{arg_ty.fmt(pt)}) catch |err| return @errorCast(err);
+            bw.print("@as({f}, [runtime value])", .{arg_ty.fmt(pt)}) catch return error.OutOfMemory;
         }
     }
-    try bw.print("\n", .{});
+    bw.writeByte('\n') catch return error.OutOfMemory;
 
     const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, aw.getWritten(), .no_embedded_nulls);
 
@@ -37379,7 +37379,7 @@ fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, 
         .lvalue,
         .{ .str = inter_name },
         20,
-    ) catch |err| return @errorCast(err);
+    ) catch return error.OutOfMemory;
 
     switch (deriv_start) {
         .int, .nav_ptr => unreachable,

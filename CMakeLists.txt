@@ -495,6 +495,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/unicode.zig
     lib/std/zig.zig
     lib/std/zig/Ast.zig
+    lib/std/zig/Ast/Render.zig
     lib/std/zig/AstGen.zig
     lib/std/zig/AstRlAnnotate.zig
     lib/std/zig/LibCInstallation.zig
@@ -503,7 +504,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
     lib/std/zig/c_builtins.zig
-    lib/std/zig/render.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig

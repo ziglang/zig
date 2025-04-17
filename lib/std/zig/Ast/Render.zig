@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
@@ -7,10 +7,22 @@ const Ast = std.zig.Ast;
 const Token = std.zig.Token;
 const primitives = std.zig.primitives;
 
+const Render = @This();
+
 const indent_delta = 4;
 const asm_indent_delta = 2;
 
-pub const Error = Ast.RenderError;
+gpa: Allocator,
+ais: *AutoIndentingStream,
+tree: Ast,
+fixups: Fixups,
+
+pub const Error = error{
+    /// Ran out of memory allocating call stack frames to complete rendering.
+    OutOfMemory,
+    /// Transitive failure from
+    WriteFailed,
+};
 
 pub const Fixups = struct {
     /// The key is the mut token (`var`/`const`) of the variable declaration
@@ -68,13 +80,6 @@ pub const Fixups = struct {
         f.rename_identifiers.deinit(gpa);
         f.* = undefined;
     }
-};
-
-const Render = struct {
-    gpa: Allocator,
-    ais: *AutoIndentingStream,
-    tree: Ast,
-    fixups: Fixups,
 };
 
 pub fn renderTree(gpa: Allocator, bw: *std.io.BufferedWriter, tree: Ast, fixups: Fixups) Error!void {

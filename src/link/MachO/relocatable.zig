@@ -67,7 +67,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
 
     try writeSections(macho_file);
     sortRelocs(macho_file);
-    writeSectionsToFile(macho_file) catch |err| return @errorCast(err);
+    try writeSectionsToFile(macho_file);
 
     // In order to please Apple ld (and possibly other MachO linkers in the wild),
     // we will now sanitize segment names of Zig-specific segments.
@@ -131,7 +131,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         try writeSections(macho_file);
         sortRelocs(macho_file);
-        writeSectionsToFile(macho_file) catch |err| return @errorCast(err);
+        try writeSectionsToFile(macho_file);
 
         // In order to please Apple ld (and possibly other MachO linkers in the wild),
         // we will now sanitize segment names of Zig-specific segments.
