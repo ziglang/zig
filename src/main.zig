@@ -2338,6 +2338,16 @@ fn buildOutputType(
                             fatal("unsupported -rtlib option '{s}'", .{it.only_arg});
                         }
                     },
+                    .static => {
+                        create_module.opts.link_mode = .static;
+                        lib_preferred_mode = .static;
+                        lib_search_strategy = .no_fallback;
+                    },
+                    .dynamic => {
+                        create_module.opts.link_mode = .dynamic;
+                        lib_preferred_mode = .dynamic;
+                        lib_search_strategy = .mode_first;
+                    },
                 }
             }
             // Parse linker args.
@@ -4088,7 +4098,6 @@ fn createModule(
             color,
         ) catch |err| fatal("failed to resolve link inputs: {s}", .{@errorName(err)});
 
-        if (create_module.windows_libs.count() != 0) create_module.opts.any_dyn_libs = true;
         if (!create_module.opts.any_dyn_libs) for (create_module.link_inputs.items) |item| switch (item) {
             .dso, .dso_exact => {
                 create_module.opts.any_dyn_libs = true;
@@ -5955,6 +5964,8 @@ pub const ClangArgIterator = struct {
         san_cov,
         no_san_cov,
         rtlib,
+        static,
+        dynamic,
     };
 
     const Args = struct {

@@ -572,6 +572,14 @@ const known_options = [_]KnownOpt{
         .name = "rtlib=",
         .ident = "rtlib",
     },
+    .{
+        .name = "static",
+        .ident = "static",
+    },
+    .{
+        .name = "dynamic",
+        .ident = "dynamic",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
