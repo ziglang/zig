@@ -286,7 +286,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
     }
 }
 
-pub fn format(symbol: Symbol, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(symbol: Symbol, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = symbol;
     _ = bw;
     _ = unused_fmt_string;
@@ -305,7 +305,7 @@ pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(format2) {
     } };
 }
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
     try bw.print("%{d} : {s} : @{x}", .{

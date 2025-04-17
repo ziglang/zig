@@ -1199,7 +1199,7 @@ pub const Function = extern struct {
         }
     };
 
-    pub fn lower(f: *Function, wasm: *Wasm, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn lower(f: *Function, wasm: *Wasm, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         // Write the locals in the prologue of the function body.
         const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
 

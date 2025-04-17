@@ -229,7 +229,10 @@ pub fn generateSymbol(
     var aw: std.io.AllocatingWriter = undefined;
     const bw = aw.fromArrayList(pt.zcu.gpa, code);
     defer code.* = aw.toArrayList();
-    return @errorCast(generateSymbolInner(bin_file, pt, src_loc, val, bw, reloc_parent));
+    return generateSymbolInner(bin_file, pt, src_loc, val, bw, reloc_parent) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
 }
 pub fn generateSymbolInner(
     bin_file: *link.File,
@@ -238,7 +241,7 @@ pub fn generateSymbolInner(
     val: Value,
     bw: *std.io.BufferedWriter,
     reloc_parent: link.File.RelocInfo.Parent,
-) anyerror!void {
+) GenerateSymbolError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
@@ -623,7 +626,7 @@ fn lowerPtr(
     bw: *std.io.BufferedWriter,
     reloc_parent: link.File.RelocInfo.Parent,
     prev_offset: u64,
-) anyerror!void {
+) GenerateSymbolError!void {
     const zcu = pt.zcu;
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
@@ -676,7 +679,7 @@ fn lowerUavRef(
     bw: *std.io.BufferedWriter,
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
-) anyerror!void {
+) GenerateSymbolError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -746,7 +749,7 @@ fn lowerNavRef(
     bw: *std.io.BufferedWriter,
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
-) anyerror!void {
+) GenerateSymbolError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;

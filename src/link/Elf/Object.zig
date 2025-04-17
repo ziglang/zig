@@ -1432,7 +1432,7 @@ pub fn comdatGroup(self: *Object, index: Elf.ComdatGroup.Index) *Elf.ComdatGroup
     return &self.comdat_groups.items[index];
 }
 
-pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -1451,7 +1451,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
@@ -1478,7 +1478,7 @@ pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  atoms\n");
@@ -1495,7 +1495,7 @@ pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
     } };
 }
 
-fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  cies\n");
@@ -1511,7 +1511,7 @@ pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
     } };
 }
 
-fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  fdes\n");
@@ -1527,7 +1527,7 @@ pub fn fmtComdatGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCo
     } };
 }
 
-fn formatComdatGroups(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatComdatGroups(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
@@ -1549,7 +1549,7 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     if (object.archive) |ar| {
         try bw.print("{f}({f})", .{ ar.path, object.path });

@@ -68,10 +68,6 @@ const BranchType = enum {
 };
 
 pub fn emitMir(emit: *Emit) InnerError!void {
-    return @errorCast(emit.emitMirInner());
-}
-
-fn emitMirInner(emit: *Emit) anyerror!void {
     const mir_tags = emit.mir.instructions.items(.tag);
 
     // Find smallest lowerings for branch instructions

@@ -509,7 +509,7 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn format(self: SharedObject, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(self: SharedObject, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -528,7 +528,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const shared = ctx.shared;
     const elf_file = ctx.elf_file;

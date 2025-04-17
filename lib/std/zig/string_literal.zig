@@ -44,7 +44,7 @@ pub const Error = union(enum) {
         raw_string: []const u8,
     };
 
-    fn formatMessage(self: FormatMessage, bw: *std.io.BufferedWriter, comptime f: []const u8) anyerror!void {
+    fn formatMessage(self: FormatMessage, bw: *std.io.BufferedWriter, comptime f: []const u8) !void {
         _ = f;
         switch (self.err) {
             .invalid_escape_character => |bad_index| try bw.print(
@@ -318,7 +318,7 @@ test parseCharLiteral {
 
 /// Parses `bytes` as a Zig string literal and writes the result to the `std.io.Writer` type.
 /// Asserts `bytes` has '"' at beginning and end.
-pub fn parseWrite(writer: *std.io.BufferedWriter, bytes: []const u8) anyerror!Result {
+pub fn parseWrite(writer: *std.io.BufferedWriter, bytes: []const u8) std.io.Writer.Error!Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var index: usize = 1;

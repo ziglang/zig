@@ -196,7 +196,7 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(self: *const @This(), bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.splatByteAll(' ', self.value);
     }

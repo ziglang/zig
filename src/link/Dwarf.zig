@@ -1,4 +1,4 @@
-gpa: std.mem.Allocator,
+gpa: Allocator,
 bin_file: *link.File,
 format: DW.Format,
 endian: std.builtin.Endian,
@@ -50,7 +50,7 @@ const ModInfo = struct {
     dirs: std.AutoArrayHashMapUnmanaged(Unit.Index, void),
     files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void),
 
-    fn deinit(mod_info: *ModInfo, gpa: std.mem.Allocator) void {
+    fn deinit(mod_info: *ModInfo, gpa: Allocator) void {
         mod_info.dirs.deinit(gpa);
         mod_info.files.deinit(gpa);
         mod_info.* = undefined;
@@ -132,7 +132,7 @@ const DebugInfo = struct {
         return AbbrevCode.decl_bytes + dwarf.sectionOffsetBytes();
     }
 
-    fn declAbbrevCode(debug_info: *DebugInfo, unit: Unit.Index, entry: Entry.Index) anyerror!AbbrevCode {
+    fn declAbbrevCode(debug_info: *DebugInfo, unit: Unit.Index, entry: Entry.Index) !AbbrevCode {
         const dwarf: *Dwarf = @fieldParentPtr("debug_info", debug_info);
         const unit_ptr = debug_info.section.getUnit(unit);
         const entry_ptr = unit_ptr.getEntry(entry);
@@ -221,13 +221,13 @@ const StringSection = struct {
         .section = Section.init,
     };
 
-    fn deinit(str_sec: *StringSection, gpa: std.mem.Allocator) void {
+    fn deinit(str_sec: *StringSection, gpa: Allocator) void {
         str_sec.contents.deinit(gpa);
         str_sec.map.deinit(gpa);
         str_sec.section.deinit(gpa);
     }
 
-    fn addString(str_sec: *StringSection, dwarf: *Dwarf, str: []const u8) anyerror!Entry.Index {
+    fn addString(str_sec: *StringSection, dwarf: *Dwarf, str: []const u8) !Entry.Index {
         const gop = try str_sec.map.getOrPutAdapted(dwarf.gpa, str, Adapter{ .str_sec = str_sec });
         const entry: Entry.Index = @enumFromInt(gop.index);
         if (!gop.found_existing) {
@@ -298,7 +298,7 @@ pub const Section = struct {
         .len = 0,
     };
 
-    fn deinit(sec: *Section, gpa: std.mem.Allocator) void {
+    fn deinit(sec: *Section, gpa: Allocator) void {
         for (sec.units.items) |*unit| unit.deinit(gpa);
         sec.units.deinit(gpa);
         sec.* = undefined;
@@ -358,7 +358,7 @@ pub const Section = struct {
         if (sec.last == unit.toOptional()) sec.last = unit_ptr.prev;
     }
 
-    fn popUnit(sec: *Section, gpa: std.mem.Allocator) void {
+    fn popUnit(sec: *Section, gpa: Allocator) void {
         const unit_index: Unit.Index = @enumFromInt(sec.units.items.len - 1);
         sec.unlinkUnit(unit_index);
         var unit = sec.units.pop().?;
@@ -369,7 +369,7 @@ pub const Section = struct {
         return &sec.units.items[@intFromEnum(unit)];
     }
 
-    fn resizeEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf, len: u32) anyerror!void {
+    fn resizeEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf, len: u32) UpdateError!void {
         const unit_ptr = sec.getUnit(unit);
         const entry_ptr = unit_ptr.getEntry(entry);
         if (len > 0) {
@@ -390,13 +390,13 @@ pub const Section = struct {
         assert(entry_ptr.len == len);
     }
 
-    fn replaceEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf, contents: []const u8) anyerror!void {
+    fn replaceEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf, contents: []const u8) UpdateError!void {
         try sec.resizeEntry(unit, entry, dwarf, @intCast(contents.len));
         const unit_ptr = sec.getUnit(unit);
         try unit_ptr.getEntry(entry).replace(unit_ptr, sec, dwarf, contents);
     }
 
-    fn freeEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf) anyerror!void {
+    fn freeEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf) UpdateError!void {
         const unit_ptr = sec.getUnit(unit);
         const entry_ptr = unit_ptr.getEntry(entry);
         if (entry_ptr.len > 0) {
@@ -515,7 +515,7 @@ const Unit = struct {
         unit.cross_section_relocs.clearRetainingCapacity();
     }
 
-    fn deinit(unit: *Unit, gpa: std.mem.Allocator) void {
+    fn deinit(unit: *Unit, gpa: Allocator) void {
         for (unit.entries.items) |*entry| entry.deinit(gpa);
         unit.entries.deinit(gpa);
         unit.cross_unit_relocs.deinit(gpa);
@@ -523,7 +523,7 @@ const Unit = struct {
         unit.* = undefined;
     }
 
-    fn addEntry(unit: *Unit, gpa: std.mem.Allocator) std.mem.Allocator.Error!Entry.Index {
+    fn addEntry(unit: *Unit, gpa: Allocator) Allocator.Error!Entry.Index {
         if (unit.free.unwrap()) |entry| {
             const entry_ptr = unit.getEntry(entry);
             unit.free = entry_ptr.next;
@@ -778,7 +778,7 @@ const Entry = struct {
         entry.external_relocs.clearRetainingCapacity();
     }
 
-    fn deinit(entry: *Entry, gpa: std.mem.Allocator) void {
+    fn deinit(entry: *Entry, gpa: Allocator) void {
         entry.cross_entry_relocs.deinit(gpa);
         entry.cross_unit_relocs.deinit(gpa);
         entry.cross_section_relocs.deinit(gpa);
@@ -803,7 +803,7 @@ const Entry = struct {
         }
     };
 
-    fn pad(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) anyerror!void {
+    fn pad(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) UpdateError!void {
         assert(entry.len > 0);
         const start = entry.off + entry.len;
         if (sec == &dwarf.debug_frame.section) {
@@ -882,7 +882,7 @@ const Entry = struct {
         try dwarf.getFile().?.pwriteAll(bw.getWritten(), sec.off(dwarf) + unit.off + unit.header_len + start);
     }
 
-    fn resize(entry_ptr: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf, len: u32) anyerror!void {
+    fn resize(entry_ptr: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf, len: u32) UpdateError!void {
         assert(len > 0);
         assert(sec.alignment.check(len));
         if (entry_ptr.len == len) return;
@@ -1128,7 +1128,7 @@ pub const Loc = union(enum) {
         };
     }
 
-    fn writeReg(bw: *std.io.BufferedWriter, reg: u32, op0: u8, opx: u8) anyerror!void {
+    fn writeReg(bw: *std.io.BufferedWriter, reg: u32, op0: u8, opx: u8) std.io.Writer.Error!void {
         if (std.math.cast(u5, reg)) |small_reg| {
             try bw.writeByte(op0 + small_reg);
         } else {
@@ -1137,7 +1137,7 @@ pub const Loc = union(enum) {
         }
     }
 
-    fn write(loc: Loc, bw: *std.io.BufferedWriter, adapter: anytype) anyerror!void {
+    fn write(loc: Loc, bw: *std.io.BufferedWriter, adapter: anytype) UpdateError!void {
         switch (loc) {
             .empty => {},
             .addr => |addr| {
@@ -1295,7 +1295,7 @@ pub const Cfa = union(enum) {
     const RegOff = struct { reg: u32, off: i64 };
     const RegExpr = struct { reg: u32, expr: Loc };
 
-    fn write(cfa: Cfa, wip_nav: *WipNav) anyerror!void {
+    fn write(cfa: Cfa, wip_nav: *WipNav) UpdateError!void {
         const bw = &wip_nav.debug_frame.buffered_writer;
         switch (cfa) {
             .nop => try bw.writeByte(DW.CFA.nop),
@@ -1534,25 +1534,25 @@ pub const WipNav = struct {
         ) catch |err| return @errorCast(err);
     }
 
-    pub fn setColumn(wip_nav: *WipNav, column: u32) std.mem.Allocator.Error!void {
+    pub fn setColumn(wip_nav: *WipNav, column: u32) Allocator.Error!void {
         const dlbw = &wip_nav.debug_line.buffered_writer;
         dlbw.writeByte(DW.LNS.set_column) catch |err| return @errorCast(err);
         dlbw.writeLeb128(column + 1) catch |err| return @errorCast(err);
     }
 
-    pub fn negateStmt(wip_nav: *WipNav) std.mem.Allocator.Error!void {
+    pub fn negateStmt(wip_nav: *WipNav) Allocator.Error!void {
         return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.negate_stmt));
     }
 
-    pub fn setPrologueEnd(wip_nav: *WipNav) std.mem.Allocator.Error!void {
+    pub fn setPrologueEnd(wip_nav: *WipNav) Allocator.Error!void {
         return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_prologue_end));
     }
 
-    pub fn setEpilogueBegin(wip_nav: *WipNav) std.mem.Allocator.Error!void {
+    pub fn setEpilogueBegin(wip_nav: *WipNav) Allocator.Error!void {
         return @errorCast(wip_nav.debug_line.buffered_writer.writeByte(DW.LNS.set_epilogue_begin));
     }
 
-    pub fn enterBlock(wip_nav: *WipNav, code_off: u64) anyerror!void {
+    pub fn enterBlock(wip_nav: *WipNav, code_off: u64) UpdateError!void {
         const dwarf = wip_nav.dwarf;
         const dibw = &wip_nav.debug_info.buffered_writer;
         const block = try wip_nav.blocks.addOne(dwarf.gpa);
@@ -1566,7 +1566,7 @@ pub const WipNav = struct {
         wip_nav.any_children = false;
     }
 
-    pub fn leaveBlock(wip_nav: *WipNav, code_off: u64) anyerror!void {
+    pub fn leaveBlock(wip_nav: *WipNav, code_off: u64) UpdateError!void {
         const block_bytes = comptime uleb128Bytes(@intFromEnum(AbbrevCode.block));
         const block = wip_nav.blocks.pop().?;
         const dib = wip_nav.debug_info.getWritten();
@@ -1588,7 +1588,7 @@ pub const WipNav = struct {
         code_off: u64,
         line: u32,
         column: u32,
-    ) anyerror!void {
+    ) UpdateError!void {
         const dwarf = wip_nav.dwarf;
         const zcu = wip_nav.pt.zcu;
         const dibw = &wip_nav.debug_info.buffered_writer;
@@ -1607,7 +1607,7 @@ pub const WipNav = struct {
         wip_nav.any_children = false;
     }
 
-    pub fn leaveInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64) anyerror!void {
+    pub fn leaveInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64) UpdateError!void {
         const inlined_func_bytes = comptime uleb128Bytes(@intFromEnum(AbbrevCode.inlined_func));
         const block = wip_nav.blocks.pop().?;
         const dib = wip_nav.debug_info.getWritten();
@@ -1624,7 +1624,7 @@ pub const WipNav = struct {
         wip_nav.any_children = true;
     }
 
-    pub fn setInlineFunc(wip_nav: *WipNav, func: InternPool.Index) anyerror!void {
+    pub fn setInlineFunc(wip_nav: *WipNav, func: InternPool.Index) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
         const dwarf = wip_nav.dwarf;
         if (wip_nav.func == func) return;
@@ -1673,19 +1673,19 @@ pub const WipNav = struct {
         wip_nav.func = func;
     }
 
-    fn externalReloc(wip_nav: *WipNav, sec: *Section, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    fn externalReloc(wip_nav: *WipNav, sec: *Section, reloc: ExternalReloc) Allocator.Error!void {
         try sec.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(wip_nav.dwarf.gpa, reloc);
     }
 
-    pub fn infoExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    pub fn infoExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) Allocator.Error!void {
         try wip_nav.externalReloc(&wip_nav.dwarf.debug_info.section, reloc);
     }
 
-    fn frameExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    fn frameExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) Allocator.Error!void {
         try wip_nav.externalReloc(&wip_nav.dwarf.debug_frame.section, reloc);
     }
 
-    fn abbrevCode(wip_nav: *WipNav, abbrev_code: AbbrevCode) anyerror!void {
+    fn abbrevCode(wip_nav: *WipNav, abbrev_code: AbbrevCode) UpdateError!void {
         try wip_nav.debug_info.buffered_writer.writeLeb128(try wip_nav.dwarf.refAbbrevCode(abbrev_code));
     }
 
@@ -1696,7 +1696,7 @@ pub const WipNav = struct {
         target_unit: Unit.Index,
         target_entry: Entry.Index,
         target_off: u32,
-    ) anyerror!void {
+    ) UpdateError!void {
         const dwarf = wip_nav.dwarf;
         const gpa = dwarf.gpa;
         const entry_ptr = @field(dwarf, @tagName(sec)).section.getUnit(wip_nav.unit).getEntry(wip_nav.entry);
@@ -1727,11 +1727,11 @@ pub const WipNav = struct {
         try bw.splatByteAll(0, dwarf.sectionOffsetBytes());
     }
 
-    fn infoSectionOffset(wip_nav: *WipNav, target_sec: Section.Index, target_unit: Unit.Index, target_entry: Entry.Index, target_off: u32) anyerror!void {
+    fn infoSectionOffset(wip_nav: *WipNav, target_sec: Section.Index, target_unit: Unit.Index, target_entry: Entry.Index, target_off: u32) UpdateError!void {
         try wip_nav.sectionOffset(.debug_info, target_sec, target_unit, target_entry, target_off);
     }
 
-    fn strp(wip_nav: *WipNav, str: []const u8) anyerror!void {
+    fn strp(wip_nav: *WipNav, str: []const u8) UpdateError!void {
         try wip_nav.infoSectionOffset(.debug_str, StringSection.unit, try wip_nav.dwarf.debug_str.addString(wip_nav.dwarf, str), 0);
     }
 
@@ -1755,7 +1755,7 @@ pub const WipNav = struct {
         }
     };
 
-    fn infoExprloc(wip_nav: *WipNav, loc: Loc) anyerror!void {
+    fn infoExprloc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
         const bw = &wip_nav.debug_info.buffered_writer;
         const counter: ExprLocCounter = .init(wip_nav.dwarf);
         const start = bw.count;
@@ -1769,10 +1769,10 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) anyerror!void {
+            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.infoAddrSym(sym_index, 0);
             }
-            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) anyerror!void {
+            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
                 try ctx.wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
@@ -1780,7 +1780,7 @@ pub const WipNav = struct {
         try loc.write(bw, adapter);
     }
 
-    fn infoAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) anyerror!void {
+    fn infoAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) UpdateError!void {
         const dibw = &wip_nav.debug_info.buffered_writer;
         try wip_nav.infoExternalReloc(.{
             .source_off = @intCast(dibw.count),
@@ -1790,7 +1790,7 @@ pub const WipNav = struct {
         try dibw.splatByteAll(0, @intFromEnum(wip_nav.dwarf.address_size));
     }
 
-    fn frameExprloc(wip_nav: *WipNav, loc: Loc) anyerror!void {
+    fn frameExprloc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
         const bw = &wip_nav.debug_frame.buffered_writer;
         const counter: ExprLocCounter = .init(wip_nav.dwarf);
         const start = bw.count;
@@ -1804,10 +1804,10 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) anyerror!void {
+            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.frameAddrSym(sym_index, 0);
             }
-            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) anyerror!void {
+            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
                 try ctx.wip_nav.sectionOffset(.debug_frame, .debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
@@ -1815,7 +1815,7 @@ pub const WipNav = struct {
         try loc.write(bw, adapter);
     }
 
-    fn frameAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) anyerror!void {
+    fn frameAddrSym(wip_nav: *WipNav, sym_index: u32, sym_off: u64) UpdateError!void {
         const dfbw = &wip_nav.debug_frame.buffered_writer;
         try wip_nav.frameExternalReloc(.{
             .source_off = @intCast(dfbw.count),
@@ -1825,7 +1825,7 @@ pub const WipNav = struct {
         try dfbw.splatByteAll(0, @intFromEnum(wip_nav.dwarf.address_size));
     }
 
-    fn getNavEntry(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) anyerror!struct { Unit.Index, Entry.Index } {
+    fn getNavEntry(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) UpdateError!struct { Unit.Index, Entry.Index } {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav_index).srcInst(ip).resolveFile(ip)).mod.?);
@@ -1836,12 +1836,12 @@ pub const WipNav = struct {
         return .{ unit, entry };
     }
 
-    fn refNav(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) anyerror!void {
+    fn refNav(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) UpdateError!void {
         const unit, const entry = try wip_nav.getNavEntry(nav_index);
         try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
     }
 
-    fn getTypeEntry(wip_nav: *WipNav, ty: Type) anyerror!struct { Unit.Index, Entry.Index } {
+    fn getTypeEntry(wip_nav: *WipNav, ty: Type) UpdateError!struct { Unit.Index, Entry.Index } {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         const maybe_inst_index = ty.typeDeclInst(zcu);
@@ -1857,12 +1857,12 @@ pub const WipNav = struct {
         return .{ unit, entry };
     }
 
-    fn refType(wip_nav: *WipNav, ty: Type) anyerror!void {
+    fn refType(wip_nav: *WipNav, ty: Type) UpdateError!void {
         const unit, const entry = try wip_nav.getTypeEntry(ty);
         try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
     }
 
-    fn getValueEntry(wip_nav: *WipNav, value: Value) anyerror!struct { Unit.Index, Entry.Index } {
+    fn getValueEntry(wip_nav: *WipNav, value: Value) UpdateError!struct { Unit.Index, Entry.Index } {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         const ty = value.typeOf(zcu);
@@ -1880,12 +1880,12 @@ pub const WipNav = struct {
         return .{ unit, entry };
     }
 
-    fn refValue(wip_nav: *WipNav, value: Value) anyerror!void {
+    fn refValue(wip_nav: *WipNav, value: Value) UpdateError!void {
         const unit, const entry = try wip_nav.getValueEntry(value);
         try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
     }
 
-    fn refForward(wip_nav: *WipNav) anyerror!u32 {
+    fn refForward(wip_nav: *WipNav) Allocator.Error!u32 {
         const dwarf = wip_nav.dwarf;
         const dibw = &wip_nav.debug_info.buffered_writer;
         const cross_entry_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_entry_relocs;
@@ -1905,7 +1905,7 @@ pub const WipNav = struct {
         reloc.target_off = @intCast(wip_nav.debug_info.buffered_writer.count);
     }
 
-    fn blockValue(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc, val: Value) anyerror!void {
+    fn blockValue(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc, val: Value) UpdateError!void {
         const ty = val.typeOf(wip_nav.pt.zcu);
         const dibw = &wip_nav.debug_info.buffered_writer;
         const bytes = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
@@ -1936,7 +1936,7 @@ pub const WipNav = struct {
         abbrev_code: AbbrevCodeForForm,
         ty: Type,
         big_int: std.math.big.int.Const,
-    ) anyerror!void {
+    ) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
         const dibw = &wip_nav.debug_info.buffered_writer;
         const signedness = switch (ty.toIntern()) {
@@ -1985,7 +1985,7 @@ pub const WipNav = struct {
         loaded_enum: InternPool.LoadedEnumType,
         abbrev_code: AbbrevCodeForForm,
         field_index: usize,
-    ) anyerror!void {
+    ) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         var big_int_space: Value.BigIntSpace = undefined;
@@ -2005,7 +2005,7 @@ pub const WipNav = struct {
         nav: *const InternPool.Nav,
         file: Zcu.File.Index,
         decl: *const std.zig.Zir.Inst.Declaration.Unwrapped,
-    ) anyerror!void {
+    ) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         const dwarf = wip_nav.dwarf;
@@ -2083,7 +2083,7 @@ pub const WipNav = struct {
         const empty: PendingLazy = .{ .types = .empty, .values = .empty };
     };
 
-    fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) anyerror!void {
+    fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) UpdateError!void {
         while (true) if (wip_nav.pending_lazy.types.pop()) |pending_ty|
             try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, pending_ty, &wip_nav.pending_lazy)
         else if (wip_nav.pending_lazy.values.pop()) |pending_val|
@@ -2306,7 +2306,7 @@ pub fn deinit(dwarf: *Dwarf) void {
     dwarf.* = undefined;
 }
 
-fn getUnit(dwarf: *Dwarf, mod: *Module) anyerror!Unit.Index {
+fn getUnit(dwarf: *Dwarf, mod: *Module) !Unit.Index {
     const mod_gop = try dwarf.mods.getOrPut(dwarf.gpa, mod);
     const unit: Unit.Index = @enumFromInt(mod_gop.index);
     if (!mod_gop.found_existing) {
@@ -2434,7 +2434,7 @@ fn initWipNavInner(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     sym_index: u32,
-) anyerror!?WipNav {
+) !?WipNav {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -2641,7 +2641,7 @@ fn finishWipNavFuncInner(
     nav_index: InternPool.Nav.Index,
     code_size: u64,
     wip_nav: *WipNav,
-) anyerror!void {
+) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2741,7 +2741,7 @@ fn finishWipNavInner(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     wip_nav: *WipNav,
-) anyerror!void {
+) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2761,7 +2761,7 @@ fn finishWipNavInner(
     try wip_nav.updateLazy(zcu.navSrcLoc(nav_index));
 }
 
-fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) anyerror!void {
+fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav_src_loc = zcu.navSrcLoc(nav_index);
@@ -3211,7 +3211,7 @@ fn updateLazyType(
     src_loc: Zcu.LazySrcLoc,
     type_index: InternPool.Index,
     pending_lazy: *WipNav.PendingLazy,
-) anyerror!void {
+) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty: Type = .fromInterned(type_index);
@@ -3714,7 +3714,7 @@ fn updateLazyValue(
     src_loc: Zcu.LazySrcLoc,
     value_index: InternPool.Index,
     pending_lazy: *WipNav.PendingLazy,
-) anyerror!void {
+) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     log.debug("updateLazyValue({f})", .{Value.fromInterned(value_index).fmtValue(pt)});
@@ -4103,7 +4103,7 @@ fn optRepr(opt_child_type: Type, zcu: *const Zcu) enum {
     };
 }
 
-fn updateContainerTypeInner(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternPool.Index) anyerror!void {
+fn updateContainerTypeInner(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternPool.Index) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty: Type = .fromInterned(type_index);
@@ -4426,7 +4426,7 @@ pub fn freeNav(dwarf: *Dwarf, nav_index: InternPool.Nav.Index) void {
     _ = nav_index;
 }
 
-fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) anyerror!@typeInfo(AbbrevCode).@"enum".tag_type {
+fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(AbbrevCode).@"enum".tag_type {
     assert(abbrev_code != .null);
     const entry: Entry.Index = @enumFromInt(@intFromEnum(abbrev_code));
     if (dwarf.debug_abbrev.section.getUnit(DebugAbbrev.unit).getEntry(entry).len > 0) return @intFromEnum(abbrev_code);
@@ -4444,7 +4444,7 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) anyerror!@typeInfo(Abbr
     return @intFromEnum(abbrev_code);
 }
 
-fn flushModuleInner(dwarf: *Dwarf, pt: Zcu.PerThread) anyerror!void {
+fn flushModuleInner(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     const gpa = dwarf.gpa;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -5864,7 +5864,7 @@ fn addCommonEntry(dwarf: *Dwarf, unit: Unit.Index) UpdateError!Entry.Index {
     return entry;
 }
 
-fn freeCommonEntry(dwarf: *Dwarf, unit: Unit.Index, entry: Entry.Index) anyerror!void {
+fn freeCommonEntry(dwarf: *Dwarf, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
     try dwarf.debug_aranges.section.freeEntry(unit, entry, dwarf);
     try dwarf.debug_frame.section.freeEntry(unit, entry, dwarf);
     try dwarf.debug_info.section.freeEntry(unit, entry, dwarf);
@@ -5883,7 +5883,7 @@ fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     }
 }
 
-fn writeIntTo(dwarf: *Dwarf, bw: *std.io.BufferedWriter, len: usize, int: u64) anyerror!void {
+fn writeIntTo(dwarf: *Dwarf, bw: *std.io.BufferedWriter, len: usize, int: u64) !void {
     dwarf.writeInt((try bw.writableSlice(len))[0..len], int);
     bw.advance(len);
 }
@@ -5960,3 +5960,4 @@ const link = @import("../link.zig");
 const log = std.log.scoped(.dwarf);
 const std = @import("std");
 const target_info = @import("../target.zig");
+const Allocator = std.mem.Allocator;
