@@ -13,7 +13,6 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
-pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
@@ -751,7 +750,6 @@ pub const StackIterator = struct {
     first_address: ?usize,
     // Last known value of the frame pointer register.
     fp: usize,
-    ma: MemoryAccessor = MemoryAccessor.init,
 
     // When SelfInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
@@ -803,7 +801,6 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(it: *StackIterator) void {
-        it.ma.deinit();
         if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
     }
 
@@ -874,7 +871,6 @@ pub const StackIterator = struct {
                         unwind_state.debug_info.allocator,
                         module.base_address,
                         &unwind_state.dwarf_context,
-                        &it.ma,
                         unwind_info,
                         module.eh_frame,
                     )) |return_address| {
@@ -893,7 +889,6 @@ pub const StackIterator = struct {
                 di,
                 module.base_address,
                 &unwind_state.dwarf_context,
-                &it.ma,
                 null,
             );
         } else return error.MissingDebugInfo;
@@ -927,16 +922,14 @@ pub const StackIterator = struct {
 
         // Sanity check.
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize))) return null;
-        const new_fp = math.add(usize, it.ma.load(usize, fp) orelse return null, fp_bias) catch
-            return null;
+        const new_fp = math.add(usize, @as(*usize, @ptrFromInt(fp)).*, fp_bias) catch return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
         // A zero frame pointer often signals this is the last frame, that case
         // is gracefully handled by the next call to next_internal.
         if (new_fp != 0 and new_fp < it.fp) return null;
-        const new_pc = it.ma.load(usize, math.add(usize, fp, pc_offset) catch return null) orelse
-            return null;
+        const new_pc = @as(*usize, @ptrFromInt(math.add(usize, fp, pc_offset) catch return null)).*;
 
         it.fp = new_fp;
 
@@ -1720,7 +1713,6 @@ pub inline fn inValgrind() bool {
 
 test {
     _ = &Dwarf;
-    _ = &MemoryAccessor;
     _ = &FixedBufferReader;
     _ = &Pdb;
     _ = &SelfInfo;

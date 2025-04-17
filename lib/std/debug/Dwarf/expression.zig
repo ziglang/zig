@@ -15,8 +15,6 @@ const assert = std.debug.assert;
 pub const Context = struct {
     /// The dwarf format of the section this expression is in
     format: std.dwarf.Format = .@"32",
-    /// If specified, any addresses will pass through before being accessed
-    memory_accessor: ?*std.debug.MemoryAccessor = null,
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const std.debug.Dwarf.CompileUnit = null,
     /// When evaluating a user-presented expression, this is the address of the object being evaluated
@@ -464,16 +462,6 @@ pub fn StackMachine(comptime options: Options) type {
                         => operand.?.deref_type.size,
                         else => unreachable,
                     };
-
-                    if (context.memory_accessor) |memory_accessor| {
-                        if (!switch (size) {
-                            1 => memory_accessor.load(u8, addr) != null,
-                            2 => memory_accessor.load(u16, addr) != null,
-                            4 => memory_accessor.load(u32, addr) != null,
-                            8 => memory_accessor.load(u64, addr) != null,
-                            else => return error.InvalidExpression,
-                        }) return error.InvalidExpression;
-                    }
 
                     const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,
