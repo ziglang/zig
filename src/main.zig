@@ -16,6 +16,7 @@ const native_os = builtin.os.tag;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
+const SoName = std.zig.SoName;
 const EnvVar = std.zig.EnvVar;
 const LibCInstallation = std.zig.LibCInstallation;
 const AstGen = std.zig.AstGen;
@@ -688,12 +689,6 @@ const usage_build_generic =
     \\
 ;
 
-const SOName = union(enum) {
-    no,
-    yes_default_value,
-    yes: []const u8,
-};
-
 const EmitBin = union(enum) {
     no,
     yes_default_path,
@@ -862,7 +857,7 @@ fn buildOutputType(
     var target_arch_os_abi: ?[]const u8 = null;
     var target_mcpu: ?[]const u8 = null;
     var emit_h: Emit = .no;
-    var soname: SOName = undefined;
+    var soname: SoName = undefined;
     var want_compiler_rt: ?bool = null;
     var want_ubsan_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
