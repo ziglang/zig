@@ -66,6 +66,8 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
         block_type: u2 = 0b11,
         state: ReadState = .protocol_header,
 
+        read_err: Error!void = {},
+
         const ReadState = enum {
             protocol_header,
             block_header,
@@ -76,19 +78,21 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
 
         const Self = @This();
 
-        pub const Error = anyerror || Container.Error || hfd.Error || error{
+        pub const Error = Container.Error || hfd.Error || error{
             InvalidCode,
             InvalidMatch,
             InvalidBlockType,
             WrongStoredBlockNlen,
             InvalidDynamicBlockHeader,
+            EndOfStream,
+            ReadFailed,
         };
 
         pub fn init(bw: *std.io.BufferedReader) Self {
             return .{ .bits = LookaheadBitReader.init(bw) };
         }
 
-        fn blockHeader(self: *Self) anyerror!void {
+        fn blockHeader(self: *Self) Error!void {
             self.bfinal = try self.bits.read(u1);
             self.block_type = try self.bits.read(u2);
         }
@@ -326,7 +330,7 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
         /// returned bytes means end of stream reached. With limit=0 returns as
         /// much data it can. It newer will be more than 65536 bytes, which is
         /// size of internal buffer.
-        /// TODO merge this logic into reader_streamRead and reader_streamReadVec
+        /// TODO merge this logic into readerRead and readerReadVec
         pub fn get(self: *Self, limit: usize) Error![]const u8 {
             while (true) {
                 const out = self.hist.readAtMost(limit);
@@ -339,42 +343,63 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
             }
         }
 
-        fn reader_streamRead(
-            ctx: ?*anyopaque,
+        fn readerRead(
+            context: ?*anyopaque,
             bw: *std.io.BufferedWriter,
             limit: std.io.Reader.Limit,
-        ) anyerror!std.io.Reader.Status {
-            const self: *Self = @alignCast(@ptrCast(ctx));
+        ) std.io.Reader.RwError!usize {
+            const self: *Self = @alignCast(@ptrCast(context));
             const out = try bw.writableSlice(1);
-            const in = try self.get(limit.min(out.len));
+            const in = self.get(limit.min(out.len)) catch |err| switch (err) {
+                error.EndOfStream => return error.EndOfStream,
+                error.ReadFailed => return error.ReadFailed,
+                else => |e| {
+                    self.read_err = e;
+                    return error.ReadFailed;
+                },
+            };
+            if (in.len == 0) return error.EndOfStream;
             @memcpy(out[0..in.len], in);
             bw.advance(in.len);
-            return .{ .len = in.len, .end = in.len == 0 };
+            return in.len;
         }
 
-        fn reader_streamReadVec(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
-            const self: *Self = @alignCast(@ptrCast(ctx));
+        fn readerReadVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+            const self: *Self = @alignCast(@ptrCast(context));
+            return readVec(self, data) catch |err| switch (err) {
+                error.EndOfStream => return error.EndOfStream,
+                error.ReadFailed => return error.ReadFailed,
+                else => |e| {
+                    self.read_err = e;
+                    return error.ReadFailed;
+                },
+            };
+        }
+
+        fn readerDiscard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+            _ = context;
+            _ = limit;
+            @panic("TODO");
+        }
+
+        pub fn readVec(self: *Self, data: []const []u8) Error!usize {
             for (data) |out| {
                 if (out.len == 0) continue;
                 const in = try self.get(out.len);
                 @memcpy(out[0..in.len], in);
-                return .{ .len = @intCast(in.len), .end = in.len == 0 };
+                if (in.len == 0) return error.EndOfStream;
+                return in.len;
             }
-            return .{};
-        }
-
-        pub fn streamReadVec(self: *Self, data: []const []u8) anyerror!std.io.Reader.Status {
-            return reader_streamReadVec(self, data);
+            return 0;
         }
 
         pub fn reader(self: *Self) std.io.Reader {
             return .{
                 .context = self,
                 .vtable = &.{
-                    .posRead = null,
-                    .posReadVec = null,
-                    .streamRead = reader_streamRead,
-                    .streamReadVec = reader_streamReadVec,
+                    .read = readerRead,
+                    .readVec = readerReadVec,
+                    .discard = readerDiscard,
                 },
             };
         }
@@ -656,7 +681,7 @@ pub fn BitReader(comptime T: type) type {
                 (self.nbits >> 3); // 0 for 0-7, 1 for 8-16, ... same as / 8
 
             var buf: [t_bytes]u8 = [_]u8{0} ** t_bytes;
-            const bytes_read = self.forward_reader.partialRead(buf[0..empty_bytes]) catch 0;
+            const bytes_read = self.forward_reader.readShort(buf[0..empty_bytes]) catch 0;
             if (bytes_read > 0) {
                 const u: T = std.mem.readInt(T, buf[0..t_bytes], .little);
                 self.bits |= u << @as(Tshift, @intCast(self.nbits));
@@ -669,7 +694,7 @@ pub fn BitReader(comptime T: type) type {
         }
 
         /// Read exactly buf.len bytes into buf.
-        pub fn readAll(self: *Self, buf: []u8) anyerror!void {
+        pub fn readAll(self: *Self, buf: []u8) std.io.Reader.Error!void {
             assert(self.alignBits() == 0); // internal bits must be at byte boundary
 
             // First read from internal bits buffer.

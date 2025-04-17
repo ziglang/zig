@@ -19,7 +19,7 @@ out: *std.io.BufferedWriter,
 /// same connection, and makes invalid API usage cause assertion failures
 /// rather than HTTP protocol violations.
 state: State,
-in_err: anyerror,
+head_parse_err: Request.Head.ParseError,
 
 pub const State = enum {
     /// The connection is available to be used for the first time, or reused.
@@ -53,8 +53,8 @@ pub const ReceiveHeadError = error{
     /// The HTTP specification suggests to respond with a 431 status code
     /// before closing the connection.
     HttpHeadersOversize,
-    /// Client sent headers that did not conform to the HTTP protocol.
-    /// `in_err` is populated with a `Request.Head.ParseError`.
+    /// Client sent headers that did not conform to the HTTP protocol;
+    /// `head_parse_err` is populated.
     HttpHeadersInvalid,
     /// Partial HTTP request was received but the connection was closed before
     /// fully receiving the headers.
@@ -62,7 +62,7 @@ pub const ReceiveHeadError = error{
     /// The client sent 0 bytes of headers before closing the stream.
     /// In other words, a keep-alive connection was finally closed.
     HttpConnectionClosing,
-    /// Error occurred reading from `in`; `in_err` is populated.
+    /// Transitive error occurred reading from `in`.
     ReadFailure,
 };
 
@@ -79,23 +79,22 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
 
     while (true) {
         if (head_end >= in.bufferContents().len) return error.HttpHeadersOversize;
-        const buf = (in.peekGreedy(head_end + 1) catch |err| {
-            s.in_err = err;
-            return error.ReadFailure;
-        }) orelse switch (head_end) {
-            0 => return error.HttpConnectionClosing,
-            else => return error.HttpRequestTruncated,
+        const buf = in.peekGreedy(head_end + 1) catch |err| switch (err) {
+            error.EndOfStream => switch (head_end) {
+                0 => return error.HttpConnectionClosing,
+                else => return error.HttpRequestTruncated,
+            },
+            error.ReadFailure => return error.ReadFailure,
         };
         head_end += hp.feed(buf[head_end..]);
         if (hp.state == .finished) return .{
             .server = s,
             .head_end = head_end,
             .head = Request.Head.parse(buf[0..head_end]) catch |err| {
-                s.in_err = err;
+                s.head_parse_err = err;
                 return error.HttpHeadersInvalid;
             },
             .reader_state = undefined,
-            .write_error = undefined,
         };
     }
 }
@@ -109,8 +108,6 @@ pub const Request = struct {
         remaining_content_length: u64,
         chunk_parser: http.ChunkParser,
     },
-    /// Populated when `error.HttpContinueWriteFailed` is received.
-    write_error: anyerror,
 
     pub const Compression = union(enum) {
         deflate: std.compress.zlib.Decompressor,
@@ -310,7 +307,6 @@ pub const Request = struct {
             .head_end = request_bytes.len,
             .head = undefined,
             .reader_state = undefined,
-            .write_error = undefined,
         };
 
         var it = request.iterateHeaders();
@@ -375,7 +371,7 @@ pub const Request = struct {
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         const max_extra_headers = 25;
         assert(options.status != .@"continue");
         assert(options.extra_headers.len <= max_extra_headers);
@@ -581,7 +577,7 @@ pub const Request = struct {
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Reader.Limit,
-    ) anyerror!std.io.Reader.Status {
+    ) std.io.Reader.Error!std.io.Reader.Status {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = bw;
@@ -589,7 +585,7 @@ pub const Request = struct {
         @panic("TODO");
     }
 
-    fn contentLengthReader_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+    fn contentLengthReader_readv(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = data;
@@ -600,7 +596,7 @@ pub const Request = struct {
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Reader.Limit,
-    ) anyerror!std.io.Reader.Status {
+    ) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = bw;
@@ -608,7 +604,7 @@ pub const Request = struct {
         @panic("TODO");
     }
 
-    fn chunkedReader_readv(ctx: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+    fn chunkedReader_readv(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const request: *Request = @alignCast(@ptrCast(ctx));
         _ = request;
         _ = data;
@@ -732,9 +728,10 @@ pub const Request = struct {
     }
 
     pub const ReaderError = error{
-        /// Failed to write "100-continue" to the stream. Error value is
-        /// stored in `Request.write_error`.
-        HttpContinueWriteFailed,
+        /// Failed to write "100-continue" to the stream.
+        WriteFailed,
+        /// Failed to write "100-continue" to the stream because it ended.
+        EndOfStream,
         /// The client sent an expect HTTP header value other than
         /// "100-continue".
         HttpExpectationFailed,
@@ -755,10 +752,7 @@ pub const Request = struct {
         if (request.head.expect) |expect| {
             if (mem.eql(u8, expect, "100-continue")) {
                 var w = request.server.connection.stream.writer().unbuffered();
-                w.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch |err| {
-                    request.write_error = err;
-                    return error.HttpContinueWriteFailed;
-                };
+                try w.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
                 request.head.expect = null;
             } else {
                 return error.HttpExpectationFailed;
@@ -854,7 +848,7 @@ pub const Response = struct {
     /// Otherwise, transfer-encoding: chunked is being used, and it writes the
     /// end-of-stream message, then flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn end(r: *Response) anyerror!void {
+    pub fn end(r: *Response) std.io.Writer.Error!void {
         switch (r.transfer_encoding) {
             .content_length => |len| {
                 assert(len == 0); // Trips when end() called before all bytes written.
@@ -879,7 +873,7 @@ pub const Response = struct {
     /// flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
     /// Asserts there are at most 25 trailers.
-    pub fn endChunked(r: *Response, options: EndChunkedOptions) anyerror!void {
+    pub fn endChunked(r: *Response, options: EndChunkedOptions) std.io.Writer.Error!void {
         assert(r.transfer_encoding == .chunked);
         try flush_chunked(r, options.trailers);
         r.* = undefined;
@@ -889,14 +883,14 @@ pub const Response = struct {
     /// would not exceed the content-length value sent in the HTTP header.
     /// May return 0, which does not indicate end of stream. The caller decides
     /// when the end of stream occurs by calling `end`.
-    pub fn write(r: *Response, bytes: []const u8) anyerror!usize {
+    pub fn write(r: *Response, bytes: []const u8) std.io.Writer.Error!usize {
         switch (r.transfer_encoding) {
             .content_length, .none => return @errorCast(cl_writeSplat(r, &.{bytes}, 1)),
             .chunked => return @errorCast(chunked_writeSplat(r, &.{bytes}, 1)),
         }
     }
 
-    fn cl_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn cl_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         _ = splat;
         return cl_write(context, data[0]); // TODO: try to send all the data
     }
@@ -908,7 +902,7 @@ pub const Response = struct {
         limit: std.io.Writer.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize {
+    ) std.io.Writer.Error!usize {
         _ = context;
         _ = file;
         _ = offset;
@@ -918,7 +912,7 @@ pub const Response = struct {
         return error.Unimplemented;
     }
 
-    fn cl_write(context: ?*anyopaque, bytes: []const u8) anyerror!usize {
+    fn cl_write(context: ?*anyopaque, bytes: []const u8) std.io.Writer.Error!usize {
         const r: *Response = @alignCast(@ptrCast(context));
 
         var trash: u64 = std.math.maxInt(u64);
@@ -963,7 +957,7 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn chunked_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn chunked_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         _ = splat;
         return chunked_write(context, data[0]); // TODO: try to send all the data
     }
@@ -975,7 +969,7 @@ pub const Response = struct {
         limit: std.io.Writer.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize {
+    ) std.io.Writer.Error!usize {
         _ = context;
         _ = file;
         _ = offset;
@@ -985,7 +979,7 @@ pub const Response = struct {
         return error.Unimplemented; // TODO lower to a call to writeFile on the output
     }
 
-    fn chunked_write(context: ?*anyopaque, bytes: []const u8) anyerror!usize {
+    fn chunked_write(context: ?*anyopaque, bytes: []const u8) std.io.Writer.Error!usize {
         const r: *Response = @alignCast(@ptrCast(context));
         assert(r.transfer_encoding == .chunked);
 
@@ -1024,7 +1018,7 @@ pub const Response = struct {
 
     /// If using content-length, asserts that writing these bytes to the client
     /// would not exceed the content-length value sent in the HTTP header.
-    pub fn writeAll(r: *Response, bytes: []const u8) anyerror!void {
+    pub fn writeAll(r: *Response, bytes: []const u8) std.io.Writer.Error!void {
         var index: usize = 0;
         while (index < bytes.len) {
             index += try write(r, bytes[index..]);
@@ -1034,21 +1028,21 @@ pub const Response = struct {
     /// Sends all buffered data to the client.
     /// This is redundant after calling `end`.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn flush(r: *Response) anyerror!void {
+    pub fn flush(r: *Response) std.io.Writer.Error!void {
         switch (r.transfer_encoding) {
             .none, .content_length => return flush_cl(r),
             .chunked => return flush_chunked(r, null),
         }
     }
 
-    fn flush_cl(r: *Response) anyerror!void {
+    fn flush_cl(r: *Response) std.io.Writer.Error!void {
         var w = r.stream.writer().unbuffered();
         try w.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
     }
 
-    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) anyerror!void {
+    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) std.io.Writer.Error!void {
         const max_trailers = 25;
         if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
         assert(r.transfer_encoding == .chunked);

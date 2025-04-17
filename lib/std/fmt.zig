@@ -1,8 +1,8 @@
 //! String formatting and parsing.
 
-const std = @import("std.zig");
 const builtin = @import("builtin");
 
+const std = @import("std.zig");
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
@@ -12,6 +12,7 @@ const meta = std.meta;
 const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 pub const float = @import("fmt/float.zig");
 
@@ -91,7 +92,7 @@ pub const Options = struct {
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype) anyerror!void {
+pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype) std.io.Writer.Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .@"struct") {
@@ -531,7 +532,7 @@ pub fn Formatter(comptime formatFn: anytype) type {
     const Data = @typeInfo(@TypeOf(formatFn)).@"fn".params[0].type.?;
     return struct {
         data: Data,
-        pub fn format(self: @This(), writer: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+        pub fn format(self: @This(), writer: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
             try formatFn(self.data, writer, fmt);
         }
     };
@@ -833,8 +834,7 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     var bw: std.io.BufferedWriter = undefined;
     bw.initFixed(buf);
     bw.print(fmt, args) catch |err| switch (err) {
-        error.NoSpaceLeft => return error.NoSpaceLeft,
-        else => unreachable,
+        error.WriteFailed => return error.NoSpaceLeft,
     };
     return bw.getWritten();
 }
@@ -846,25 +846,34 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 
 /// Count the characters needed for format.
 pub fn count(comptime fmt: []const u8, args: anytype) usize {
-    var buffer: [std.atomic.cache_line]u8 = undefined;
-    var bw = std.io.Writer.null.buffered(&buffer);
+    var trash_buffer: [std.atomic.cache_line]u8 = undefined;
+    var null_writer: std.io.Writer.Null = undefined;
+    var bw = null_writer.writer().buffered(&trash_buffer);
     bw.print(fmt, args) catch unreachable;
     return bw.count;
 }
 
-pub const AllocPrintError = error{OutOfMemory};
-
-pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
-    const size = math.cast(usize, count(fmt, args)) orelse return error.OutOfMemory;
-    const buf = try allocator.alloc(u8, size);
-    return bufPrint(buf, fmt, args) catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable, // we just counted the size above
+pub fn allocPrint(gpa: Allocator, comptime fmt: []const u8, args: anytype) Allocator.Error![]u8 {
+    var aw: std.io.AllocatingWriter = undefined;
+    try aw.initCapacity(gpa, fmt.len);
+    aw.buffered_writer.print(fmt, args) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
     };
+    return aw.toOwnedSlice();
 }
 
-pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
-    const result = try allocPrint(allocator, fmt ++ "\x00", args);
-    return result[0 .. result.len - 1 :0];
+pub fn allocPrintSentinel(
+    gpa: Allocator,
+    comptime fmt: []const u8,
+    args: anytype,
+    comptime sentinel: u8,
+) Allocator.Error![:sentinel]u8 {
+    var aw: std.io.AllocatingWriter = undefined;
+    try aw.initCapacity(gpa, fmt.len);
+    aw.buffered_writer.print(fmt, args) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
+    return aw.toOwnedSliceSentinel(sentinel);
 }
 
 pub inline fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args):0]u8 {
