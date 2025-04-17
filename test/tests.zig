@@ -716,15 +716,26 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/2256
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .powerpc,
-        //        .os_tag = .linux,
-        //        .abi = .gnueabihf,
-        //    },
-        //    .link_libc = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .gnueabi,
+            },
+            .link_libc = true,
+            // https://github.com/ziglang/zig/issues/2256
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
+            .link_libc = true,
+            // https://github.com/ziglang/zig/issues/2256
+            .skip_modules = &.{"std"},
+        },
 
         .{
             .target = .{

@@ -90,6 +90,7 @@ set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
+set(ZIG_STATIC_LIBXML2 OFF CACHE BOOL "Enable static linking against libxml2")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -165,6 +166,12 @@ if(ZIG_STATIC_CURSES)
         /usr/local/opt/ncurses/lib
         /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
+endif()
+
+if(ZIG_STATIC_LIBXML2)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
+    find_library(LIBXML2 NAMES libxml2.a NAMES_PER_DIR)
+    list(APPEND LLVM_LIBRARIES "${LIBXML2}")
 endif()
 
 find_package(Threads)
@@ -944,12 +951,24 @@ if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
 
+set(ZIG_RELEASE_SAFE OFF CACHE BOOL "Build Zig as ReleaseSafe (with debug assertions on)")
+
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
 else()
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+  if("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+    list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSmall)
+  else()
+    # Release and RelWithDebInfo
+    if(ZIG_RELEASE_SAFE)
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSafe)
+    else()
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
+    endif()
+    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+      list(APPEND ZIG_BUILD_ARGS -Dstrip)
+    endif()
+  endif()
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)
