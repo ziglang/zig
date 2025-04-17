@@ -2894,6 +2894,7 @@ pub const CHAR = u8;
 pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *anyopaque;
+pub const OBJ_HANDLE_TAGBITS = 0x03;
 pub const HCRYPTPROV = ULONG_PTR;
 pub const ATOM = u16;
 pub const HBRUSH = *opaque {};

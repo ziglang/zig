@@ -1857,21 +1857,10 @@ pub const Stream = struct {
     }
 
     pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (native_os == .windows) {
-            return windows.ReadFile(self.handle, buffer, null);
-        }
-
         return posix.read(self.handle, buffer);
     }
 
     pub fn readv(s: Stream, iovecs: []const posix.iovec) ReadError!usize {
-        if (native_os == .windows) {
-            // TODO improve this to use ReadFileScatter
-            if (iovecs.len == 0) return @as(usize, 0);
-            const first = iovecs[0];
-            return windows.ReadFile(s.handle, first.base[0..first.len], null);
-        }
-
         return posix.readv(s.handle, iovecs);
     }
 
@@ -1902,10 +1891,6 @@ pub const Stream = struct {
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
     pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (native_os == .windows) {
-            return windows.WriteFile(self.handle, buffer, null);
-        }
-
         return posix.write(self.handle, buffer);
     }
 
