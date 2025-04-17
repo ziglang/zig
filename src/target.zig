@@ -757,7 +757,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .separate_thread => switch (backend) {
-            .stage2_llvm => false,
+            .stage2_llvm => true,
             else => true,
         },
         .all_vector_instructions => switch (backend) {

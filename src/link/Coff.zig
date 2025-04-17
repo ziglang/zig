@@ -2261,7 +2261,7 @@ pub fn flushModule(
     const diags = &comp.link_diags;
 
     if (coff.llvm_object) |llvm_object| {
-        try coff.base.emitLlvmObject(arena, llvm_object, prog_node);
+        try coff.base.emitLlvmObject(arena, llvm_object, prog_node, tid);
         return;
     }
 
