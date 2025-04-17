@@ -230,7 +230,7 @@ pub fn flushModule(
     error_info.init(self.object.gpa);
     defer error_info.deinit();
 
-    error_info.buffered_writer.writeAll("zig_errors:") catch |err| return @errorCast(err);
+    try error_info.buffered_writer.writeAll("zig_errors:");
     const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -238,8 +238,8 @@ pub fn flushModule(
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        error_info.buffered_writer.writeByte(':') catch |err| return @errorCast(err);
-        std.Uri.Component.percentEncode(
+        try error_info.buffered_writer.writeByte(':');
+        try std.Uri.Component.percentEncode(
             &error_info.buffered_writer,
             name.toSlice(ip),
             struct {
@@ -250,7 +250,7 @@ pub fn flushModule(
                     };
                 }
             }.isValidChar,
-        ) catch |err| return @errorCast(err);
+        );
     }
     try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.getWritten(),

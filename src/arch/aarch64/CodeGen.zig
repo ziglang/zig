@@ -416,7 +416,7 @@ pub fn generate(
 
     emit.emitMir() catch |err| switch (err) {
         error.EmitFail => return function.failMsg(emit.err_msg.?),
-        else => |e| return @errorCast(e),
+        else => |e| return e,
     };
 }
 

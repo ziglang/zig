@@ -138,10 +138,10 @@ pub fn main() !void {
         }
     }
 
-    var fixups: Ast.Fixups = .{};
+    var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    var more_fixups: Ast.Fixups = .{};
+    var more_fixups: Ast.Render.Fixups = .{};
     defer more_fixups.deinit(gpa);
 
     var rng = std.Random.DefaultPrng.init(seed);
