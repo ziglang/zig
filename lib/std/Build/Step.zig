@@ -287,7 +287,8 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, file: std.fs.File) void {
-    var bw = file.writer().unbuffered();
+    var fw = file.writer();
+    var bw = fw.interface().unbuffered();
     const tty_config = std.io.tty.detectConfig(file);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         bw.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
@@ -469,7 +470,7 @@ pub fn evalZigProcess(
     // This is intentionally printed for failure on the first build but not for
     // subsequent rebuilds.
     if (s.result_error_bundle.errorMessageCount() > 0) {
-        return s.fail("the following command failed with {d} compilation errors:\n{s}\n", .{
+        return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
             s.result_error_bundle.errorMessageCount(),
             try allocPrintCmd(arena, null, argv),
         });
@@ -689,7 +690,7 @@ pub inline fn handleChildProcUnsupported(
 ) error{ OutOfMemory, MakeFailed }!void {
     if (!std.process.can_spawn) {
         return s.fail(
-            "unable to execute the following command: host cannot spawn child processes\n{s}\n",
+            "unable to execute the following command: host cannot spawn child processes\n{s}",
             .{try allocPrintCmd(s.owner.allocator, opt_cwd, argv)},
         );
     }
@@ -706,14 +707,14 @@ pub fn handleChildProcessTerm(
         .Exited => |code| {
             if (code != 0) {
                 return s.fail(
-                    "the following command exited with error code {d}:\n{s}\n",
+                    "the following command exited with error code {d}:\n{s}",
                     .{ code, try allocPrintCmd(arena, opt_cwd, argv) },
                 );
             }
         },
         .Signal, .Stopped, .Unknown => {
             return s.fail(
-                "the following command terminated unexpectedly:\n{s}\n",
+                "the following command terminated unexpectedly:\n{s}",
                 .{try allocPrintCmd(arena, opt_cwd, argv)},
             );
         },

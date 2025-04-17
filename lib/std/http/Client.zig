@@ -115,14 +115,14 @@ pub const ConnectionPool = struct {
     ///
     /// Threadsafe.
     pub fn release(pool: *ConnectionPool, allocator: Allocator, connection: *Connection) void {
-        if (connection.closing) return connection.destroy(allocator);
+        if (connection.closing) return connection.destroy();
 
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
         pool.used.remove(&connection.pool_node);
 
-        if (pool.free_size == 0) return connection.destroy(allocator);
+        if (pool.free_size == 0) return connection.destroy();
 
         if (pool.free_len >= pool.free_size) {
             const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);

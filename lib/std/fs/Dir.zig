@@ -2052,7 +2052,7 @@ pub fn readFileIntoArrayList(
         try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.FileTooBig);
     } else |err| switch (err) {
         // Ignore most errors; size hint is only an optimization.
-        error.Unseekable, error.Unexpected, error.AccessDenied, error.PermissionDenied => {},
+        error.Unexpected, error.AccessDenied, error.PermissionDenied => {},
         else => |e| return e,
     }
 

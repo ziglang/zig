@@ -1808,6 +1808,7 @@ fn buildOutputType(
                         } else manifest_file = arg;
                     },
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm => {
+                        dev.check(.c_compiler);
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1818,6 +1819,7 @@ fn buildOutputType(
                         });
                     },
                     .rc => {
+                        dev.check(.win32_resource);
                         try create_module.rc_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -3303,6 +3305,7 @@ fn buildOutputType(
     defer thread_pool.deinit();
 
     for (create_module.c_source_files.items) |*src| {
+        dev.check(.c_compiler);
         if (!mem.eql(u8, src.src_path, "-")) continue;
 
         const ext = src.ext orelse
@@ -5008,7 +5011,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
         fn deinit(_: @This()) void {}
-    } = .{ .allocator = gpa };
+    } = .{
+        .allocator = gpa,
+        .read_buffer_size = 0x4000,
+        .write_buffer_size = 0x4000,
+    };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -6815,7 +6822,11 @@ fn cmdFetch(
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    var http_client: std.http.Client = .{ .allocator = gpa };
+    var http_client: std.http.Client = .{
+        .allocator = gpa,
+        .read_buffer_size = 0x4000,
+        .write_buffer_size = 0x4000,
+    };
     defer http_client.deinit();
 
     try http_client.initDefaultProxies(arena);

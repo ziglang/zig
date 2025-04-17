@@ -97,19 +97,20 @@ pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) !void {
     br.seek = seek;
 }
 
-/// Returns the next `n` bytes from `unbuffered_reader`, filling the buffer as
+/// Returns the next `len` bytes from `unbuffered_reader`, filling the buffer as
 /// necessary.
 ///
 /// Invalidates previously returned values from `peek`.
 ///
 /// Asserts that the `BufferedReader` was initialized with a buffer capacity at
-/// least as big as `n`.
+/// least as big as `len`.
 ///
-/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
+/// If there are fewer than `len` bytes left in the stream, `error.EndOfStream`
 /// is returned instead.
 ///
 /// See also:
-/// * `peekGreedy`
+/// * `peek`
+/// * `tryPeekArray`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
     const storage = &br.storage;
@@ -119,18 +120,19 @@ pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 }
 
 /// Returns all the next buffered bytes from `unbuffered_reader`, after filling
-/// the buffer to ensure it contains at least `n` bytes.
+/// the buffer to ensure it contains at least `min_len` bytes.
 ///
 /// Invalidates previously returned values from `peek` and `peekGreedy`.
 ///
 /// Asserts that the `BufferedReader` was initialized with a buffer capacity at
-/// least as big as `n`.
+/// least as big as `min_len`.
 ///
-/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
+/// If there are fewer than `min_len` bytes left in the stream, `error.EndOfStream`
 /// is returned instead.
 ///
 /// See also:
 /// * `peek`
+/// * `tryPeekGreedy`
 /// * `toss`
 pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
     const storage = &br.storage;
@@ -214,7 +216,7 @@ pub fn discardShort(br: *BufferedReader, n: usize) Reader.ShortError!usize {
     storage.end = 0;
     br.seek = 0;
     while (true) {
-        const discard_len = br.unbuffered_reader.discard(remaining, .unlimited) catch |err| switch (err) {
+        const discard_len = br.unbuffered_reader.discard(.limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => return n - remaining,
             error.ReadFailed => return error.ReadFailed,
         };
@@ -564,7 +566,7 @@ pub inline fn takeStructEndian(br: *BufferedReader, comptime T: type, endian: st
 /// it. Otherwise, returns `error.InvalidEnumTag`.
 ///
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
-pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) Reader.Error!Enum {
+pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) (Reader.Error || std.meta.IntToEnumError)!Enum {
     const Tag = @typeInfo(Enum).@"enum".tag_type;
     const int = try br.takeInt(Tag, endian);
     return std.meta.intToEnum(Enum, int);

@@ -379,9 +379,11 @@ pub fn main() !void {
     validateSystemLibraryOptions(builder);
 
     {
-        var stdout_bw = std.fs.File.stdout().writer().buffered(&stdio_buffer);
-        if (help_menu) return usage(builder, &stdout_bw);
-        if (steps_menu) return steps(builder, &stdout_bw);
+        var fw = std.fs.File.stdout().writer();
+        var bw = fw.interface().buffered(&stdio_buffer);
+        defer bw.flush() catch {};
+        if (help_menu) return usage(builder, &bw);
+        if (steps_menu) return steps(builder, &bw);
     }
 
     var run: Run = .{
@@ -694,16 +696,13 @@ fn runStepNames(
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        var bw = std.debug.lockStdErr2(&stdio_buffer);
-        defer {
-            bw.flush() catch {};
-            std.debug.unlockStdErr();
-        }
+        const bw = std.debug.lockStderrWriter(&stdio_buffer);
+        defer std.debug.unlockStderrWriter();
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(&bw, .cyan) catch {};
+        ttyconf.setColor(bw, .cyan) catch {};
         bw.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(&bw, .reset) catch {};
+        ttyconf.setColor(bw, .reset) catch {};
         bw.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
         if (skipped_count > 0) bw.print("; {d} skipped", .{skipped_count}) catch {};
         if (failure_count > 0) bw.print("; {d} failed", .{failure_count}) catch {};
@@ -713,8 +712,6 @@ fn runStepNames(
         if (test_fail_count > 0) bw.print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) bw.print("; {d} leaked", .{test_leak_count}) catch {};
 
-        bw.writeByte('\n') catch {};
-
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
         defer step_stack_copy.deinit(gpa);
@@ -722,7 +719,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, &bw, ttyconf, &print_node, &step_stack_copy) catch {};
+            printTreeStep(b, b.default_step, run, bw, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -741,9 +738,10 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, &bw, ttyconf, &print_node, &step_stack_copy) catch {};
+                printTreeStep(b, &tls.step, run, bw, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
+        bw.writeByte('\n') catch {};
     }
 
     if (failure_count == 0) {
@@ -1129,11 +1127,11 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        var bw = std.debug.lockStdErr2(&stdio_buffer);
-        defer std.debug.unlockStdErr();
+        const bw = std.debug.lockStderrWriter(&stdio_buffer);
+        defer std.debug.unlockStderrWriter();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, &bw, run.prominent_compile_errors) catch {};
+        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, bw, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {

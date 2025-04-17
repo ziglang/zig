@@ -163,7 +163,7 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     renderToWriter(eb, options, bw) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *std.io.BufferedWriter) (std.io.Writer.Error || std.posix.UnexpectedError)!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
         try renderErrorMessageToWriter(eb, options, err_msg, bw, "error", .red, 0);
@@ -186,7 +186,7 @@ fn renderErrorMessageToWriter(
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
-) std.io.Writer.Error!void {
+) (std.io.Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     const prefix_start = bw.count;

@@ -6,7 +6,7 @@ pub fn MultiWriter(comptime Writers: type) type {
     comptime var ErrSet = error{};
     inline for (@typeInfo(Writers).@"struct".fields) |field| {
         const StreamType = field.type;
-        ErrSet = ErrSet || StreamType.Error;
+        ErrSet = ErrSet || if (@hasDecl(StreamType, "Error")) StreamType.Error else anyerror;
     }
 
     return struct {

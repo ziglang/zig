@@ -1367,10 +1367,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
             var buffer: [4096]u8 = undefined;
-            var index_buffered_writer: std.io.BufferedWriter = .{
-                .unbuffered_writer = index_file.writer(),
-                .buffer = &buffer,
-            };
+            var index_buffered_writer: std.io.BufferedWriter = index_file.writer().buffered(&buffer);
             try git.indexPack(gpa, object_format, pack_file, &index_buffered_writer);
             try index_buffered_writer.flush();
             try index_file.sync();

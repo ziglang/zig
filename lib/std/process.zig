@@ -1895,7 +1895,7 @@ pub fn createEnvironFromMap(
     var i: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
         i += 1;
     }
 
@@ -1906,16 +1906,16 @@ pub fn createEnvironFromMap(
                 .add => unreachable,
                 .delete => continue,
                 .edit => {
-                    envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={d}", .{
+                    envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "{s}={d}", .{
                         pair.key_ptr.*, options.zig_progress_fd.?,
-                    });
+                    }, 0);
                     i += 1;
                     continue;
                 },
                 .nothing => {},
             };
 
-            envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+            envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* }, 0);
             i += 1;
         }
     }
@@ -1965,7 +1965,7 @@ pub fn createEnvironFromExisting(
     var existing_index: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
         i += 1;
     }
 
@@ -1974,7 +1974,7 @@ pub fn createEnvironFromExisting(
             .add => unreachable,
             .delete => continue,
             .edit => {
-                envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
                 i += 1;
                 continue;
             },

@@ -83,6 +83,11 @@ pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
     return bw.buffer[bw.end..];
 }
 
+/// Asserts the provided buffer has total capacity enough for `len`.
+pub fn writableArray(bw: *BufferedWriter, comptime len: usize) anyerror!*[len]u8 {
+    return (try bw.writableSlice(len))[0..len];
+}
+
 /// Asserts the provided buffer has total capacity enough for `minimum_length`.
 pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) Writer.Error![]u8 {
     assert(bw.buffer.len >= minimum_length);

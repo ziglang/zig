@@ -98,8 +98,16 @@ fn now(s: *const WebServer) i64 {
 fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
-    var read_buffer: [0x4000]u8 = undefined;
-    var server = std.http.Server.init(connection, &read_buffer);
+    var sr = connection.stream.reader();
+    var rb: [0x4000]u8 = undefined;
+    var br: std.io.BufferedReader = undefined;
+    br.init(sr.interface(), &rb);
+
+    var sw = connection.stream.writer();
+    var wb: [0x4000]u8 = undefined;
+    var bw = sw.interface().buffered(&wb);
+
+    var server: std.http.Server = .init(&br, &bw);
     var web_socket: std.http.WebSocket = undefined;
     var send_buffer: [0x4000]u8 = undefined;
     var ws_recv_buffer: [0x4000]u8 align(4) = undefined;
