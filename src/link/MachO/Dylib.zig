@@ -676,7 +676,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const dylib = ctx.dylib;
     const macho_file = ctx.macho_file;

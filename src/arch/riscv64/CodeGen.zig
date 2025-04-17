@@ -566,7 +566,7 @@ const InstTracking = struct {
         }
     }
 
-    pub fn format(inst_tracking: InstTracking, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+    pub fn format(inst_tracking: InstTracking, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
         if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try bw.print("|{}| ", .{inst_tracking.long});
         try bw.print("{}", .{inst_tracking.short});
     }
@@ -932,7 +932,7 @@ const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(data: FormatWipMirData, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+fn formatWipMir(data: FormatWipMirData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -980,7 +980,7 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(data: FormatNavData, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+fn formatNav(data: FormatNavData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
     try bw.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
 fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
@@ -994,7 +994,7 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(data: FormatAirData, _: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+fn formatAir(data: FormatAirData, _: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
     data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
@@ -1004,7 +1004,7 @@ fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(data: FormatTrackingData, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+fn formatTracking(data: FormatTrackingData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
     var it = data.func.inst_tracking.iterator();
     while (it.next()) |entry| try bw.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }

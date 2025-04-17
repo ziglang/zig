@@ -94,7 +94,7 @@ pub const DynamicSection = struct {
         return nentries * @sizeOf(elf.Elf64_Dyn);
     }
 
-    pub fn write(dt: DynamicSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(dt: DynamicSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         const shdrs = elf_file.sections.items(.shdr);
 
         // NEEDED
@@ -360,7 +360,7 @@ pub const GotSection = struct {
         return s;
     }
 
-    pub fn write(got: GotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(got: GotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         const comp = elf_file.base.comp;
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
         const apply_relocs = true; // TODO add user option for this
@@ -615,7 +615,7 @@ pub const GotSection = struct {
         return .{ .data = .{ .got = got, .elf_file = elf_file } };
     }
 
-    pub fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const got = ctx.got;
         const elf_file = ctx.elf_file;
@@ -672,7 +672,7 @@ pub const PltSection = struct {
         };
     }
 
-    pub fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         const cpu_arch = elf_file.getTarget().cpu.arch;
         switch (cpu_arch) {
             .x86_64 => try x86_64.write(plt, elf_file, bw),
@@ -752,7 +752,7 @@ pub const PltSection = struct {
         return .{ .data = .{ .plt = plt, .elf_file = elf_file } };
     }
 
-    pub fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const plt = ctx.plt;
         const elf_file = ctx.elf_file;
@@ -770,7 +770,7 @@ pub const PltSection = struct {
     }
 
     const x86_64 = struct {
-        fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+        fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
             const shdrs = elf_file.sections.items(.shdr);
             const plt_addr = shdrs[elf_file.section_indexes.plt.?].sh_addr;
             const got_plt_addr = shdrs[elf_file.section_indexes.got_plt.?].sh_addr;
@@ -805,7 +805,7 @@ pub const PltSection = struct {
     };
 
     const aarch64 = struct {
-        fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+        fn write(plt: PltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
             {
                 const shdrs = elf_file.sections.items(.shdr);
                 const plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.plt.?].sh_addr);
@@ -871,7 +871,7 @@ pub const GotPltSection = struct {
         return preamble_size + elf_file.plt.symbols.items.len * 8;
     }
 
-    pub fn write(got_plt: GotPltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(got_plt: GotPltSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         _ = got_plt;
         {
             // [0]: _DYNAMIC
@@ -922,7 +922,7 @@ pub const PltGotSection = struct {
         };
     }
 
-    pub fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         const cpu_arch = elf_file.getTarget().cpu.arch;
         switch (cpu_arch) {
             .x86_64 => try x86_64.write(plt_got, elf_file, bw),
@@ -958,7 +958,7 @@ pub const PltGotSection = struct {
     }
 
     const x86_64 = struct {
-        pub fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+        pub fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
             for (plt_got.symbols.items) |ref| {
                 const sym = elf_file.symbol(ref).?;
                 const target_addr = sym.gotAddress(elf_file);
@@ -976,7 +976,7 @@ pub const PltGotSection = struct {
     };
 
     const aarch64 = struct {
-        fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+        fn write(plt_got: PltGotSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
             for (plt_got.symbols.items) |ref| {
                 const sym = elf_file.symbol(ref).?;
                 const target_addr = sym.gotAddress(elf_file);
@@ -1155,7 +1155,7 @@ pub const DynsymSection = struct {
         return @as(u32, @intCast(dynsym.entries.items.len + 1));
     }
 
-    pub fn write(dynsym: DynsymSection, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(dynsym: DynsymSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         try bw.writeStruct(Elf.null_sym);
         for (dynsym.entries.items) |entry| {
             const sym = elf_file.symbol(entry.ref).?;
@@ -1458,7 +1458,7 @@ pub const VerneedSection = struct {
         return vern.verneed.items.len * @sizeOf(elf.Elf64_Verneed) + vern.vernaux.items.len * @sizeOf(elf.Vernaux);
     }
 
-    pub fn write(vern: VerneedSection, bw: *std.io.BufferedWriter) anyerror!void {
+    pub fn write(vern: VerneedSection, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
         try bw.writeAll(mem.sliceAsBytes(vern.verneed.items));
         try bw.writeAll(mem.sliceAsBytes(vern.vernaux.items));
     }
@@ -1486,8 +1486,8 @@ pub const GroupSection = struct {
         return (members.len + 1) * @sizeOf(u32);
     }
 
-    pub fn write(cgs: GroupSection, elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
-        const cg = cgs.group(elf_file);
+    pub fn write(cgs: GroupSection, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+        const cg = cgs.comdatGroup(elf_file);
         const object = cg.file(elf_file).object;
         const members = cg.members(elf_file);
         try bw.writeInt(u32, if (cg.is_comdat) elf.GRP_COMDAT else 0, .little);
@@ -1514,7 +1514,7 @@ pub const GroupSection = struct {
     }
 };
 
-fn writeInt(value: anytype, elf_file: *Elf, bw: *std.io.BufferedWriter) anyerror!void {
+fn writeInt(value: anytype, elf_file: *Elf, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const entry_size = elf_file.archPtrWidthBytes();
     const target = elf_file.getTarget();
     const endian = target.cpu.arch.endian();

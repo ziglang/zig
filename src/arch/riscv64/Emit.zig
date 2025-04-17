@@ -18,10 +18,6 @@ pub const Error = Lower.Error || error{
 };
 
 pub fn emitMir(emit: *Emit) Error!void {
-    return @errorCast(emit.emitMirInner());
-}
-
-fn emitMirInner(emit: *Emit) anyerror!void {
     const gpa = emit.bin_file.comp.gpa;
     var aw: std.io.AllocatingWriter = undefined;
     const bw = aw.fromArrayList(gpa, emit.code);

@@ -3066,14 +3066,14 @@ const ImportTable = struct {
         ctx: Context,
     };
 
-    fn format(itab: ImportTable, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
+    fn format(itab: ImportTable, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
         _ = itab;
         _ = bw;
         _ = unused_format_string;
         @compileError("do not format ImportTable directly; use itab.fmtDebug()");
     }
 
-    fn format2(fmt_ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
+    fn format2(fmt_ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
         comptime assert(unused_format_string.len == 0);
         const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
         const base_vaddr = getBaseAddress(fmt_ctx.ctx);

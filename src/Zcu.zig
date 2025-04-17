@@ -4344,7 +4344,7 @@ pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(formatDe
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
-fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
     _ = fmt;
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
@@ -4368,7 +4368,7 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *std.io.Buffer
         .memoized_state => return bw.writeAll("memoized_state"),
     }
 }
-fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
     _ = fmt;
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;

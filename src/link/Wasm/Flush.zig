@@ -1065,7 +1065,7 @@ fn emitNameSection(
     wasm: *Wasm,
     aw: *std.io.AllocatingWriter,
     data_segment_groups: []const DataSegmentGroup,
-) anyerror!void {
+) !void {
     const f = &wasm.flush_buffer;
     const bw = &aw.buffered_writer;
     const header_offset = try reserveSectionHeader(bw);
@@ -1127,7 +1127,7 @@ fn emitNameSection(
     }
 }
 
-fn emitFeaturesSection(aw: *std.io.AllocatingWriter, target: *const std.Target) anyerror!void {
+fn emitFeaturesSection(aw: *std.io.AllocatingWriter, target: *const std.Target) Allocator.Error!void {
     const feature_count = target.cpu.features.count();
     if (feature_count == 0) return;
 
@@ -1251,7 +1251,7 @@ fn wantSegmentMerge(
 /// section id + fixed leb contents size + fixed leb vector length
 const vec_section_header_size = section_header_size + size_header_size;
 
-fn reserveVecSectionHeader(bw: *std.io.BufferedWriter) anyerror!u32 {
+fn reserveVecSectionHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(vec_section_header_size);
     bw.advance(vec_section_header_size);
@@ -1272,7 +1272,7 @@ fn replaceVecSectionHeader(
 
 const section_header_size = 1 + size_header_size;
 
-fn reserveSectionHeader(bw: *std.io.BufferedWriter) anyerror!u32 {
+fn reserveSectionHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(section_header_size);
     bw.advance(section_header_size);
@@ -1287,7 +1287,7 @@ fn replaceSectionHeader(aw: *std.io.AllocatingWriter, offset: u32, section: u8) 
 
 const size_header_size = 5;
 
-fn reserveSizeHeader(bw: *std.io.BufferedWriter) anyerror!u32 {
+fn reserveSizeHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(size_header_size);
     bw.advance(size_header_size);
@@ -1299,7 +1299,7 @@ fn replaceSizeHeader(aw: *std.io.AllocatingWriter, offset: u32) void {
     std.leb.writeUnsignedFixed(5, header[0..5], @intCast(aw.buffered_writer.count - offset - size_header_size));
 }
 
-fn emitLimits(bw: *std.io.BufferedWriter, limits: std.wasm.Limits) anyerror!void {
+fn emitLimits(bw: *std.io.BufferedWriter, limits: std.wasm.Limits) std.io.Writer.Error!void {
     try bw.writeByte(@bitCast(limits.flags));
     try bw.writeLeb128(limits.min);
     if (limits.flags.has_max) try bw.writeLeb128(limits.max);
@@ -1310,7 +1310,7 @@ fn emitMemoryImport(
     bw: *std.io.BufferedWriter,
     name_index: String,
     memory_import: *const Wasm.MemoryImport,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const module_name = memory_import.module_name.slice(wasm);
     try bw.writeLeb128(module_name.len);
     try bw.writeAll(module_name);
@@ -1323,7 +1323,7 @@ fn emitMemoryImport(
     try emitLimits(bw, memory_import.limits());
 }
 
-pub fn emitInit(bw: *std.io.BufferedWriter, init_expr: std.wasm.InitExpression) anyerror!void {
+pub fn emitInit(bw: *std.io.BufferedWriter, init_expr: std.wasm.InitExpression) std.io.Writer.Error!void {
     switch (init_expr) {
         inline else => |val, tag| {
             try bw.writeByte(@intFromEnum(@field(std.wasm.Opcode, @tagName(tag))));
@@ -1341,12 +1341,12 @@ pub fn emitInit(bw: *std.io.BufferedWriter, init_expr: std.wasm.InitExpression) 
     try bw.writeByte(@intFromEnum(std.wasm.Opcode.end));
 }
 
-pub fn emitExpr(wasm: *const Wasm, bw: *std.io.BufferedWriter, expr: Wasm.Expr) anyerror!void {
+pub fn emitExpr(wasm: *const Wasm, bw: *std.io.BufferedWriter, expr: Wasm.Expr) std.io.Writer.Error!void {
     const slice = expr.slice(wasm);
     try bw.writeAll(slice[0 .. slice.len + 1]); // +1 to include end opcode
 }
 
-fn emitSegmentInfo(wasm: *Wasm, aw: *std.io.BufferedWriter) anyerror!void {
+fn emitSegmentInfo(wasm: *Wasm, aw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const bw = &aw.buffered_writer;
     const header_offset = try reserveSectionHeader(bw);
     defer replaceSectionHeader(aw, header_offset, @intFromEnum(Wasm.SubsectionType.segment_info));
@@ -1371,7 +1371,7 @@ fn emitTagNameTable(
     tag_name_bytes: []const u8,
     base: u32,
     comptime Int: type,
-) anyerror!void {
+) std.io.Writer.Error!void {
     for (tag_name_offs) |off| {
         const name_len: u32 = @intCast(mem.indexOfScalar(u8, tag_name_bytes[off..], 0).?);
         try bw.writeInt(Int, base + off, .little);
@@ -1539,7 +1539,7 @@ fn reloc_leb_type(code: []u8, index: FuncTypeIndex) void {
     std.leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(index));
 }
 
-fn emitCallCtorsFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter) anyerror!void {
+fn emitCallCtorsFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     try bw.writeUleb128(0); // no locals
     for (wasm.object_init_funcs.items) |init_func| {
         const func = init_func.function_index.ptr(wasm);
@@ -1558,7 +1558,7 @@ fn emitCallCtorsFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter) anyerror
     try bw.writeByte(@intFromEnum(std.wasm.Opcode.end)); // end function body
 }
 
-fn emitInitMemoryFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter, virtual_addrs: *const VirtualAddrs) anyerror!void {
+fn emitInitMemoryFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter, virtual_addrs: *const VirtualAddrs) std.io.Writer.Error!void {
     const comp = wasm.base.comp;
     const shared_memory = comp.config.shared_memory;
 
@@ -1710,7 +1710,7 @@ fn emitInitMemoryFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter, virtual
     try bw.writeByte(@intFromEnum(std.wasm.Opcode.end));
 }
 
-fn emitInitTlsFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter) anyerror!void {
+fn emitInitTlsFunction(wasm: *const Wasm, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const comp = wasm.base.comp;
     assert(comp.config.shared_memory);
 
@@ -1888,7 +1888,7 @@ fn emitTagNameFunction(
     try bw.writeByte(@intFromEnum(std.wasm.Opcode.end));
 }
 
-fn appendGlobal(bw: *std.io.BufferedWriter, mutable: bool, val: u32) anyerror!void {
+fn appendGlobal(bw: *std.io.BufferedWriter, mutable: bool, val: u32) std.io.Writer.Error!void {
     try bw.writeAll(&.{
         @intFromEnum(std.wasm.Valtype.i32),
         @intFromBool(mutable),

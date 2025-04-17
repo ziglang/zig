@@ -2036,7 +2036,7 @@ fn fmtInstSet(set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void)) FmtIns
 const FmtInstSet = struct {
     set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
 
-    pub fn format(val: FmtInstSet, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+    pub fn format(val: FmtInstSet, bw: *std.io.BufferedWriter, comptime _: []const u8) !void {
         if (val.set.count() == 0) {
             try bw.writeAll("[no instructions]");
             return;
@@ -2056,7 +2056,7 @@ fn fmtInstList(list: []const Air.Inst.Index) FmtInstList {
 const FmtInstList = struct {
     list: []const Air.Inst.Index,
 
-    pub fn format(val: FmtInstList, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+    pub fn format(val: FmtInstList, bw: *std.io.BufferedWriter, comptime _: []const u8) !void {
         if (val.list.len == 0) {
             try bw.writeAll("[no instructions]");
             return;

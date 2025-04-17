@@ -14,7 +14,7 @@ pub const File = union(enum) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn formatPath(file: File, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         switch (file) {
             .zig_object => |zo| try bw.writeAll(zo.basename),

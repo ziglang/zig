@@ -256,7 +256,7 @@ pub const FrameIndex = enum(u32) {
         return @intFromEnum(fi) < named_count;
     }
 
-    pub fn format(fi: FrameIndex, bw: *std.io.BufferedWriter, comptime _: []const u8) anyerror!void {
+    pub fn format(fi: FrameIndex, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
         try bw.writeAll("FrameIndex");
         if (fi.isNamed())
             try bw.print(".{s}", .{@tagName(fi)})
