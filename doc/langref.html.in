@@ -5149,6 +5149,23 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}std.crypto.secureZero{#endsyntax#}</p>
       {#header_close#}
 
+      {#header_open|@memmove#}
+      <pre>{#syntax#}@memmove(dest, source) void{#endsyntax#}</pre>
+      <p>This function copies bytes from one region of memory to another, but unlike
+      {#link|@memcpy#} the regions may overlap.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
+        a mutable many-item {#link|pointer|Pointers#}. It may have any
+        alignment, and it may have any element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
+        an array, or a many-item {#link|pointer|Pointers#}. It may
+        have any alignment, and it may have any element type.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must have the same in-memory
+        representation as the {#syntax#}dest{#endsyntax#} element type.</p>
+      <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
+        {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
+        they must be equal.</p>
+      {#header_close#}
+
       {#header_open|@min#}
       <pre>{#syntax#}@min(...) T{#endsyntax#}</pre>
       <p>

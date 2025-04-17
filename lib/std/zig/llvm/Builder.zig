@@ -6125,6 +6125,36 @@ pub const WipFunction = struct {
         return value.unwrap().instruction;
     }
 
+    pub fn callMemMove(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        src: Value,
+        src_align: Alignment,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
+        const value = try self.callIntrinsic(
+            .normal,
+            try self.builder.fnAttrs(&.{
+                .none,
+                .none,
+                try self.builder.attrs(&dst_attrs),
+                try self.builder.attrs(&src_attrs),
+            }),
+            .memmove,
+            &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, src, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
+    }
+
     pub fn callMemSet(
         self: *WipFunction,
         dst: Value,

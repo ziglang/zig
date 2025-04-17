@@ -128,6 +128,10 @@ pub fn memcpyAlias() noreturn {
     call("@memcpy arguments alias", null);
 }
 
+pub fn memmoveLenMismatch() noreturn {
+    call("@memmove arguments have non-equal lengths", null);
+}
+
 pub fn noreturnReturned() noreturn {
     call("'noreturn' function returned", null);
 }
