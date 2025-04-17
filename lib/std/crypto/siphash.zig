@@ -239,16 +239,41 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             return State.hash(msg, key);
         }
 
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
+        pub fn writer(self: *Self) std.io.Writer {
+            return .{
+                .context = self,
+                .vtable = &.{
+                    .writeSplat = &writeSplat,
+                    .writeFile = &writeFile,
+                },
+            };
         }
 
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+        fn writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+            const self: *Self = @alignCast(@ptrCast(ctx));
+            var len: usize = 0;
+            for (0..splat) |_| for (data) |slice| {
+                self.update(slice);
+                len += slice.len;
+            };
+            return len;
+        }
+
+        fn writeFile(
+            ctx: ?*anyopaque,
+            file: std.fs.File,
+            offset: std.io.Writer.Offset,
+            limit: std.io.Writer.Limit,
+            headers_and_trailers: []const []const u8,
+            headers_len: usize,
+        ) anyerror!usize {
+            _ = ctx;
+            _ = file;
+            _ = offset;
+            _ = limit;
+            _ = headers_and_trailers;
+            _ = headers_len;
+            return error.Unimplemented;
         }
     };
 }

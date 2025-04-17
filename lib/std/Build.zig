@@ -2766,7 +2766,7 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    const w = debug.lockStderrWriter();
+    const w = debug.lockStderrWriter(&.{});
     defer debug.unlockStderrWriter();
 
     const stderr: fs.File = .stderr();
@@ -2802,9 +2802,9 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    var buffered_writer = stderr.writer().unbuffered();
-    const w = &buffered_writer;
-    try w.print(
+    var fw = stderr.writer();
+    var bw = fw.interface().unbuffered();
+    try bw.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
         \\  Is there a missing Step dependency on step '{s}'?
@@ -2815,21 +2815,21 @@ pub fn dumpBadGetPathHelp(
     });
 
     const tty_config = std.io.tty.detectConfig(stderr);
-    tty_config.setColor(w, .red) catch {};
+    tty_config.setColor(&bw, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .reset) catch {};
+    tty_config.setColor(&bw, .reset) catch {};
 
     s.dump(stderr);
     if (asking_step) |as| {
-        tty_config.setColor(w, .red) catch {};
-        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
-        tty_config.setColor(w, .reset) catch {};
+        tty_config.setColor(&bw, .red) catch {};
+        try bw.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        tty_config.setColor(&bw, .reset) catch {};
 
         as.dump(stderr);
     }
-    tty_config.setColor(w, .red) catch {};
+    tty_config.setColor(&bw, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .reset) catch {};
+    tty_config.setColor(&bw, .reset) catch {};
 }
 
 pub const InstallDir = union(enum) {

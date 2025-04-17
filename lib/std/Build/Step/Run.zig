@@ -73,9 +73,12 @@ skip_foreign_checks: bool,
 /// external executor (such as qemu) but not fail if the executor is unavailable.
 failing_to_execute_foreign_is_an_error: bool,
 
+/// Deprecated for `stdio_limit`.
+max_stdio_size: usize,
+
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
-max_stdio_size: usize,
+stdio_limit: std.io.Reader.Limit,
 
 captured_stdout: ?*Output,
 captured_stderr: ?*Output,
@@ -186,6 +189,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .skip_foreign_checks = false,
         .failing_to_execute_foreign_is_an_error = true,
         .max_stdio_size = 10 * 1024 * 1024,
+        .stdio_limit = .unlimited,
         .captured_stdout = null,
         .captured_stderr = null,
         .dep_output_file = null,
@@ -1772,6 +1776,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
     var stdout_bytes: ?[]const u8 = null;
     var stderr_bytes: ?[]const u8 = null;
 
+    run.stdio_limit = .limited(run.stdio_limit.min(run.max_stdio_size));
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
             var poller = std.io.poll(arena, enum { stdout, stderr }, .{
@@ -1781,19 +1786,21 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             defer poller.deinit();
 
             while (try poller.poll()) {
-                if (poller.fifo(.stdout).count > run.max_stdio_size)
-                    return error.StdoutStreamTooLong;
-                if (poller.fifo(.stderr).count > run.max_stdio_size)
-                    return error.StderrStreamTooLong;
+                if (run.stdio_limit.toInt()) |limit| {
+                    if (poller.fifo(.stderr).count > limit)
+                        return error.StdoutStreamTooLong;
+                    if (poller.fifo(.stderr).count > limit)
+                        return error.StderrStreamTooLong;
+                }
             }
 
             stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
             stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
         } else {
-            stdout_bytes = try stdout.reader().readAlloc(arena, run.max_stdio_size);
+            stdout_bytes = try stdout.readToEndAlloc(arena, run.stdio_limit);
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes = try stderr.reader().readAlloc(arena, run.max_stdio_size);
+        stderr_bytes = try stderr.readToEndAlloc(arena, run.stdio_limit);
     }
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {

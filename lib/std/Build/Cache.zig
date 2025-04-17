@@ -68,7 +68,7 @@ const PrefixedPath = struct {
 
 fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
     const gpa = cache.gpa;
-    const resolved_path = try fs.path.resolve(gpa, &[_][]const u8{file_path});
+    const resolved_path = try fs.path.resolve(gpa, &.{file_path});
     errdefer gpa.free(resolved_path);
     return findPrefixResolved(cache, resolved_path);
 }
@@ -132,7 +132,7 @@ pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 /// Initial state with random bytes, that can be copied.
 /// Refresh this with new random bytes when the manifest
 /// format is modified in a non-backwards-compatible way.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{
+pub const hasher_init: Hasher = Hasher.init(&.{
     0x33, 0x52, 0xa2, 0x84,
     0xcf, 0x17, 0x56, 0x57,
     0x01, 0xbb, 0xcd, 0xe4,
@@ -1143,7 +1143,8 @@ pub const Manifest = struct {
             }
 
             try manifest_file.setEndPos(contents.items.len);
-            try manifest_file.pwriteAll(contents.items, 0);
+            var pos: usize = 0;
+            while (pos < contents.items.len) pos += try manifest_file.pwrite(contents.items[pos..], pos);
         }
 
         if (self.want_shared_lock) {

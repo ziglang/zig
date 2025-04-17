@@ -185,10 +185,7 @@ const FinalizeNodeResult = struct {
 /// Updates offset of this node in the output byte stream.
 fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !FinalizeNodeResult {
     var buf: [1024]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
-        .unbuffered_writer = .null,
-        .buffer = &buf,
-    };
+    var bw = std.io.Writer.null.buffered(&buf);
     const slice = self.nodes.slice();
 
     var node_size: u32 = 0;

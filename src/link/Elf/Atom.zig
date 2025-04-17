@@ -1388,10 +1388,7 @@ const x86_64 = struct {
                     .{ .imm = .s(-129) },
                 }, t) catch return false;
                 var buf: [std.atomic.cache_line]u8 = undefined;
-                var bw: std.io.BufferedWriter = .{
-                    .unbuffered_writer = .null,
-                    .buffer = &buf,
-                };
+                var bw = std.io.Writer.null.buffered(&buf);
                 inst.encode(&bw, .{}) catch return false;
                 return true;
             },
@@ -1599,7 +1596,7 @@ const aarch64 = struct {
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
-        const code = (try bw.writableSlice(4))[0..4];
+        const code = try bw.writableArray(4);
         const file_ptr = atom.file(elf_file).?;
 
         const P, const A, const S, const GOT, const G, const TP, const DTP = args;
@@ -1626,7 +1623,7 @@ const aarch64 = struct {
                     const S_ = th.targetAddress(target_index, elf_file);
                     break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                 };
-                aarch64_util.writeBranchImm(disp, (try bw.writableSlice(4))[0..4]);
+                aarch64_util.writeBranchImm(disp, code);
             },
 
             .PREL32 => {
@@ -1897,26 +1894,26 @@ const riscv = struct {
 
             .HI20 => {
                 const value: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
-                riscv_util.writeInstU((try bw.writableSlice(4))[0..4], value);
+                riscv_util.writeInstU(try bw.writableArray(4), value);
             },
 
             .GOT_HI20 => {
                 assert(target.flags.has_got);
                 const disp: u32 = @bitCast(math.cast(i32, G + GOT + A - P) orelse return error.Overflow);
-                riscv_util.writeInstU((try bw.writableSlice(4))[0..4], disp);
+                riscv_util.writeInstU(try bw.writableArray(4), disp);
             },
 
             .CALL_PLT => {
                 // TODO: relax
                 const disp: u32 = @bitCast(math.cast(i32, S + A - P) orelse return error.Overflow);
-                const code = (try bw.writableSlice(8))[0..8];
+                const code = try bw.writableArray(8);
                 riscv_util.writeInstU(code[0..4], disp); // auipc
                 riscv_util.writeInstI(code[4..8], disp); // jalr
             },
 
             .PCREL_HI20 => {
                 const disp: u32 = @bitCast(math.cast(i32, S + A - P) orelse return error.Overflow);
-                riscv_util.writeInstU((try bw.writableSlice(4))[0..4], disp);
+                riscv_util.writeInstU(try bw.writableArray(4), disp);
             },
 
             .PCREL_LO12_I,
@@ -1954,8 +1951,8 @@ const riscv = struct {
                 };
                 relocs_log.debug("      [{x} => {x}]", .{ P_, disp + P_ });
                 switch (r_type) {
-                    .PCREL_LO12_I => riscv_util.writeInstI((try bw.writableSlice(4))[0..4], @bitCast(disp)),
-                    .PCREL_LO12_S => riscv_util.writeInstS((try bw.writableSlice(4))[0..4], @bitCast(disp)),
+                    .PCREL_LO12_I => riscv_util.writeInstI(try bw.writableArray(4), @bitCast(disp)),
+                    .PCREL_LO12_S => riscv_util.writeInstS(try bw.writableArray(4), @bitCast(disp)),
                     else => unreachable,
                 }
             },
@@ -1965,8 +1962,8 @@ const riscv = struct {
             => {
                 const disp: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
                 switch (r_type) {
-                    .LO12_I => riscv_util.writeInstI((try bw.writableSlice(4))[0..4], disp),
-                    .LO12_S => riscv_util.writeInstS((try bw.writableSlice(4))[0..4], disp),
+                    .LO12_I => riscv_util.writeInstI(try bw.writableArray(4), disp),
+                    .LO12_S => riscv_util.writeInstS(try bw.writableArray(4), disp),
                     else => unreachable,
                 }
             },
@@ -1974,7 +1971,7 @@ const riscv = struct {
             .TPREL_HI20 => {
                 const target_addr: u32 = @intCast(target.address(.{}, elf_file));
                 const val: i32 = @intCast(S + A - target_addr);
-                riscv_util.writeInstU((try bw.writableSlice(4))[0..4], @bitCast(val));
+                riscv_util.writeInstU(try bw.writableArray(4), @bitCast(val));
             },
 
             .TPREL_LO12_I,
@@ -1983,8 +1980,8 @@ const riscv = struct {
                 const target_addr: u32 = @intCast(target.address(.{}, elf_file));
                 const val: i32 = @intCast(S + A - target_addr);
                 switch (r_type) {
-                    .TPREL_LO12_I => riscv_util.writeInstI((try bw.writableSlice(4))[0..4], @bitCast(val)),
-                    .TPREL_LO12_S => riscv_util.writeInstS((try bw.writableSlice(4))[0..4], @bitCast(val)),
+                    .TPREL_LO12_I => riscv_util.writeInstI(try bw.writableArray(4), @bitCast(val)),
+                    .TPREL_LO12_S => riscv_util.writeInstS(try bw.writableArray(4), @bitCast(val)),
                     else => unreachable,
                 }
             },
