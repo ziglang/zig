@@ -23,6 +23,8 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
+#if _LIBCPP_STD_VER >= 17
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __pstl {
 
@@ -56,10 +58,13 @@ struct __find_first_implemented<_Algorithm, __backend_configuration<_B1, _Bn...>
           __find_first_implemented<_Algorithm, __backend_configuration<_Bn...>, _ExecutionPolicy> > {};
 
 template <template <class, class> class _Algorithm, class _BackendConfiguration, class _ExecutionPolicy>
-using __dispatch = typename __find_first_implemented<_Algorithm, _BackendConfiguration, _ExecutionPolicy>::type;
+using __dispatch _LIBCPP_NODEBUG =
+    typename __find_first_implemented<_Algorithm, _BackendConfiguration, _ExecutionPolicy>::type;
 
 } // namespace __pstl
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 

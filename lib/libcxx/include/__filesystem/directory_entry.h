@@ -20,8 +20,11 @@
 #include <__filesystem/operations.h>
 #include <__filesystem/path.h>
 #include <__filesystem/perms.h>
+#include <__fwd/ostream.h>
 #include <__system_error/errc.h>
+#include <__system_error/error_category.h>
 #include <__system_error/error_code.h>
+#include <__system_error/error_condition.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
 #include <cstdint>
@@ -33,7 +36,7 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-#if _LIBCPP_STD_VER >= 17 && !defined(_LIBCPP_HAS_NO_FILESYSTEM)
+#if _LIBCPP_STD_VER >= 17 && _LIBCPP_HAS_FILESYSTEM
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
@@ -201,7 +204,9 @@ private:
     _IterNonSymlink,
     _RefreshSymlink,
     _RefreshSymlinkUnresolved,
-    _RefreshNonSymlink
+    _RefreshNonSymlink,
+    _IterCachedSymlink,
+    _IterCachedNonSymlink
   };
 
   struct __cached_data {
@@ -240,6 +245,29 @@ private:
     return __data;
   }
 
+  _LIBCPP_HIDE_FROM_ABI static __cached_data
+  __create_iter_cached_result(file_type __ft, uintmax_t __size, perms __perm, file_time_type __write_time) {
+    __cached_data __data;
+    __data.__type_       = __ft;
+    __data.__size_       = __size;
+    __data.__write_time_ = __write_time;
+    if (__ft == file_type::symlink)
+      __data.__sym_perms_ = __perm;
+    else
+      __data.__non_sym_perms_ = __perm;
+    __data.__cache_type_ = [&]() {
+      switch (__ft) {
+      case file_type::none:
+        return _Empty;
+      case file_type::symlink:
+        return _IterCachedSymlink;
+      default:
+        return _IterCachedNonSymlink;
+      }
+    }();
+    return __data;
+  }
+
   _LIBCPP_HIDE_FROM_ABI void __assign_iter_entry(_Path&& __p, __cached_data __dt) {
     __p_    = std::move(__p);
     __data_ = __dt;
@@ -248,15 +276,7 @@ private:
   _LIBCPP_EXPORTED_FROM_ABI error_code __do_refresh() noexcept;
 
   _LIBCPP_HIDE_FROM_ABI static bool __is_dne_error(error_code const& __ec) {
-    if (!__ec)
-      return true;
-    switch (static_cast<errc>(__ec.value())) {
-    case errc::no_such_file_or_directory:
-    case errc::not_a_directory:
-      return true;
-    default:
-      return false;
-    }
+    return !__ec || __ec == errc::no_such_file_or_directory || __ec == errc::not_a_directory;
   }
 
   _LIBCPP_HIDE_FROM_ABI void
@@ -281,19 +301,22 @@ private:
     case _Empty:
       return __symlink_status(__p_, __ec).type();
     case _IterSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlink:
     case _RefreshSymlinkUnresolved:
       if (__ec)
         __ec->clear();
       return file_type::symlink;
+    case _IterCachedNonSymlink:
     case _IterNonSymlink:
-    case _RefreshNonSymlink:
+    case _RefreshNonSymlink: {
       file_status __st(__data_.__type_);
       if (__ec && !filesystem::exists(__st))
         *__ec = make_error_code(errc::no_such_file_or_directory);
       else if (__ec)
         __ec->clear();
       return __data_.__type_;
+    }
     }
     __libcpp_unreachable();
   }
@@ -302,8 +325,10 @@ private:
     switch (__data_.__cache_type_) {
     case _Empty:
     case _IterSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlinkUnresolved:
       return __status(__p_, __ec).type();
+    case _IterCachedNonSymlink:
     case _IterNonSymlink:
     case _RefreshNonSymlink:
     case _RefreshSymlink: {
@@ -323,8 +348,10 @@ private:
     case _Empty:
     case _IterNonSymlink:
     case _IterSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlinkUnresolved:
       return __status(__p_, __ec);
+    case _IterCachedNonSymlink:
     case _RefreshNonSymlink:
     case _RefreshSymlink:
       return file_status(__get_ft(__ec), __data_.__non_sym_perms_);
@@ -338,8 +365,10 @@ private:
     case _IterNonSymlink:
     case _IterSymlink:
       return __symlink_status(__p_, __ec);
+    case _IterCachedNonSymlink:
     case _RefreshNonSymlink:
       return file_status(__get_sym_ft(__ec), __data_.__non_sym_perms_);
+    case _IterCachedSymlink:
     case _RefreshSymlink:
     case _RefreshSymlinkUnresolved:
       return file_status(__get_sym_ft(__ec), __data_.__sym_perms_);
@@ -352,8 +381,10 @@ private:
     case _Empty:
     case _IterNonSymlink:
     case _IterSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlinkUnresolved:
       return filesystem::__file_size(__p_, __ec);
+    case _IterCachedNonSymlink:
     case _RefreshSymlink:
     case _RefreshNonSymlink: {
       error_code __m_ec;
@@ -374,6 +405,8 @@ private:
     case _Empty:
     case _IterNonSymlink:
     case _IterSymlink:
+    case _IterCachedNonSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlinkUnresolved:
       return filesystem::__hard_link_count(__p_, __ec);
     case _RefreshSymlink:
@@ -392,8 +425,10 @@ private:
     case _Empty:
     case _IterNonSymlink:
     case _IterSymlink:
+    case _IterCachedSymlink:
     case _RefreshSymlinkUnresolved:
       return filesystem::__last_write_time(__p_, __ec);
+    case _IterCachedNonSymlink:
     case _RefreshSymlink:
     case _RefreshNonSymlink: {
       error_code __m_ec;
@@ -428,7 +463,7 @@ _LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 
-#endif // _LIBCPP_STD_VER >= 17 && !defined(_LIBCPP_HAS_NO_FILESYSTEM)
+#endif // _LIBCPP_STD_VER >= 17 && _LIBCPP_HAS_FILESYSTEM
 
 _LIBCPP_POP_MACROS
 

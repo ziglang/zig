@@ -214,7 +214,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.dsp_silan)] = .{
         .llvm_name = "dsp_silan",
-        .description = "Enable DSP Silan instrutions",
+        .description = "Enable DSP Silan instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dspe60)] = .{
@@ -224,7 +224,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.dspv2)] = .{
         .llvm_name = "dspv2",
-        .description = "Enable DSP V2.0 instrutions",
+        .description = "Enable DSP V2.0 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.e1)] = .{
@@ -243,7 +243,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.edsp)] = .{
         .llvm_name = "edsp",
-        .description = "Enable DSP instrutions",
+        .description = "Enable DSP instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.elrw)] = .{
@@ -333,12 +333,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.hwdiv)] = .{
         .llvm_name = "hwdiv",
-        .description = "Enable divide instrutions",
+        .description = "Enable divide instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.istack)] = .{
         .llvm_name = "istack",
-        .description = "Enable interrput attribute",
+        .description = "Enable interrupt attribute",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.java)] = .{
@@ -362,7 +362,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.multiple_stld)] = .{
         .llvm_name = "multiple_stld",
-        .description = "Enable multiple load/store instrutions",
+        .description = "Enable multiple load/store instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nvic)] = .{
@@ -372,7 +372,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.pushpop)] = .{
         .llvm_name = "pushpop",
-        .description = "Enable push/pop instrutions",
+        .description = "Enable push/pop instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.smart)] = .{

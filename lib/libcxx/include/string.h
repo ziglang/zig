@@ -51,24 +51,28 @@ size_t strlen(const char* s);
 
 */
 
-#include <__config>
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/string.h>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if __has_include_next(<string.h>)
-#  include_next <string.h>
-#endif
+#  if __has_include_next(<string.h>)
+#    include_next <string.h>
+#  endif
 
 // MSVCRT, GNU libc and its derivates may already have the correct prototype in
 // <string.h>. This macro can be defined by users if their C library provides
 // the right signature.
-#if defined(__CORRECT_ISO_CPP_STRING_H_PROTO) || defined(_LIBCPP_MSVCRT) || defined(_STRING_H_CPLUSPLUS_98_CONFORMANCE_)
-#  define _LIBCPP_STRING_H_HAS_CONST_OVERLOADS
-#endif
+#  if defined(__CORRECT_ISO_CPP_STRING_H_PROTO) || defined(_LIBCPP_MSVCRT) ||                                          \
+      defined(_STRING_H_CPLUSPLUS_98_CONFORMANCE_)
+#    define _LIBCPP_STRING_H_HAS_CONST_OVERLOADS
+#  endif
 
-#if defined(__cplusplus) && !defined(_LIBCPP_STRING_H_HAS_CONST_OVERLOADS) && defined(_LIBCPP_PREFERRED_OVERLOAD)
+#  if defined(__cplusplus) && !defined(_LIBCPP_STRING_H_HAS_CONST_OVERLOADS) && defined(_LIBCPP_PREFERRED_OVERLOAD)
 extern "C++" {
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_PREFERRED_OVERLOAD const char* strchr(const char* __s, int __c) {
   return __builtin_strchr(__s, __c);
@@ -105,6 +109,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_PREFERRED_OVERLOAD char* strstr(char* __s1,
   return __builtin_strstr(__s1, __s2);
 }
 } // extern "C++"
-#endif
+#  endif
+#endif // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STRING_H

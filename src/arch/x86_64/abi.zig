@@ -100,7 +100,7 @@ pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
@@ -148,7 +148,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             result[0] = .integer;
             return result;
         },
-        .float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target.*)) {
             16 => {
                 if (ctx == .field) {
                     result[0] = .memory;
@@ -266,7 +266,8 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             // separately.".
             const ty_size = ty.abiSize(zcu);
             switch (ty.containerLayout(zcu)) {
-                .auto, .@"extern" => {},
+                .auto => unreachable,
+                .@"extern" => {},
                 .@"packed" => {
                     assert(ty_size <= 16);
                     result[0] = .integer;
@@ -330,7 +331,7 @@ fn classifySystemVStruct(
     starting_byte_offset: u64,
     loaded_struct: InternPool.LoadedStructType,
     zcu: *Zcu,
-    target: std.Target,
+    target: *const std.Target,
 ) u64 {
     const ip = &zcu.intern_pool;
     var byte_offset = starting_byte_offset;
@@ -345,7 +346,8 @@ fn classifySystemVStruct(
         );
         if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
@@ -353,7 +355,8 @@ fn classifySystemVStruct(
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },
@@ -379,14 +382,15 @@ fn classifySystemVUnion(
     starting_byte_offset: u64,
     loaded_union: InternPool.LoadedUnionType,
     zcu: *Zcu,
-    target: std.Target,
+    target: *const std.Target,
 ) u64 {
     const ip = &zcu.intern_pool;
     for (0..loaded_union.field_types.len) |field_index| {
         const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
         if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, zcu, target);
                     continue;
                 },
@@ -394,7 +398,8 @@ fn classifySystemVUnion(
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.flagsUnordered(ip).layout) {
-                .auto, .@"extern" => {
+                .auto => unreachable,
+                .@"extern" => {
                     _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
                     continue;
                 },

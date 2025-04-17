@@ -247,7 +247,7 @@ pub const Iterator = switch (native_os) {
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                         self.first_iter = false;
@@ -267,7 +267,7 @@ pub const Iterator = switch (native_os) {
                             .INVAL => unreachable,
                             .OVERFLOW => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
@@ -294,7 +294,7 @@ pub const Iterator = switch (native_os) {
                     .BADF => unreachable, // Dir is invalid
                     .NOMEM => return error.SystemResources,
                     .ACCES => return error.AccessDenied,
-                    .PERM => return error.AccessDenied,
+                    .PERM => return error.PermissionDenied,
                     .FAULT => unreachable,
                     .NAMETOOLONG => unreachable,
                     .LOOP => unreachable,
@@ -768,6 +768,7 @@ pub const OpenError = error{
     FileNotFound,
     NotDir,
     AccessDenied,
+    PermissionDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
     NameTooLong,
@@ -783,6 +784,7 @@ pub const OpenError = error{
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
@@ -1503,7 +1505,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
                 .NOENT => return error.FileNotFound,
                 .NOMEM => return error.SystemResources,
                 .NOTDIR => return error.NotDir,
-                .PERM => return error.AccessDenied,
+                .PERM => return error.PermissionDenied,
                 .BUSY => return error.DeviceBusy,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1652,9 +1654,9 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
 pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     posix.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
-        error.AccessDenied => |e| switch (native_os) {
-            // non-Linux POSIX systems return EPERM when trying to delete a directory, so
-            // we need to handle that case specifically and translate the error
+        error.AccessDenied, error.PermissionDenied => |e| switch (native_os) {
+            // non-Linux POSIX systems return permission errors when trying to delete a
+            // directory, so we need to handle that case specifically and translate the error
             .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                 const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
@@ -1679,6 +1681,7 @@ pub const DeleteDirError = error{
     DirNotEmpty,
     FileNotFound,
     AccessDenied,
+    PermissionDenied,
     FileBusy,
     FileSystem,
     SymLinkLoop,
@@ -1694,6 +1697,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
@@ -1958,7 +1962,7 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
+    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
 }
 
 /// On success, caller owns returned buffer.
@@ -1975,9 +1979,9 @@ pub fn readFileAllocOptions(
     file_path: []const u8,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
@@ -1991,6 +1995,7 @@ pub fn readFileAllocOptions(
 
 pub const DeleteTreeError = error{
     AccessDenied,
+    PermissionDenied,
     FileTooBig,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -2002,6 +2007,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2073,8 +2079,10 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2112,6 +2120,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         },
 
                         error.AccessDenied,
+                        error.PermissionDenied,
                         error.InvalidUtf8,
                         error.InvalidWtf8,
                         error.SymLinkLoop,
@@ -2168,7 +2177,9 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2197,6 +2208,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2273,7 +2285,9 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2309,6 +2323,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2371,8 +2386,10 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,
@@ -2397,6 +2414,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.InvalidUtf8,
                     error.InvalidWtf8,
                     error.SymLinkLoop,
@@ -2447,10 +2465,7 @@ pub const AccessError = posix.AccessError;
 /// open it and handle the error for file not found.
 pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const path_c = try posix.toPosixPath(sub_path);
@@ -2460,10 +2475,7 @@ pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessErro
 /// Same as `access` except the path parameter is null-terminated.
 pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const os_mode = switch (flags.mode) {

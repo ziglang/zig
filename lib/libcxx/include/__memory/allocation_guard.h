@@ -14,7 +14,6 @@
 #include <__memory/addressof.h>
 #include <__memory/allocator_traits.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -46,8 +45,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // custom allocator.
 template <class _Alloc>
 struct __allocation_guard {
-  using _Pointer = typename allocator_traits<_Alloc>::pointer;
-  using _Size    = typename allocator_traits<_Alloc>::size_type;
+  using _Pointer _LIBCPP_NODEBUG = typename allocator_traits<_Alloc>::pointer;
+  using _Size _LIBCPP_NODEBUG    = typename allocator_traits<_Alloc>::size_type;
 
   template <class _AllocT> // we perform the allocator conversion inside the constructor
   _LIBCPP_HIDE_FROM_ABI explicit __allocation_guard(_AllocT __alloc, _Size __n)

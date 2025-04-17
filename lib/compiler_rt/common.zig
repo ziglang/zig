@@ -96,21 +96,25 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 // we're trying to test compiler-rt.
 pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
-/// AArch64 is the only ABI (at the moment) to support f16 arguments without the
-/// need for extending them to wider fp types.
-/// TODO remove this; do this type selection in the language rather than
-/// here in compiler-rt.
+/// This seems to mostly correspond to `clang::TargetInfo::HasFloat16`.
 pub fn F16T(comptime OtherType: type) type {
     return switch (builtin.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
-            switch (builtin.abi.float()) {
-                .soft => u16,
-                .hard => f16,
-            }
-        else
-            u16,
-        .aarch64, .aarch64_be => f16,
-        .riscv32, .riscv64 => f16,
+        .amdgcn,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .nvptx,
+        .nvptx64,
+        .riscv32,
+        .riscv64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        => f16,
+        .hexagon => if (std.Target.hexagon.featureSetHas(builtin.target.cpu.features, .v68)) f16 else u16,
         .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???

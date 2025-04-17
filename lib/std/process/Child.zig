@@ -80,8 +80,12 @@ expand_arg0: Arg0Expand,
 /// Darwin-only. Disable ASLR for the child process.
 disable_aslr: bool = false,
 
-/// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
+/// Darwin and Windows only. Start child process in suspended state. For Darwin it's started
+/// as if SIGSTOP was sent.
 start_suspended: bool = false,
+
+/// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
+create_no_window: bool = false,
 
 /// Set to true to obtain rusage information for the child process.
 /// Depending on the target platform and implementation status, the
@@ -269,7 +273,7 @@ pub fn killWindows(self: *ChildProcess, exit_code: windows.UINT) !Term {
     }
 
     windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
-        error.PermissionDenied => {
+        error.AccessDenied => {
             // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
             // indicates that the process has already exited, but there may be
             // some rare edge cases where our process handle no longer has the
@@ -854,6 +858,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
     const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_basename_wtf8);
     defer self.allocator.free(app_name_w);
 
+    const flags: windows.CreateProcessFlags = .{
+        .create_suspended = self.start_suspended,
+        .create_unicode_environment = true,
+        .create_no_window = self.create_no_window,
+    };
+
     run: {
         const PATH: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
         const PATHEXT: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
@@ -889,7 +899,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             dir_buf.shrinkRetainingCapacity(normalized_len);
         }
 
-        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo) catch |no_path_err| {
             const original_err = switch (no_path_err) {
                 // argv[0] contains unsupported characters that will never resolve to a valid exe.
                 error.InvalidArg0 => return error.FileNotFound,
@@ -917,7 +927,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
                 const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                 dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo)) {
                     break :run;
                 } else |err| switch (err) {
                     // argv[0] contains unsupported characters that will never resolve to a valid exe.
@@ -1016,6 +1026,7 @@ fn windowsCreateProcessPathExt(
     cmd_line_cache: *WindowsCommandLineCache,
     envp_ptr: ?[*]u16,
     cwd_ptr: ?[*:0]u16,
+    flags: windows.CreateProcessFlags,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
 ) !void {
@@ -1166,7 +1177,7 @@ fn windowsCreateProcessPathExt(
             else
                 full_app_name;
 
-            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, flags, lpStartupInfo, lpProcessInformation)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1221,7 +1232,7 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, flags, lpStartupInfo, lpProcessInformation)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1247,6 +1258,7 @@ fn windowsCreateProcess(
     cmd_line: [*:0]u16,
     envp_ptr: ?[*]u16,
     cwd_ptr: ?[*:0]u16,
+    flags: windows.CreateProcessFlags,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
 ) !void {
@@ -1273,7 +1285,7 @@ fn windowsCreateProcess(
         null,
         null,
         windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
+        flags,
         @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,

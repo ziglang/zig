@@ -2820,9 +2820,12 @@ pub const Feature = packed struct(u8) {
     pub const Tag = enum(u6) {
         atomics,
         @"bulk-memory",
+        @"bulk-memory-opt",
+        @"call-indirect-overlong",
         @"exception-handling",
         @"extended-const",
-        @"half-precision",
+        fp16,
+        memory64,
         multimemory,
         multivalue,
         @"mutable-globals",
@@ -2834,14 +2837,17 @@ pub const Feature = packed struct(u8) {
         simd128,
         @"tail-call",
         @"shared-mem",
+        @"wide-arithmetic",
 
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
             return switch (feature) {
                 .atomics => .atomics,
                 .bulk_memory => .@"bulk-memory",
+                .bulk_memory_opt => .@"bulk-memory-opt",
+                .call_indirect_overlong => .@"call-indirect-overlong",
                 .exception_handling => .@"exception-handling",
                 .extended_const => .@"extended-const",
-                .half_precision => .@"half-precision",
+                .fp16 => .fp16,
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .mutable_globals => .@"mutable-globals",
@@ -2852,6 +2858,7 @@ pub const Feature = packed struct(u8) {
                 .sign_ext => .@"sign-ext",
                 .simd128 => .simd128,
                 .tail_call => .@"tail-call",
+                .wide_arithmetic => .@"wide-arithmetic",
             };
         }
 
@@ -2859,9 +2866,12 @@ pub const Feature = packed struct(u8) {
             return switch (tag) {
                 .atomics => .atomics,
                 .@"bulk-memory" => .bulk_memory,
+                .@"bulk-memory-opt" => .bulk_memory_opt,
+                .@"call-indirect-overlong" => .call_indirect_overlong,
                 .@"exception-handling" => .exception_handling,
                 .@"extended-const" => .extended_const,
-                .@"half-precision" => .half_precision,
+                .fp16 => .fp16,
+                .memory64 => null, // Linker-only feature.
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .@"mutable-globals" => .mutable_globals,
@@ -2873,6 +2883,7 @@ pub const Feature = packed struct(u8) {
                 .simd128 => .simd128,
                 .@"tail-call" => .tail_call,
                 .@"shared-mem" => null, // Linker-only feature.
+                .@"wide-arithmetic" => .wide_arithmetic,
             };
         }
 
@@ -4067,6 +4078,17 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try std.fmt.allocPrint(arena, "stack-size={d}", .{wasm.base.stack_size}),
         });
 
+        switch (wasm.base.build_id) {
+            .none => try argv.append("--build-id=none"),
+            .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                @tagName(wasm.base.build_id),
+            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                std.fmt.fmtSliceHexLower(hs.toSlice()),
+            })),
+            .md5 => {},
+        }
+
         if (wasm.import_symbols) {
             try argv.append("--allow-undefined");
         }
@@ -4078,21 +4100,17 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("--pie");
         }
 
-        // XXX - TODO: add when wasm-ld supports --build-id.
-        // if (wasm.base.build_id) {
-        //     try argv.append("--build-id=tree");
-        // }
-
         try argv.appendSlice(&.{ "-o", full_out_path });
 
         if (target.cpu.arch == .wasm64) {
             try argv.append("-mwasm64");
         }
 
-        if (target.os.tag == .wasi) {
-            const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
-                (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
-            if (is_exe_or_dyn_lib) {
+        const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
+            (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
+
+        if (comp.config.link_libc and is_exe_or_dyn_lib) {
+            if (target.os.tag == .wasi) {
                 for (comp.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.crtFileAsString(
                         arena,
@@ -4100,18 +4118,20 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                     ));
                 }
 
-                if (comp.config.link_libc) {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
-                    ));
-                    try argv.append(try comp.crtFileAsString(arena, "libc.a"));
-                }
+                try argv.append(try comp.crtFileAsString(
+                    arena,
+                    wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
+                ));
+                try argv.append(try comp.crtFileAsString(arena, "libc.a"));
+            }
 
-                if (comp.config.link_libcpp) {
-                    try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-                    try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-                }
+            if (comp.zigc_static_lib) |zigc| {
+                try argv.append(try zigc.full_object_path.toString(arena));
+            }
+
+            if (comp.config.link_libcpp) {
+                try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
+                try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
             }
         }
 
@@ -4144,10 +4164,6 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
         if (module_obj_path) |p| {
             try argv.append(p);
-        }
-
-        if (comp.libc_static_lib) |crt_file| {
-            try argv.append(try crt_file.full_object_path.toString(arena));
         }
 
         if (compiler_rt_path) |p| {

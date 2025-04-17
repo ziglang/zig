@@ -473,14 +473,18 @@ const Object = struct {
 /// objects remaining in the cache will be freed when the cache itself is freed.
 const ObjectCache = struct {
     objects: std.AutoHashMapUnmanaged(u64, CacheEntry) = .empty,
-    lru_nodes: LruList = .{},
+    lru_nodes: std.DoublyLinkedList = .{},
+    lru_nodes_len: usize = 0,
     byte_size: usize = 0,
 
     const max_byte_size = 128 * 1024 * 1024; // 128MiB
     /// A list of offsets stored in the cache, with the most recently used
     /// entries at the end.
-    const LruList = std.DoublyLinkedList(u64);
-    const CacheEntry = struct { object: Object, lru_node: *LruList.Node };
+    const LruListNode = struct {
+        data: u64,
+        node: std.DoublyLinkedList.Node,
+    };
+    const CacheEntry = struct { object: Object, lru_node: *LruListNode };
 
     fn deinit(cache: *ObjectCache, allocator: Allocator) void {
         var object_iterator = cache.objects.iterator();
@@ -496,8 +500,8 @@ const ObjectCache = struct {
     /// position if it is present.
     fn get(cache: *ObjectCache, offset: u64) ?Object {
         if (cache.objects.get(offset)) |entry| {
-            cache.lru_nodes.remove(entry.lru_node);
-            cache.lru_nodes.append(entry.lru_node);
+            cache.lru_nodes.remove(&entry.lru_node.node);
+            cache.lru_nodes.append(&entry.lru_node.node);
             return entry.object;
         } else {
             return null;
@@ -510,26 +514,29 @@ const ObjectCache = struct {
     /// will not be evicted before the next call to `put` or `deinit` even if
     /// it exceeds the maximum cache size.
     fn put(cache: *ObjectCache, allocator: Allocator, offset: u64, object: Object) !void {
-        const lru_node = try allocator.create(LruList.Node);
+        const lru_node = try allocator.create(LruListNode);
         errdefer allocator.destroy(lru_node);
         lru_node.data = offset;
 
         const gop = try cache.objects.getOrPut(allocator, offset);
         if (gop.found_existing) {
             cache.byte_size -= gop.value_ptr.object.data.len;
-            cache.lru_nodes.remove(gop.value_ptr.lru_node);
+            cache.lru_nodes.remove(&gop.value_ptr.lru_node.node);
+            cache.lru_nodes_len -= 1;
             allocator.destroy(gop.value_ptr.lru_node);
             allocator.free(gop.value_ptr.object.data);
         }
         gop.value_ptr.* = .{ .object = object, .lru_node = lru_node };
         cache.byte_size += object.data.len;
-        cache.lru_nodes.append(lru_node);
+        cache.lru_nodes.append(&lru_node.node);
+        cache.lru_nodes_len += 1;
 
-        while (cache.byte_size > max_byte_size and cache.lru_nodes.len > 1) {
+        while (cache.byte_size > max_byte_size and cache.lru_nodes_len > 1) {
             // The > 1 check is to make sure that we don't evict the most
             // recently added node, even if it by itself happens to exceed the
             // maximum size of the cache.
-            const evict_node = cache.lru_nodes.popFirst().?;
+            const evict_node: *LruListNode = @alignCast(@fieldParentPtr("node", cache.lru_nodes.popFirst().?));
+            cache.lru_nodes_len -= 1;
             const evict_offset = evict_node.data;
             allocator.destroy(evict_node);
             const evict_object = cache.objects.get(evict_offset).?.object;

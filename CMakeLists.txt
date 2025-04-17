@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 14)
+set(ZIG_VERSION_MINOR 15)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -90,6 +90,7 @@ set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
+set(ZIG_STATIC_LIBXML2 OFF CACHE BOOL "Enable static linking against libxml2")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -132,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 19)
-find_package(clang 19)
-find_package(lld 19)
+find_package(llvm 20)
+find_package(clang 20)
+find_package(lld 20)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -165,6 +166,12 @@ if(ZIG_STATIC_CURSES)
         /usr/local/opt/ncurses/lib
         /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
+endif()
+
+if(ZIG_STATIC_LIBXML2)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
+    find_library(LIBXML2 NAMES libxml2.a NAMES_PER_DIR)
+    list(APPEND LLVM_LIBRARIES "${LIBXML2}")
 endif()
 
 find_package(Threads)
@@ -444,7 +451,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
-    lib/std/linked_list.zig
     lib/std/log.zig
     lib/std/macho.zig
     lib/std/math.zig
@@ -699,6 +705,13 @@ add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 target_compile_features(zigcpp PRIVATE cxx_std_17)
 set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
 
+if(LLVM_LINK_MODE STREQUAL "static")
+  target_compile_definitions(zigcpp PRIVATE
+    LLVM_BUILD_STATIC
+    CLANG_BUILD_STATIC
+  )
+endif()
+
 if(NOT MSVC)
   if(MINGW)
     target_compile_options(zigcpp PRIVATE -Wno-format)
@@ -809,7 +822,7 @@ if(MSVC)
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)

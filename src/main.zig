@@ -39,7 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = 32 << 20;
+const thread_stack_size = 50 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -499,9 +499,18 @@ const usage_build_generic =
     \\    hex  (planned feature)  Intel IHEX
     \\    raw  (planned feature)  Dump machine code directly
     \\  -mcpu [cpu]               Specify target CPU and feature set
-    \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
-    \\            small|kernel|
-    \\            medium|large]
+    \\  -mcmodel=[model]          Limit range of code and data virtual addresses
+    \\    default
+    \\    extreme
+    \\    kernel
+    \\    large
+    \\    medany
+    \\    medium
+    \\    medlow
+    \\    medmid
+    \\    normal
+    \\    small
+    \\    tiny
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
@@ -532,6 +541,7 @@ const usage_build_generic =
     \\  -idirafter [dir]          Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
+    \\  --embed-dir=[dir]         Add directory to embed search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
     \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
@@ -570,10 +580,13 @@ const usage_build_generic =
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  -fallow-so-scripts             Allows .so files to be GNU ld scripts
     \\  -fno-allow-so-scripts          (default) .so files must be ELF files
-    \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
-    \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
-    \\      0x[hexstring]              Maximum 32 bytes
-    \\      none                       (default) Disable build-id
+    \\  --build-id[=style]             At a minor link-time expense, embeds a build ID in binaries
+    \\      fast                       8-byte non-cryptographic hash (COFF, ELF, WASM)
+    \\      sha1, tree                 20-byte cryptographic hash (ELF, WASM)
+    \\      md5                        16-byte cryptographic hash (ELF)
+    \\      uuid                       16-byte random UUID (ELF, WASM)
+    \\      0x[hexstring]              Constant ID, maximum 32 bytes (ELF, WASM)
+    \\      none                     (default) No build ID
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --no-eh-frame-hdr              Disable C++ exception handling by passing --no-eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
@@ -1278,6 +1291,8 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.startsWith(u8, arg, "--embed-dir=")) {
+                        try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, arg["--embed-dir=".len..], true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
@@ -2205,18 +2220,19 @@ fn buildOutputType(
                         mod_opts.strip = false;
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     },
-                    .sanitize => {
+                    .sanitize, .no_sanitize => |t| {
+                        const enable = t == .sanitize;
                         var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
                         var recognized_any = false;
                         while (san_it.next()) |sub_arg| {
                             if (mem.eql(u8, sub_arg, "undefined")) {
-                                mod_opts.sanitize_c = true;
+                                mod_opts.sanitize_c = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "thread")) {
-                                mod_opts.sanitize_thread = true;
+                                mod_opts.sanitize_thread = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "fuzzer") or mem.eql(u8, sub_arg, "fuzzer-no-link")) {
-                                mod_opts.fuzz = true;
+                                mod_opts.fuzz = enable;
                                 recognized_any = true;
                             }
                         }
@@ -4834,6 +4850,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
     var fetch_only = false;
+    var fetch_mode: Package.Fetch.JobQueue.Mode = .needed;
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
 
@@ -4915,6 +4932,13 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
                     fetch_only = true;
+                } else if (mem.startsWith(u8, arg, "--fetch=")) {
+                    fetch_only = true;
+                    const sub_arg = arg["--fetch=".len..];
+                    fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
+                        fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
+                            sub_arg,
+                        });
                 } else if (mem.eql(u8, arg, "--system")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -5199,6 +5223,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .debug_hash = false,
                     .work_around_btrfs_bug = work_around_btrfs_bug,
                     .unlazy_set = unlazy_set,
+                    .mode = fetch_mode,
                 };
                 defer job_queue.deinit();
 
@@ -5224,7 +5249,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .arena = std.heap.ArenaAllocator.init(gpa),
                     .location = .{ .relative_path = build_mod.root },
                     .location_tok = 0,
-                    .hash_tok = 0,
+                    .hash_tok = .none,
                     .name_tok = 0,
                     .lazy_status = .eager,
                     .parent_package_root = build_mod.root,
@@ -5883,6 +5908,7 @@ pub const ClangArgIterator = struct {
         gdwarf32,
         gdwarf64,
         sanitize,
+        no_sanitize,
         linker_script,
         dry_run,
         verbose,
@@ -6285,8 +6311,10 @@ fn cmdAstCheck(
                     file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
                 const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
-                        @sizeOf(Ast.Node.Data) +
-                        @sizeOf(Ast.TokenIndex));
+                        @sizeOf(Ast.TokenIndex) +
+                        // Here we don't use @sizeOf(Ast.Node.Data) because it would include
+                        // the debug safety tag but we want to measure release size.
+                        8);
                 const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
@@ -6954,13 +6982,17 @@ const ClangSearchSanitizer = struct {
                 m.iframeworkwithsysroot = true;
                 if (m.iwithsysroot) warn(wtxt, .{ dir, "iframeworkwithsysroot", "iwithsysroot" });
             },
+            .embed_dir => {
+                if (m.embed_dir) return;
+                m.embed_dir = true;
+            },
         }
         try argv.ensureUnusedCapacity(ally, 2);
         argv.appendAssumeCapacity(arg);
         if (!joined) argv.appendAssumeCapacity(dir);
     }
 
-    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot };
+    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot, embed_dir };
 
     const Membership = packed struct {
         I: bool = false,
@@ -6969,6 +7001,7 @@ const ClangSearchSanitizer = struct {
         idirafter: bool = false,
         iframework: bool = false,
         iframeworkwithsysroot: bool = false,
+        embed_dir: bool = false,
     };
 };
 
@@ -7119,6 +7152,7 @@ fn cmdFetch(
         .read_only = false,
         .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
+        .mode = .all,
     };
     defer job_queue.deinit();
 
@@ -7126,7 +7160,7 @@ fn cmdFetch(
         .arena = std.heap.ArenaAllocator.init(gpa),
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
-        .hash_tok = 0,
+        .hash_tok = .none,
         .name_tok = 0,
         .lazy_status = .eager,
         .parent_package_root = undefined,
@@ -7282,15 +7316,19 @@ fn cmdFetch(
 
         warn("overwriting existing dependency named '{s}'", .{name});
         try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        if (dep.hash_node.unwrap()) |hash_node| {
+            try fixups.replace_nodes_with_string.put(gpa, hash_node, hash_replace);
+        } else {
+            // https://github.com/ziglang/zig/issues/21690
+        }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
         const last_dep_node = deps[deps.len - 1].node;
         try fixups.append_string_after_node.put(gpa, last_dep_node, new_node_text);
-    } else if (manifest.dependencies_node != 0) {
+    } else if (manifest.dependencies_node.unwrap()) |dependencies_node| {
         // Add fixup for replacing the entire dependencies struct.
-        try fixups.replace_nodes_with_string.put(gpa, manifest.dependencies_node, dependencies_init);
+        try fixups.replace_nodes_with_string.put(gpa, dependencies_node, dependencies_init);
     } else {
         // Add fixup for adding dependencies struct.
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);
@@ -7472,7 +7510,7 @@ fn loadManifest(
             Package.Manifest.basename,
             Package.Manifest.max_bytes,
             null,
-            1,
+            .@"1",
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {

@@ -88,7 +88,7 @@ struct _LIBCPP_HIDDEN __traits_base<_Tp, __enable_if_t<sizeof(_Tp) == sizeof(uin
   }
 };
 
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 template <typename _Tp>
 struct _LIBCPP_HIDDEN __traits_base<_Tp, __enable_if_t<sizeof(_Tp) == sizeof(__uint128_t)> > {
   using type = __uint128_t;

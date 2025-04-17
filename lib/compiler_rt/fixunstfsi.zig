@@ -12,10 +12,10 @@ comptime {
     @export(&__fixunstfsi, .{ .name = "__fixunstfsi", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __fixunstfsi(a: f128) callconv(.C) u32 {
+pub fn __fixunstfsi(a: f128) callconv(.c) u32 {
     return intFromFloat(u32, a);
 }
 
-fn _Qp_qtoui(a: *const f128) callconv(.C) u32 {
+fn _Qp_qtoui(a: *const f128) callconv(.c) u32 {
     return intFromFloat(u32, a.*);
 }

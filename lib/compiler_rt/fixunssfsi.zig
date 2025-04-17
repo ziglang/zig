@@ -11,10 +11,10 @@ comptime {
     }
 }
 
-pub fn __fixunssfsi(a: f32) callconv(.C) u32 {
+pub fn __fixunssfsi(a: f32) callconv(.c) u32 {
     return intFromFloat(u32, a);
 }
 
-fn __aeabi_f2uiz(a: f32) callconv(.AAPCS) u32 {
+fn __aeabi_f2uiz(a: f32) callconv(.{ .arm_aapcs = .{} }) u32 {
     return intFromFloat(u32, a);
 }

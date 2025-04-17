@@ -396,7 +396,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
-        Type.maxIntAlignment(target),
+        target.cMaxIntAlignment(),
     });
     return defines;
 }

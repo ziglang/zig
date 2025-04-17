@@ -5,7 +5,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :1:15: error: use of undefined value here causes undefined behavior
+// :1:15: error: use of undefined value here causes illegal behavior

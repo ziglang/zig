@@ -22,8 +22,6 @@
   __attribute__((__always_inline__, __nodebug__, __target__("amx-int8")))
 #define __DEFAULT_FN_ATTRS_BF16                                                \
   __attribute__((__always_inline__, __nodebug__, __target__("amx-bf16")))
-#define __DEFAULT_FN_ATTRS_FP16                                                \
-  __attribute__((__always_inline__, __nodebug__, __target__("amx-fp16")))
 
 /// Load tile configuration from a 64-byte memory location specified by
 /// "mem_addr". The tile configuration includes the tile type palette, the
@@ -232,9 +230,11 @@ static __inline__ void __DEFAULT_FN_ATTRS_TILE _tile_release(void) {
 /// bytes. Since there is no 2D type in llvm IR, we use vector type to
 /// represent 2D tile and the fixed size is maximum amx tile register size.
 typedef int _tile1024i __attribute__((__vector_size__(1024), __aligned__(64)));
+typedef int _tile1024i_1024a
+    __attribute__((__vector_size__(1024), __aligned__(1024)));
 
 /// This is internal intrinsic. C/C++ user should avoid calling it directly.
-static __inline__ _tile1024i __DEFAULT_FN_ATTRS_INT8
+static __inline__ _tile1024i __DEFAULT_FN_ATTRS_TILE
 _tile_loadd_internal(unsigned short m, unsigned short n, const void *base,
                      __SIZE_TYPE__ stride) {
   return __builtin_ia32_tileloadd64_internal(m, n, base,
@@ -242,7 +242,7 @@ _tile_loadd_internal(unsigned short m, unsigned short n, const void *base,
 }
 
 /// This is internal intrinsic. C/C++ user should avoid calling it directly.
-static __inline__ _tile1024i __DEFAULT_FN_ATTRS_INT8
+static __inline__ _tile1024i __DEFAULT_FN_ATTRS_TILE
 _tile_loaddt1_internal(unsigned short m, unsigned short n, const void *base,
                        __SIZE_TYPE__ stride) {
   return __builtin_ia32_tileloaddt164_internal(m, n, base,
@@ -278,7 +278,7 @@ _tile_dpbuud_internal(unsigned short m, unsigned short n, unsigned short k,
 }
 
 /// This is internal intrinsic. C/C++ user should avoid calling it directly.
-static __inline__ void __DEFAULT_FN_ATTRS_INT8
+static __inline__ void __DEFAULT_FN_ATTRS_TILE
 _tile_stored_internal(unsigned short m, unsigned short n, void *base,
                       __SIZE_TYPE__ stride, _tile1024i tile) {
   return __builtin_ia32_tilestored64_internal(m, n, base,
@@ -290,13 +290,6 @@ static __inline__ _tile1024i __DEFAULT_FN_ATTRS_BF16
 _tile_dpbf16ps_internal(unsigned short m, unsigned short n, unsigned short k,
                         _tile1024i dst, _tile1024i src1, _tile1024i src2) {
   return __builtin_ia32_tdpbf16ps_internal(m, n, k, dst, src1, src2);
-}
-
-/// This is internal intrinsic. C/C++ user should avoid calling it directly.
-static __inline__ _tile1024i __DEFAULT_FN_ATTRS_FP16
-_tile_dpfp16ps_internal(unsigned short m, unsigned short n, unsigned short k,
-                        _tile1024i dst, _tile1024i src1, _tile1024i src2) {
-  return __builtin_ia32_tdpfp16ps_internal(m, n, k, dst, src1, src2);
 }
 
 /// This struct pack the shape and tile data together for user. We suggest
@@ -493,32 +486,9 @@ static __inline__ void __tile_dpbf16ps(__tile1024i *dst, __tile1024i src0,
                                       src0.tile, src1.tile);
 }
 
-/// Compute dot-product of FP16 (16-bit) floating-point pairs in tiles src0 and
-/// src1, accumulating the intermediate single-precision (32-bit) floating-point
-/// elements with elements in "dst", and store the 32-bit result back to tile
-/// "dst".
-///
-/// \headerfile <immintrin.h>
-///
-/// This intrinsic corresponds to the <c> TDPFP16PS </c> instruction.
-///
-/// \param dst
-///    The destination tile. Max size is 1024 Bytes.
-/// \param src0
-///    The 1st source tile. Max size is 1024 Bytes.
-/// \param src1
-///    The 2nd source tile. Max size is 1024 Bytes.
-__DEFAULT_FN_ATTRS_FP16
-static __inline__ void __tile_dpfp16ps(__tile1024i *dst, __tile1024i src0,
-                                       __tile1024i src1) {
-  dst->tile = _tile_dpfp16ps_internal(src0.row, src1.col, src0.col, dst->tile,
-                                      src0.tile, src1.tile);
-}
-
 #undef __DEFAULT_FN_ATTRS_TILE
 #undef __DEFAULT_FN_ATTRS_INT8
 #undef __DEFAULT_FN_ATTRS_BF16
-#undef __DEFAULT_FN_ATTRS_FP16
 
 #endif /* __x86_64__ */
 #endif /* __AMXINTRIN_H */

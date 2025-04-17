@@ -96,6 +96,9 @@
         .empty_env = .{
             .path = "empty_env",
         },
+        .env_vars = .{
+            .path = "env_vars",
+        },
         .issue_11595 = .{
             .path = "issue_11595",
         },
@@ -125,6 +128,9 @@
         },
         .c_compiler = .{
             .path = "c_compiler",
+        },
+        .c_embed_path = .{
+            .path = "c_embed_path",
         },
         .pie = .{
             .path = "pie",

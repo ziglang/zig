@@ -40,9 +40,7 @@ namespace ranges {
 template <class _InIter>
 using prev_permutation_result = in_found_result<_InIter>;
 
-namespace __prev_permutation {
-
-struct __fn {
+struct __prev_permutation {
   template <bidirectional_iterator _Iter, sentinel_for<_Iter> _Sent, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<_Iter, _Comp, _Proj>
   _LIBCPP_HIDE_FROM_ABI constexpr prev_permutation_result<_Iter>
@@ -62,10 +60,8 @@ struct __fn {
   }
 };
 
-} // namespace __prev_permutation
-
 inline namespace __cpo {
-constexpr inline auto prev_permutation = __prev_permutation::__fn{};
+constexpr inline auto prev_permutation = __prev_permutation{};
 } // namespace __cpo
 } // namespace ranges
 

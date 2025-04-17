@@ -144,28 +144,32 @@ template <> struct hash<std::error_condition>;
 
 */
 
-#include <__config>
-#include <__system_error/errc.h>
-#include <__system_error/error_category.h>
-#include <__system_error/error_code.h>
-#include <__system_error/error_condition.h>
-#include <__system_error/system_error.h>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/system_error>
+#else
+#  include <__config>
+#  include <__system_error/errc.h>
+#  include <__system_error/error_category.h>
+#  include <__system_error/error_code.h>
+#  include <__system_error/error_condition.h>
+#  include <__system_error/system_error.h>
+#  include <version>
 
 // standard-mandated includes
 
 // [system.error.syn]
-#include <compare>
+#  include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <cstdint>
-#  include <cstring>
-#  include <limits>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstdint>
+#    include <cstring>
+#    include <limits>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_SYSTEM_ERROR
