@@ -8945,8 +8945,8 @@ pub fn getIntrinsic(
             var aw: std.io.AllocatingWriter = undefined;
             const bw = aw.fromArrayList(self.gpa, &self.strtab_string_bytes);
             defer self.strtab_string_bytes = aw.toArrayList();
-            bw.print("llvm.{s}", .{@tagName(id)}) catch |err| return @errorCast(err);
-            for (overload) |ty| bw.print(".{fm}", .{ty.fmt(self)}) catch |err| return @errorCast(err);
+            bw.print("llvm.{s}", .{@tagName(id)}) catch return error.OutOfMemory;
+            for (overload) |ty| bw.print(".{fm}", .{ty.fmt(self)}) catch return error.OutOfMemory;
         }
         break :name try self.trailingStrtabString();
     };

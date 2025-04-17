@@ -128,12 +128,6 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.* = undefined;
 }
 
-pub const RenderError = error{
-    /// Ran out of memory allocating call stack frames to complete rendering, or
-    /// ran out of memory allocating space in the output buffer.
-    OutOfMemory,
-};
-
 pub const Mode = enum { zig, zon };
 
 /// Result should be freed with tree.deinit() when there are
@@ -199,19 +193,21 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 
 /// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn renderAlloc(tree: Ast, gpa: Allocator) RenderError![]u8 {
+pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
     var aw: std.io.AllocatingWriter = undefined;
     const bw = aw.init(gpa);
     errdefer aw.deinit();
-    render(tree, gpa, bw, .{}) catch |err| return @errorCast(err); // TODO try @errorCast(...)
+    render(tree, gpa, bw, .{}) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
     return aw.toOwnedSlice();
 }
 
-pub fn render(tree: Ast, gpa: Allocator, bw: *std.io.BufferedWriter, fixups: Fixups) RenderError!void {
-    return @import("./render.zig").renderTree(gpa, bw, tree, fixups);
-}
+pub const Render = @import("Ast/Render.zig");
 
-pub const Fixups = private_render.Fixups;
+pub fn render(tree: Ast, gpa: Allocator, bw: *std.io.BufferedWriter, fixups: Render.Fixups) Render.Error!void {
+    return Render.tree(gpa, bw, tree, fixups);
+}
 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
@@ -4130,9 +4126,8 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
-const private_render = @import("./render.zig");
 
 test {
     _ = Parse;
-    _ = private_render;
+    _ = Render;
 }
