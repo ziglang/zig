@@ -62,7 +62,7 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
+} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -259,7 +259,7 @@ pub fn StackMachine(comptime options: Options) type {
             allocator: std.mem.Allocator,
             context: Context,
             initial_value: ?usize,
-        ) anyerror!?Value {
+        ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
             var reader: std.io.BufferedReader = undefined;
             reader.initFixed(expression);
@@ -274,13 +274,13 @@ pub fn StackMachine(comptime options: Options) type {
             reader: *std.io.BufferedReader,
             allocator: std.mem.Allocator,
             context: Context,
-        ) anyerror!bool {
+        ) Error!bool {
             if (@sizeOf(usize) != @sizeOf(Address) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
             const opcode = reader.takeByte() catch |err| switch (err) {
                 error.EndOfStream => return false,
-                else => |e| return @errorCast(e),
+                error.ReadFailed => return error.ReadFailed,
             };
             if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             const operand = try readOperand(reader, opcode, context);

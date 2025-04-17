@@ -119,7 +119,7 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(value: Value, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+    pub fn format(value: Value, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
         comptime assert(fmt.len == 0);
 
         // Work around x86_64 backend limitation.

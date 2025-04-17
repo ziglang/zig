@@ -130,7 +130,7 @@ pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
     aw.shrinkRetainingCapacity(0);
 }
 
-fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const start_len = aw.written.len;
     const bw = &aw.buffered_writer;
@@ -145,7 +145,7 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anye
     const pattern = data[data.len - 1];
     var new_capacity: usize = list.capacity + pattern.len * splat;
     for (rest) |bytes| new_capacity += bytes.len;
-    try list.ensureTotalCapacity(aw.allocator, new_capacity + 1);
+    list.ensureTotalCapacity(aw.allocator, new_capacity + 1) catch return error.WriteFailed;
     for (rest) |bytes| list.appendSliceAssumeCapacity(bytes);
     appendPatternAssumeCapacity(&list, pattern, splat);
     aw.written = list.items;
@@ -168,7 +168,7 @@ fn writeFile(
     limit: std.io.Writer.Limit,
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
-) anyerror!usize {
+) std.io.Writer.FileError!usize {
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const gpa = aw.allocator;
     var list = aw.toArrayList();
@@ -184,14 +184,14 @@ fn writeFile(
     const limit_int = limit.toInt() orelse {
         var new_capacity: usize = list.capacity + std.atomic.cache_line;
         for (headers_and_trailers) |bytes| new_capacity += bytes.len;
-        try list.ensureTotalCapacity(gpa, new_capacity);
+        list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
         for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
         const dest = list.items.ptr[list.items.len..list.capacity];
         const n = try file.pread(dest, pos);
         if (n == 0) {
             new_capacity = list.capacity;
             for (trailers) |bytes| new_capacity += bytes.len;
-            try list.ensureTotalCapacity(gpa, new_capacity);
+            list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
             for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
             return list.items.len - start_len;
         }
@@ -200,7 +200,7 @@ fn writeFile(
     };
     var new_capacity: usize = list.capacity + limit_int;
     for (headers_and_trailers) |bytes| new_capacity += bytes.len;
-    try list.ensureTotalCapacity(gpa, new_capacity);
+    list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
     for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
     const dest = list.items.ptr[list.items.len..][0..limit_int];
     const n = try file.pread(dest, pos);

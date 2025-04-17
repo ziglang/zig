@@ -17,8 +17,6 @@ const Alignment = std.mem.Alignment;
 pub const Reader = @import("io/Reader.zig");
 pub const Writer = @import("io/Writer.zig");
 
-pub const PositionalReader = @import("io/PositionalReader.zig");
-
 pub const BufferedReader = @import("io/BufferedReader.zig");
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
@@ -453,7 +451,6 @@ test {
     _ = BufferedReader;
     _ = Reader;
     _ = Writer;
-    _ = PositionalReader;
     _ = AllocatingWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");

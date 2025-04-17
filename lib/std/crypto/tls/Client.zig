@@ -69,28 +69,15 @@ application_cipher: tls.ApplicationCipher,
 /// this connection.
 ssl_key_log: ?*SslKeyLog,
 
-pub const Diagnostics = union {
-    /// Populated on `error.WriteFailure` and `error.ReadFailure`.
-    err: anyerror,
+pub const Diagnostics = union(enum) {
+    /// Any `ReadFailure` and `WriteFailure` was due to `input` or `output`
+    /// returning the error, respectively.
+    transitive,
     /// Populated on `error.TlsAlert`.
     ///
     /// If this isn't a error alert, then it's a closure alert, which makes
     /// no sense in a handshake.
     alert: tls.AlertDescription,
-
-    fn wrapWrite(d: *Diagnostics, returned: anyerror!void) error{WriteFailure}!void {
-        returned catch |err| {
-            d.* = .{ .err = err };
-            return error.WriteFailure;
-        };
-    }
-
-    fn wrapRead(d: *Diagnostics, returned: anyerror!void) error{ReadFailure}!void {
-        returned catch |err| {
-            d.* = .{ .err = err };
-            return error.ReadFailure;
-        };
-    }
 };
 
 pub const SslKeyLog = struct {
@@ -205,7 +192,7 @@ pub fn init(
 ) InitError!void {
     assert(input.storage.buffer.len >= min_buffer_len);
     assert(output.buffer.len >= min_buffer_len);
-    const diags = &client.diagnostics;
+    client.diagnostics = .transient;
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -298,7 +285,7 @@ pub fn init(
 
     {
         var iovecs: [2][]const u8 = .{ cleartext_header, host };
-        try diags.wrapWrite(output.writevAll(iovecs[0..if (host.len == 0) 1 else 2]));
+        try output.writevAll(iovecs[0..if (host.len == 0) 1 else 2]);
     }
 
     var tls_version: tls.ProtocolVersion = undefined;
@@ -350,12 +337,12 @@ pub fn init(
     var handshake_buffer: [tls.max_ciphertext_record_len]u8 = undefined;
     var d: tls.Decoder = .{ .buf = &handshake_buffer };
     fragment: while (true) {
-        try diags.wrapRead(d.readAtLeastOurAmt(input, tls.record_header_len));
+        try d.readAtLeastOurAmt(input, tls.record_header_len);
         const record_header = d.buf[d.idx..][0..tls.record_header_len];
         const record_ct = d.decode(tls.ContentType);
         d.skip(2); // legacy_version
         const record_len = d.decode(u16);
-        try diags.wrapRead(d.readAtLeast(input, record_len));
+        try d.readAtLeast(input, record_len);
         var record_decoder = try d.sub(record_len);
         var ctd, const ct = content: switch (cipher_state) {
             .cleartext => .{ record_decoder, record_ct },
@@ -433,7 +420,7 @@ pub fn init(
                 const level = ctd.decode(tls.AlertLevel);
                 const desc = ctd.decode(tls.AlertDescription);
                 _ = level;
-                diags.* = .{ .alert = desc };
+                client.diagnostics = .{ .alert = desc };
                 return error.TlsAlert;
             },
             .change_cipher_spec => {
@@ -775,7 +762,7 @@ pub fn init(
                                     &client_change_cipher_spec_msg,
                                     &client_verify_msg,
                                 };
-                                try diags.wrapWrite(output.writevAll(&all_msgs_vec));
+                                try output.writevAll(&all_msgs_vec);
                             },
                         }
                         write_seq += 1;
@@ -840,7 +827,7 @@ pub fn init(
                                         &client_change_cipher_spec_msg,
                                         &finished_msg,
                                     };
-                                    try diags.wrapWrite(output.writevAll(&all_msgs_vec));
+                                    try output.writevAll(&all_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, pv.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, pv.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -905,8 +892,9 @@ pub fn init(
                         client.reader.init(.{
                             .context = client,
                             .vtable = &.{
-                                .read = reader_read,
-                                .readv = reader_readv,
+                                .read = read,
+                                .readVec = readVec,
+                                .discard = discard,
                             },
                         }, input.storage.buffer[0..0]);
                         return;
@@ -933,7 +921,7 @@ pub fn writer(c: *Client) std.io.Writer {
     };
 }
 
-fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
     const c: *Client = @alignCast(@ptrCast(context));
     const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
     const output = &c.output;
@@ -953,7 +941,7 @@ fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyer
 /// Sends a `close_notify` alert, which is necessary for the server to
 /// distinguish between a properly finished TLS session, or a truncation
 /// attack.
-pub fn end(c: *Client) anyerror!void {
+pub fn end(c: *Client) std.io.Writer.Error!void {
     const output = &c.output;
     const ciphertext_buf = try output.writableSlice(min_buffer_len);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, &tls.close_notify_alert, .alert);
@@ -1070,18 +1058,18 @@ pub fn eof(c: Client) bool {
         c.partial_ciphertext_idx >= c.partial_ciphertext_end;
 }
 
-fn reader_read(
+fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
-) anyerror!std.io.Reader.Status {
+) std.io.Reader.RwError!std.io.Reader.Status {
     const buf = limit.slice(try bw.writableSlice(1));
-    const status = try reader_readv(context, &.{buf});
+    const status = try readVec(context, &.{buf});
     bw.advance(status.len);
     return status;
 }
 
-fn reader_readv(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
     const c: *Client = @ptrCast(@alignCast(context));
     if (c.eof()) return .{ .end = true };
 
@@ -1427,6 +1415,12 @@ fn reader_readv(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader
         }
         in = end;
     }
+}
+
+fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+    _ = context;
+    _ = limit;
+    @panic("TODO");
 }
 
 fn logSecrets(key_log_file: std.fs.File, context: anytype, secrets: anytype) void {
