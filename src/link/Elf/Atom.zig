@@ -674,7 +674,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 error.InvalidInstruction,
                 error.CannotEncode,
                 => has_reloc_errors = true,
-                else => |e| return @errorCast(e),
+                else => |e| return e,
             },
             .aarch64 => aarch64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, &bw) catch |err| switch (err) {
                 error.RelocFailure,
@@ -682,13 +682,13 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 error.UnexpectedRemainder,
                 error.DivisionByZero,
                 => has_reloc_errors = true,
-                else => |e| return @errorCast(e),
+                else => |e| return e,
             },
             .riscv64 => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, &bw) catch |err| switch (err) {
                 error.RelocFailure,
                 error.RelaxFailure,
                 => has_reloc_errors = true,
-                else => |e| return @errorCast(e),
+                else => |e| return e,
             },
             else => return error.UnsupportedCpuArch,
         }

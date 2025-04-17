@@ -619,7 +619,7 @@ pub fn valueAlloc(gpa: Allocator, v: anytype, options: Options) error{OutOfMemor
     var aw: std.io.AllocatingWriter = undefined;
     const writer = aw.init(gpa);
     defer aw.deinit();
-    value(v, options, writer) catch return error.OutOfMemory; // TODO: try @errorCast(...)
+    value(v, options, writer) catch return error.OutOfMemory;
     return aw.toOwnedSlice();
 }
 

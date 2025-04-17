@@ -595,7 +595,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         }
 
         bw.end = std.math.cast(usize, rel_offset) orelse return error.Overflow;
-        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &bw) catch |err| switch (@as(ResolveError, @errorCast(err))) {
+        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &bw) catch |err| switch (err) {
             error.RelaxFail => {
                 const target = switch (rel.tag) {
                     .@"extern" => rel.getTargetSymbol(self, macho_file).getName(macho_file),

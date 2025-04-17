@@ -57,7 +57,10 @@ pub fn readLeb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
     br.seek = fbr.pos;
     const result = br.takeLeb128(T);
     fbr.pos = br.seek;
-    return @errorCast(result);
+    return result catch |err| switch (err) {
+        error.ReadFailed => return error.EndOfStream,
+        else => |e| return e,
+    };
 }
 
 pub fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
