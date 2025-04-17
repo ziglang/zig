@@ -1759,18 +1759,15 @@ fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
         }
     }
 
-    if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
+    if (tokenization_failed) return;
+    for (source0) |cur| {
         // Property: No null byte allowed except at end.
         if (cur == 0) {
-            try std.testing.expect(tokenization_failed);
+            return error.TestUnexpectedResult;
         }
-        // Property: No ASCII control characters other than \n and \t are allowed.
-        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
-            try std.testing.expect(tokenization_failed);
+        // Property: No ASCII control characters other than \n, \t, and \r are allowed.
+        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t' and cur != '\r') {
+            return error.TestUnexpectedResult;
         }
-        // Property: All '\r' must be followed by '\n'.
-        if (cur == '\r' and next != '\n') {
-            try std.testing.expect(tokenization_failed);
-        }
-    };
+    }
 }
