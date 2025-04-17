@@ -1,4 +1,4 @@
-pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *std.io.BufferedWriter) anyerror!void {
+pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *std.io.BufferedWriter) error{ WriteFailed, OutOfMemory }!void {
     assert(!zoir.hasCompileErrors());
 
     const bytes_per_node = comptime n: {
@@ -37,7 +37,7 @@ pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *std.io.BufferedWriter) a
         .indent = 0,
     };
 
-    return @errorCast(pz.renderRoot());
+    return pz.renderRoot();
 }
 
 const PrintZon = struct {
@@ -46,12 +46,14 @@ const PrintZon = struct {
     zoir: Zoir,
     indent: u32,
 
-    fn renderRoot(pz: *PrintZon) anyerror!void {
+    const Error = std.io.Writer.Error;
+
+    fn renderRoot(pz: *PrintZon) Error!void {
         try pz.renderNode(.root);
         try pz.w.writeByte('\n');
     }
 
-    fn renderNode(pz: *PrintZon, node: Zoir.Node.Index) anyerror!void {
+    fn renderNode(pz: *PrintZon, node: Zoir.Node.Index) Error!void {
         const zoir = pz.zoir;
         try pz.w.print("%{d} = ", .{@intFromEnum(node)});
         switch (node.get(zoir)) {

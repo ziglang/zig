@@ -7963,7 +7963,7 @@ const StringLiteral = struct {
         };
     }
 
-    pub fn start(self: *StringLiteral) anyerror!void {
+    pub fn start(self: *StringLiteral) std.io.Writer.Error!void {
         const writer = self.writer;
         if (self.len <= max_string_initializer_len) {
             self.bytes_written += try writer.writeByteCount('\"');
@@ -7972,7 +7972,7 @@ const StringLiteral = struct {
         }
     }
 
-    pub fn end(self: *StringLiteral) anyerror!void {
+    pub fn end(self: *StringLiteral) std.io.Writer.Error!void {
         const writer = self.writer;
         if (self.len <= max_string_initializer_len) {
             self.bytes_written += try writer.writeByteCount('\"');
@@ -7981,7 +7981,7 @@ const StringLiteral = struct {
         }
     }
 
-    fn writeStringLiteralChar(writer: *std.io.BufferedWriter, c: u8) anyerror!usize {
+    fn writeStringLiteralChar(writer: *std.io.BufferedWriter, c: u8) std.io.Writer.Error!usize {
         switch (c) {
             7 => return writer.writeAllCount("\\a"),
             8 => return writer.writeAllCount("\\b"),
@@ -7998,7 +7998,7 @@ const StringLiteral = struct {
         }
     }
 
-    pub fn writeChar(self: *StringLiteral, c: u8) anyerror!void {
+    pub fn writeChar(self: *StringLiteral, c: u8) std.io.Writer.Error!void {
         const writer = self.writer;
         if (self.len <= max_string_initializer_len) {
             if (self.cur_len == 0 and self.bytes_written > 1)

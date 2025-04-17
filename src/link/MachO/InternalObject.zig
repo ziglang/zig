@@ -848,7 +848,7 @@ pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     try bw.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
@@ -864,7 +864,7 @@ pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(fo
     } };
 }
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const macho_file = ctx.macho_file;
     const self = ctx.self;

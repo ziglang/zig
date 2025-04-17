@@ -2513,7 +2513,7 @@ pub fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_
     return data;
 }
 
-pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -2532,7 +2532,7 @@ pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatAtoms
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2550,7 +2550,7 @@ pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatCies) 
     } };
 }
 
-fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  cies\n");
@@ -2566,7 +2566,7 @@ pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatFdes) 
     } };
 }
 
-fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  fdes\n");
@@ -2582,7 +2582,7 @@ pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatUnwindRecords(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatUnwindRecords(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2599,7 +2599,7 @@ pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatSymt
     } };
 }
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2629,7 +2629,7 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     if (object.in_archive) |ar| {
         try bw.print("{f}({s})", .{
@@ -2690,7 +2690,7 @@ const StabFile = struct {
             return object.symbols.items[index];
         }
 
-        pub fn format(stab: Stab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+        pub fn format(stab: Stab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
             _ = stab;
             _ = bw;
             _ = unused_fmt_string;
@@ -2703,7 +2703,7 @@ const StabFile = struct {
             return .{ .data = .{ stab, object } };
         }
 
-        fn format2(ctx: StabFormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+        fn format2(ctx: StabFormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
             _ = unused_fmt_string;
             const stab, const object = ctx;
             const sym = stab.getSymbol(object).?;

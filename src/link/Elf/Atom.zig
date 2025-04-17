@@ -908,7 +908,7 @@ pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
-pub fn format(atom: Atom, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+pub fn format(atom: Atom, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = atom;
     _ = bw;
     _ = unused_fmt_string;
@@ -927,7 +927,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
@@ -1080,7 +1080,7 @@ const x86_64 = struct {
         args: ResolveArgs,
         it: *RelocsIterator,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         dev.check(.x86_64_backend);
         const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const diags = &elf_file.base.comp.link_diags;
@@ -1212,7 +1212,7 @@ const x86_64 = struct {
         target: *const Symbol,
         args: ResolveArgs,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         dev.check(.x86_64_backend);
 
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
@@ -1593,7 +1593,7 @@ const aarch64 = struct {
         args: ResolveArgs,
         it: *RelocsIterator,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         _ = it;
 
         const diags = &elf_file.base.comp.link_diags;
@@ -2004,7 +2004,7 @@ const riscv = struct {
         target: *const Symbol,
         args: ResolveArgs,
         bw: *std.io.BufferedWriter,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
 
         _, const A, const S, const GOT, _, _, const DTP = args;

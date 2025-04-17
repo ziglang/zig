@@ -289,7 +289,7 @@ pub fn calcSize(info: UnwindInfo) usize {
     return total_size;
 }
 
-pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *std.io.BufferedWriter) anyerror!void {
+pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const seg = macho_file.getTextSegment();
     const header = macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
 
@@ -449,7 +449,7 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(enc: Encoding, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(enc: Encoding, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("0x{x:0>8}", .{enc.enc});
     }
@@ -505,7 +505,7 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn format(rec: Record, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    pub fn format(rec: Record, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = rec;
         _ = bw;
         _ = unused_fmt_string;
@@ -524,7 +524,7 @@ pub const Record = struct {
         macho_file: *MachO,
     };
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
         _ = unused_fmt_string;
         const rec = ctx.rec;
         const macho_file = ctx.macho_file;
@@ -589,7 +589,7 @@ const Page = struct {
         return null;
     }
 
-    fn format(page: *const Page, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
+    fn format(page: *const Page, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
         _ = page;
         _ = bw;
         _ = unused_format_string;
@@ -601,7 +601,7 @@ const Page = struct {
         info: UnwindInfo,
     };
 
-    fn format2(ctx: FormatPageContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) anyerror!void {
+    fn format2(ctx: FormatPageContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
         _ = unused_format_string;
         try bw.writeAll("Page:\n");
         try bw.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});

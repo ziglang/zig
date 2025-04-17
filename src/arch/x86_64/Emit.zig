@@ -15,10 +15,6 @@ pub const Error = Lower.Error || error{
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
-    return @errorCast(emit.emitMirInner());
-}
-
-fn emitMirInner(emit: *Emit) anyerror!void {
     const gpa = emit.lower.bin_file.comp.gpa;
     var aw: std.io.AllocatingWriter = undefined;
     const bw = aw.fromArrayList(gpa, emit.code);
@@ -570,7 +566,7 @@ const Loc = struct {
     is_stmt: bool,
 };
 
-fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc, pc: usize) anyerror!void {
+fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc, pc: usize) Error!void {
     const delta_line = @as(i33, loc.line) - @as(i33, emit.prev_di_loc.line);
     const delta_pc = pc - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
