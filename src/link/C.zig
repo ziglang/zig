@@ -25,34 +25,34 @@ base: link.File,
 /// This linker backend does not try to incrementally link output C source code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function, stitching pre-rendered pieces of C code together.
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvBlock) = .empty,
+navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvBlock),
 /// All the string bytes of rendered C code, all squished into one array.
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
-string_bytes: std.ArrayListUnmanaged(u8) = .empty,
+string_bytes: std.ArrayListUnmanaged(u8),
 /// Tracks all the anonymous decls that are used by all the decls so they can
 /// be rendered during flush().
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, AvBlock) = .empty,
+uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, AvBlock),
 /// Sparse set of uavs that are overaligned. Underaligned anon decls are
 /// lowered the same as ABI-aligned anon decls. The keys here are a subset of
 /// the keys of `uavs`.
-aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .empty,
+aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
-exported_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ExportedBlock) = .empty,
-exported_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ExportedBlock) = .empty,
+exported_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ExportedBlock),
+exported_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ExportedBlock),
 
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
-fwd_decl_buf: std.ArrayListUnmanaged(u8) = .empty,
+fwd_decl_buf: []u8,
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
-code_buf: std.ArrayListUnmanaged(u8) = .empty,
+code_header_buf: []u8,
+/// Optimization, `updateDecl` reuses this buffer rather than creating a new
+/// one with every call.
+code_buf: []u8,
 /// Optimization, `flush` reuses this buffer rather than creating a new
 /// one with every call.
-lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .empty,
-/// Optimization, `flush` reuses this buffer rather than creating a new
-/// one with every call.
-lazy_code_buf: std.ArrayListUnmanaged(u8) = .empty,
+scratch_buf: []u32,
 
 /// A reference into `string_bytes`.
 const String = extern struct {
@@ -67,11 +67,11 @@ const String = extern struct {
 
 /// Per-declaration data.
 pub const AvBlock = struct {
-    code: String = String.empty,
-    fwd_decl: String = String.empty,
+    fwd_decl: String = .empty,
+    code: String = .empty,
     /// Each `Decl` stores a set of used `CType`s.  In `flush()`, we iterate
     /// over each `Decl` and generate the definition for each used `CType` once.
-    ctype_pool: codegen.CType.Pool = codegen.CType.Pool.empty,
+    ctype_pool: codegen.CType.Pool = .empty,
     /// May contain string references to ctype_pool
     lazy_fns: codegen.LazyFnMap = .{},
 
@@ -84,20 +84,21 @@ pub const AvBlock = struct {
 
 /// Per-exported-symbol data.
 pub const ExportedBlock = struct {
-    fwd_decl: String = String.empty,
+    fwd_decl: String = .empty,
 };
 
 pub fn getString(this: C, s: String) []const u8 {
     return this.string_bytes.items[s.start..][0..s.len];
 }
 
-pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
+pub fn addString(this: *C, writers: []const *std.io.AllocatingWriter) Allocator.Error!String {
     const comp = this.base.comp;
     const gpa = comp.gpa;
-    try this.string_bytes.appendSlice(gpa, s);
+    const start = this.string_bytes.items.len;
+    for (writers) |writer| try this.string_bytes.appendSlice(gpa, writer.getWritten());
     return .{
-        .start = @intCast(this.string_bytes.items.len - s.len),
-        .len = @intCast(s.len),
+        .start = @intCast(start),
+        .len = @intCast(this.string_bytes.items.len - start),
     };
 }
 
@@ -148,6 +149,16 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
+        .navs = .empty,
+        .string_bytes = .empty,
+        .uavs = .empty,
+        .aligned_uavs = .empty,
+        .exported_navs = .empty,
+        .exported_uavs = .empty,
+        .fwd_decl_buf = &.{},
+        .code_header_buf = &.{},
+        .code_buf = &.{},
+        .scratch_buf = &.{},
     };
 
     return c_file;
@@ -168,10 +179,10 @@ pub fn deinit(self: *C) void {
     self.aligned_uavs.deinit(gpa);
 
     self.string_bytes.deinit(gpa);
-    self.fwd_decl_buf.deinit(gpa);
-    self.code_buf.deinit(gpa);
-    self.lazy_fwd_decl_buf.deinit(gpa);
-    self.lazy_code_buf.deinit(gpa);
+    gpa.free(self.fwd_decl_buf);
+    gpa.free(self.code_header_buf);
+    gpa.free(self.code_buf);
+    gpa.free(self.scratch_buf);
 }
 
 pub fn updateFunc(
@@ -188,13 +199,9 @@ pub fn updateFunc(
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const ctype_pool = &gop.value_ptr.ctype_pool;
     const lazy_fns = &gop.value_ptr.lazy_fns;
-    const fwd_decl = &self.fwd_decl_buf;
-    const code = &self.code_buf;
     try ctype_pool.init(gpa);
     ctype_pool.clearRetainingCapacity();
     lazy_fns.clearRetainingCapacity();
-    fwd_decl.clearRetainingCapacity();
-    code.clearRetainingCapacity();
 
     var function: codegen.Function = .{
         .value_map = codegen.CValueMap.init(gpa),
@@ -210,28 +217,34 @@ pub fn updateFunc(
                 .pass = .{ .nav = func.owner_nav },
                 .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
                 .expected_block = null,
-                .fwd_decl = fwd_decl.toManaged(gpa),
+                .fwd_decl = undefined,
                 .ctype_pool = ctype_pool.*,
-                .scratch = .{},
+                .scratch = .initBuffer(self.scratch_buf),
                 .uav_deps = self.uavs,
                 .aligned_uavs = self.aligned_uavs,
             },
-            .code = code.toManaged(gpa),
-            .indent_writer = undefined, // set later so we can get a pointer to object.code
+            .code_header = undefined,
+            .code = undefined,
+            .indent_counter = 0,
         },
         .lazy_fns = lazy_fns.*,
     };
-    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
+    function.object.dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
+    function.object.code_header.initOwnedSlice(gpa, self.code_header_buf);
+    function.object.code.initOwnedSlice(gpa, self.code_buf);
     defer {
         self.uavs = function.object.dg.uav_deps;
         self.aligned_uavs = function.object.dg.aligned_uavs;
-        fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = function.object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
         function.object.dg.scratch.deinit(gpa);
         lazy_fns.* = function.lazy_fns.move();
         lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
-        code.* = function.object.code.moveToUnmanaged();
+
+        self.fwd_decl_buf = function.object.dg.fwd_decl.toArrayList().allocatedSlice();
+        self.code_header_buf = function.object.code_header.toArrayList().allocatedSlice();
+        self.code_buf = function.object.code.toArrayList().allocatedSlice();
+        self.scratch_buf = function.object.dg.scratch.allocatedSlice();
         function.deinit();
     }
 
@@ -243,18 +256,13 @@ pub fn updateFunc(
         },
         else => |e| return e,
     };
-    gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
-    gop.value_ptr.code = try self.addString(function.object.code.items);
+    gop.value_ptr.fwd_decl = try self.addString(&.{&function.object.dg.fwd_decl});
+    gop.value_ptr.code = try self.addString(&.{ &function.object.code_header, &function.object.code });
 }
 
 fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
     const gpa = self.base.comp.gpa;
     const uav = self.uavs.keys()[i];
-
-    const fwd_decl = &self.fwd_decl_buf;
-    const code = &self.code_buf;
-    fwd_decl.clearRetainingCapacity();
-    code.clearRetainingCapacity();
 
     var object: codegen.Object = .{
         .dg = .{
@@ -265,23 +273,27 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
             .pass = .{ .uav = uav },
             .is_naked_fn = false,
             .expected_block = null,
-            .fwd_decl = fwd_decl.toManaged(gpa),
-            .ctype_pool = codegen.CType.Pool.empty,
-            .scratch = .{},
+            .fwd_decl = undefined,
+            .ctype_pool = .empty,
+            .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = self.uavs,
             .aligned_uavs = self.aligned_uavs,
         },
-        .code = code.toManaged(gpa),
-        .indent_writer = undefined, // set later so we can get a pointer to object.code
+        .code_header = undefined,
+        .code = undefined,
+        .indent_counter = 0,
     };
-    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    object.dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
+    object.code.initOwnedSlice(gpa, self.code_buf);
     defer {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
-        fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         object.dg.ctype_pool.deinit(object.dg.gpa);
         object.dg.scratch.deinit(gpa);
-        code.* = object.code.moveToUnmanaged();
+
+        self.fwd_decl_buf = object.dg.fwd_decl.toArrayList().allocatedSlice();
+        self.code_buf = object.code.toArrayList().allocatedSlice();
+        self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
     try object.dg.ctype_pool.init(gpa);
 
@@ -298,8 +310,8 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
 
     object.dg.ctype_pool.freeUnusedCapacity(gpa);
     object.dg.uav_deps.values()[i] = .{
-        .code = try self.addString(object.code.items),
-        .fwd_decl = try self.addString(object.dg.fwd_decl.items),
+        .fwd_decl = try self.addString(&.{object.dg.fwd_decl.getWritten()}),
+        .code = try self.addString(&.{object.code.getWritten()}),
         .ctype_pool = object.dg.ctype_pool.move(),
     };
 }
@@ -325,12 +337,8 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
     errdefer _ = self.navs.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const ctype_pool = &gop.value_ptr.ctype_pool;
-    const fwd_decl = &self.fwd_decl_buf;
-    const code = &self.code_buf;
     try ctype_pool.init(gpa);
     ctype_pool.clearRetainingCapacity();
-    fwd_decl.clearRetainingCapacity();
-    code.clearRetainingCapacity();
 
     var object: codegen.Object = .{
         .dg = .{
@@ -341,24 +349,28 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
             .pass = .{ .nav = nav_index },
             .is_naked_fn = false,
             .expected_block = null,
-            .fwd_decl = fwd_decl.toManaged(gpa),
+            .fwd_decl = undefined,
             .ctype_pool = ctype_pool.*,
-            .scratch = .{},
+            .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = self.uavs,
             .aligned_uavs = self.aligned_uavs,
         },
-        .code = code.toManaged(gpa),
-        .indent_writer = undefined, // set later so we can get a pointer to object.code
+        .code_header = undefined,
+        .code = undefined,
+        .indent_counter = 0,
     };
-    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    object.dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
+    object.code.initOwnedSlice(gpa, self.code_buf);
     defer {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
-        fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
         object.dg.scratch.deinit(gpa);
-        code.* = object.code.moveToUnmanaged();
+
+        self.fwd_decl_buf = object.dg.fwd_decl.toArrayList().allocatedSlice();
+        self.code_buf = object.code.toArrayList().allocatedSlice();
+        self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
 
     try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
@@ -369,8 +381,8 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         },
         else => |e| return e,
     };
-    gop.value_ptr.code = try self.addString(object.code.items);
-    gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
+    gop.value_ptr.fwd_decl = try self.addString(&.{object.dg.fwd_decl.getWritten()});
+    gop.value_ptr.code = try self.addString(&.{object.code.getWritten()});
 }
 
 pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -428,8 +440,19 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     // emit-h is in `flushEmitH` below.
 
     var f: Flush = .{
-        .ctype_pool = codegen.CType.Pool.empty,
-        .lazy_ctype_pool = codegen.CType.Pool.empty,
+        .ctype_pool = .empty,
+        .ctype_global_from_decl_map = .empty,
+        .ctypes_buf = .empty,
+
+        .lazy_ctype_pool = .empty,
+        .lazy_fns = .empty,
+        .lazy_fwd_decl = .empty,
+        .lazy_code = .empty,
+
+        .asm_buf = .empty,
+
+        .all_buffers = .empty,
+        .file_size = 0,
     };
     defer f.deinit(gpa);
 
@@ -554,18 +577,20 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
 const Flush = struct {
     ctype_pool: codegen.CType.Pool,
-    ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType) = .empty,
-    ctypes_buf: std.ArrayListUnmanaged(u8) = .empty,
+    ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType),
+    ctypes_buf: std.ArrayListUnmanaged(u8),
 
     lazy_ctype_pool: codegen.CType.Pool,
-    lazy_fns: LazyFns = .{},
+    lazy_fns: LazyFns,
+    lazy_fwd_decl: std.ArrayListUnmanaged(u8),
+    lazy_code: std.ArrayListUnmanaged(u8),
 
-    asm_buf: std.ArrayListUnmanaged(u8) = .empty,
+    asm_buf: std.ArrayListUnmanaged(u8),
 
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const) = .empty,
+    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const),
     /// Keeps track of the total bytes of `all_buffers`.
-    file_size: u64 = 0,
+    file_size: u64,
 
     const LazyFns = std.AutoHashMapUnmanaged(codegen.LazyFnKey, void);
 
@@ -661,9 +686,6 @@ fn flushCTypes(
 fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
 
-    const fwd_decl = &self.lazy_fwd_decl_buf;
-    const code = &self.lazy_code_buf;
-
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
@@ -673,24 +695,27 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
             .pass = .flush,
             .is_naked_fn = false,
             .expected_block = null,
-            .fwd_decl = fwd_decl.toManaged(gpa),
+            .fwd_decl = undefined,
             .ctype_pool = ctype_pool.*,
-            .scratch = .{},
+            .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = self.uavs,
             .aligned_uavs = self.aligned_uavs,
         },
-        .code = code.toManaged(gpa),
-        .indent_writer = undefined, // set later so we can get a pointer to object.code
+        .code_header = undefined,
+        .code = undefined,
+        .indent_counter = 0,
     };
-    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    object.dg.fwd_decl.initArrayList(gpa, &self.lazy_fwd_decl_buf);
+    object.code.initArrayList(gpa, &self.lazy_code_buf);
     defer {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
-        fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
-        object.dg.scratch.deinit(gpa);
-        code.* = object.code.moveToUnmanaged();
+
+        self.lazy_fwd_decl_buf = object.dg.fwd_decl.toArrayList();
+        self.lazy_code_buf = object.code.toArrayList();
+        self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
 
     codegen.genErrDecls(&object) catch |err| switch (err) {
@@ -709,9 +734,6 @@ fn flushLazyFn(
 ) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
 
-    const fwd_decl = &self.lazy_fwd_decl_buf;
-    const code = &self.lazy_code_buf;
-
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
@@ -721,26 +743,29 @@ fn flushLazyFn(
             .pass = .flush,
             .is_naked_fn = false,
             .expected_block = null,
-            .fwd_decl = fwd_decl.toManaged(gpa),
+            .fwd_decl = undefined,
             .ctype_pool = ctype_pool.*,
-            .scratch = .{},
+            .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = .{},
             .aligned_uavs = .{},
         },
-        .code = code.toManaged(gpa),
-        .indent_writer = undefined, // set later so we can get a pointer to object.code
+        .code_header = undefined,
+        .code = undefined,
+        .indent_counter = 0,
     };
-    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    object.dg.fwd_decl.initArrayList(gpa, &self.lazy_fwd_decl_buf);
+    object.code.initArrayList(gpa, &self.lazy_code_buf);
     defer {
         // If this assert trips just handle the anon_decl_deps the same as
         // `updateFunc()` does.
         assert(object.dg.uav_deps.count() == 0);
         assert(object.dg.aligned_uavs.count() == 0);
-        fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
-        object.dg.scratch.deinit(gpa);
-        code.* = object.code.moveToUnmanaged();
+
+        self.lazy_fwd_decl_buf = object.dg.fwd_decl.toArrayList();
+        self.lazy_code_buf = object.dg.code.toArrayList();
+        self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
 
     codegen.genLazyFn(&object, lazy_ctype_pool, lazy_fn) catch |err| switch (err) {
@@ -858,8 +883,6 @@ pub fn updateExports(
         },
     };
     const ctype_pool = &decl_block.ctype_pool;
-    const fwd_decl = &self.fwd_decl_buf;
-    fwd_decl.clearRetainingCapacity();
     var dg: codegen.DeclGen = .{
         .gpa = gpa,
         .pt = pt,
@@ -868,22 +891,24 @@ pub fn updateExports(
         .pass = pass,
         .is_naked_fn = false,
         .expected_block = null,
-        .fwd_decl = fwd_decl.toManaged(gpa),
+        .fwd_decl = undefined,
         .ctype_pool = decl_block.ctype_pool,
-        .scratch = .{},
+        .scratch = .initBuffer(self.scratch_buf),
         .uav_deps = .{},
         .aligned_uavs = .{},
     };
+    dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
     defer {
         assert(dg.uav_deps.count() == 0);
         assert(dg.aligned_uavs.count() == 0);
-        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
-        dg.scratch.deinit(gpa);
+
+        self.fwd_decl_buf = dg.fwd_decl.toArrayList().allocatedSlice();
+        self.scratch_buf = dg.scratch.alignedSlice();
     }
     try codegen.genExports(&dg, exported, export_indices);
-    exported_block.* = .{ .fwd_decl = try self.addString(dg.fwd_decl.items) };
+    exported_block.* = .{ .fwd_decl = try self.addString(&.{dg.fwd_decl.getWritten()}) };
 }
 
 pub fn deleteExport(
