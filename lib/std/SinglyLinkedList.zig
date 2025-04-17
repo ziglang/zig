@@ -172,6 +172,7 @@ test "basics" {
 /// note that the signatures on the member functions of the generated datastructure take
 /// pointers to the payload, not the node.
 pub fn Simple(T: type) type {
+    const SimpleLinkedList = @This();
     return struct {
         first: ?*Node = null,
 
@@ -179,21 +180,21 @@ pub fn Simple(T: type) type {
             data: T,
             node: Node = .{},
 
-            pub fn next(payload: *@This()) ?*Payload {
+            pub fn next(payload: *SimpleLinkedList) ?*Payload {
                 return @fieldParentPtr("node", payload.node.next orelse return null);
             }
 
-            pub fn insertAfter(payload: *@This(), new_payload: *Payload) void {
+            pub fn insertAfter(payload: *SimpleLinkedList, new_payload: *Payload) void {
                 payload.node.insertAfter(&new_payload.node);
             }
         };
 
-        pub fn prepend(list: *@This(), new_payload: *Payload) void {
+        pub fn prepend(list: *SimpleLinkedList, new_payload: *Payload) void {
             new_payload.node.next = list.first;
             list.first = &new_payload.node;
         }
 
-        pub fn remove(list: *@This(), payload: *Payload) void {
+        pub fn remove(list: *SimpleLinkedList, payload: *Payload) void {
             if (list.first == &payload.node) {
                 list.first = payload.node.next;
             } else {
@@ -206,7 +207,7 @@ pub fn Simple(T: type) type {
         }
 
         /// Remove and return the first node in the list.
-        pub fn popFirst(list: *@This()) ?*Payload {
+        pub fn popFirst(list: *SimpleLinkedList) ?*Payload {
             const first = list.first orelse return null;
             list.first = first.next;
             return @fieldParentPtr("node", first);
@@ -217,7 +218,7 @@ pub fn Simple(T: type) type {
         ///
         /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
-        pub fn at(list: *@This(), index: usize) ?*Payload {
+        pub fn at(list: *SimpleLinkedList, index: usize) ?*Payload {
             var thisnode = list.first orelse return null;
             var ctr: usize = index;
             while (ctr > 0) : (ctr -= 1) {
@@ -230,7 +231,7 @@ pub fn Simple(T: type) type {
         ///
         /// This operation is O(N). Consider tracking the length separately rather than
         /// computing it.
-        pub fn len(list: @This()) usize {
+        pub fn len(list: SimpleLinkedList) usize {
             if (list.first) |n| {
                 return 1 + n.countChildren();
             } else {
