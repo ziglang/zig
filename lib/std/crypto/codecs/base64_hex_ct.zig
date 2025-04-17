@@ -17,7 +17,7 @@ pub const Error = error{
 };
 
 /// (best-effort) constant time hexadecimal encoding and decoding.
-pub const hex = struct {
+pub const Hex = struct {
     /// Encodes a binary buffer into a hexadecimal string.
     /// The output buffer must be twice the size of the input buffer.
     pub fn encode(encoded: []u8, bin: []const u8, comptime case: std.fmt.Case) error{SizeMismatch}!void {
@@ -145,7 +145,7 @@ pub const hex = struct {
 };
 
 /// (best-effort) constant time base64 encoding and decoding.
-pub const base64 = struct {
+pub const Base64 = struct {
     /// The base64 variant to use.
     pub const Variant = packed struct {
         /// Use the URL-safe alphabet instead of the standard alphabet.
@@ -258,7 +258,7 @@ pub const base64 = struct {
             for (encoded) |c| {
                 if (decoder.ignored_chars.isSet(c)) b64_len -= 1;
             }
-            return base64.decodedLen(b64_len, variant);
+            return Base64.decodedLen(b64_len, variant);
         }
 
         /// Returns the maximum possible decoded size for a given input length after skipping ignored characters.
@@ -397,7 +397,7 @@ pub const base64 = struct {
     }
 };
 
-test "hex" {
+test "Hex" {
     var default_rng = std.Random.DefaultPrng.init(testing.random_seed);
     var rng = default_rng.random();
     var bin_buf: [1000]u8 = undefined;
@@ -411,14 +411,14 @@ test "hex" {
         inline for (.{ .lower, .upper }) |case| {
             const hex_len = bin_len * 2;
             const encoded = hex_buf[0..hex_len];
-            try hex.encode(encoded, bin, case);
-            try hex.decode(bin2, encoded);
+            try Hex.encode(encoded, bin, case);
+            try Hex.decode(bin2, encoded);
             try testing.expectEqualSlices(u8, bin, bin2);
         }
     }
 }
 
-test "base64" {
+test "Base64" {
     var default_rng = std.Random.DefaultPrng.init(testing.random_seed);
     var rng = default_rng.random();
     var bin_buf: [1000]u8 = undefined;
@@ -429,35 +429,35 @@ test "base64" {
         const bin_len = rng.intRangeAtMost(usize, 0, bin_buf.len);
         const bin = bin_buf[0..bin_len];
         const bin2 = bin2_buf[0..bin_len];
-        inline for ([_]base64.Variant{
+        inline for ([_]Base64.Variant{
             .standard,
             .standard_nopad,
             .urlsafe,
             .urlsafe_nopad,
         }) |variant| {
-            const b64_len = base64.encodedLen(bin_len, variant);
+            const b64_len = Base64.encodedLen(bin_len, variant);
             const encoded_buf = b64_buf[0..b64_len];
-            const encoded = try base64.encode(encoded_buf, bin, variant);
-            const decoded = try base64.decode(bin2, encoded, variant);
+            const encoded = try Base64.encode(encoded_buf, bin, variant);
+            const decoded = try Base64.decode(bin2, encoded, variant);
             try testing.expectEqualSlices(u8, bin, decoded);
         }
     }
 }
 
-test "hex with ignored chars" {
+test "Hex with ignored chars" {
     const encoded = "01020304050607\n08090A0B0C0D0E0F\n";
     const expected = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
     var bin_buf: [encoded.len / 2]u8 = undefined;
-    try testing.expectError(error.InvalidCharacter, hex.decode(&bin_buf, encoded));
-    const bin = try (try hex.decoderWithIgnore("\r\n")).decode(&bin_buf, encoded);
+    try testing.expectError(error.InvalidCharacter, Hex.decode(&bin_buf, encoded));
+    const bin = try (try Hex.decoderWithIgnore("\r\n")).decode(&bin_buf, encoded);
     try testing.expectEqualSlices(u8, &expected, bin);
 }
 
-test "base64 with ignored chars" {
+test "Base64 with ignored chars" {
     const encoded = "dGVzdCBi\r\nYXNlNjQ=\n";
     const expected = "test base64";
-    var bin_buf: [base64.DecoderWithIgnore.decodedLenUpperBound(encoded.len)]u8 = undefined;
-    try testing.expectError(error.InvalidCharacter, base64.decode(&bin_buf, encoded, .standard));
-    const bin = try (try base64.decoderWithIgnore("\r\n")).decode(&bin_buf, encoded, .standard);
+    var bin_buf: [Base64.DecoderWithIgnore.decodedLenUpperBound(encoded.len)]u8 = undefined;
+    try testing.expectError(error.InvalidCharacter, Base64.decode(&bin_buf, encoded, .standard));
+    const bin = try (try Base64.decoderWithIgnore("\r\n")).decode(&bin_buf, encoded, .standard);
     try testing.expectEqualSlices(u8, expected, bin);
 }
