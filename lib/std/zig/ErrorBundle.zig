@@ -158,13 +158,12 @@ pub const RenderOptions = struct {
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     var buffer: [256]u8 = undefined;
-    var bw = std.debug.lockStdErr2(&buffer);
-    defer std.debug.unlockStdErr();
-    renderToWriter(eb, options, &bw) catch return;
-    bw.flush() catch return;
+    const bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    renderToWriter(eb, options, bw) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *std.io.BufferedWriter) anyerror!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
         try renderErrorMessageToWriter(eb, options, err_msg, bw, "error", .red, 0);
@@ -187,7 +186,7 @@ fn renderErrorMessageToWriter(
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     const prefix_start = bw.count;

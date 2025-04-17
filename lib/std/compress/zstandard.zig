@@ -39,7 +39,7 @@ pub const Decompressor = struct {
         write_index: usize = 0,
     };
 
-    pub const Error = anyerror || error{
+    pub const Error = std.io.Reader.Error || error{
         ChecksumFailure,
         DictionaryIdFlagUnsupported,
         MalformedBlock,

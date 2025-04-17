@@ -77,7 +77,9 @@ const safety_checks: @TypeOf(safety_checks_hint) = if (build_mode_has_safety)
 else
     .assumed_correct;
 
-pub fn beginArray(self: *Stringify) anyerror!void {
+pub const Error = std.io.Writer.Error;
+
+pub fn beginArray(self: *Stringify) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
     try self.writer.writeByte('[');
@@ -85,7 +87,7 @@ pub fn beginArray(self: *Stringify) anyerror!void {
     self.next_punctuation = .none;
 }
 
-pub fn beginObject(self: *Stringify) anyerror!void {
+pub fn beginObject(self: *Stringify) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
     try self.writer.writeByte('{');
@@ -93,7 +95,7 @@ pub fn beginObject(self: *Stringify) anyerror!void {
     self.next_punctuation = .none;
 }
 
-pub fn endArray(self: *Stringify) anyerror!void {
+pub fn endArray(self: *Stringify) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     self.popIndentation(.array);
     switch (self.next_punctuation) {
@@ -107,7 +109,7 @@ pub fn endArray(self: *Stringify) anyerror!void {
     self.valueDone();
 }
 
-pub fn endObject(self: *Stringify) anyerror!void {
+pub fn endObject(self: *Stringify) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     self.popIndentation(.object);
     switch (self.next_punctuation) {
@@ -213,7 +215,7 @@ fn isComplete(self: *const Stringify) bool {
 /// assuming the resulting formatted string represents a single complete value;
 /// e.g. `"1"`, `"[]"`, `"[1,2]"`, not `"1,2"`.
 /// This function may be useful for doing your own number formatting.
-pub fn print(self: *Stringify, comptime fmt: []const u8, args: anytype) anyerror!void {
+pub fn print(self: *Stringify, comptime fmt: []const u8, args: anytype) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
     try self.writer.print(fmt, args);
@@ -274,7 +276,7 @@ pub fn endWriteRaw(self: *Stringify) void {
 /// `key` is the string content of the property name.
 /// Surrounding quotes will be added and any special characters will be escaped.
 /// See also `objectFieldRaw`.
-pub fn objectField(self: *Stringify, key: []const u8) anyerror!void {
+pub fn objectField(self: *Stringify, key: []const u8) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.objectFieldStart();
     try encodeJsonString(key, self.options, self.writer);
@@ -284,7 +286,7 @@ pub fn objectField(self: *Stringify, key: []const u8) anyerror!void {
 /// `quoted_key` is the complete bytes of the key including quotes and any necessary escape sequences.
 /// A few assertions are performed on the given value to ensure that the caller of this function understands the API contract.
 /// See also `objectField`.
-pub fn objectFieldRaw(self: *Stringify, quoted_key: []const u8) anyerror!void {
+pub fn objectFieldRaw(self: *Stringify, quoted_key: []const u8) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     assert(quoted_key.len >= 2 and quoted_key[0] == '"' and quoted_key[quoted_key.len - 1] == '"'); // quoted_key should be "quoted".
     try self.objectFieldStart();
@@ -343,7 +345,7 @@ pub fn endObjectFieldRaw(self: *Stringify) void {
 ///
 /// See also alternative functions `print` and `beginWriteRaw`.
 /// For writing object field names, use `objectField` instead.
-pub fn write(self: *Stringify, v: anytype) anyerror!void {
+pub fn write(self: *Stringify, v: anytype) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     const T = @TypeOf(v);
     switch (@typeInfo(T)) {
@@ -568,7 +570,7 @@ pub const Options = struct {
 /// Writes the given value to the `std.io.Writer` writer.
 /// See `Stringify` for how the given value is serialized into JSON.
 /// The maximum nesting depth of the output JSON document is 256.
-pub fn value(v: anytype, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn value(v: anytype, options: Options, writer: *std.io.BufferedWriter) Error!void {
     var s: Stringify = .{ .writer = writer, .options = options };
     try s.write(v);
 }
@@ -632,7 +634,7 @@ test valueAlloc {
     try std.testing.expectEqualStrings(expected, actual);
 }
 
-fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) anyerror!void {
+fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) Error!void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
         // then it may be represented as a six-character sequence: a reverse solidus, followed
@@ -652,7 +654,7 @@ fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) anyerror!void
     }
 }
 
-fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) anyerror!void {
+fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) Error!void {
     switch (c) {
         '\\' => try writer.writeAll("\\\\"),
         '\"' => try writer.writeAll("\\\""),
@@ -666,14 +668,14 @@ fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) anyerror!void {
 }
 
 /// Write `string` to `writer` as a JSON encoded string.
-pub fn encodeJsonString(string: []const u8, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn encodeJsonString(string: []const u8, options: Options, writer: *std.io.BufferedWriter) Error!void {
     try writer.writeByte('\"');
     try encodeJsonStringChars(string, options, writer);
     try writer.writeByte('\"');
 }
 
 /// Write `chars` to `writer` as JSON encoded string characters.
-pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
+pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.io.BufferedWriter) Error!void {
     var write_cursor: usize = 0;
     var i: usize = 0;
     if (options.escape_unicode) {
@@ -722,7 +724,7 @@ test "json write stream" {
     try testBasicWriteStream(&w);
 }
 
-fn testBasicWriteStream(w: *Stringify) anyerror!void {
+fn testBasicWriteStream(w: *Stringify) Error!void {
     w.writer.reset();
 
     try w.beginObject();

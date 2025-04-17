@@ -520,7 +520,7 @@ pub fn parseStrLit(
     tree: Ast,
     node: Ast.Node.Index,
     writer: *std.io.BufferedWriter,
-) anyerror!std.zig.string_literal.Result {
+) error{OutOfMemory}!std.zig.string_literal.Result {
     switch (tree.nodeTag(node)) {
         .string_literal => {
             const token = tree.nodeMainToken(node);

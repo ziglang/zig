@@ -42,7 +42,7 @@ pub fn init(writer: *std.io.BufferedWriter) Self {
 /// That is after final block; when last byte could be incomplete or
 /// after stored block; which is aligned to the byte boundary (it has x
 /// padding bits after first 3 bits).
-pub fn flush(self: *Self) anyerror!void {
+pub fn flush(self: *Self) std.io.Writer.Error!void {
     try self.bit_writer.flush();
 }
 
@@ -50,7 +50,7 @@ pub fn setWriter(self: *Self, new_writer: *std.io.BufferedWriter) void {
     self.bit_writer.setWriter(new_writer);
 }
 
-fn writeCode(self: *Self, c: hc.HuffCode) anyerror!void {
+fn writeCode(self: *Self, c: hc.HuffCode) std.io.Writer.Error!void {
     try self.bit_writer.writeBits(c.code, c.len);
 }
 
@@ -232,7 +232,7 @@ fn dynamicHeader(
     num_distances: u32,
     num_codegens: u32,
     eof: bool,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const first_bits: u32 = if (eof) 5 else 4;
     try self.bit_writer.writeBits(first_bits, 3);
     try self.bit_writer.writeBits(num_literals - 257, 5);
@@ -272,7 +272,7 @@ fn dynamicHeader(
     }
 }
 
-fn storedHeader(self: *Self, length: usize, eof: bool) anyerror!void {
+fn storedHeader(self: *Self, length: usize, eof: bool) std.io.Writer.Error!void {
     assert(length <= 65535);
     const flag: u32 = if (eof) 1 else 0;
     try self.bit_writer.writeBits(flag, 3);
@@ -282,7 +282,7 @@ fn storedHeader(self: *Self, length: usize, eof: bool) anyerror!void {
     try self.bit_writer.writeBits(~l, 16);
 }
 
-fn fixedHeader(self: *Self, eof: bool) anyerror!void {
+fn fixedHeader(self: *Self, eof: bool) std.io.Writer.Error!void {
     // Indicate that we are a fixed Huffman block
     var value: u32 = 2;
     if (eof) {
@@ -296,7 +296,7 @@ fn fixedHeader(self: *Self, eof: bool) anyerror!void {
 // is larger than the original bytes, the data will be written as a
 // stored block.
 // If the input is null, the tokens will always be Huffman encoded.
-pub fn write(self: *Self, tokens: []const Token, eof: bool, input: ?[]const u8) anyerror!void {
+pub fn write(self: *Self, tokens: []const Token, eof: bool, input: ?[]const u8) std.io.Writer.Error!void {
     const lit_and_dist = self.indexTokens(tokens);
     const num_literals = lit_and_dist.num_literals;
     const num_distances = lit_and_dist.num_distances;
@@ -374,7 +374,7 @@ pub fn write(self: *Self, tokens: []const Token, eof: bool, input: ?[]const u8) 
     try self.writeTokens(tokens, &literal_encoding.codes, &distance_encoding.codes);
 }
 
-pub fn storedBlock(self: *Self, input: []const u8, eof: bool) anyerror!void {
+pub fn storedBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Error!void {
     try self.storedHeader(input.len, eof);
     try self.bit_writer.writeBytes(input);
 }
@@ -389,7 +389,7 @@ fn dynamicBlock(
     tokens: []const Token,
     eof: bool,
     input: ?[]const u8,
-) anyerror!void {
+) std.io.Writer.Error!void {
     const total_tokens = self.indexTokens(tokens);
     const num_literals = total_tokens.num_literals;
     const num_distances = total_tokens.num_distances;
@@ -486,7 +486,7 @@ fn writeTokens(
     tokens: []const Token,
     le_codes: []hc.HuffCode,
     oe_codes: []hc.HuffCode,
-) anyerror!void {
+) std.io.Writer.Error!void {
     for (tokens) |t| {
         if (t.kind == Token.Kind.literal) {
             try self.writeCode(le_codes[t.literal()]);
@@ -513,7 +513,7 @@ fn writeTokens(
 
 // Encodes a block of bytes as either Huffman encoded literals or uncompressed bytes
 // if the results only gains very little from compression.
-pub fn huffmanBlock(self: *Self, input: []const u8, eof: bool) anyerror!void {
+pub fn huffmanBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Error!void {
     // Add everything as literals
     histogram(input, &self.literal_freq);
 

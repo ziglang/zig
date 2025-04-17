@@ -40,7 +40,7 @@ pub const Component = union(enum) {
         };
     }
 
-    pub fn format(component: Component, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+    pub fn format(component: Component, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
         if (fmt.len == 0) {
             try bw.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
                 @tagName(component),
@@ -95,7 +95,7 @@ pub const Component = union(enum) {
         bw: *std.io.BufferedWriter,
         raw: []const u8,
         comptime isValidChar: fn (u8) bool,
-    ) anyerror!void {
+    ) std.io.Writer.Error!void {
         var start: usize = 0;
         for (raw, 0..) |char, index| {
             if (isValidChar(char)) continue;
@@ -236,7 +236,7 @@ pub const WriteToStreamOptions = struct {
     port: bool = true,
 };
 
-pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.BufferedWriter) anyerror!void {
+pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     if (options.scheme) {
         try bw.print("{s}:", .{uri.scheme});
         if (options.authority and uri.host != null) {
@@ -273,7 +273,7 @@ pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.Buffer
     }
 }
 
-pub fn format(uri: Uri, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+pub fn format(uri: Uri, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
     const scheme = comptime std.mem.indexOfScalar(u8, fmt, ';') != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOfScalar(u8, fmt, '@') != null or fmt.len == 0;
     const authority = comptime std.mem.indexOfScalar(u8, fmt, '+') != null or fmt.len == 0;

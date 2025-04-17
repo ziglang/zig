@@ -170,7 +170,7 @@ pub fn next(bc: *BitcodeReader) !?Item {
     }
 }
 
-pub fn skipBlock(bc: *BitcodeReader, block: Block) anyerror!void {
+pub fn skipBlock(bc: *BitcodeReader, block: Block) !void {
     assert(bc.bit_offset == 0);
     try bc.br.discard(4 * @as(u34, block.len));
     try bc.endBlock();
@@ -369,12 +369,12 @@ fn align32Bits(bc: *BitcodeReader) void {
     bc.bit_offset = 0;
 }
 
-fn read32Bits(bc: *BitcodeReader) anyerror!u32 {
+fn read32Bits(bc: *BitcodeReader) !u32 {
     assert(bc.bit_offset == 0);
     return bc.br.takeInt(u32, .little);
 }
 
-fn readBytes(bc: *BitcodeReader, bytes: []u8) anyerror!void {
+fn readBytes(bc: *BitcodeReader, bytes: []u8) !void {
     assert(bc.bit_offset == 0);
     try bc.br.read(bytes);
 

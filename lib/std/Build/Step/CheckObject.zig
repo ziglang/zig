@@ -233,7 +233,7 @@ const ComputeCompareExpected = struct {
         value: ComputeCompareExpected,
         bw: *std.io.BufferedWriter,
         comptime fmt: []const u8,
-    ) anyerror!void {
+    ) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
         try bw.print("{s} ", .{@tagName(value.op)});
         switch (value.value) {

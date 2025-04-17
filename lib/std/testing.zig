@@ -390,8 +390,8 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    var bw = std.debug.lockStdErr2(&.{});
-    defer std.debug.unlockStdErr();
+    const bw = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
     const ttyconf = std.io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
@@ -416,7 +416,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
             print("... truncated ...\n", .{});
         }
     }
-    differ.write(&bw) catch {};
+    differ.write(bw) catch {};
     if (expected_truncated) {
         const end_offset = window_start + expected_window.len;
         const num_missing_items = expected.len - (window_start + expected_window.len);
@@ -438,7 +438,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
             print("... truncated ...\n", .{});
         }
     }
-    differ.write(&bw) catch {};
+    differ.write(bw) catch {};
     if (actual_truncated) {
         const end_offset = window_start + actual_window.len;
         const num_missing_items = actual.len - (window_start + actual_window.len);

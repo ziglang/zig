@@ -850,8 +850,8 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
 }
 
 // TODO: Instead of having a massive error set, make the error set have categories, and then
-// store the sub-error as a diagnostic anyerror value.
-const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || anyerror || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
+// store the sub-error as a diagnostic value.
+const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
     TemporaryNameServerFailure,
     NameServerFailure,
     AddressFamilyNotSupported,
@@ -1873,14 +1873,14 @@ pub const Stream = struct {
         context: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Reader.Limit,
-    ) anyerror!std.io.Reader.Status {
+    ) std.io.Reader.Error!usize {
         const buf = limit.slice(try bw.writableSlice(1));
         const status = try windows_readv(context, &.{buf});
         bw.advance(status.len);
         return status;
     }
 
-    fn windows_readv(context: ?*anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+    fn windows_readv(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         var iovecs: [max_buffers_len]windows.WSABUF = undefined;
         var iovecs_i: usize = 0;
         for (data) |d| {
@@ -1915,7 +1915,7 @@ pub const Stream = struct {
         return .{ .len = n, .end = n == 0 };
     }
 
-    fn windows_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn windows_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         comptime assert(native_os == .windows);
         if (data.len == 1 and splat == 0) return 0;
         var splat_buffer: [256]u8 = undefined;
@@ -1974,7 +1974,7 @@ pub const Stream = struct {
         return n;
     }
 
-    fn posix_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    fn posix_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         const sock_fd = opaqueToHandle(context);
         comptime assert(native_os != .windows);
         var splat_buffer: [256]u8 = undefined;
@@ -2028,7 +2028,7 @@ pub const Stream = struct {
         in_len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize {
+    ) std.io.Writer.FileError!usize {
         const len_int = switch (in_len) {
             .zero => return windows_writeSplat(context, headers_and_trailers, 1),
             .entire_file => std.math.maxInt(usize),

@@ -194,14 +194,16 @@ fn recvReadInt(ws: *WebSocket, comptime I: type) !I {
     };
 }
 
-pub fn writeMessage(ws: *WebSocket, message: []const u8, opcode: Opcode) anyerror!void {
+pub const WriteError = std.http.Server.Response.WriteError;
+
+pub fn writeMessage(ws: *WebSocket, message: []const u8, opcode: Opcode) WriteError!void {
     const iovecs: [1]std.posix.iovec_const = .{
         .{ .base = message.ptr, .len = message.len },
     };
     return writeMessagev(ws, &iovecs, opcode);
 }
 
-pub fn writeMessagev(ws: *WebSocket, message: []const std.posix.iovec_const, opcode: Opcode) anyerror!void {
+pub fn writeMessagev(ws: *WebSocket, message: []const std.posix.iovec_const, opcode: Opcode) WriteError!void {
     const total_len = l: {
         var total_len: u64 = 0;
         for (message) |iovec| total_len += iovec.len;

@@ -2619,10 +2619,13 @@ pub fn updateFile(
     var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
     defer atomic_file.deinit();
 
-    try atomic_file.file.writeFileAll(src_file, .{ .in_len = src_stat.size });
+    try atomic_file.file.writeFileAll(src_file, .{
+        .offset = .zero,
+        .limit = .limited(src_stat.size),
+    });
     try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
     try atomic_file.finish();
-    return PrevStatus.stale;
+    return .stale;
 }
 
 pub const CopyFileError = File.OpenError || File.StatError ||
@@ -2831,15 +2834,6 @@ pub const SetPermissionsError = File.SetPermissionsError;
 pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!void {
     const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
-}
-
-const Metadata = File.Metadata;
-pub const MetadataError = File.MetadataError;
-
-/// Returns a `Metadata` struct, representing the permissions on the directory
-pub fn metadata(self: Dir) MetadataError!Metadata {
-    const file: File = .{ .handle = self.fd };
-    return try file.metadata();
 }
 
 const Dir = @This();

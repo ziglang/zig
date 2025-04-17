@@ -207,7 +207,7 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) RenderError![]u8 {
     return aw.toOwnedSlice();
 }
 
-pub fn render(tree: Ast, gpa: Allocator, bw: *std.io.BufferedWriter, fixups: Fixups) anyerror!void {
+pub fn render(tree: Ast, gpa: Allocator, bw: *std.io.BufferedWriter, fixups: Fixups) RenderError!void {
     return @import("./render.zig").renderTree(gpa, bw, tree, fixups);
 }
 
@@ -315,7 +315,7 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     }
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, bw: *std.io.BufferedWriter) anyerror!void {
+pub fn renderError(tree: Ast, parse_error: Error, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     switch (parse_error.tag) {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source

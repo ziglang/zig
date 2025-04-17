@@ -2,6 +2,8 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Writer = @This();
 
+pub const Null = @import("Writer/Null.zig");
+
 context: ?*anyopaque,
 vtable: *const VTable,
 
@@ -16,8 +18,8 @@ pub const VTable = struct {
     ///
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
-    /// of stream via an error.
-    writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
+    /// of stream via `error.WriteFailed`.
+    writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) Error!usize,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -27,7 +29,7 @@ pub const VTable = struct {
     ///
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
-    /// of stream via an error.
+    /// of stream via `error.WriteFailed`.
     writeFile: *const fn (
         ctx: ?*anyopaque,
         file: std.fs.File,
@@ -37,11 +39,18 @@ pub const VTable = struct {
         /// Maximum amount of bytes to read from the file.
         limit: Limit,
         /// Headers and trailers must be passed together so that in case `len` is
-        /// zero, they can be forwarded directly to `VTable.writev`.
+        /// zero, they can be forwarded directly to `VTable.writeVec`.
         headers_and_trailers: []const []const u8,
         headers_len: usize,
-    ) anyerror!usize,
+    ) FileError!usize,
 };
+
+pub const Error = error{
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
+};
+
+pub const FileError = Error || std.fs.File.PReadError;
 
 pub const Limit = std.io.Reader.Limit;
 
@@ -69,11 +78,11 @@ pub const Offset = enum(u64) {
     }
 };
 
-pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
+pub fn writeVec(w: Writer, data: []const []const u8) Error!usize {
     return w.vtable.writeSplat(w.context, data, 1);
 }
 
-pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) anyerror!usize {
+pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) Error!usize {
     return w.vtable.writeSplat(w.context, data, splat);
 }
 
@@ -84,25 +93,8 @@ pub fn writeFile(
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) anyerror!usize {
+) FileError!usize {
     return w.vtable.writeFile(w.context, file, offset, limit, headers_and_trailers, headers_len);
-}
-
-pub fn unimplemented_writeFile(
-    context: ?*anyopaque,
-    file: std.fs.File,
-    offset: Offset,
-    limit: Limit,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) anyerror!usize {
-    _ = context;
-    _ = file;
-    _ = offset;
-    _ = limit;
-    _ = headers_and_trailers;
-    _ = headers_len;
-    return error.Unimplemented;
 }
 
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
@@ -116,52 +108,38 @@ pub fn unbuffered(w: Writer) std.io.BufferedWriter {
     return w.buffered(&.{});
 }
 
-/// A `Writer` that discards all data.
-pub const @"null": Writer = .{
+pub fn failingWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Error!usize {
+    _ = context;
+    _ = data;
+    _ = splat;
+    return error.WriteFailed;
+}
+
+pub fn failingWriteFile(
+    context: ?*anyopaque,
+    file: std.fs.File,
+    offset: std.io.Writer.Offset,
+    limit: std.io.Writer.Limit,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Error!usize {
+    _ = context;
+    _ = file;
+    _ = offset;
+    _ = limit;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    return error.WriteFailed;
+}
+
+pub const failing: Writer = .{
     .context = undefined,
     .vtable = &.{
-        .writeSplat = null_writeSplat,
-        .writeFile = null_writeFile,
+        .writeSplat = failingWriteSplat,
+        .writeFile = failingWriteFile,
     },
 };
 
-fn null_writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
-    _ = context;
-    const headers = data[0 .. data.len - 1];
-    const pattern = data[headers.len..];
-    var written: usize = pattern.len * splat;
-    for (headers) |bytes| written += bytes.len;
-    return written;
-}
-
-fn null_writeFile(
-    context: ?*anyopaque,
-    file: std.fs.File,
-    offset: Offset,
-    limit: Limit,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) anyerror!usize {
-    _ = context;
-    var n: usize = 0;
-    if (offset == .none) {
-        @panic("TODO seek the file forwards");
-    }
-    const limit_int = limit.toInt() orelse {
-        const headers = headers_and_trailers[0..headers_len];
-        for (headers) |bytes| n += bytes.len;
-        if (offset.toInt()) |off| {
-            const stat = try file.stat();
-            n += stat.size - off;
-            for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
-            return n;
-        }
-        @panic("TODO stream from file until eof, counting");
-    };
-    for (headers_and_trailers) |bytes| n += bytes.len;
-    return limit_int + n;
-}
-
-test @"null" {
-    try @"null".writeAll("yay");
+test {
+    _ = Null;
 }

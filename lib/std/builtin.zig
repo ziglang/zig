@@ -34,7 +34,7 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(st: StackTrace, bw: *std.io.BufferedWriter, comptime fmt: []const u8) anyerror!void {
+    pub fn format(st: StackTrace, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
         comptime if (fmt.len != 0) unreachable;
 
         // TODO: re-evaluate whether to use format() methods at all.

@@ -149,12 +149,9 @@ pub fn defaultLog(
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     var buffer: [1024]u8 = undefined;
-    var bw: std.io.BufferedWriter = std.debug.lockStdErr2(&buffer);
-    defer std.debug.unlockStdErr();
-    nosuspend {
-        bw.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        bw.flush() catch return;
-    }
+    const bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    bw.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope

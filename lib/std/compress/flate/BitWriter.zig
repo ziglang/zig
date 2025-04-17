@@ -39,7 +39,7 @@ pub fn setWriter(self: *Self, new_writer: *std.io.BufferedWriter) void {
     self.inner_writer = new_writer;
 }
 
-pub fn flush(self: *Self) anyerror!void {
+pub fn flush(self: *Self) std.io.Writer.Error!void {
     var n = self.nbytes;
     while (self.nbits != 0) {
         self.bytes[n] = @as(u8, @truncate(self.bits));
@@ -56,7 +56,7 @@ pub fn flush(self: *Self) anyerror!void {
     self.nbytes = 0;
 }
 
-pub fn writeBits(self: *Self, b: u32, nb: u32) anyerror!void {
+pub fn writeBits(self: *Self, b: u32, nb: u32) std.io.Writer.Error!void {
     self.bits |= @as(u64, @intCast(b)) << @as(u6, @intCast(self.nbits));
     self.nbits += nb;
     if (self.nbits < 48)
@@ -74,7 +74,7 @@ pub fn writeBits(self: *Self, b: u32, nb: u32) anyerror!void {
     self.nbits -= 48;
 }
 
-pub fn writeBytes(self: *Self, bytes: []const u8) anyerror!void {
+pub fn writeBytes(self: *Self, bytes: []const u8) std.io.Writer.Error!void {
     var n = self.nbytes;
     if (self.nbits & 7 != 0) {
         return error.UnfinishedBits;
