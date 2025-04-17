@@ -828,7 +828,29 @@ pub const ReadError = error{
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (buf.len == 0) return 0;
     if (native_os == .windows) {
-        return windows.ReadFile(fd, buf, null);
+        if (windowsIsSocketHandle(fd)) {
+            var buffers = [_]windows.ws2_32.WSABUF{.{ .buf = buf.ptr, .len = @truncate(buf.len) }};
+            var flags: u32 = 0;
+            var nbytes: u32 = 0;
+            if (windows.ws2_32.WSARecv(fd, &buffers, 1, &nbytes, &flags, null, null) != 0) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAECONNABORTED => return error.BrokenPipe,
+                    .WSAECONNREFUSED => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // The lpBuffers parameter is not completely contained in a valid part of the user address space.
+                    .WSAEINVAL => unreachable, // The socket has not been bound (for example, with bind).
+                    .WSAENETRESET => return error.BrokenPipe,
+                    .WSAENOTCONN => return error.BrokenPipe,
+                    .WSAENOTSOCK => unreachable, // The descriptor is not a socket.
+                    .WSAESHUTDOWN => return error.BrokenPipe,
+                    .WSAETIMEDOUT => return error.BrokenPipe,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+            return nbytes;
+        } else {
+            return windows.ReadFile(fd, buf, null);
+        }
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -1237,9 +1259,32 @@ pub const WriteError = error{
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (bytes.len == 0) return 0;
     if (native_os == .windows) {
-        return windows.WriteFile(fd, bytes, null);
+        if (windowsIsSocketHandle(fd)) {
+            var buffers = [_]windows.ws2_32.WSABUF{.{ .buf = @constCast(bytes.ptr), .len = @truncate(bytes.len) }};
+            const flags: u32 = 0;
+            var nbytes: u32 = 0;
+            if (windows.ws2_32.WSASend(fd, &buffers, 1, &nbytes, flags, null, null) != 0) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAECONNABORTED => return error.BrokenPipe,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAECONNREFUSED => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // The lpBuffers parameter is not completely contained in a valid part of the user address space.
+                    .WSAEINVAL => unreachable, // The socket has not been bound (for example, with bind).
+                    .WSAENETRESET => return error.BrokenPipe,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTCONN => return error.BrokenPipe,
+                    .WSAENOTSOCK => unreachable, // The descriptor is not a socket.
+                    .WSAESHUTDOWN => return error.BrokenPipe,
+                    .WSAETIMEDOUT => return error.BrokenPipe,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+            return nbytes;
+        } else {
+            return windows.WriteFile(fd, bytes, null);
+        }
     }
-
     if (native_os == .wasi and !builtin.link_libc) {
         const ciovs = [_]iovec_const{iovec_const{
             .base = bytes.ptr,
@@ -3610,7 +3655,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
             @bitCast(protocol),
             null,
             0,
-            flags,
+            flags | windows.ws2_32.WSA_FLAG_OVERLAPPED,
         );
         errdefer windows.closesocket(rc) catch unreachable;
         if ((socket_type & SOCK.NONBLOCK) != 0) {
@@ -3622,7 +3667,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
                 }
             }
         }
-        return rc;
+        return windowsTagHandleAsSocket(rc);
     }
 
     const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
@@ -3651,6 +3696,19 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         .PROTOTYPE => return error.SocketTypeNotSupported,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+const windows_socket_handle_tag = 0x01;
+// The standard posix namespace sets the lowest bit of the socket handle to
+// distinguish them from other handles. The lowest 2 bits are unused by Windows.
+fn windowsTagHandleAsSocket(s: windows.ws2_32.SOCKET) windows.ws2_32.SOCKET {
+    return @ptrFromInt(@intFromPtr(s) | windows_socket_handle_tag);
+}
+
+/// Return true if the passed in handle is a socket.
+/// Only valid for handles created with std.posix
+fn windowsIsSocketHandle(h: windows.HANDLE) bool {
+    return (@intFromPtr(h) & windows.OBJ_HANDLE_TAGBITS) == windows_socket_handle_tag;
 }
 
 pub const ShutdownError = error{
@@ -3947,7 +4005,7 @@ pub fn accept(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                break rc;
+                break windowsTagHandleAsSocket(rc);
             }
         } else {
             switch (errno(rc)) {
