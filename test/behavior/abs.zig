@@ -44,6 +44,23 @@ fn testAbsIntegers() !void {
         _ = &x;
         try expect(@abs(x) == 5);
     }
+    comptime {
+        try expect(@abs(@as(i2, -2)) == 2);
+    }
+}
+
+test "@abs platform-dependent integers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    try comptime testAbsPlatformDependentIntegers();
+    try testAbsPlatformDependentIntegers();
+}
+
+fn testAbsPlatformDependentIntegers() !void {
     {
         var x: isize = -1;
         _ = &x;
@@ -74,9 +91,6 @@ fn testAbsIntegers() !void {
     try expect(@TypeOf(@abs(@as(c_int, -1))) == c_uint);
     try expect(@TypeOf(@abs(@as(c_long, -1))) == c_ulong);
     try expect(@TypeOf(@abs(@as(c_longlong, -1))) == c_ulonglong);
-    comptime {
-        try expect(@abs(@as(i2, -2)) == 2);
-    }
 }
 
 test "@abs unsigned integers" {
@@ -114,6 +128,22 @@ fn testAbsUnsignedIntegers() !void {
         _ = &x;
         try expect(@abs(x) == 5);
     }
+    comptime {
+        try expect(@abs(@as(u2, 2)) == 2);
+    }
+}
+
+test "@abs platform-dependent unsigned integers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    try comptime testAbsPlatformDependentUnsignedIntegers();
+    try testAbsPlatformDependentUnsignedIntegers();
+}
+
+fn testAbsPlatformDependentUnsignedIntegers() !void {
     {
         var x: usize = 1;
         _ = &x;
@@ -144,9 +174,6 @@ fn testAbsUnsignedIntegers() !void {
     try expect(@TypeOf(@abs(@as(c_uint, 1))) == c_uint);
     try expect(@TypeOf(@abs(@as(c_ulong, 1))) == c_ulong);
     try expect(@TypeOf(@abs(@as(c_ulonglong, 1))) == c_ulonglong);
-    comptime {
-        try expect(@abs(@as(u2, 2)) == 2);
-    }
 }
 
 test "@abs big int <= 128 bits" {
