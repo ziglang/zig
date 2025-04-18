@@ -2301,7 +2301,7 @@ fn resolvePathInputLib(
             }),
         };
         errdefer file.close();
-        try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
+        try ld_script_bytes.resize(gpa, @sizeOf(std.elf.elf64.Ehdr));
         const n = file.preadAll(ld_script_bytes.items, 0) catch |err| fatal("failed to read '{'}': {s}", .{
             test_path, @errorName(err),
         });

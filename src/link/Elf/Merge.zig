@@ -4,9 +4,9 @@ pub const Section = struct {
     alignment: Atom.Alignment = .@"1",
     entsize: u32 = 0,
     name_offset: u32 = 0,
-    type: u32 = 0,
+    type: std.elf.SHT = .NULL,
     flags: u64 = 0,
-    output_section_index: u32 = 0,
+    output_section_index: std.elf.SHN = .UNDEF,
     bytes: std.ArrayListUnmanaged(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
@@ -192,13 +192,13 @@ pub const Section = struct {
         _ = unused_fmt_string;
         const msec = ctx.msec;
         const elf_file = ctx.elf_file;
-        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
+        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({s}) : flags({x})\n", .{
             msec.name(elf_file),
             msec.address(elf_file),
             msec.size,
             msec.alignment.toByteUnits() orelse 0,
             msec.entsize,
-            msec.type,
+            @tagName(msec.type),
             msec.flags,
         });
         for (msec.subsections.items) |msub| {
