@@ -23,16 +23,16 @@ pub const TimerDelay = enum(u32) {
 
 pub const MemoryType = enum(u32) {
     pub const InvalidValue = math.IntFittingRange(
-        @intFromEnum(MemoryType.invalid_start),
-        @intFromEnum(MemoryType.invalid_end),
+        0,
+        @intFromEnum(MemoryType.invalid_end) - @intFromEnum(MemoryType.invalid_start),
     );
     pub const OemValue = math.IntFittingRange(
-        @intFromEnum(MemoryType.oem_start),
-        @intFromEnum(MemoryType.oem_end),
+        0,
+        @intFromEnum(MemoryType.oem_end) - @intFromEnum(MemoryType.oem_start),
     );
     pub const VendorValue = math.IntFittingRange(
-        @intFromEnum(MemoryType.vendor_start),
-        @intFromEnum(MemoryType.vendor_end),
+        0,
+        @intFromEnum(MemoryType.vendor_end) - @intFromEnum(MemoryType.vendor_start),
     );
 
     /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
