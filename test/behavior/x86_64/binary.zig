@@ -5477,6 +5477,16 @@ test mulWithOverflow {
     try test_mul_with_overflow.testInts();
 }
 
+inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs);
+}
+test shlWithOverflow {
+    const test_shl_with_overflow = binary(shlWithOverflow, .{});
+    try test_shl_with_overflow.testInts();
+}
+
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
     return lhs == rhs;
 }
