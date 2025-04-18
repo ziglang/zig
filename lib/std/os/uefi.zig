@@ -29,7 +29,7 @@ pub const Page = [4096]u8;
 /// A handle to an event structure.
 pub const Event = *opaque {};
 
-pub const EventRegistration = opaque {};
+pub const EventRegistration = *const opaque {};
 
 pub const EventType = packed struct(u32) {
     lo_context: u8 = 0,
