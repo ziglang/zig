@@ -1910,13 +1910,13 @@ const ElfDumper = struct {
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
-        const hdr = try reader.readStruct(elf.Elf64_Ehdr);
+        const hdr = try reader.readStruct(elf.elf64.Ehdr);
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) {
             return error.InvalidMagicNumber;
         }
 
-        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
-        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
+        const shdrs = @as([*]align(1) const elf.elf64.Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
+        const phdrs = @as([*]align(1) const elf.elf64.Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
 
         var ctx = ObjectContext{
             .gpa = gpa,
@@ -1931,8 +1931,8 @@ const ElfDumper = struct {
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
                 const raw = ctx.getSectionContents(i);
-                const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
-                const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
+                const nsyms = @divExact(raw.len, @sizeOf(elf.elf64.Sym));
+                const symbols = @as([*]align(1) const elf.elf64.Sym, @ptrCast(raw.ptr))[0..nsyms];
                 const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
@@ -1992,9 +1992,9 @@ const ElfDumper = struct {
     const ObjectContext = struct {
         gpa: Allocator,
         data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
+        hdr: elf.elf64.Ehdr,
+        shdrs: []align(1) const elf.elf64.Shdr,
+        phdrs: []align(1) const elf.elf64.Phdr,
         shstrtab: []const u8,
         symtab: Symtab = .{},
         dysymtab: Symtab = .{},
@@ -2065,96 +2065,91 @@ const ElfDumper = struct {
             const shdr = ctx.shdrs[shndx];
             const strtab = ctx.getSectionContents(shdr.sh_link);
             const data = ctx.getSectionContents(shndx);
-            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+            const nentries = @divExact(data.len, @sizeOf(elf.elf64.Dyn));
+            const entries = @as([*]align(1) const elf.elf64.Dyn, @ptrCast(data.ptr))[0..nentries];
 
             try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
 
             for (entries) |entry| {
-                const key = @as(u64, @bitCast(entry.d_tag));
                 const value = entry.d_val;
 
-                const key_str = switch (key) {
-                    elf.DT_NEEDED => "NEEDED",
-                    elf.DT_SONAME => "SONAME",
-                    elf.DT_INIT_ARRAY => "INIT_ARRAY",
-                    elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
-                    elf.DT_FINI_ARRAY => "FINI_ARRAY",
-                    elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
-                    elf.DT_HASH => "HASH",
-                    elf.DT_GNU_HASH => "GNU_HASH",
-                    elf.DT_STRTAB => "STRTAB",
-                    elf.DT_SYMTAB => "SYMTAB",
-                    elf.DT_STRSZ => "STRSZ",
-                    elf.DT_SYMENT => "SYMENT",
-                    elf.DT_PLTGOT => "PLTGOT",
-                    elf.DT_PLTRELSZ => "PLTRELSZ",
-                    elf.DT_PLTREL => "PLTREL",
-                    elf.DT_JMPREL => "JMPREL",
-                    elf.DT_RELA => "RELA",
-                    elf.DT_RELASZ => "RELASZ",
-                    elf.DT_RELAENT => "RELAENT",
-                    elf.DT_VERDEF => "VERDEF",
-                    elf.DT_VERDEFNUM => "VERDEFNUM",
-                    elf.DT_FLAGS => "FLAGS",
-                    elf.DT_FLAGS_1 => "FLAGS_1",
-                    elf.DT_VERNEED => "VERNEED",
-                    elf.DT_VERNEEDNUM => "VERNEEDNUM",
-                    elf.DT_VERSYM => "VERSYM",
-                    elf.DT_RELACOUNT => "RELACOUNT",
-                    elf.DT_RPATH => "RPATH",
-                    elf.DT_RUNPATH => "RUNPATH",
-                    elf.DT_INIT => "INIT",
-                    elf.DT_FINI => "FINI",
-                    elf.DT_NULL => "NULL",
+                const key_str = switch (entry.d_tag) {
+                    .NEEDED => "NEEDED",
+                    .SONAME => "SONAME",
+                    .INIT_ARRAY => "INIT_ARRAY",
+                    .INIT_ARRAYSZ => "INIT_ARRAYSZ",
+                    .FINI_ARRAY => "FINI_ARRAY",
+                    .FINI_ARRAYSZ => "FINI_ARRAYSZ",
+                    .HASH => "HASH",
+                    .GNU_HASH => "GNU_HASH",
+                    .STRTAB => "STRTAB",
+                    .SYMTAB => "SYMTAB",
+                    .STRSZ => "STRSZ",
+                    .SYMENT => "SYMENT",
+                    .PLTGOT => "PLTGOT",
+                    .PLTRELSZ => "PLTRELSZ",
+                    .PLTREL => "PLTREL",
+                    .JMPREL => "JMPREL",
+                    .RELA => "RELA",
+                    .RELASZ => "RELASZ",
+                    .RELAENT => "RELAENT",
+                    .VERDEF => "VERDEF",
+                    .VERDEFNUM => "VERDEFNUM",
+                    .FLAGS => "FLAGS",
+                    .FLAGS_1 => "FLAGS_1",
+                    .VERNEED => "VERNEED",
+                    .VERNEEDNUM => "VERNEEDNUM",
+                    .VERSYM => "VERSYM",
+                    .RELACOUNT => "RELACOUNT",
+                    .RPATH => "RPATH",
+                    .RUNPATH => "RUNPATH",
+                    .INIT => "INIT",
+                    .FINI => "FINI",
+                    .NULL => "NULL",
                     else => "UNKNOWN",
                 };
                 try writer.print("{s}", .{key_str});
 
-                switch (key) {
-                    elf.DT_NEEDED,
-                    elf.DT_SONAME,
-                    elf.DT_RPATH,
-                    elf.DT_RUNPATH,
-                    => {
+                switch (entry.d_tag) {
+                    .NEEDED, .SONAME, .RPATH, .RUNPATH => {
                         const name = getString(strtab, @intCast(value));
                         try writer.print(" {s}", .{name});
                     },
 
-                    elf.DT_INIT_ARRAY,
-                    elf.DT_FINI_ARRAY,
-                    elf.DT_HASH,
-                    elf.DT_GNU_HASH,
-                    elf.DT_STRTAB,
-                    elf.DT_SYMTAB,
-                    elf.DT_PLTGOT,
-                    elf.DT_JMPREL,
-                    elf.DT_RELA,
-                    elf.DT_VERDEF,
-                    elf.DT_VERNEED,
-                    elf.DT_VERSYM,
-                    elf.DT_INIT,
-                    elf.DT_FINI,
-                    elf.DT_NULL,
+                    .INIT_ARRAY,
+                    .FINI_ARRAY,
+                    .HASH,
+                    .GNU_HASH,
+                    .STRTAB,
+                    .SYMTAB,
+                    .PLTGOT,
+                    .JMPREL,
+                    .RELA,
+                    .VERDEF,
+                    .VERNEED,
+                    .VERSYM,
+                    .INIT,
+                    .FINI,
+                    .NULL,
                     => try writer.print(" {x}", .{value}),
 
-                    elf.DT_INIT_ARRAYSZ,
-                    elf.DT_FINI_ARRAYSZ,
-                    elf.DT_STRSZ,
-                    elf.DT_SYMENT,
-                    elf.DT_PLTRELSZ,
-                    elf.DT_RELASZ,
-                    elf.DT_RELAENT,
-                    elf.DT_RELACOUNT,
+                    .INIT_ARRAYSZ,
+                    .FINI_ARRAYSZ,
+                    .STRSZ,
+                    .SYMENT,
+                    .PLTRELSZ,
+                    .RELASZ,
+                    .RELAENT,
+                    .RELACOUNT,
                     => try writer.print(" {d}", .{value}),
 
-                    elf.DT_PLTREL => try writer.writeAll(switch (value) {
-                        elf.DT_REL => " REL",
-                        elf.DT_RELA => " RELA",
+                    .PLTREL => try writer.writeAll(switch (value) {
+                        @intFromEnum(elf.elf64.DT.REL) => " REL",
+                        @intFromEnum(elf.elf64.DT.RELA) => " RELA",
                         else => " UNKNOWN",
                     }),
 
-                    elf.DT_FLAGS => if (value > 0) {
+                    .FLAGS => if (value > 0) {
                         if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
                         if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
                         if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
@@ -2162,7 +2157,7 @@ const ElfDumper = struct {
                         if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
                     },
 
-                    elf.DT_FLAGS_1 => if (value > 0) {
+                    .FLAGS_1 => if (value > 0) {
                         if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
                         if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
                         if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
@@ -2306,10 +2301,10 @@ const ElfDumper = struct {
     };
 
     const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
+        symbols: []align(1) const elf.elf64.Sym = &[0]elf.elf64.Sym{},
         strings: []const u8 = &[0]u8{},
 
-        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
+        fn get(st: Symtab, index: usize) ?elf.elf64.Sym {
             if (index >= st.symbols.len) return null;
             return st.symbols[index];
         }

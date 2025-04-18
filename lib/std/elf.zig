@@ -137,6 +137,35 @@ pub const PT = enum(Word) {
     /// Stack segment
     pub const SUNWSTACK = os(0xffffffb);
     pub const HISUNW = os(0xfffffff);
+
+    pub fn format(
+        p_type: PT,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const name = switch (p_type) {
+            .NULL, .LOAD, .DYNAMIC, .INTERP, .NOTE, .SHLIB, .PHDR, .TLS => @tagName(p_type),
+
+            GNU_EH_FRAME => "GNU_EH_FRAME",
+            GNU_STACK => "GNU_STACK",
+            GNU_RELRO => "GNU_RELRO",
+            SUNWBSS => "SUNWBSS",
+            SUNWSTACK => "SUNWSTACK",
+
+            else => name: {
+                if (p_type.getOs()) |osval|
+                    try writer.print("OS(0x{X})", .{osval})
+                else if (p_type.getProc()) |procval|
+                    try writer.print("PROC(0x{X})", .{procval})
+                else
+                    break :name "UNKNOWN";
+                return;
+            },
+        };
+
+        try writer.writeAll(name);
+    }
 };
 
 pub const SHT = enum(Word) {
@@ -2219,6 +2248,19 @@ pub const PF = packed struct(Word) {
     os: u8 = 0,
     /// Bits for processor-specific semantics.
     proc: u4 = 0,
+
+    pub fn format(
+        p_flags: PF,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll(if (p_flags.read) "R" else "-");
+        try writer.writeAll(if (p_flags.write) "W" else "-");
+        try writer.writeAll(if (p_flags.execute) "X" else "-");
+        if (p_flags.os != 0) try writer.print(" OS({x})", .{p_flags.os});
+        if (p_flags.proc != 0) try writer.print(" PROC({x})", .{p_flags.proc});
+    }
 };
 
 pub const SHN = enum(Section) {

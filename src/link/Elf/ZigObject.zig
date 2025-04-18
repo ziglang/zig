@@ -20,7 +20,7 @@ globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .empty,
 atoms: std.ArrayListUnmanaged(Atom) = .empty,
 atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
 atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
-relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .empty,
+relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.elf64.Rela)) = .empty,
 
 num_dynrelocs: u32 = 0,
 
@@ -92,8 +92,8 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         const symbol_index = try self.newLocalSymbol(gpa, name_off);
         const sym = self.symbol(symbol_index);
         const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-        esym.st_info = elf.STT_FILE;
-        esym.st_shndx = elf.SHN_ABS;
+        esym.st_info = .FILE;
+        esym.st_shndx = .ABS;
     }
 
     switch (comp.config.debug_format) {

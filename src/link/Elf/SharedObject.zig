@@ -25,11 +25,11 @@ pub fn deinit(so: *SharedObject, gpa: Allocator) void {
 }
 
 pub const Header = struct {
-    dynamic_table: []const elf.Elf64_Dyn,
+    dynamic_table: []const elf.elf64.Dyn,
     soname_index: ?u32,
     verdefnum: ?u32,
 
-    sections: []const elf.Elf64_Shdr,
+    sections: []const elf.elf64.Shdr,
     dynsym_sect_index: ?u32,
     versym_sect_index: ?u32,
     verdef_sect_index: ?u32,
@@ -54,10 +54,10 @@ pub const Parsed = struct {
     stat: Stat,
     strtab: []const u8,
     soname_index: ?u32,
-    sections: []const elf.Elf64_Shdr,
+    sections: []const elf.elf64.Shdr,
 
     /// Nonlocal symbols only.
-    symtab: []const elf.Elf64_Sym,
+    symtab: []const elf.elf64.Sym,
     /// Version symtab contains version strings of the symbols if present.
     /// Nonlocal symbols only.
     versyms: []const elf.Versym,
@@ -98,14 +98,14 @@ pub fn parseHeader(
     stat: Stat,
     target: std.Target,
 ) !Header {
-    var ehdr: elf.Elf64_Ehdr = undefined;
+    var ehdr: elf.elf64.Ehdr = undefined;
     {
         const buf = mem.asBytes(&ehdr);
         const amt = try fs_file.preadAll(buf, 0);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
     if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
-    if (ehdr.e_ident[elf.EI_VERSION] != 1) return error.BadElfVersion;
+    if (ehdr.e_ident.ei_version != .CURRENT) return error.BadElfVersion;
     if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
 
     if (target.toElfMachine() != ehdr.e_machine)
@@ -114,7 +114,7 @@ pub fn parseHeader(
     const shoff = std.math.cast(usize, ehdr.e_shoff) orelse return error.Overflow;
     const shnum = std.math.cast(u32, ehdr.e_shnum) orelse return error.Overflow;
 
-    const sections = try gpa.alloc(elf.Elf64_Shdr, shnum);
+    const sections = try gpa.alloc(elf.elf64.Shdr, shnum);
     errdefer gpa.free(sections);
     {
         const buf = mem.sliceAsBytes(sections);
@@ -129,18 +129,18 @@ pub fn parseHeader(
     for (sections, 0..) |shdr, i_usize| {
         const i: u32 = @intCast(i_usize);
         switch (shdr.sh_type) {
-            elf.SHT_DYNSYM => dynsym_sect_index = i,
-            elf.SHT_DYNAMIC => dynamic_sect_index = i,
-            elf.SHT_GNU_VERSYM => versym_sect_index = i,
-            elf.SHT_GNU_VERDEF => verdef_sect_index = i,
+            .DYNSYM => dynsym_sect_index = i,
+            .DYNAMIC => dynamic_sect_index = i,
+            .GNU_VERSYM => versym_sect_index = i,
+            .GNU_VERDEF => verdef_sect_index = i,
             else => continue,
         }
     }
 
-    const dynamic_table: []elf.Elf64_Dyn = if (dynamic_sect_index) |index| dt: {
+    const dynamic_table: []elf.elf64.Dyn = if (dynamic_sect_index) |index| dt: {
         const shdr = sections[index];
-        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Dyn)) orelse return error.Overflow;
-        const dynamic_table = try gpa.alloc(elf.Elf64_Dyn, n);
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.elf64.Dyn)) orelse return error.Overflow;
+        const dynamic_table = try gpa.alloc(elf.elf64.Dyn, n);
         errdefer gpa.free(dynamic_table);
         const buf = mem.sliceAsBytes(dynamic_table);
         const amt = try fs_file.preadAll(buf, shdr.sh_offset);
@@ -165,11 +165,11 @@ pub fn parseHeader(
     var soname_index: ?u32 = null;
     var verdefnum: ?u32 = null;
     for (dynamic_table) |entry| switch (entry.d_tag) {
-        elf.DT_SONAME => {
+        .SONAME => {
             if (entry.d_val >= strtab.items.len) return error.BadSonameIndex;
             soname_index = @intCast(entry.d_val);
         },
-        elf.DT_VERDEFNUM => {
+        .VERDEFNUM => {
             verdefnum = @intCast(entry.d_val);
         },
         else => continue,
@@ -196,8 +196,8 @@ pub fn parse(
 ) !Parsed {
     const symtab = if (header.dynsym_sect_index) |index| st: {
         const shdr = header.sections[index];
-        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Sym)) orelse return error.Overflow;
-        const symtab = try gpa.alloc(elf.Elf64_Sym, n);
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.elf64.Sym)) orelse return error.Overflow;
+        const symtab = try gpa.alloc(elf.elf64.Sym, n);
         errdefer gpa.free(symtab);
         const buf = mem.sliceAsBytes(symtab);
         const amt = try fs_file.preadAll(buf, shdr.sh_offset);
@@ -243,7 +243,7 @@ pub fn parse(
     } else &.{};
     defer gpa.free(versyms);
 
-    var nonlocal_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty;
+    var nonlocal_esyms: std.ArrayListUnmanaged(elf.elf64.Sym) = .empty;
     defer nonlocal_esyms.deinit(gpa);
 
     var nonlocal_versyms: std.ArrayListUnmanaged(elf.Versym) = .empty;
@@ -257,21 +257,19 @@ pub fn parse(
     defer strtab.deinit(gpa);
 
     for (symtab, 0..) |sym, i| {
-        const ver: elf.Versym = if (versyms.len == 0 or sym.st_shndx == elf.SHN_UNDEF)
-            .GLOBAL
+        const ver: elf.Versym = if (versyms.len == 0 or sym.st_shndx == .UNDEF)
+            .global
         else
-            .{ .VERSION = versyms[i].VERSION, .HIDDEN = false };
+            .{ .version = versyms[i].version, .hidden = false };
 
-        // https://github.com/ziglang/zig/issues/21678
-        //if (ver == .LOCAL) continue;
-        if (@as(u16, @bitCast(ver)) == 0) continue;
+        if (ver == .local) continue;
 
         try nonlocal_esyms.ensureUnusedCapacity(gpa, 1);
         try nonlocal_versyms.ensureUnusedCapacity(gpa, 1);
         try nonlocal_symbols.ensureUnusedCapacity(gpa, 1);
 
         const name = Elf.stringTableLookup(strtab.items, sym.st_name);
-        const is_default = versyms.len == 0 or !versyms[i].HIDDEN;
+        const is_default = versyms.len == 0 or !versyms[i].hidden;
         const mangled_name = if (is_default) sym.st_name else mn: {
             const off: u32 = @intCast(strtab.items.len);
             const version_string = versionStringLookup(strtab.items, verstrings.items, versyms[i]);
@@ -322,7 +320,7 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
         }
         resolv.* = gop.index;
 
-        if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.st_shndx == .UNDEF) continue;
         if (elf_file.symbol(gop.ref.*) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;
@@ -336,7 +334,7 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
 
 pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     for (self.parsed.symtab, 0..) |esym, i| {
-        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+        if (esym.st_shndx != .UNDEF) continue;
 
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
@@ -395,7 +393,7 @@ pub fn versionString(self: SharedObject, index: elf.Versym) [:0]const u8 {
 }
 
 fn versionStringLookup(strtab: []const u8, verstrings: []const u32, index: elf.Versym) [:0]const u8 {
-    const off = verstrings[index.VERSION];
+    const off = verstrings[index.version];
     return Elf.stringTableLookup(strtab, off);
 }
 

@@ -151,9 +151,9 @@ const arches: [@typeInfo(Arch).@"enum".fields.len]Arch = blk: {
 const MultiSym = struct {
     size: [arches.len]u64,
     present: [arches.len]bool,
-    binding: [arches.len]u4,
+    binding: [arches.len]elf.STB,
     section: u16,
-    ty: u4,
+    ty: elf.STT,
     visib: elf.STV,
 
     fn isSingleArch(ms: MultiSym) ?Arch {
@@ -215,7 +215,7 @@ const MultiSym = struct {
         return size.?;
     }
 
-    fn commonBinding(ms: MultiSym) ?u4 {
+    fn commonBinding(ms: MultiSym) ?elf.STB {
         var binding: ?u4 = null;
         for (arches, 0..) |_, i| {
             if (!ms.present[i]) continue;
@@ -245,9 +245,9 @@ const MultiSym = struct {
         inline for (@typeInfo(Arch).@"enum".fields) |field| {
             const arch: Arch = @enumFromInt(field.value);
             const arch_index = archIndex(arch);
-            const binding: u4 = switch (arch.ptrSize()) {
-                4 => std.elf.STB_GLOBAL,
-                8 => std.elf.STB_WEAK,
+            const binding: elf.STB = switch (arch.ptrSize()) {
+                4 => .GLOBAL,
+                8 => .WEAK,
                 else => unreachable,
             };
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
@@ -261,7 +261,7 @@ const MultiSym = struct {
         inline for (@typeInfo(Arch).@"enum".fields) |field| {
             const arch: Arch = @enumFromInt(field.value);
             const arch_index = archIndex(arch);
-            const binding: u4 = if (arch.isTime32()) std.elf.STB_GLOBAL else std.elf.STB_WEAK;
+            const binding: elf.STB = if (arch.isTime32()) .GLOBAL else .WEAK;
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
                 return false;
             }
@@ -274,7 +274,7 @@ const Parse = struct {
     arena: mem.Allocator,
     sym_table: *std.StringArrayHashMap(MultiSym),
     sections: *std.StringArrayHashMap(void),
-    elf_bytes: []align(@alignOf(elf.Elf64_Ehdr)) u8,
+    elf_bytes: []align(@alignOf(elf.elf64.Ehdr)) u8,
     header: elf.Header,
     arch: Arch,
 };
@@ -303,14 +303,14 @@ pub fn main() !void {
             libc_so_path,
             100 * 1024 * 1024,
             1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            @alignOf(elf.elf64.Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.elf64.Ehdr)]);
 
         const parse: Parse = .{
             .arena = arena,
@@ -474,10 +474,10 @@ pub fn main() !void {
 
         if (multi_sym.commonBinding()) |binding| {
             switch (binding) {
-                elf.STB_GLOBAL => {
+                .GLOBAL => {
                     try stdout.print(".globl {s}\n", .{name});
                 },
-                elf.STB_WEAK => {
+                .WEAK => {
                     try stdout.print(".weak {s}\n", .{name});
                 },
                 else => unreachable,
@@ -495,12 +495,12 @@ pub fn main() !void {
         }
 
         switch (multi_sym.ty) {
-            elf.STT_NOTYPE => {},
-            elf.STT_FUNC => {
+            .NOTYPE => {},
+            .FUNC => {
                 try stdout.print(".type {s}, %function;\n", .{name});
                 // omitting the size is OK for functions
             },
-            elf.STT_OBJECT => {
+            .OBJECT => {
                 try stdout.print(".type {s}, %object;\n", .{name});
                 if (multi_sym.commonSize()) |size| {
                     try stdout.print(".size {s}, {d}\n", .{ name, size });
@@ -536,10 +536,10 @@ pub fn main() !void {
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {
+    const native_elf = if (is_64) elf.elf64 else elf.elf32;
     const arena = parse.arena;
     const elf_bytes = parse.elf_bytes;
     const header = parse.header;
-    const Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
     const S = struct {
         fn endianSwap(x: anytype) @TypeOf(x) {
             if (endian != native_endian) {
@@ -548,7 +548,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
                 return x;
             }
         }
-        fn symbolAddrLessThan(_: void, lhs: Sym, rhs: Sym) bool {
+        fn symbolAddrLessThan(_: void, lhs: native_elf.Sym, rhs: native_elf.Sym) bool {
             return endianSwap(lhs.st_value) < endianSwap(rhs.st_value);
         }
     };
@@ -556,8 +556,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     const s = S.endianSwap;
 
     // Obtain list of sections.
-    const Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
-    const shdrs = mem.bytesAsSlice(Shdr, elf_bytes[header.shoff..])[0..header.shnum];
+    const shdrs = mem.bytesAsSlice(native_elf.Shdr, elf_bytes[header.shoff..])[0..header.shnum];
 
     // Obtain the section header string table.
     const shstrtab_offset = s(shdrs[header.shstrndx].sh_offset);
@@ -585,7 +584,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     // Read the dynamic symbols into a list.
     const dyn_syms_off = s(shdrs[dynsym_index].sh_offset);
     const dyn_syms_size = s(shdrs[dynsym_index].sh_size);
-    const dyn_syms = mem.bytesAsSlice(Sym, elf_bytes[dyn_syms_off..][0..dyn_syms_size]);
+    const dyn_syms = mem.bytesAsSlice(native_elf.Sym, elf_bytes[dyn_syms_off..][0..dyn_syms_size]);
 
     const dynstr_offset = s(shdrs[s(shdrs[dynsym_index].sh_link)].sh_offset);
     const dynstr = elf_bytes[dynstr_offset..];
@@ -593,17 +592,17 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     // Sort the list by address, ascending.
     // We need a copy to fix alignment.
     const copied_dyn_syms = copy: {
-        const ptr = try arena.alloc(Sym, dyn_syms.len);
+        const ptr = try arena.alloc(native_elf.Sym, dyn_syms.len);
         @memcpy(ptr, dyn_syms);
         break :copy ptr;
     };
-    mem.sort(Sym, copied_dyn_syms, {}, S.symbolAddrLessThan);
+    mem.sort(native_elf.Sym, copied_dyn_syms, {}, S.symbolAddrLessThan);
 
     for (copied_dyn_syms) |sym| {
         const this_section = s(sym.st_shndx);
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
-        const ty = @as(u4, @truncate(sym.st_info));
-        const binding = @as(u4, @truncate(sym.st_info >> 4));
+        const ty = sym.st_info.type;
+        const binding = sym.st_info.bind;
         const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
@@ -611,7 +610,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
             log.warn("{s}: symbol '{s}' has size 0", .{ @tagName(parse.arch), name });
         }
 
-        if (sym.st_shndx == elf.SHN_UNDEF) {
+        if (sym.st_shndx == .UNDEF) {
             log.debug("{s}: skipping '{s}' due to it being undefined", .{
                 @tagName(parse.arch), name,
             });
@@ -619,20 +618,20 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         }
 
         switch (binding) {
-            elf.STB_GLOBAL, elf.STB_WEAK => {},
+            .GLOBAL, .WEAK => {},
             else => {
-                log.debug("{s}: skipping '{s}' due to it having binding '{d}'", .{
-                    @tagName(parse.arch), name, binding,
+                log.debug("{s}: skipping '{s}' due to it having binding '{s}'", .{
+                    @tagName(parse.arch), name, @tagName(binding),
                 });
                 continue;
             },
         }
 
         switch (ty) {
-            elf.STT_NOTYPE, elf.STT_FUNC, elf.STT_OBJECT => {},
+            .NOTYPE, .FUNC, .OBJECT => {},
             else => {
-                log.debug("{s}: skipping '{s}' due to it having type '{d}'", .{
-                    @tagName(parse.arch), name, ty,
+                log.debug("{s}: skipping '{s}' due to it having type '{s}'", .{
+                    @tagName(parse.arch), name, @tagName(ty),
                 });
                 continue;
             },
@@ -661,33 +660,33 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
                 });
             }
             if (gop.value_ptr.ty != ty) blk: {
-                if (ty == elf.STT_NOTYPE) {
-                    log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
+                if (ty == .NOTYPE) {
+                    log.warn("symbol '{s}' in arch {s} has type {s} but in arch {s} has type {s}. going with the one that is not STT_NOTYPE", .{
                         name,
                         @tagName(parse.arch),
-                        ty,
+                        @tagName(ty),
                         archSetName(gop.value_ptr.present),
-                        gop.value_ptr.ty,
+                        @tagName(gop.value_ptr.ty),
                     });
                     break :blk;
                 }
-                if (gop.value_ptr.ty == elf.STT_NOTYPE) {
-                    log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
+                if (gop.value_ptr.ty == .NOTYPE) {
+                    log.warn("symbol '{s}' in arch {s} has type {s} but in arch {s} has type {s}. going with the one that is not STT_NOTYPE", .{
                         name,
                         @tagName(parse.arch),
-                        ty,
+                        @tagName(ty),
                         archSetName(gop.value_ptr.present),
-                        gop.value_ptr.ty,
+                        @tagName(gop.value_ptr.ty),
                     });
                     gop.value_ptr.ty = ty;
                     break :blk;
                 }
-                fatal("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}", .{
+                fatal("symbol '{s}' in arch {s} has type {s} but in arch {s} has type {s}", .{
                     name,
                     @tagName(parse.arch),
-                    ty,
+                    @tagName(ty),
                     archSetName(gop.value_ptr.present),
-                    gop.value_ptr.ty,
+                    @tagName(gop.value_ptr.ty),
                 });
             }
             if (gop.value_ptr.visib != visib) {

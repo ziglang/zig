@@ -827,26 +827,21 @@ fn stripElf(
 // TODO: support non-native endianess
 
 fn ElfFile(comptime is_64: bool) type {
-    const Elf_Ehdr = if (is_64) elf.Elf64_Ehdr else elf.Elf32_Ehdr;
-    const Elf_Phdr = if (is_64) elf.Elf64_Phdr else elf.Elf32_Phdr;
-    const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
-    const Elf_Chdr = if (is_64) elf.Elf64_Chdr else elf.Elf32_Chdr;
-    const Elf_Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
-    const Elf_OffSize = if (is_64) elf.Elf64_Off else elf.Elf32_Off;
+    const elfn = if (is_64) elf.elf64 else elf.elf32;
 
     return struct {
-        raw_elf_header: Elf_Ehdr,
-        program_segments: []const Elf_Phdr,
+        raw_elf_header: elfn.Ehdr,
+        program_segments: []const elfn.Phdr,
         sections: []const Section,
         arena: std.heap.ArenaAllocator,
 
         const SectionCategory = ElfFileHelper.SectionCategory;
-        const section_memory_align = @alignOf(Elf_Sym); // most restrictive of what we may load in memory
+        const section_memory_align: std.mem.Alignment = .of(elfn.Sym); // most restrictive of what we may load in memory
         const Section = struct {
-            section: Elf_Shdr,
+            section: elfn.Shdr,
             name: []const u8 = "",
-            segment: ?*const Elf_Phdr = null, // if the section is used by a program segment (there can be more than one)
-            payload: ?[]align(section_memory_align) const u8 = null, // if we need the data in memory
+            segment: ?*const elfn.Phdr = null, // if the section is used by a program segment (there can be more than one)
+            payload: ?[]align(section_memory_align.toByteUnits()) const u8 = null, // if we need the data in memory
             category: SectionCategory = .none, // should the section be kept in the exe or stripped to the debug database, or both.
         };
 
@@ -857,36 +852,36 @@ fn ElfFile(comptime is_64: bool) type {
             errdefer arena.deinit();
             const allocator = arena.allocator();
 
-            var raw_header: Elf_Ehdr = undefined;
+            var raw_header: elfn.Ehdr = undefined;
             {
                 const bytes_read = try in_file.preadAll(std.mem.asBytes(&raw_header), 0);
-                if (bytes_read < @sizeOf(Elf_Ehdr))
+                if (bytes_read < @sizeOf(elfn.Ehdr))
                     return error.TRUNCATED_ELF;
             }
 
             // program header: list of segments
             const program_segments = blk: {
-                if (@sizeOf(Elf_Phdr) != header.phentsize)
+                if (@sizeOf(elfn.Phdr) != header.phentsize)
                     fatal("zig objcopy: unsupported ELF file, unexpected phentsize ({d})", .{header.phentsize});
 
-                const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
+                const program_header = try allocator.alloc(elfn.Phdr, header.phnum);
                 const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
-                if (bytes_read < @sizeOf(Elf_Phdr) * header.phnum)
+                if (bytes_read < @sizeOf(elfn.Phdr) * header.phnum)
                     return error.TRUNCATED_ELF;
                 break :blk program_header;
             };
 
             // section header
             const sections = blk: {
-                if (@sizeOf(Elf_Shdr) != header.shentsize)
+                if (@sizeOf(elfn.Shdr) != header.shentsize)
                     fatal("zig objcopy: unsupported ELF file, unexpected shentsize ({d})", .{header.shentsize});
 
                 const section_header = try allocator.alloc(Section, header.shnum);
 
-                const raw_section_header = try allocator.alloc(Elf_Shdr, header.shnum);
+                const raw_section_header = try allocator.alloc(elfn.Shdr, header.shnum);
                 defer allocator.free(raw_section_header);
                 const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(raw_section_header), header.shoff);
-                if (bytes_read < @sizeOf(Elf_Phdr) * header.shnum)
+                if (bytes_read < @sizeOf(elfn.Phdr) * header.shnum)
                     return error.TRUNCATED_ELF;
 
                 for (section_header, raw_section_header) |*section, hdr| {
@@ -899,9 +894,10 @@ fn ElfFile(comptime is_64: bool) type {
             //   string tables for access
             //   sections than need modifications when other sections move.
             for (sections, 0..) |*section, idx| {
+                const VERSYM: elf.SHT = @enumFromInt(@intFromEnum(elf.elf32.DT.VERSYM));
                 const need_data = switch (section.section.sh_type) {
-                    elf.DT_VERSYM => true,
-                    elf.SHT_SYMTAB, elf.SHT_DYNSYM => true,
+                    VERSYM => true,
+                    .SYMTAB, .DYNSYM => true,
                     else => false,
                 };
                 const need_strings = (idx == header.shstrndx);
@@ -999,8 +995,8 @@ fn ElfFile(comptime is_64: bool) type {
                 remap_idx: u16,
 
                 // optionally overrides the payload from the source file
-                payload: ?[]align(section_memory_align) const u8 = null,
-                section: ?Elf_Shdr = null,
+                payload: ?[]align(section_memory_align.toByteUnits()) const u8 = null,
+                section: ?elfn.Shdr = null,
             };
             const sections_update = try allocator.alloc(Update, self.sections.len);
             const new_shnum = blk: {
@@ -1008,7 +1004,7 @@ fn ElfFile(comptime is_64: bool) type {
                 for (self.sections, sections_update) |section, *update| {
                     const action = ElfFileHelper.selectAction(section.category, options.section_filter);
                     const remap_idx = idx: {
-                        if (action == .strip) break :idx elf.SHN_UNDEF;
+                        if (action == .strip) break :idx 0;
                         next_idx += 1;
                         break :idx next_idx - 1;
                     };
@@ -1027,8 +1023,8 @@ fn ElfFile(comptime is_64: bool) type {
 
             // add a ".gnu_debuglink" to the string table if needed
             const debuglink_name: u32 = blk: {
-                if (options.debuglink == null) break :blk elf.SHN_UNDEF;
-                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                if (options.debuglink == null) break :blk 0;
+                if (self.raw_elf_header.e_shstrndx == 0)
                     fatal("zig objcopy: no strtab, cannot add the debuglink section", .{}); // TODO add the section if needed?
 
                 const strtab = &self.sections[self.raw_elf_header.e_shstrndx];
@@ -1076,8 +1072,8 @@ fn ElfFile(comptime is_64: bool) type {
                     if (!std.mem.startsWith(u8, section.name, ".debug_")) continue;
                     if ((section.section.sh_flags & elf.SHF_COMPRESSED) != 0) continue; // already compressed
 
-                    const chdr = Elf_Chdr{
-                        .ch_type = elf.COMPRESS.ZLIB,
+                    const chdr = elfn.Chdr{
+                        .ch_type = .ZLIB,
                         .ch_size = section.section.sh_size,
                         .ch_addralign = section.section.sh_addralign,
                     };
@@ -1086,7 +1082,7 @@ fn ElfFile(comptime is_64: bool) type {
                     if (compressed_payload) |payload| {
                         update.payload = payload;
                         update.section = section.section;
-                        update.section.?.sh_addralign = @alignOf(Elf_Chdr);
+                        update.section.?.sh_addralign = @alignOf(elfn.Chdr);
                         update.section.?.sh_size = @intCast(payload.len);
                         update.section.?.sh_flags |= elf.SHF_COMPRESSED;
                     }
@@ -1096,36 +1092,36 @@ fn ElfFile(comptime is_64: bool) type {
             var cmdbuf = std.ArrayList(ElfFileHelper.WriteCmd).init(allocator);
             defer cmdbuf.deinit();
             try cmdbuf.ensureUnusedCapacity(3 + new_shnum);
-            var eof_offset: Elf_OffSize = 0; // track the end of the data written so far.
+            var eof_offset: elf.native.Off = 0; // track the end of the data written so far.
 
             // build the updated headers
             // nb: updated_elf_header will be updated before the actual write
             var updated_elf_header = self.raw_elf_header;
-            if (updated_elf_header.e_shstrndx != elf.SHN_UNDEF)
+            if (updated_elf_header.e_shstrndx != 0)
                 updated_elf_header.e_shstrndx = sections_update[updated_elf_header.e_shstrndx].remap_idx;
             cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = std.mem.asBytes(&updated_elf_header), .out_offset = 0 } });
-            eof_offset = @sizeOf(Elf_Ehdr);
+            eof_offset = @sizeOf(elfn.Ehdr);
 
             // program header as-is.
             // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
             {
-                assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
+                assert(updated_elf_header.e_phoff == @sizeOf(elfn.Ehdr));
                 const data = std.mem.sliceAsBytes(self.program_segments);
                 assert(data.len == @as(usize, updated_elf_header.e_phentsize) * updated_elf_header.e_phnum);
                 cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_phoff } });
-                eof_offset = updated_elf_header.e_phoff + @as(Elf_OffSize, @intCast(data.len));
+                eof_offset = updated_elf_header.e_phoff + @as(elfn.Off, @intCast(data.len));
             }
 
             // update sections and queue payload writes
             const updated_section_header = blk: {
-                const dest_sections = try allocator.alloc(Elf_Shdr, new_shnum);
+                const dest_sections = try allocator.alloc(elfn.Shdr, new_shnum);
 
                 {
                     // the ELF format doesn't specify the order for all sections.
                     // this code only supports when they are in increasing file order.
                     var offset: u64 = eof_offset;
                     for (self.sections[1..]) |section| {
-                        if (section.section.sh_type == elf.SHT_NOBITS)
+                        if (section.section.sh_type == .NOBITS)
                             continue;
                         if (section.section.sh_offset < offset) {
                             fatal("zig objcopy: unsupported ELF file", .{});
@@ -1148,17 +1144,17 @@ fn ElfFile(comptime is_64: bool) type {
 
                     dest.* = src.*;
 
-                    if (src.sh_link != elf.SHN_UNDEF)
+                    if (src.sh_link != 0)
                         dest.sh_link = sections_update[src.sh_link].remap_idx;
-                    if ((src.sh_flags & elf.SHF_INFO_LINK) != 0 and src.sh_info != elf.SHN_UNDEF)
+                    if ((src.sh_flags & elf.SHF_INFO_LINK) != 0 and src.sh_info != 0)
                         dest.sh_info = sections_update[src.sh_info].remap_idx;
 
                     if (payload) |data|
                         dest.sh_size = @intCast(data.len);
 
-                    const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
-                    dest.sh_offset = std.mem.alignForward(Elf_OffSize, eof_offset, addralign);
-                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE and dest.sh_type != elf.SHT_NOBITS) {
+                    const addralign = if (src.sh_addralign == 0 or dest.sh_type == .NOBITS) 1 else src.sh_addralign;
+                    dest.sh_offset = std.mem.alignForward(elfn.Off, eof_offset, addralign);
+                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != .NOTE and dest.sh_type != .NOBITS) {
                         if (src.sh_offset > dest.sh_offset) {
                             dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
                         } else {
@@ -1168,13 +1164,13 @@ fn ElfFile(comptime is_64: bool) type {
                     assert(dest.sh_addr % addralign == dest.sh_offset % addralign);
 
                     if (update.action == .empty)
-                        dest.sh_type = elf.SHT_NOBITS;
+                        dest.sh_type = .NOBITS;
 
-                    if (dest.sh_type != elf.SHT_NOBITS) {
+                    if (dest.sh_type != .NOBITS) {
                         if (payload) |src_data| {
                             // update sections payload and write
                             const dest_data = switch (src.sh_type) {
-                                elf.DT_VERSYM => dst_data: {
+                                .VERSYM => dst_data: {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
                                     @memcpy(data, src_data);
 
@@ -1186,13 +1182,13 @@ fn ElfFile(comptime is_64: bool) type {
 
                                     break :dst_data data;
                                 },
-                                elf.SHT_SYMTAB, elf.SHT_DYNSYM => dst_data: {
+                                .SYMTAB, .DYNSYM => dst_data: {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
                                     @memcpy(data, src_data);
 
-                                    const syms = @as([*]Elf_Sym, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(Elf_Sym)];
+                                    const syms = @as([*]elfn.Sym, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(elfn.Sym)];
                                     for (syms) |*sym| {
-                                        if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
+                                        if (sym.st_shndx != .UNDEF and sym.st_shndx.getReserve() == null)
                                             sym.st_shndx = sections_update[sym.st_shndx].remap_idx;
                                     }
 
@@ -1226,22 +1222,22 @@ fn ElfFile(comptime is_64: bool) type {
                         break :payload buf;
                     };
 
-                    dest_sections[dest_section_idx] = Elf_Shdr{
+                    dest_sections[dest_section_idx] = elfn.Shdr{
                         .sh_name = debuglink_name,
-                        .sh_type = elf.SHT_PROGBITS,
+                        .sh_type = .PROGBITS,
                         .sh_flags = 0,
                         .sh_addr = 0,
                         .sh_offset = eof_offset,
                         .sh_size = @intCast(payload.len),
-                        .sh_link = elf.SHN_UNDEF,
-                        .sh_info = elf.SHN_UNDEF,
+                        .sh_link = 0,
+                        .sh_info = 0,
                         .sh_addralign = 4,
                         .sh_entsize = 0,
                     };
                     dest_section_idx += 1;
 
                     cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
-                    eof_offset += @as(Elf_OffSize, @intCast(payload.len));
+                    eof_offset += @as(elfn.Off, @intCast(payload.len));
                 }
 
                 // --add-section
@@ -1252,22 +1248,22 @@ fn ElfFile(comptime is_64: bool) type {
 
                     const payload = try section_file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize));
 
-                    dest_sections[dest_section_idx] = Elf_Shdr{
+                    dest_sections[dest_section_idx] = elfn.Shdr{
                         .sh_name = user_section_name,
-                        .sh_type = elf.SHT_PROGBITS,
+                        .sh_type = .PROGBITS,
                         .sh_flags = 0,
                         .sh_addr = 0,
                         .sh_offset = eof_offset,
                         .sh_size = @intCast(payload.len),
-                        .sh_link = elf.SHN_UNDEF,
-                        .sh_info = elf.SHN_UNDEF,
+                        .sh_link = 0,
+                        .sh_info = 0,
                         .sh_addralign = 4,
                         .sh_entsize = 0,
                     };
                     dest_section_idx += 1;
 
                     cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
-                    eof_offset += @as(Elf_OffSize, @intCast(payload.len));
+                    eof_offset += @as(elfn.Off, @intCast(payload.len));
                 }
 
                 assert(dest_section_idx == new_shnum);
@@ -1276,7 +1272,7 @@ fn ElfFile(comptime is_64: bool) type {
 
             // --set-section-alignment: overwrite alignment
             if (options.set_section_alignment) |set_align| {
-                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                if (self.raw_elf_header.e_shstrndx == 0)
                     fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
 
                 const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
@@ -1291,7 +1287,7 @@ fn ElfFile(comptime is_64: bool) type {
 
             // --set-section-flags: overwrite flags
             if (options.set_section_flags) |set_flags| {
-                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                if (self.raw_elf_header.e_shstrndx == 0)
                     fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
 
                 const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
@@ -1340,7 +1336,7 @@ fn ElfFile(comptime is_64: bool) type {
 
             // write the section header at the tail
             {
-                const offset = std.mem.alignForward(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
+                const offset = std.mem.alignForward(elfn.Off, eof_offset, @alignOf(elfn.Shdr));
 
                 const data = std.mem.sliceAsBytes(updated_section_header);
                 assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
@@ -1353,7 +1349,7 @@ fn ElfFile(comptime is_64: bool) type {
             try ElfFileHelper.write(allocator, out_file, in_file, cmdbuf.items);
         }
 
-        fn sectionWithinSegment(section: Elf_Shdr, segment: Elf_Phdr) bool {
+        fn sectionWithinSegment(section: elfn.Shdr, segment: elfn.Phdr) bool {
             const file_size = if (section.sh_type == elf.SHT_NOBITS) 0 else section.sh_size;
             return segment.p_offset <= section.sh_offset and (segment.p_offset + segment.p_filesz) >= (section.sh_offset + file_size);
         }

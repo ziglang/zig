@@ -66,7 +66,7 @@ default_sym_version: elf.Versym,
 /// .shstrtab buffer
 shstrtab: std.ArrayListUnmanaged(u8) = .empty,
 /// .symtab buffer
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+symtab: std.ArrayListUnmanaged(elf.elf64.Sym) = .empty,
 /// .strtab buffer
 strtab: std.ArrayListUnmanaged(u8) = .empty,
 /// Dynamic symbol table. Only populated and emitted when linking dynamically.
@@ -80,7 +80,7 @@ verneed: VerneedSection = .{},
 /// .got section
 got: GotSection = .{},
 /// .rela.dyn section
-rela_dyn: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+rela_dyn: std.ArrayListUnmanaged(elf.elf64.Rela) = .empty,
 /// .dynamic section
 dynamic: DynamicSection = .{},
 /// .hash section
@@ -96,7 +96,7 @@ plt_got: PltGotSection = .{},
 /// .copyrel section
 copy_rel: CopyRelSection = .{},
 /// .rela.plt section
-rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+rela_plt: std.ArrayListUnmanaged(elf.elf64.Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
 comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
@@ -142,7 +142,7 @@ const SectionIndexes = struct {
     symtab: ?u32 = null,
 };
 
-const ProgramHeaderList = std.ArrayListUnmanaged(elf.Elf64_Phdr);
+const ProgramHeaderList = std.ArrayListUnmanaged(elf.elf64.Phdr);
 
 const OptionalProgramHeaderIndex = enum(u16) {
     none = std.math.maxInt(u16),
@@ -384,25 +384,20 @@ pub fn createEmpty(
 
     if (!is_obj_or_ar) {
         try self.dynstrtab.append(gpa, 0);
+        const native_elf = switch (self.ptr_width) {
+            .p32 => elf.elf32,
+            .p64 => elf.elf64,
+        };
 
         // Initialize PT_PHDR program header
-        const p_align: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Phdr),
-            .p64 => @alignOf(elf.Elf64_Phdr),
-        };
-        const ehsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Ehdr),
-            .p64 => @sizeOf(elf.Elf64_Ehdr),
-        };
-        const phsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Phdr),
-            .p64 => @sizeOf(elf.Elf64_Phdr),
-        };
+        const p_align: u16 = @alignOf(native_elf.Phdr);
+        const ehsize: u64 = @sizeOf(native_elf.Ehdr);
+        const phsize: u64 = @sizeOf(native_elf.Phdr);
         const max_nphdrs = comptime getMaxNumberOfPhdrs();
         const reserved: u64 = mem.alignForward(u64, padToIdeal(max_nphdrs * phsize), self.page_size);
         self.phdr_indexes.table = (try self.addPhdr(.{
-            .type = elf.PT_PHDR,
-            .flags = elf.PF_R,
+            .type = .PHDR,
+            .flags = .{ .read = true },
             .@"align" = p_align,
             .addr = self.image_base + ehsize,
             .offset = ehsize,
@@ -410,8 +405,8 @@ pub fn createEmpty(
             .memsz = reserved,
         })).toOptional();
         self.phdr_indexes.table_load = (try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .flags = elf.PF_R,
+            .type = .LOAD,
+            .flags = .{ .read = true },
             .@"align" = self.page_size,
             .addr = self.image_base,
             .offset = 0,
@@ -537,7 +532,7 @@ pub fn getUavVAddr(self: *Elf, uav: InternPool.Index, reloc_info: link.File.Relo
 /// Returns end pos of collision, if any.
 fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     const small_ptr = self.ptr_width == .p32;
-    const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
+    const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.elf32.Ehdr) else @sizeOf(elf.elf64.Ehdr);
     if (start < ehdr_size)
         return ehdr_size;
 
@@ -545,7 +540,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     const end = start + padToIdeal(size);
 
     if (self.shdr_table_offset) |off| {
-        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
+        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.elf32.Shdr) else @sizeOf(elf.elf64.Shdr);
         const tight_size = self.sections.items(.shdr).len * shdr_size;
         const increased_size = padToIdeal(tight_size);
         const test_end = off +| increased_size;
@@ -556,7 +551,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     }
 
     for (self.sections.items(.shdr)) |shdr| {
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (shdr.sh_type == .NOBITS) continue;
         const increased_size = padToIdeal(shdr.sh_size);
         const test_end = shdr.sh_offset +| increased_size;
         if (start < test_end) {
@@ -566,7 +561,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     }
 
     for (self.phdrs.items) |phdr| {
-        if (phdr.p_type != elf.PT_LOAD) continue;
+        if (phdr.p_type != .LOAD) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
         const test_end = phdr.p_offset +| increased_size;
         if (start < test_end) {
@@ -607,7 +602,7 @@ pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
 pub fn growSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment: u64) !void {
     const shdr = &self.sections.items(.shdr)[shdr_index];
 
-    if (shdr.sh_type != elf.SHT_NOBITS) {
+    if (shdr.sh_type != .NOBITS) {
         const allocated_size = self.allocatedSize(shdr.sh_offset);
         log.debug("allocated size {x} of '{s}', needed size {x}", .{
             allocated_size,
@@ -965,7 +960,7 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             if (!atom_ptr.alive) continue;
             const out_shndx = atom_ptr.output_section_index;
             const shdr = &self.sections.items(.shdr)[out_shndx];
-            if (shdr.sh_type == elf.SHT_NOBITS) continue;
+            if (shdr.sh_type == .NOBITS) continue;
             const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = atom_ptr.offset(self);
@@ -1449,7 +1444,7 @@ fn scanRelocs(self: *Elf) !void {
 pub fn initOutputSection(self: *Elf, args: struct {
     name: [:0]const u8,
     flags: u64,
-    type: u32,
+    type: elf.SHT,
 }) error{OutOfMemory}!u32 {
     const name = blk: {
         if (self.base.isRelocatable()) break :blk args.name;
@@ -1466,16 +1461,16 @@ pub fn initOutputSection(self: *Elf, args: struct {
         }
         break :blk args.name;
     };
-    const @"type" = tt: {
-        if (self.getTarget().cpu.arch == .x86_64 and args.type == elf.SHT_X86_64_UNWIND)
-            break :tt elf.SHT_PROGBITS;
+    const @"type": elf.SHT = tt: {
+        if (self.getTarget().cpu.arch == .x86_64 and args.type == .X86_64_UNWIND)
+            break :tt .PROGBITS;
         switch (args.type) {
-            elf.SHT_NULL => unreachable,
-            elf.SHT_PROGBITS => {
+            .NULL => unreachable,
+            .PROGBITS => {
                 if (mem.eql(u8, args.name, ".init_array") or mem.startsWith(u8, args.name, ".init_array."))
-                    break :tt elf.SHT_INIT_ARRAY;
+                    break :tt .INIT_ARRAY;
                 if (mem.eql(u8, args.name, ".fini_array") or mem.startsWith(u8, args.name, ".fini_array."))
-                    break :tt elf.SHT_FINI_ARRAY;
+                    break :tt .FINI_ARRAY;
                 break :tt args.type;
             },
             else => break :tt args.type,
@@ -1487,7 +1482,7 @@ pub fn initOutputSection(self: *Elf, args: struct {
             flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
         }
         break :blk switch (@"type") {
-            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
+            .INIT_ARRAY, .FINI_ARRAY => flags | elf.SHF_WRITE,
             else => flags,
         };
     };
@@ -2110,14 +2105,12 @@ pub fn writeShdrTable(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const target_endian = self.getTarget().cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
-    const shsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Shdr),
-        .p64 => @sizeOf(elf.Elf64_Shdr),
+    const Shdr = switch (self.ptr_width) {
+        .p32 => elf.Elf32_Shdr,
+        .p64 => elf.Elf64_Shdr,
     };
-    const shalign: u16 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Shdr),
-        .p64 => @alignOf(elf.Elf64_Shdr),
-    };
+    const shsize: u64 = @sizeOf(Shdr);
+    const shalign: u16 = @alignOf(Shdr);
 
     const shoff = self.shdr_table_offset orelse 0;
     const needed_size = self.sections.items(.shdr).len * shsize;
@@ -2134,27 +2127,27 @@ pub fn writeShdrTable(self: *Elf) !void {
 
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Shdr, self.sections.items(.shdr).len);
+            const buf = try gpa.alloc(elf.elf32.Shdr, self.sections.items(.shdr).len);
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
                 assert(self.sections.items(.shdr)[i].sh_offset != math.maxInt(u64));
                 shdr.* = shdrTo32(self.sections.items(.shdr)[i]);
                 if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
+                    mem.byteSwapAllFields(elf.elf32.Shdr, shdr);
                 }
             }
             try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
         },
         .p64 => {
-            const buf = try gpa.alloc(elf.Elf64_Shdr, self.sections.items(.shdr).len);
+            const buf = try gpa.alloc(elf.elf64.Shdr, self.sections.items(.shdr).len);
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
                 assert(self.sections.items(.shdr)[i].sh_offset != math.maxInt(u64));
                 shdr.* = self.sections.items(.shdr)[i];
                 if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
+                    mem.byteSwapAllFields(elf.elf64.Shdr, shdr);
                 }
             }
             try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
@@ -2175,25 +2168,25 @@ fn writePhdrTable(self: *Elf) !void {
 
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
+            const buf = try gpa.alloc(elf.elf32.Phdr, self.phdrs.items.len);
             defer gpa.free(buf);
 
             for (buf, 0..) |*phdr, i| {
                 phdr.* = phdrTo32(self.phdrs.items[i]);
                 if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
+                    mem.byteSwapAllFields(elf.elf32.Phdr, phdr);
                 }
             }
             try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
         },
         .p64 => {
-            const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
+            const buf = try gpa.alloc(elf.elf64.Phdr, self.phdrs.items.len);
             defer gpa.free(buf);
 
             for (buf, 0..) |*phdr, i| {
                 phdr.* = self.phdrs.items[i];
                 if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
+                    mem.byteSwapAllFields(elf.elf64.Phdr, phdr);
                 }
             }
             try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
@@ -2201,152 +2194,79 @@ fn writePhdrTable(self: *Elf) !void {
     }
 }
 
-pub fn writeElfHeader(self: *Elf) !void {
+fn writeElfHeaderImpl(self: *Elf, comptime is_64: bool) !void {
+    const native_elf = if (is_64) elf.elf64 else elf.elf32;
+
     const diags = &self.base.comp.link_diags;
     if (diags.hasErrors()) return; // We had errors, so skip flushing to render the output unusable
 
     const comp = self.base.comp;
-    var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
-
-    var index: usize = 0;
-    hdr_buf[0..4].* = elf.MAGIC.*;
-    index += 4;
-
-    hdr_buf[index] = switch (self.ptr_width) {
-        .p32 => elf.ELFCLASS32,
-        .p64 => elf.ELFCLASS64,
-    };
-    index += 1;
-
     const target = self.getTarget();
-    const endian = target.cpu.arch.endian();
-    hdr_buf[index] = switch (endian) {
-        .little => elf.ELFDATA2LSB,
-        .big => elf.ELFDATA2MSB,
-    };
-    index += 1;
-
-    hdr_buf[index] = 1; // ELF version
-    index += 1;
-
-    hdr_buf[index] = @intFromEnum(@as(elf.OSABI, switch (target.cpu.arch) {
-        .amdgcn => switch (target.os.tag) {
-            .amdhsa => .AMDGPU_HSA,
-            .amdpal => .AMDGPU_PAL,
-            .mesa3d => .AMDGPU_MESA3D,
-            else => .NONE,
-        },
-        .msp430 => .STANDALONE,
-        else => switch (target.os.tag) {
-            .freebsd, .ps4 => .FREEBSD,
-            .hermit => .STANDALONE,
-            .illumos, .solaris => .SOLARIS,
-            .openbsd => .OPENBSD,
-            else => .NONE,
-        },
-    }));
-    index += 1;
-
-    // ABI Version, possibly used by glibc but not by static executables
-    // padding
-    @memset(hdr_buf[index..][0..8], 0);
-    index += 8;
-
-    assert(index == 16);
-
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
-    const elf_type: elf.ET = switch (output_mode) {
-        .Exe => if (comp.config.pie or target.os.tag == .haiku) .DYN else .EXEC,
-        .Obj => .REL,
-        .Lib => switch (link_mode) {
-            .static => @as(elf.ET, .REL),
-            .dynamic => .DYN,
-        },
-    };
-    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
-    index += 2;
-
-    const machine = target.toElfMachine();
-    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(machine), endian);
-    index += 2;
-
-    // ELF Version, again
-    mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
-    index += 4;
-
-    const e_entry: u64 = if (self.linkerDefinedPtr()) |obj| blk: {
-        const entry_sym = obj.entrySymbol(self) orelse break :blk 0;
-        break :blk @intCast(entry_sym.address(.{}, self));
-    } else 0;
     const phdr_table_offset = if (self.phdr_indexes.table.int()) |phndx| self.phdrs.items[phndx].p_offset else 0;
+
+    const hdr: native_elf.Ehdr = .{
+        .e_ident = .{
+            .ei_magic = mem.bytesAsValue(u32, elf.MAGIC),
+            .ei_class = if (is_64) .@"32" else .@"64",
+            .ei_data = switch (target.cpu.arch.endian()) {
+                .little => .LSB,
+                .big => .MSB,
+            },
+            .ei_version = .CURRENT,
+            .ei_osabi = switch (target.cpu.arch) {
+                .amdgcn => switch (target.os.tag) {
+                    .amdhsa => .AMDGPU_HSA,
+                    .amdpal => .AMDGPU_PAL,
+                    .mesa3d => .AMDGPU_MESA3D,
+                    else => .NONE,
+                },
+                .msp430 => .STANDALONE,
+                else => switch (target.os.tag) {
+                    .freebsd, .ps4 => .FREEBSD,
+                    .hermit => .STANDALONE,
+                    .illumos, .solaris => .SOLARIS,
+                    .openbsd => .OPENBSD,
+                    else => .NONE,
+                },
+            },
+            // possibly used by glibc but not by static executables
+            .ei_abiversion = 8,
+        },
+        .e_type = switch (output_mode) {
+            .Exe => if (comp.config.pie or target.os.tag == .haiku) .DYN else .EXEC,
+            .Obj => .REL,
+            .Lib => switch (link_mode) {
+                .static => .REL,
+                .dynamic => .DYN,
+            },
+        },
+        .e_machine = target.toElfMachine(),
+        .e_version = mem.bytesToValue(u32, elf.MAGIC),
+        .e_entry = if (self.linkerDefinedPtr()) |obj| blk: {
+            const entry_sym = obj.entrySymbol(self) orelse break :blk 0;
+            break :blk @intCast(entry_sym.address(.{}, self));
+        } else 0,
+        .e_phoff = @intCast(phdr_table_offset),
+        .e_shoff = @intCast(self.shdr_table_offset.?),
+        .e_flags = 0,
+        .e_ehsize = @sizeOf(native_elf.Ehdr),
+        .e_phentsize = @sizeOf(native_elf.Phdr),
+        .e_phnum = @intCast(self.phdrs.items.len),
+        .e_shentsize = @sizeOf(native_elf.Shdr),
+        .e_shnum = @intCast(self.sections.items(.shdr).len),
+        .e_shstrndx = @intCast(self.section_indexes.shstrtab.?),
+    };
+
+    try self.pwriteAll(mem.asBytes(&hdr), 0);
+}
+
+pub fn writeElfHeader(self: *Elf) !void {
     switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(e_entry), endian);
-            index += 4;
-
-            // e_phoff
-            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(phdr_table_offset), endian);
-            index += 4;
-
-            // e_shoff
-            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(self.shdr_table_offset.?), endian);
-            index += 4;
-        },
-        .p64 => {
-            // e_entry
-            mem.writeInt(u64, hdr_buf[index..][0..8], e_entry, endian);
-            index += 8;
-
-            // e_phoff
-            mem.writeInt(u64, hdr_buf[index..][0..8], phdr_table_offset, endian);
-            index += 8;
-
-            // e_shoff
-            mem.writeInt(u64, hdr_buf[index..][0..8], self.shdr_table_offset.?, endian);
-            index += 8;
-        },
+        .p32 => try self.writeElfHeaderImpl(false),
+        .p64 => try self.writeElfHeaderImpl(true),
     }
-
-    const e_flags = 0;
-    mem.writeInt(u32, hdr_buf[index..][0..4], e_flags, endian);
-    index += 4;
-
-    const e_ehsize: u16 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Ehdr),
-        .p64 => @sizeOf(elf.Elf64_Ehdr),
-    };
-    mem.writeInt(u16, hdr_buf[index..][0..2], e_ehsize, endian);
-    index += 2;
-
-    const e_phentsize: u16 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
-        .p64 => @sizeOf(elf.Elf64_Phdr),
-    };
-    mem.writeInt(u16, hdr_buf[index..][0..2], e_phentsize, endian);
-    index += 2;
-
-    const e_phnum = @as(u16, @intCast(self.phdrs.items.len));
-    mem.writeInt(u16, hdr_buf[index..][0..2], e_phnum, endian);
-    index += 2;
-
-    const e_shentsize: u16 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Shdr),
-        .p64 => @sizeOf(elf.Elf64_Shdr),
-    };
-    mem.writeInt(u16, hdr_buf[index..][0..2], e_shentsize, endian);
-    index += 2;
-
-    const e_shnum: u16 = @intCast(self.sections.items(.shdr).len);
-    mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
-    index += 2;
-
-    mem.writeInt(u16, hdr_buf[index..][0..2], @intCast(self.section_indexes.shstrtab.?), endian);
-    index += 2;
-
-    assert(index == e_ehsize);
-
-    try self.pwriteAll(hdr_buf[0..index], 0);
 }
 
 pub fn freeNav(self: *Elf, nav: InternPool.Nav.Index) void {
@@ -2456,7 +2376,7 @@ fn checkDuplicates(self: *Elf) !void {
 pub fn addCommentString(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     if (self.comment_merge_section_index != null) return;
-    const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
+    const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, .PROGBITS);
     const msec = self.mergeSection(msec_index);
     const res = try msec.insertZ(gpa, "zig " ++ builtin.zig_version_string);
     if (res.found_existing) return;
@@ -2583,9 +2503,9 @@ fn initSyntheticSections(self: *Elf) !void {
             self.section_indexes.eh_frame = self.sectionByName(".eh_frame") orelse try self.addSection(.{
                 .name = try self.insertShString(".eh_frame"),
                 .type = if (target.cpu.arch == .x86_64)
-                    elf.SHT_X86_64_UNWIND
+                    .X86_64_UNWIND
                 else
-                    elf.SHT_PROGBITS,
+                    .PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = ptr_size,
             });
@@ -2593,7 +2513,7 @@ fn initSyntheticSections(self: *Elf) !void {
         if (comp.link_eh_frame_hdr and self.section_indexes.eh_frame_hdr == null) {
             self.section_indexes.eh_frame_hdr = try self.addSection(.{
                 .name = try self.insertShString(".eh_frame_hdr"),
-                .type = elf.SHT_PROGBITS,
+                .type = .PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
             });
@@ -2603,7 +2523,7 @@ fn initSyntheticSections(self: *Elf) !void {
     if (self.got.entries.items.len > 0 and self.section_indexes.got == null) {
         self.section_indexes.got = try self.addSection(.{
             .name = try self.insertShString(".got"),
-            .type = elf.SHT_PROGBITS,
+            .type = .PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
         });
@@ -2612,7 +2532,7 @@ fn initSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.got_plt == null) {
         self.section_indexes.got_plt = try self.addSection(.{
             .name = try self.insertShString(".got.plt"),
-            .type = elf.SHT_PROGBITS,
+            .type = .PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
         });
@@ -2632,10 +2552,10 @@ fn initSyntheticSections(self: *Elf) !void {
     if (needs_rela_dyn and self.section_indexes.rela_dyn == null) {
         self.section_indexes.rela_dyn = try self.addSection(.{
             .name = try self.insertShString(".rela.dyn"),
-            .type = elf.SHT_RELA,
+            .type = .RELA,
             .flags = elf.SHF_ALLOC,
-            .addralign = @alignOf(elf.Elf64_Rela),
-            .entsize = @sizeOf(elf.Elf64_Rela),
+            .addralign = @alignOf(elf.elf64.Rela),
+            .entsize = @sizeOf(elf.elf64.Rela),
         });
     }
 
@@ -2643,7 +2563,7 @@ fn initSyntheticSections(self: *Elf) !void {
         if (self.section_indexes.plt == null) {
             self.section_indexes.plt = try self.addSection(.{
                 .name = try self.insertShString(".plt"),
-                .type = elf.SHT_PROGBITS,
+                .type = .PROGBITS,
                 .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
                 .addralign = 16,
             });
@@ -2651,10 +2571,10 @@ fn initSyntheticSections(self: *Elf) !void {
         if (self.section_indexes.rela_plt == null) {
             self.section_indexes.rela_plt = try self.addSection(.{
                 .name = try self.insertShString(".rela.plt"),
-                .type = elf.SHT_RELA,
+                .type = .RELA,
                 .flags = elf.SHF_ALLOC,
-                .addralign = @alignOf(elf.Elf64_Rela),
-                .entsize = @sizeOf(elf.Elf64_Rela),
+                .addralign = @alignOf(elf.elf64.Rela),
+                .entsize = @sizeOf(elf.elf64.Rela),
             });
         }
     }
@@ -2662,7 +2582,7 @@ fn initSyntheticSections(self: *Elf) !void {
     if (self.plt_got.symbols.items.len > 0 and self.section_indexes.plt_got == null) {
         self.section_indexes.plt_got = try self.addSection(.{
             .name = try self.insertShString(".plt.got"),
-            .type = elf.SHT_PROGBITS,
+            .type = .PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
         });
@@ -2671,7 +2591,7 @@ fn initSyntheticSections(self: *Elf) !void {
     if (self.copy_rel.symbols.items.len > 0 and self.section_indexes.copy_rel == null) {
         self.section_indexes.copy_rel = try self.addSection(.{
             .name = try self.insertShString(".copyrel"),
-            .type = elf.SHT_NOBITS,
+            .type = .NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         });
     }
@@ -2688,7 +2608,7 @@ fn initSyntheticSections(self: *Elf) !void {
     if (needs_interp and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
-            .type = elf.SHT_PROGBITS,
+            .type = .PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
         });
@@ -2699,7 +2619,7 @@ fn initSyntheticSections(self: *Elf) !void {
             self.section_indexes.dynstrtab = try self.addSection(.{
                 .name = try self.insertShString(".dynstr"),
                 .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_STRTAB,
+                .type = .STRTAB,
                 .entsize = 1,
                 .addralign = 1,
             });
@@ -2708,18 +2628,18 @@ fn initSyntheticSections(self: *Elf) !void {
             self.section_indexes.dynamic = try self.addSection(.{
                 .name = try self.insertShString(".dynamic"),
                 .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-                .type = elf.SHT_DYNAMIC,
-                .entsize = @sizeOf(elf.Elf64_Dyn),
-                .addralign = @alignOf(elf.Elf64_Dyn),
+                .type = .DYNAMIC,
+                .entsize = @sizeOf(elf.elf64.Dyn),
+                .addralign = @alignOf(elf.elf64.Dyn),
             });
         }
         if (self.section_indexes.dynsymtab == null) {
             self.section_indexes.dynsymtab = try self.addSection(.{
                 .name = try self.insertShString(".dynsym"),
                 .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_DYNSYM,
-                .addralign = @alignOf(elf.Elf64_Sym),
-                .entsize = @sizeOf(elf.Elf64_Sym),
+                .type = .DYNSYM,
+                .addralign = @alignOf(elf.elf64.Sym),
+                .entsize = @sizeOf(elf.elf64.Sym),
                 .info = 1,
             });
         }
@@ -2727,7 +2647,7 @@ fn initSyntheticSections(self: *Elf) !void {
             self.section_indexes.hash = try self.addSection(.{
                 .name = try self.insertShString(".hash"),
                 .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_HASH,
+                .type = .HASH,
                 .addralign = 4,
                 .entsize = 4,
             });
@@ -2736,21 +2656,21 @@ fn initSyntheticSections(self: *Elf) !void {
             self.section_indexes.gnu_hash = try self.addSection(.{
                 .name = try self.insertShString(".gnu.hash"),
                 .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_GNU_HASH,
+                .type = .GNU_HASH,
                 .addralign = 8,
             });
         }
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
             const sym = self.symbol(entry.ref).?;
-            if (sym.flags.import and sym.version_index.VERSION > elf.Versym.GLOBAL.VERSION) break true;
+            if (sym.flags.import and sym.version_index.version > elf.Versym.global.version) break true;
         } else false;
         if (needs_versions) {
             if (self.section_indexes.versym == null) {
                 self.section_indexes.versym = try self.addSection(.{
                     .name = try self.insertShString(".gnu.version"),
                     .flags = elf.SHF_ALLOC,
-                    .type = elf.SHT_GNU_VERSYM,
+                    .type = .GNU_VERSYM,
                     .addralign = @alignOf(elf.Versym),
                     .entsize = @sizeOf(elf.Versym),
                 });
@@ -2759,8 +2679,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 self.section_indexes.verneed = try self.addSection(.{
                     .name = try self.insertShString(".gnu.version_r"),
                     .flags = elf.SHF_ALLOC,
-                    .type = elf.SHT_GNU_VERNEED,
-                    .addralign = @alignOf(elf.Elf64_Verneed),
+                    .type = .GNU_VERNEED,
+                    .addralign = @alignOf(elf.elf64.Verneed),
                 });
             }
         }
@@ -2776,17 +2696,18 @@ pub fn initSymtab(self: *Elf) !void {
         .p64 => false,
     };
     if (self.section_indexes.symtab == null) {
+        const Sym = if (small_ptr) elf.elf32.Sym else elf.elf64.Sym;
         self.section_indexes.symtab = try self.addSection(.{
             .name = try self.insertShString(".symtab"),
-            .type = elf.SHT_SYMTAB,
-            .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
-            .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
+            .type = .SYMTAB,
+            .addralign = @alignOf(Sym),
+            .entsize = @sizeOf(Sym),
         });
     }
     if (self.section_indexes.strtab == null) {
         self.section_indexes.strtab = try self.addSection(.{
             .name = try self.insertShString(".strtab"),
-            .type = elf.SHT_STRTAB,
+            .type = .STRTAB,
             .entsize = 1,
             .addralign = 1,
         });
@@ -2797,7 +2718,7 @@ pub fn initShStrtab(self: *Elf) !void {
     if (self.section_indexes.shstrtab == null) {
         self.section_indexes.shstrtab = try self.addSection(.{
             .name = try self.insertShString(".shstrtab"),
-            .type = elf.SHT_STRTAB,
+            .type = .STRTAB,
             .entsize = 1,
             .addralign = 1,
         });
@@ -2809,27 +2730,27 @@ fn initSpecialPhdrs(self: *Elf) !void {
 
     if (self.section_indexes.interp != null and self.phdr_indexes.interp == .none) {
         self.phdr_indexes.interp = (try self.addPhdr(.{
-            .type = elf.PT_INTERP,
-            .flags = elf.PF_R,
+            .type = .INTERP,
+            .flags = .{ .read = true },
             .@"align" = 1,
         })).toOptional();
     }
     if (self.section_indexes.dynamic != null and self.phdr_indexes.dynamic == .none) {
         self.phdr_indexes.dynamic = (try self.addPhdr(.{
-            .type = elf.PT_DYNAMIC,
-            .flags = elf.PF_R | elf.PF_W,
+            .type = .DYNAMIC,
+            .flags = .{ .read = true, .write = true },
         })).toOptional();
     }
     if (self.section_indexes.eh_frame_hdr != null and self.phdr_indexes.gnu_eh_frame == .none) {
         self.phdr_indexes.gnu_eh_frame = (try self.addPhdr(.{
-            .type = elf.PT_GNU_EH_FRAME,
-            .flags = elf.PF_R,
+            .type = .GNU_EH_FRAME,
+            .flags = .{ .read = true },
         })).toOptional();
     }
     if (self.phdr_indexes.gnu_stack == .none) {
         self.phdr_indexes.gnu_stack = (try self.addPhdr(.{
-            .type = elf.PT_GNU_STACK,
-            .flags = elf.PF_W | elf.PF_R,
+            .type = .GNU_STACK,
+            .flags = .{ .read = true, .write = true },
             .memsz = self.base.stack_size,
             .@"align" = 1,
         })).toOptional();
@@ -2840,8 +2761,8 @@ fn initSpecialPhdrs(self: *Elf) !void {
     } else false;
     if (has_tls and self.phdr_indexes.tls == .none) {
         self.phdr_indexes.tls = (try self.addPhdr(.{
-            .type = elf.PT_TLS,
-            .flags = elf.PF_R,
+            .type = .TLS,
+            .flags = .{ .read = true },
             .@"align" = 1,
         })).toOptional();
     }
@@ -2885,10 +2806,7 @@ fn sortInitFini(self: *Elf) !void {
         var is_init_fini = false;
         var is_ctor_dtor = false;
         switch (shdr.sh_type) {
-            elf.SHT_PREINIT_ARRAY,
-            elf.SHT_INIT_ARRAY,
-            elf.SHT_FINI_ARRAY,
-            => is_init_fini = true,
+            .PREINIT_ARRAY, .INIT_ARRAY, .FINI_ARRAY => is_init_fini = true,
             else => {
                 const name = self.getShString(shdr.sh_name);
                 is_ctor_dtor = mem.indexOf(u8, name, ".ctors") != null or mem.indexOf(u8, name, ".dtors") != null;
@@ -2956,7 +2874,7 @@ fn setVersionSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     if (self.section_indexes.versym == null) return;
     try self.versym.resize(gpa, self.dynsym.count());
-    self.versym.items[0] = .LOCAL;
+    self.versym.items[0] = .local;
     for (self.dynsym.entries.items, 1..) |entry, i| {
         const sym = self.symbol(entry.ref).?;
         self.versym.items[i] = sym.version_index;
@@ -2980,13 +2898,13 @@ fn setHashSections(self: *Elf) !void {
 
 fn phdrRank(phdr: elf.Elf64_Phdr) u8 {
     return switch (phdr.p_type) {
-        elf.PT_NULL => 0,
-        elf.PT_PHDR => 1,
-        elf.PT_INTERP => 2,
-        elf.PT_LOAD => 3,
-        elf.PT_DYNAMIC, elf.PT_TLS => 4,
-        elf.PT_GNU_EH_FRAME => 5,
-        elf.PT_GNU_STACK => 6,
+        .NULL => 0,
+        .PHDR => 1,
+        .INTERP => 2,
+        .LOAD => 3,
+        .DYNAMIC, .TLS => 4,
+        .GNU_EH_FRAME => 5,
+        .GNU_STACK => 6,
         else => 7,
     };
 }
@@ -3000,7 +2918,7 @@ fn sortPhdrs(
     const Entry = struct {
         phndx: u16,
 
-        pub fn lessThan(program_headers: []const elf.Elf64_Phdr, lhs: @This(), rhs: @This()) bool {
+        pub fn lessThan(program_headers: []const elf.elf64.Phdr, lhs: @This(), rhs: @This()) bool {
             const lhs_phdr = program_headers[lhs.phndx];
             const rhs_phdr = program_headers[rhs.phndx];
             const lhs_rank = phdrRank(lhs_phdr);
@@ -3017,7 +2935,7 @@ fn sortPhdrs(
     }
 
     // The `@as` here works around a bug in the C backend.
-    mem.sort(Entry, entries, @as([]const elf.Elf64_Phdr, phdrs.items), Entry.lessThan);
+    mem.sort(Entry, entries, @as([]const elf.elf64.Phdr, phdrs.items), Entry.lessThan);
 
     const backlinks = try gpa.alloc(u16, entries.len);
     defer gpa.free(backlinks);
@@ -3043,29 +2961,29 @@ fn sortPhdrs(
     }
 }
 
-fn shdrRank(shdr: elf.Elf64_Shdr, shstrtab: []const u8) u8 {
+fn shdrRank(shdr: elf.elf64.Shdr, shstrtab: []const u8) u8 {
     const name = shString(shstrtab, shdr.sh_name);
     const flags = shdr.sh_flags;
 
     switch (shdr.sh_type) {
-        elf.SHT_NULL => return 0,
-        elf.SHT_DYNSYM => return 2,
-        elf.SHT_HASH => return 3,
-        elf.SHT_GNU_HASH => return 3,
-        elf.SHT_GNU_VERSYM => return 4,
-        elf.SHT_GNU_VERDEF => return 4,
-        elf.SHT_GNU_VERNEED => return 4,
+        .NULL => return 0,
+        .DYNSYM => return 2,
+        .HASH => return 3,
+        .GNU_HASH => return 3,
+        .GNU_VERSYM => return 4,
+        .GNU_VERDEF => return 4,
+        .GNU_VERNEED => return 4,
 
-        elf.SHT_PREINIT_ARRAY,
-        elf.SHT_INIT_ARRAY,
-        elf.SHT_FINI_ARRAY,
+        .PREINIT_ARRAY,
+        .INIT_ARRAY,
+        .FINI_ARRAY,
         => return 0xf1,
 
-        elf.SHT_DYNAMIC => return 0xf2,
+        .DYNAMIC => return 0xf2,
 
-        elf.SHT_RELA, elf.SHT_GROUP => return 0xf,
+        .RELA, .GROUP => return 0xf,
 
-        elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
+        .PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
             if (flags & elf.SHF_EXECINSTR != 0) {
                 return 0xf0;
             } else if (flags & elf.SHF_WRITE != 0) {
@@ -3084,11 +3002,11 @@ fn shdrRank(shdr: elf.Elf64_Shdr, shstrtab: []const u8) u8 {
                 return 0xf8;
             }
         },
-        elf.SHT_X86_64_UNWIND => return 0xe1,
+        .X86_64_UNWIND => return 0xe1,
 
-        elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6,
-        elf.SHT_SYMTAB => return 0xf9,
-        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x4 else 0xfa,
+        .NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6,
+        .SYMTAB => return 0xf9,
+        .STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x4 else 0xfa,
         else => return 0xff,
     }
 }
@@ -3107,7 +3025,7 @@ pub fn sortShdrs(
         shndx: u32,
 
         const Context = struct {
-            shdrs: []const elf.Elf64_Shdr,
+            shdrs: []const elf.elf64.Shdr,
             shstrtab: []const u8,
         };
 
@@ -3166,7 +3084,7 @@ pub fn sortShdrs(
         for (atom_list.atoms.keys()) |ref| {
             fileLookup(files, ref.file, zig_object_ptr).?.atom(ref.index).?.output_section_index = atom_list.output_section_index;
         }
-        if (shdr.sh_type == elf.SHT_RELA) {
+        if (shdr.sh_type == .RELA) {
             shdr.sh_link = section_indexes.symtab.?;
             shdr.sh_info = backlinks[shdr.sh_info];
         }
@@ -3293,11 +3211,11 @@ fn updateSectionSizes(self: *Elf) !void {
         for (self.objects.items) |index| {
             num += self.file(index).?.object.num_dynrelocs;
         }
-        shdrs[shndx].sh_size = num * @sizeOf(elf.Elf64_Rela);
+        shdrs[shndx].sh_size = num * @sizeOf(elf.elf64.Rela);
     }
 
     if (self.section_indexes.rela_plt) |index| {
-        shdrs[index].sh_size = self.plt.numRela() * @sizeOf(elf.Elf64_Rela);
+        shdrs[index].sh_size = self.plt.numRela() * @sizeOf(elf.elf64.Rela);
     }
 
     if (self.section_indexes.copy_rel) |index| {
@@ -3346,13 +3264,14 @@ pub fn updateShStrtabSize(self: *Elf) void {
     }
 }
 
-fn shdrToPhdrFlags(sh_flags: u64) u32 {
+fn shdrToPhdrFlags(sh_flags: u64) elf.PF {
     const write = sh_flags & elf.SHF_WRITE != 0;
     const exec = sh_flags & elf.SHF_EXECINSTR != 0;
-    var out_flags: u32 = elf.PF_R;
-    if (write) out_flags |= elf.PF_W;
-    if (exec) out_flags |= elf.PF_X;
-    return out_flags;
+    return .{
+        .read = true,
+        .write = write,
+        .execute = exec,
+    };
 }
 
 /// Returns maximum number of program headers that may be emitted by the linker.
@@ -3370,11 +3289,11 @@ fn getMaxNumberOfPhdrs() u64 {
 
 fn addLoadPhdrs(self: *Elf) error{OutOfMemory}!void {
     for (self.sections.items(.shdr)) |shdr| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_type == .NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
-        if (self.getPhdr(.{ .flags = flags, .type = elf.PT_LOAD }) == .none) {
-            _ = try self.addPhdr(.{ .flags = flags, .type = elf.PT_LOAD });
+        if (self.getPhdr(.{ .flags = flags, .type = .LOAD }) == .none) {
+            _ = try self.addPhdr(.{ .flags = flags, .type = .LOAD });
         }
     }
 }
@@ -3385,14 +3304,13 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
     const phdr_table = &self.phdrs.items[self.phdr_indexes.table.int().?];
     const phdr_table_load = &self.phdrs.items[self.phdr_indexes.table_load.int().?];
 
-    const ehsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Ehdr),
-        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    const native_elf = switch (self.ptr_width) {
+        .p32 => elf.elf32,
+        .p64 => elf.elf64,
     };
-    const phsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
-        .p64 => @sizeOf(elf.Elf64_Phdr),
-    };
+
+    const ehsize: u64 = @sizeOf(native_elf.Ehdr);
+    const phsize: u64 = @sizeOf(native_elf.Phdr);
     const needed_size = self.phdrs.items.len * phsize;
     const available_space = self.allocatedSize(phdr_table.p_offset);
 
@@ -3439,7 +3357,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
     const slice = self.sections.slice();
     var alignment = Align{};
     for (slice.items(.shdr), 0..) |shdr, i| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_type == .NULL) continue;
         if (shdr.sh_flags & elf.SHF_TLS == 0) continue;
         if (alignment.first_tls_index == null) alignment.first_tls_index = i;
         alignment.tls_start_align = @max(alignment.tls_start_align, shdr.sh_addralign);
@@ -3464,7 +3382,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
     };
 
     for (slice.items(.shdr), 0..) |shdr, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_type == .NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
         try covers[flags - 1].append(@intCast(shndx));
@@ -3484,7 +3402,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
         var @"align": u64 = self.page_size;
         for (cover.items) |shndx| {
             const shdr = slice.items(.shdr)[shndx];
-            if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) continue;
+            if (shdr.sh_type == .NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) continue;
             @"align" = @max(@"align", shdr.sh_addralign);
         }
 
@@ -3496,7 +3414,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
         while (i < cover.items.len) : (i += 1) {
             const shndx = cover.items[i];
             const shdr = &slice.items(.shdr)[shndx];
-            if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) {
+            if (shdr.sh_type == .NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) {
                 // .tbss is a little special as it's used only by the loader meaning it doesn't
                 // need to be actually mmap'ed at runtime. We still need to correctly increment
                 // the addresses of every TLS zerofill section tho. Thus, we hack it so that
@@ -3511,7 +3429,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
                 // ...
                 var tbss_addr = addr;
                 while (i < cover.items.len and
-                    slice.items(.shdr)[cover.items[i]].sh_type == elf.SHT_NOBITS and
+                    slice.items(.shdr)[cover.items[i]].sh_type == .NOBITS and
                     slice.items(.shdr)[cover.items[i]].sh_flags & elf.SHF_TLS != 0) : (i += 1)
                 {
                     const tbss_shndx = cover.items[i];
@@ -3527,7 +3445,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
             const padding = next - addr;
             addr = next;
             shdr.sh_addr = addr;
-            if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (shdr.sh_type != .NOBITS) {
                 filesz += padding + shdr.sh_size;
             }
             memsz += padding + shdr.sh_size;
@@ -3535,7 +3453,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
         }
 
         const first = slice.items(.shdr)[cover.items[0]];
-        const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).unwrap().?;
+        const phndx = self.getPhdr(.{ .type = .LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).unwrap().?;
         const phdr = &self.phdrs.items[phndx.int()];
         const allocated_size = self.allocatedSize(phdr.p_offset);
         if (filesz > allocated_size) {
@@ -3549,7 +3467,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
             for (cover.items) |shndx| {
                 const shdr = &slice.items(.shdr)[shndx];
                 slice.items(.phndx)[shndx] = phndx.toOptional();
-                if (shdr.sh_type == elf.SHT_NOBITS) {
+                if (shdr.sh_type == .NOBITS) {
                     shdr.sh_offset = 0;
                     continue;
                 }
@@ -3591,7 +3509,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
 /// Allocates non-alloc sections (debug info, symtabs, etc.).
 pub fn allocateNonAllocSections(self: *Elf) !void {
     for (self.sections.items(.shdr), 0..) |*shdr, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_type == .NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC != 0) continue;
         const needed_size = shdr.sh_size;
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
@@ -3660,7 +3578,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
             phdr.p_align = shdr.sh_addralign;
             shndx += 1;
             phdr.p_align = @max(phdr.p_align, shdr.sh_addralign);
-            if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (shdr.sh_type != .NOBITS) {
                 phdr.p_filesz = shdr.sh_offset + shdr.sh_size - phdr.p_offset;
             }
             phdr.p_memsz = shdr.sh_addr + shdr.sh_size - phdr.p_vaddr;
@@ -3669,7 +3587,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
                 const next = shdrs[shndx];
                 if (next.sh_flags & elf.SHF_TLS == 0) break;
                 phdr.p_align = @max(phdr.p_align, next.sh_addralign);
-                if (next.sh_type != elf.SHT_NOBITS) {
+                if (next.sh_type != .NOBITS) {
                     phdr.p_filesz = next.sh_offset + next.sh_size - phdr.p_offset;
                 }
                 phdr.p_memsz = next.sh_addr + next.sh_size - phdr.p_vaddr;
@@ -3695,7 +3613,7 @@ fn writeAtoms(self: *Elf) !void {
     const slice = self.sections.slice();
     var has_reloc_errors = false;
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (shdr.sh_type == .NOBITS) continue;
         if (atom_list.atoms.keys().len == 0) continue;
         atom_list.write(&buffer, &undefs, self) catch |err| switch (err) {
             error.UnsupportedCpuArch => {
@@ -3804,8 +3722,8 @@ pub fn updateSymtabSize(self: *Elf) !void {
     symtab_shdr.sh_link = self.section_indexes.strtab.?;
 
     const sym_size: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Sym),
-        .p64 => @sizeOf(elf.Elf64_Sym),
+        .p32 => @sizeOf(elf.elf32.Sym),
+        .p64 => @sizeOf(elf.elf64.Sym),
     };
     const needed_size = (nlocals + nglobals) * sym_size;
     symtab_shdr.sh_size = needed_size;
@@ -3966,8 +3884,8 @@ pub fn writeSymtab(self: *Elf) !void {
     const symtab_shdr = slice.items(.shdr)[self.section_indexes.symtab.?];
     const strtab_shdr = slice.items(.shdr)[self.section_indexes.strtab.?];
     const sym_size: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Sym),
-        .p64 => @sizeOf(elf.Elf64_Sym),
+        .p32 => @sizeOf(elf.elf32.Sym),
+        .p64 => @sizeOf(elf.elf64.Sym),
     };
     const nsyms = try self.cast(usize, @divExact(symtab_shdr.sh_size, sym_size));
 
@@ -3993,7 +3911,9 @@ pub fn writeSymtab(self: *Elf) !void {
         out_sym.* = .{
             .st_name = 0,
             .st_value = shdr.sh_addr,
-            .st_info = if (shdr.sh_type == elf.SHT_NULL) elf.STT_NOTYPE else elf.STT_SECTION,
+            .st_info = .{
+                .type = if (shdr.sh_type == .NULL) .NOTYPE else .SECTION,
+            },
             .st_shndx = @intCast(shndx),
             .st_size = 0,
             .st_other = 0,
@@ -4037,7 +3957,7 @@ pub fn writeSymtab(self: *Elf) !void {
     const foreign_endian = self.getTarget().cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
+            const buf = try gpa.alloc(elf.elf32.Sym, self.symtab.items.len);
             defer gpa.free(buf);
 
             for (buf, self.symtab.items) |*out, sym| {
@@ -4049,13 +3969,13 @@ pub fn writeSymtab(self: *Elf) !void {
                     .st_value = @intCast(sym.st_value),
                     .st_size = @intCast(sym.st_size),
                 };
-                if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
+                if (foreign_endian) mem.byteSwapAllFields(elf.elf32.Sym, out);
             }
             try self.pwriteAll(mem.sliceAsBytes(buf), symtab_shdr.sh_offset);
         },
         .p64 => {
             if (foreign_endian) {
-                for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
+                for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.elf64.Sym, sym);
             }
             try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), symtab_shdr.sh_offset);
         },
@@ -4078,7 +3998,7 @@ pub fn archPtrWidthBytes(self: Elf) u8 {
     return @intCast(@divExact(self.getTarget().ptrBitWidth(), 8));
 }
 
-fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
+fn phdrTo32(phdr: elf.elf64.Phdr) elf.elf32.Phdr {
     return .{
         .p_type = phdr.p_type,
         .p_flags = phdr.p_flags,
@@ -4091,7 +4011,7 @@ fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
     };
 }
 
-fn shdrTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
+fn shdrTo32(shdr: elf.elf64.Shdr) elf.elf32.Shdr {
     return .{
         .sh_name = shdr.sh_name,
         .sh_type = shdr.sh_type,
@@ -4201,8 +4121,8 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
 }
 
 fn getPhdr(self: *Elf, opts: struct {
-    type: u32 = 0,
-    flags: u32 = 0,
+    type: elf.PT = .NULL,
+    flags: elf.PF = .{},
 }) OptionalProgramHeaderIndex {
     for (self.phdrs.items, 0..) |phdr, phndx| {
         if (self.phdr_indexes.table_load.int()) |index| {
@@ -4215,8 +4135,8 @@ fn getPhdr(self: *Elf, opts: struct {
 }
 
 fn addPhdr(self: *Elf, opts: struct {
-    type: u32 = 0,
-    flags: u32 = 0,
+    type: elf.PT = .NULL,
+    flags: elf.PF = .{},
     @"align": u64 = 0,
     offset: u64 = 0,
     addr: u64 = 0,
@@ -4239,17 +4159,15 @@ fn addPhdr(self: *Elf, opts: struct {
 }
 
 pub fn addRelaShdr(self: *Elf, name: u32, shndx: u32) !u32 {
-    const entsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Rela),
-        .p64 => @sizeOf(elf.Elf64_Rela),
+    const Rela = switch (self.ptr_width) {
+        .p32 => elf.elf32.Rela,
+        .p64 => elf.elf64.Rela,
     };
-    const addralign: u64 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Rela),
-        .p64 => @alignOf(elf.Elf64_Rela),
-    };
+    const entsize: u64 = @sizeOf(Rela);
+    const addralign: u64 = @alignOf(Rela);
     return self.addSection(.{
         .name = name,
-        .type = elf.SHT_RELA,
+        .type = .RELA,
         .flags = elf.SHF_INFO_LINK,
         .entsize = entsize,
         .info = shndx,
@@ -4259,7 +4177,7 @@ pub fn addRelaShdr(self: *Elf, name: u32, shndx: u32) !u32 {
 
 pub const AddSectionOpts = struct {
     name: u32 = 0,
-    type: u32 = elf.SHT_NULL,
+    type: elf.SHT = .NULL,
     flags: u64 = 0,
     link: u32 = 0,
     info: u32 = 0,
@@ -4324,9 +4242,9 @@ pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
 
 fn sortRelaDyn(self: *Elf) void {
     const Sort = struct {
-        fn rank(rel: elf.Elf64_Rela, ctx: *Elf) u2 {
+        fn rank(rel: elf.elf64.Rela, ctx: *Elf) u2 {
             const cpu_arch = ctx.getTarget().cpu.arch;
-            const r_type = rel.r_type();
+            const r_type = rel.r_info.type;
             const r_kind = relocation.decode(r_type, cpu_arch).?;
             return switch (r_kind) {
                 .rel => 0,
@@ -4335,15 +4253,15 @@ fn sortRelaDyn(self: *Elf) void {
             };
         }
 
-        pub fn lessThan(ctx: *Elf, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+        pub fn lessThan(ctx: *Elf, lhs: elf.elf64.Rela, rhs: elf.elf64.Rela) bool {
             if (rank(lhs, ctx) == rank(rhs, ctx)) {
-                if (lhs.r_sym() == rhs.r_sym()) return lhs.r_offset < rhs.r_offset;
-                return lhs.r_sym() < rhs.r_sym();
+                if (lhs.r_info.sym == rhs.r_info.sym) return lhs.r_offset < rhs.r_offset;
+                return lhs.r_info.sym < rhs.r_info.sym;
             }
             return rank(lhs, ctx) < rank(rhs, ctx);
         }
     };
-    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, self, Sort.lessThan);
+    mem.sort(elf.elf64.Rela, self.rela_dyn.items, self, Sort.lessThan);
 }
 
 pub fn calcNumIRelativeRelocs(self: *Elf) usize {
@@ -4358,7 +4276,7 @@ pub fn calcNumIRelativeRelocs(self: *Elf) usize {
     return count;
 }
 
-pub fn getStartStopBasename(self: Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
+pub fn getStartStopBasename(self: Elf, shdr: elf.elf64.Shdr) ?[]const u8 {
     const name = self.getShString(shdr.sh_name);
     if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
         if (Elf.isCIdentifier(name)) return name;
@@ -4711,10 +4629,10 @@ fn formatShdrFlags(
 
 const FormatPhdrCtx = struct {
     elf_file: *Elf,
-    phdr: elf.Elf64_Phdr,
+    phdr: elf.elf64.Phdr,
 };
 
-fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(formatPhdr) {
+fn fmtPhdr(self: *Elf, phdr: elf.elf64.Phdr) std.fmt.Formatter(formatPhdr) {
     return .{ .data = .{
         .phdr = phdr,
         .elf_file = self,
@@ -4730,23 +4648,21 @@ fn formatPhdr(
     _ = options;
     _ = unused_fmt_string;
     const phdr = ctx.phdr;
-    const write = phdr.p_flags & elf.PF_W != 0;
-    const read = phdr.p_flags & elf.PF_R != 0;
-    const exec = phdr.p_flags & elf.PF_X != 0;
+    const p_flags = phdr.p_flags;
     var flags: [3]u8 = [_]u8{'_'} ** 3;
-    if (exec) flags[0] = 'X';
-    if (write) flags[1] = 'W';
-    if (read) flags[2] = 'R';
+    if (p_flags.execute) flags[0] = 'X';
+    if (p_flags.write) flags[1] = 'W';
+    if (p_flags.read) flags[2] = 'R';
     const p_type = switch (phdr.p_type) {
-        elf.PT_LOAD => "LOAD",
-        elf.PT_TLS => "TLS",
-        elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
-        elf.PT_GNU_STACK => "GNU_STACK",
-        elf.PT_DYNAMIC => "DYNAMIC",
-        elf.PT_INTERP => "INTERP",
-        elf.PT_NULL => "NULL",
-        elf.PT_PHDR => "PHDR",
-        elf.PT_NOTE => "NOTE",
+        .LOAD => "LOAD",
+        .TLS => "TLS",
+        .GNU_EH_FRAME => "GNU_EH_FRAME",
+        .GNU_STACK => "GNU_STACK",
+        .DYNAMIC => "DYNAMIC",
+        .INTERP => "INTERP",
+        .NULL => "NULL",
+        .PHDR => "PHDR",
+        .NOTE => "NOTE",
         else => "UNKNOWN",
     };
     try writer.print("{s} : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})", .{
@@ -4949,18 +4865,18 @@ pub const SymtabCtx = struct {
     }
 };
 
-pub const null_sym = elf.Elf64_Sym{
+pub const null_sym = elf.elf64.Sym{
     .st_name = 0,
-    .st_info = 0,
+    .st_info = .{},
     .st_other = 0,
-    .st_shndx = 0,
+    .st_shndx = .UNDEF,
     .st_value = 0,
     .st_size = 0,
 };
 
-pub const null_shdr = elf.Elf64_Shdr{
+pub const null_shdr = elf.elf64.Shdr{
     .sh_name = 0,
-    .sh_type = 0,
+    .sh_type = .NULL,
     .sh_flags = 0,
     .sh_addr = 0,
     .sh_offset = 0,
@@ -5088,7 +5004,7 @@ pub const SymbolResolver = struct {
 
 const Section = struct {
     /// Section header.
-    shdr: elf.Elf64_Shdr,
+    shdr: elf.elf64.Shdr,
 
     /// Assigned program header index if any.
     phndx: OptionalProgramHeaderIndex = .none,
@@ -5191,9 +5107,9 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
             for (atom_ptr.relocs(elf_file)) |rel| {
                 const is_reachable = switch (cpu_arch) {
                     .aarch64 => r: {
-                        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+                        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_info.type);
                         if (r_type != .CALL26 and r_type != .JUMP26) break :r true;
-                        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+                        const target_ref = file_ptr.resolveSymbol(rel.r_info.sym, elf_file);
                         const target = elf_file.symbol(target_ref).?;
                         if (target.flags.has_plt) break :r false;
                         if (atom_ptr.output_section_index != target.output_section_index) break :r false;
@@ -5208,7 +5124,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
                     else => @panic("unsupported arch"),
                 };
                 if (is_reachable) continue;
-                const target = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+                const target = file_ptr.resolveSymbol(rel.r_info.sym, elf_file);
                 try thunk_ptr.symbols.put(gpa, target, {});
             }
             atom_ptr.addExtra(.{ .thunk = thunk_index }, elf_file);

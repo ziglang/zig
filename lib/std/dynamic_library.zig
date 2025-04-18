@@ -85,11 +85,11 @@ const RDebug = extern struct {
 
 /// TODO make it possible to reference this same external symbol 2x so we don't need this
 /// helper function.
-pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
+pub fn get_DYNAMIC() ?[*]elf.native.Dyn {
+    return @extern([*]elf.native.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
 }
 
-pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
+pub fn linkmap_iterator(phdrs: []elf.native.Phdr) error{InvalidExe}!LinkMap.Iterator {
     _ = phdrs;
     const _DYNAMIC = get_DYNAMIC() orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
@@ -99,16 +99,16 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
 
     const link_map_ptr = init: {
         var i: usize = 0;
-        while (_DYNAMIC[i].d_tag != elf.DT_NULL) : (i += 1) {
+        while (_DYNAMIC[i].d_tag != .NULL) : (i += 1) {
             switch (_DYNAMIC[i].d_tag) {
-                elf.DT_DEBUG => {
+                .DEBUG => {
                     const ptr = @as(?*RDebug, @ptrFromInt(_DYNAMIC[i].d_val));
                     if (ptr) |r_debug| {
                         if (r_debug.r_version != 1) return error.InvalidExe;
                         break :init r_debug.r_map;
                     }
                 },
-                elf.DT_PLTGOT => {
+                .PLTGOT => {
                     const ptr = @as(?[*]usize, @ptrFromInt(_DYNAMIC[i].d_val));
                     if (ptr) |got_table| {
                         // The address to the link_map structure is stored in
@@ -255,10 +255,10 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
+                const ph = @as(*elf.native.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
-                    elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
-                    elf.PT_DYNAMIC => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
+                    .LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
+                    .DYNAMIC => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
                     else => {},
                 }
             }
@@ -286,9 +286,9 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
+                const ph = @as(*elf.native.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
-                    elf.PT_LOAD => {
+                    .LOAD => {
                         // The VirtAddr may not be page-aligned; in such case there will be
                         // extra nonsense mapped before/after the VirtAddr,MemSiz
                         const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, page_size) - 1);
@@ -296,7 +296,7 @@ pub const ElfDynLib = struct {
                         const extended_memsz = mem.alignForward(usize, ph.p_memsz + extra_bytes, page_size);
                         const ptr = @as([*]align(std.heap.page_size_min) u8, @ptrFromInt(aligned_addr));
                         const prot = elfToMmapProt(ph.p_flags);
-                        if ((ph.p_flags & elf.PF_W) == 0) {
+                        if (!ph.p_flags.write) {
                             // If it does not need write access, it can be mapped from the fd.
                             _ = try posix.mmap(
                                 ptr,
@@ -334,13 +334,14 @@ pub const ElfDynLib = struct {
             var i: usize = 0;
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
-                switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @ptrFromInt(p),
-                    elf.DT_SYMTAB => maybe_syms = @ptrFromInt(p),
-                    elf.DT_HASH => maybe_hashtab = @ptrFromInt(p),
-                    elf.DT_GNU_HASH => maybe_gnu_hash = @ptrFromInt(p),
-                    elf.DT_VERSYM => maybe_versym = @ptrFromInt(p),
-                    elf.DT_VERDEF => maybe_verdef = @ptrFromInt(p),
+                const d_tag: elf.native.DT = @enumFromInt(dynv[i]);
+                switch (d_tag) {
+                    .STRTAB => maybe_strings = @ptrFromInt(p),
+                    .SYMTAB => maybe_syms = @ptrFromInt(p),
+                    .HASH => maybe_hashtab = @ptrFromInt(p),
+                    .GNU_HASH => maybe_gnu_hash = @ptrFromInt(p),
+                    .VERSYM => maybe_versym = @ptrFromInt(p),
+                    .VERDEF => maybe_verdef = @ptrFromInt(p),
                     else => {},
                 }
             }
@@ -535,7 +536,7 @@ pub const ElfDynLib = struct {
 
 fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
-    const vsym_index = vsym_arg.VERSION;
+    const vsym_index = vsym_arg.version;
     while (true) {
         if (0 == (def.flags & elf.VER_FLG_BASE) and @intFromEnum(def.ndx) == vsym_index) break;
         if (def.next == 0) return false;
