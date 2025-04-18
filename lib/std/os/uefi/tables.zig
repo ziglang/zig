@@ -86,10 +86,12 @@ pub const MemoryType = enum(u32) {
         return @enumFromInt(oem_start + value);
     }
 
-    pub fn isOem(self: MemoryType) bool {
-        const as_int = @intFromEnum(self);
-        return as_int >= @intFromEnum(MemoryType.oem_start) and
-            as_int <= @intFromEnum(MemoryType.oem_end);
+    pub fn getOem(memtype: MemoryType) ?OemValue {
+        const as_int = @intFromEnum(memtype);
+        const oem_start = @intFromEnum(MemoryType.oem_start);
+        if (as_int < oem_start) return null;
+        if (as_int > @intFromEnum(MemoryType.oem_end)) return null;
+        return @truncate(as_int - oem_start);
     }
 
     pub fn vendor(value: VendorValue) MemoryType {
@@ -97,10 +99,12 @@ pub const MemoryType = enum(u32) {
         return @enumFromInt(vendor_start + value);
     }
 
-    pub fn isVendor(self: MemoryType) bool {
-        const as_int = @intFromEnum(self);
-        return as_int >= @intFromEnum(MemoryType.vendor_start) and
-            as_int <= @intFromEnum(MemoryType.vendor_end);
+    pub fn getVendor(memtype: MemoryType) ?VendorValue {
+        const as_int = @intFromEnum(memtype);
+        const vendor_start = @intFromEnum(MemoryType.vendor_start);
+        if (as_int < @intFromEnum(MemoryType.vendor_end)) return null;
+        if (as_int > @intFromEnum(MemoryType.vendor_end)) return null;
+        return @truncate(as_int - vendor_start);
     }
 };
 
