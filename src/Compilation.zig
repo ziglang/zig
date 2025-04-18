@@ -5976,23 +5976,35 @@ pub fn addCCArgs(
                 }
             }
 
-            // It would be really nice if there was a more compact way to communicate this info to Clang.
-            const all_features_list = target.cpu.arch.allFeaturesList();
-            try argv.ensureUnusedCapacity(all_features_list.len * 4);
-            for (all_features_list, 0..) |feature, index_usize| {
-                const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-                const is_enabled = target.cpu.features.isEnabled(index);
+            {
+                const all_features_list = target.cpu.arch.allFeaturesList();
+                var llvm_cpu_features: std.ArrayListUnmanaged(u8) = .empty;
+                for (all_features_list, 0..) |feature, index_usize| {
+                    const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
+                    const is_enabled = target.cpu.features.isEnabled(index);
 
-                if (feature.llvm_name) |llvm_name| {
-                    // We communicate float ABI to Clang through the dedicated options.
-                    if (std.mem.startsWith(u8, llvm_name, "soft-float") or
-                        std.mem.startsWith(u8, llvm_name, "hard-float"))
-                        continue;
+                    if (feature.llvm_name) |llvm_name| {
+                        // We communicate float ABI to Clang through the dedicated options.
+                        if (std.mem.startsWith(u8, llvm_name, "soft-float") or
+                            std.mem.startsWith(u8, llvm_name, "hard-float"))
+                            continue;
 
-                    argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
-                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                    const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
-                    argv.appendAssumeCapacity(arg);
+                        try llvm_cpu_features.ensureUnusedCapacity(arena, 1 + llvm_name.len + 1);
+
+                        llvm_cpu_features.appendAssumeCapacity("-+"[@intFromBool(is_enabled)]);
+                        llvm_cpu_features.appendSliceAssumeCapacity(llvm_name);
+                        llvm_cpu_features.appendAssumeCapacity(',');
+                    }
+                }
+
+                if (llvm_cpu_features.items.len != 0) {
+                    try argv.appendSlice(&.{
+                        "-Xclang",
+                        "-target-feature",
+                        "-Xclang",
+                        // Clang doesn't mind a trailing comma, but let's be nice anyway.
+                        llvm_cpu_features.items[0 .. llvm_cpu_features.items.len - 1],
+                    });
                 }
             }
 
