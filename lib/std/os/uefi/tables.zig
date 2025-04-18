@@ -1,3 +1,12 @@
+const std = @import("std");
+const uefi = std.os.uefi;
+const Handle = uefi.Handle;
+const Event = uefi.Event;
+const Guid = uefi.Guid;
+const cc = uefi.cc;
+const math = std.math;
+const assert = std.debug.assert;
+
 pub const BootServices = @import("tables/boot_services.zig").BootServices;
 pub const RuntimeServices = @import("tables/runtime_services.zig").RuntimeServices;
 pub const ConfigurationTable = @import("tables/configuration_table.zig").ConfigurationTable;
@@ -13,6 +22,19 @@ pub const TimerDelay = enum(u32) {
 };
 
 pub const MemoryType = enum(u32) {
+    pub const InvalidValue = math.IntFittingRange(
+        @intFromEnum(MemoryType.invalid_start),
+        @intFromEnum(MemoryType.invalid_end),
+    );
+    pub const OemValue = math.IntFittingRange(
+        @intFromEnum(MemoryType.oem_start),
+        @intFromEnum(MemoryType.oem_end),
+    );
+    pub const VendorValue = math.IntFittingRange(
+        @intFromEnum(MemoryType.vendor_start),
+        @intFromEnum(MemoryType.vendor_end),
+    );
+
     /// can only be allocated using .allocate_any_pages mode unless you are explicitly targeting an interface that states otherwise
     reserved_memory_type,
     loader_code,
@@ -35,24 +57,44 @@ pub const MemoryType = enum(u32) {
     persistent_memory,
     unaccepted_memory,
     max_memory_type,
-    // per https://github.com/tianocore/edk2/blob/59805c7697c801be8b08e5169bc2300d821c419d/MdePkg/Include/Uefi/UefiSpec.h#L191-L195
-    max_invalid_memory_type = 0x6FFFFFFF,
+    invalid_start,
+    invalid_end = 0x6FFFFFFF,
+    /// MemoryType values in the range 0x70000000..0x7FFFFFFF are reserved for OEM use.
     oem_start = 0x70000000,
     oem_end = 0x7FFFFFFF,
+    /// MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by UEFI
+    /// OS loaders that are provided by operating system vendors.
     vendor_start = 0x80000000,
     vendor_end = 0xFFFFFFFF,
     _,
 
-    pub fn isInvalid(self: MemoryType) bool {
-        const as_int = @intFromEnum(self);
-        return as_int >= @intFromEnum(MemoryType.max_memory_type) and
-            as_int <= @intFromEnum(MemoryType.max_invalid_memory_type);
+    pub fn invalid(value: InvalidValue) MemoryType {
+        const invalid_start = @intFromEnum(MemoryType.invalid_start);
+        return @enumFromInt(invalid_start + value);
+    }
+
+    pub fn getInvalid(memtype: MemoryType) ?InvalidValue {
+        const as_int = @intFromEnum(memtype);
+        const invalid_start = @intFromEnum(MemoryType.invalid_start);
+        if (as_int < invalid_start) return null;
+        if (as_int > @intFromEnum(MemoryType.invalid_end)) return null;
+        return @truncate(as_int - invalid_start);
+    }
+
+    pub fn oem(value: OemValue) MemoryType {
+        const oem_start = @intFromEnum(MemoryType.oem_start);
+        return @enumFromInt(oem_start + value);
     }
 
     pub fn isOem(self: MemoryType) bool {
         const as_int = @intFromEnum(self);
         return as_int >= @intFromEnum(MemoryType.oem_start) and
             as_int <= @intFromEnum(MemoryType.oem_end);
+    }
+
+    pub fn vendor(value: VendorValue) MemoryType {
+        const vendor_start = @intFromEnum(MemoryType.vendor_start);
+        return @enumFromInt(vendor_start + value);
     }
 
     pub fn isVendor(self: MemoryType) bool {
@@ -95,6 +137,7 @@ pub const MemoryMapInfo = struct {
     key: MemoryMapKey,
     descriptor_size: usize,
     descriptor_version: u32,
+    /// The number of descriptors in the map.
     len: usize,
 };
 
@@ -107,7 +150,7 @@ pub const MemoryMapSlice = struct {
     }
 
     pub fn get(self: MemoryMapSlice, index: usize) ?*MemoryDescriptor {
-        if (index * self.info.descriptor_size >= self.info.len) return null;
+        if (index >= self.info.len) return null;
         return self.getUnchecked(index);
     }
 
@@ -257,10 +300,3 @@ pub const global_variable = Guid{
 test {
     std.testing.refAllDeclsRecursive(@This());
 }
-
-const std = @import("std");
-const uefi = std.os.uefi;
-const Handle = uefi.Handle;
-const Event = uefi.Event;
-const Guid = uefi.Guid;
-const cc = uefi.cc;

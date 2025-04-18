@@ -416,7 +416,10 @@ pub const BootServices = extern struct {
             &info.descriptor_size,
             &info.descriptor_version,
         )) {
-            .success, .buffer_too_small => return info,
+            .success, .buffer_too_small => {
+                info.len = @divExact(info.len, info.descriptor_size);
+                return info;
+            },
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -435,7 +438,10 @@ pub const BootServices = extern struct {
             &info.descriptor_size,
             &info.descriptor_version,
         )) {
-            .success => return .{ .info = info, .ptr = buffer.ptr },
+            .success => {
+                info.len = @divExact(info.len, info.descriptor_size);
+                return .{ .info = info, .ptr = buffer.ptr };
+            },
             .buffer_too_small => return Error.BufferTooSmall,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
