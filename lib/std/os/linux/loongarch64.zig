@@ -260,6 +260,7 @@ pub const mcontext_t = extern struct {
     extcontext: [0]u64 align(16),
 };
 
+/// I think this is trying to be a glibc-compatible ucontext_t (with the extra padding)
 pub const ucontext_t = extern struct {
     flags: c_ulong,
     link: ?*ucontext_t,
