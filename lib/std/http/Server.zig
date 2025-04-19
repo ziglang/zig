@@ -875,49 +875,86 @@ pub const Response = struct {
 
     /// When using content-length, asserts that the amount of data sent matches
     /// the value sent in the header, then calls `flush`.
+    ///
     /// Otherwise, transfer-encoding: chunked is being used, and it writes the
-    /// end-of-stream message, then flushes the stream to the system.
+    /// end-of-stream message with empty trailers, then flushes the stream to
+    /// the system.
+    ///
     /// Respects the value of `elide_body` to omit all data after the headers.
+    ///
+    /// Sets `r` to undefined.
+    ///
+    /// See also:
+    /// * `endUnflushed`
+    /// * `endChunked`
     pub fn end(r: *Response) WriteError!void {
-        switch (r.transfer_encoding) {
-            .content_length => |len| {
-                assert(len == 0); // Trips when end() called before all bytes written.
-                try flushContentLength(r);
-            },
-            .none => {
-                try flushContentLength(r);
-            },
-            .chunked => {
-                try flushChunked(r, &.{});
-            },
-        }
+        try endUnflushed(r);
+        try r.server_output.flush();
         r.* = undefined;
+    }
+
+    /// When using content-length, asserts that the amount of data sent matches
+    /// the value sent in the header.
+    ///
+    /// Otherwise, transfer-encoding: chunked is being used, and it writes the
+    /// end-of-stream message with empty trailers.
+    ///
+    /// Respects the value of `elide_body` to omit all data after the headers.
+    ///
+    /// See also:
+    /// * `end`
+    /// * `endChunked`
+    pub fn endUnflushed(r: *Response) WriteError!void {
+        switch (r.transfer_encoding) {
+            .content_length => |len| assert(len == 0), // Trips when end() called before all bytes written.
+            .none => {},
+            .chunked => try endChunked(r, .{}),
+        }
     }
 
     pub const EndChunkedOptions = struct {
         trailers: []const http.Header = &.{},
     };
 
+    /// Writes the end-of-stream message and any optional trailers.
+    ///
+    /// Does not flush.
+    ///
     /// Asserts that the Response is using transfer-encoding: chunked.
-    /// Writes the end-of-stream message and any optional trailers, then
-    /// flushes the stream to the system.
+    ///
     /// Respects the value of `elide_body` to omit all data after the headers.
-    /// Asserts there are at most 25 trailers.
+    ///
+    /// See also:
+    /// * `end`
+    /// * `endUnflushed`
     pub fn endChunked(r: *Response, options: EndChunkedOptions) WriteError!void {
-        assert(r.transfer_encoding == .chunked);
-        try flushChunked(r, options.trailers);
-        r.* = undefined;
-    }
-
-    /// If using content-length, asserts that writing these bytes to the client
-    /// would not exceed the content-length value sent in the HTTP header.
-    /// May return 0, which does not indicate end of stream. The caller decides
-    /// when the end of stream occurs by calling `end`.
-    pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
-        switch (r.transfer_encoding) {
-            .content_length, .none => return contentLengthWriteSplat(r, &.{bytes}, 1),
-            .chunked => return chunkedWriteSplat(r, &.{bytes}, 1),
+        const chunked = &r.transfer_encoding.chunked;
+        if (r.elide_body) return;
+        const bw = r.server_output;
+        switch (chunked.*) {
+            .offset => |offset| {
+                const chunk_len = bw.end - offset - chunk_header_template.len;
+                writeHex(bw.buffer[offset..][0..chunk_len_digits], chunk_len);
+                try bw.writeAll("\r\n");
+            },
+            .chunk_len => |chunk_len| switch (chunk_len) {
+                0 => {},
+                1 => try bw.writeByte('\n'),
+                2 => try bw.writeAll("\r\n"),
+                else => unreachable, // An earlier write call indicated more data would follow.
+            },
         }
+        if (options.trailers.len > 0) {
+            try bw.writeAll("0\r\n");
+            for (options.trailers) |trailer| {
+                try bw.writeAll(trailer.name);
+                try bw.writeAll(": ");
+                try bw.writeAll(trailer.value);
+                try bw.writeAll("\r\n");
+            }
+            try bw.writeAll("\r\n");
+        }
+        r.* = undefined;
     }
 
     fn contentLengthWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
@@ -1017,32 +1054,30 @@ pub const Response = struct {
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
-            .chunk_len => |chunk_len| {
-                l: switch (chunk_len) {
-                    0 => {
-                        const header_buf = try bw.writableArray(chunk_header_template.len);
-                        const off = bw.end;
-                        @memcpy(header_buf, chunk_header_template);
-                        chunked.* = .{ .offset = off };
-                        continue :state .{ .offset = off };
-                    },
-                    1 => {
-                        try bw.writeByte('\n');
-                        chunked.chunk_len = 0;
-                        continue :l 0;
-                    },
-                    2 => {
-                        try bw.writeByte('\r');
-                        chunked.chunk_len = 1;
-                        continue :l 1;
-                    },
-                    else => {
-                        const new_limit = limit.min(.limited(chunk_len - 2));
-                        const n = try bw.writeFile(file, offset, new_limit, headers_and_trailers, headers_len);
-                        chunked.chunk_len = chunk_len - n;
-                        return n;
-                    },
-                }
+            .chunk_len => |chunk_len| l: switch (chunk_len) {
+                0 => {
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const off = bw.end;
+                    @memcpy(header_buf, chunk_header_template);
+                    chunked.* = .{ .offset = off };
+                    continue :state .{ .offset = off };
+                },
+                1 => {
+                    try bw.writeByte('\n');
+                    chunked.chunk_len = 0;
+                    continue :l 0;
+                },
+                2 => {
+                    try bw.writeByte('\r');
+                    chunked.chunk_len = 1;
+                    continue :l 1;
+                },
+                else => {
+                    const new_limit = limit.min(.limited(chunk_len - 2));
+                    const n = try bw.writeFile(file, offset, new_limit, headers_and_trailers, headers_len);
+                    chunked.chunk_len = chunk_len - n;
+                    return n;
+                },
             },
         }
     }
@@ -1068,31 +1103,29 @@ pub const Response = struct {
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
-            .chunk_len => |chunk_len| {
-                l: switch (chunk_len) {
-                    0 => {
-                        const header_buf = try bw.writableArray(chunk_header_template.len);
-                        const offset = bw.end;
-                        @memcpy(header_buf, chunk_header_template);
-                        chunked.* = .{ .offset = offset };
-                        continue :state .{ .offset = offset };
-                    },
-                    1 => {
-                        try bw.writeByte('\n');
-                        chunked.chunk_len = 0;
-                        continue :l 0;
-                    },
-                    2 => {
-                        try bw.writeByte('\r');
-                        chunked.chunk_len = 1;
-                        continue :l 1;
-                    },
-                    else => {
-                        const n = try bw.writeSplatLimit(data, splat, .limited(chunk_len - 2));
-                        chunked.chunk_len = chunk_len - n;
-                        return n;
-                    },
-                }
+            .chunk_len => |chunk_len| l: switch (chunk_len) {
+                0 => {
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const offset = bw.end;
+                    @memcpy(header_buf, chunk_header_template);
+                    chunked.* = .{ .offset = offset };
+                    continue :state .{ .offset = offset };
+                },
+                1 => {
+                    try bw.writeByte('\n');
+                    chunked.chunk_len = 0;
+                    continue :l 0;
+                },
+                2 => {
+                    try bw.writeByte('\r');
+                    chunked.chunk_len = 1;
+                    continue :l 1;
+                },
+                else => {
+                    const n = try bw.writeSplatLimit(data, splat, .limited(chunk_len - 2));
+                    chunked.chunk_len = chunk_len - n;
+                    return n;
+                },
             },
         }
     }
@@ -1110,87 +1143,6 @@ pub const Response = struct {
             buf[index] = std.fmt.digitToChar(@intCast(digit), .lower);
             a /= base;
         }
-    }
-
-    /// Sends all buffered data to the client.
-    /// This is redundant after calling `end`.
-    /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn flush(r: *Response) Error!void {
-        switch (r.transfer_encoding) {
-            .none, .content_length => return flushContentLength(r),
-            .chunked => return flushChunked(r, null),
-        }
-    }
-
-    fn flushContentLength(r: *Response) Error!void {
-        try r.out.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
-        r.send_buffer_start = 0;
-        r.send_buffer_end = 0;
-    }
-
-    fn flushChunked(r: *Response, end_trailers: ?[]const http.Header) Error!void {
-        const max_trailers = 25;
-        if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
-        assert(r.transfer_encoding == .chunked);
-
-        const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
-
-        if (r.elide_body) {
-            try r.out.writeAll(http_headers);
-            r.send_buffer_start = 0;
-            r.send_buffer_end = 0;
-            r.chunk_len = 0;
-            return;
-        }
-
-        var header_buf: [18]u8 = undefined;
-        const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{r.chunk_len}) catch unreachable;
-
-        var iovecs: [max_trailers * 4 + 5][]const u8 = undefined;
-        var iovecs_len: usize = 0;
-
-        iovecs[iovecs_len] = http_headers;
-        iovecs_len += 1;
-
-        if (r.chunk_len > 0) {
-            iovecs[iovecs_len] = chunk_header;
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = r.send_buffer[r.send_buffer_end - r.chunk_len ..][0..r.chunk_len];
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = "\r\n";
-            iovecs_len += 1;
-        }
-
-        if (end_trailers) |trailers| {
-            iovecs[iovecs_len] = "0\r\n";
-            iovecs_len += 1;
-
-            for (trailers) |trailer| {
-                iovecs[iovecs_len] = trailer.name;
-                iovecs_len += 1;
-
-                iovecs[iovecs_len] = ": ";
-                iovecs_len += 1;
-
-                if (trailer.value.len != 0) {
-                    iovecs[iovecs_len] = trailer.value;
-                    iovecs_len += 1;
-                }
-
-                iovecs[iovecs_len] = "\r\n";
-                iovecs_len += 1;
-            }
-
-            iovecs[iovecs_len] = "\r\n";
-            iovecs_len += 1;
-        }
-
-        try r.out.writeVecAll(iovecs[0..iovecs_len]);
-        r.send_buffer_start = 0;
-        r.send_buffer_end = 0;
-        r.chunk_len = 0;
     }
 
     pub fn writer(r: *Response) std.io.Writer {

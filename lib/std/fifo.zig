@@ -261,10 +261,10 @@ pub fn LinearFifo(
             _ = data;
             @panic("TODO");
         }
-        fn readerDiscard(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+        fn readerDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
             const fifo: *Self = @alignCast(@ptrCast(ctx));
             _ = fifo;
-            _ = data;
+            _ = limit;
             @panic("TODO");
         }
 
