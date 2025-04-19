@@ -262,7 +262,7 @@ pub fn StackMachine(comptime options: Options) type {
         ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
             var reader: std.io.BufferedReader = undefined;
-            reader.initFixed(expression);
+            reader.initFixed(@constCast(expression));
             while (try self.step(&reader, allocator, context)) {}
             if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
@@ -721,7 +721,7 @@ pub fn StackMachine(comptime options: Options) type {
                         if (context.thread_context == null) return error.IncompleteExpressionContext;
 
                         var block_reader: std.io.BufferedReader = undefined;
-                        block_reader.initFixed(block);
+                        block_reader.initFixed(@constCast(block));
                         const register = (try readOperand(&block_reader, block[0], context)).?.register;
                         const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                         try self.stack.append(allocator, .{ .generic = value });
