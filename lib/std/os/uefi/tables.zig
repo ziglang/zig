@@ -258,8 +258,8 @@ pub const InterfaceType = enum(u32) {
 
 pub const AllocateLocation = union(AllocateType) {
     allocate_any_pages,
-    allocate_max_address: [*]align(4096) uefi.Page,
-    allocate_address: [*]align(4096) uefi.Page,
+    allocate_max_address: [*]uefi.Page,
+    allocate_address: [*]uefi.Page,
 };
 
 pub const AllocateType = enum(u32) {

@@ -24,7 +24,9 @@ pub var handle: Handle = undefined;
 pub var system_table: *tables.SystemTable = undefined;
 
 /// UEFI's memory interfaces exclusively act on 4096-byte pages.
-pub const Page = [4096]u8;
+pub const Page = struct {
+    page: [4096]u8 align(4096),
+};
 
 /// A handle to an event structure.
 pub const Event = *opaque {};
