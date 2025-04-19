@@ -33,10 +33,12 @@ pub const VTable = struct {
     writeFile: *const fn (
         ctx: ?*anyopaque,
         file: std.fs.File,
-        /// If this is `none`, `file` will be streamed. Otherwise, it will be
-        /// read positionally without affecting the seek position.
+        /// If this is `none`, `file` will be streamed, affecting the seek
+        /// position. Otherwise, it will be read positionally without affecting
+        /// the seek position.
         offset: Offset,
-        /// Maximum amount of bytes to read from the file.
+        /// Maximum amount of bytes to read from the file. Implementations may
+        /// assume that the file size does not exceed this amount.
         limit: Limit,
         /// Headers and trailers must be passed together so that in case `len` is
         /// zero, they can be forwarded directly to `VTable.writeVec`.
