@@ -474,6 +474,54 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
     };
 }
 
+pub fn isDynamicAMDGCNFeature(target: std.Target, feature: std.Target.Cpu.Feature) bool {
+    if (target.cpu.arch != .amdgcn) return false;
+
+    const sramecc_only = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1010,
+        &std.Target.amdgcn.cpu.gfx1011,
+        &std.Target.amdgcn.cpu.gfx1012,
+        &std.Target.amdgcn.cpu.gfx1013,
+    };
+    const xnack_or_sramecc = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1030,
+        &std.Target.amdgcn.cpu.gfx1031,
+        &std.Target.amdgcn.cpu.gfx1032,
+        &std.Target.amdgcn.cpu.gfx1033,
+        &std.Target.amdgcn.cpu.gfx1034,
+        &std.Target.amdgcn.cpu.gfx1035,
+        &std.Target.amdgcn.cpu.gfx1036,
+        &std.Target.amdgcn.cpu.gfx1100,
+        &std.Target.amdgcn.cpu.gfx1101,
+        &std.Target.amdgcn.cpu.gfx1102,
+        &std.Target.amdgcn.cpu.gfx1103,
+        &std.Target.amdgcn.cpu.gfx1150,
+        &std.Target.amdgcn.cpu.gfx1151,
+        &std.Target.amdgcn.cpu.gfx1152,
+        &std.Target.amdgcn.cpu.gfx1153,
+        &std.Target.amdgcn.cpu.gfx1200,
+        &std.Target.amdgcn.cpu.gfx1201,
+    };
+    const feature_tag: std.Target.amdgcn.Feature = @enumFromInt(feature.index);
+
+    if (feature_tag == .sramecc) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            sramecc_only ++ xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+    if (feature_tag == .xnack) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+
+    return false;
+}
+
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
