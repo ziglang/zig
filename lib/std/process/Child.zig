@@ -1012,8 +1012,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 fn readIntFd(fd: i32) !ErrInt {
     var fr = std.fs.File.reader(.{ .handle = fd });
     var buffer: [8]u8 = undefined;
-    var br: std.io.BufferedReader = undefined;
-    br.init(fr.interface(), &buffer);
+    var br = fr.interface().buffered(&buffer);
     return @intCast(br.takeInt(u64, .little) catch return error.SystemResources);
 }
 

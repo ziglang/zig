@@ -9,19 +9,12 @@ const Reader = std.io.Reader;
 
 const BufferedReader = @This();
 
-/// Number of bytes which have been consumed from `storage`.
-seek: usize,
-storage: BufferedWriter,
 unbuffered_reader: Reader,
-
-pub fn init(br: *BufferedReader, r: Reader, buffer: []u8) void {
-    br.* = .{
-        .seek = 0,
-        .storage = undefined,
-        .unbuffered_reader = r,
-    };
-    br.storage.initFixed(buffer);
-}
+buffer: []u8,
+/// In `buffer` before this are buffered bytes, after this is `undefined`.
+end: usize,
+/// Number of bytes which have been consumed from `buffer`.
+seek: usize,
 
 /// Constructs `br` such that it will read from `buffer` and then end.
 ///
@@ -29,25 +22,15 @@ pub fn init(br: *BufferedReader, r: Reader, buffer: []u8) void {
 /// and if they are avoided then `buffer` can be safely used with `@constCast`.
 pub fn initFixed(br: *BufferedReader, buffer: []u8) void {
     br.* = .{
-        .seek = 0,
-        .storage = .{
-            .buffer = buffer,
-            .unbuffered_writer = .failing,
-        },
         .unbuffered_reader = .ending,
+        .buffer = buffer,
+        .end = buffer.len,
+        .seek = 0,
     };
 }
 
-pub fn storageBuffer(br: *BufferedReader) []u8 {
-    const storage = &br.storage;
-    assert(storage.unbuffered_writer.vtable == std.io.Writer.failing.vtable);
-    assert(br.unbuffered_reader.vtable == Reader.ending.vtable);
-    return storage.buffer;
-}
-
 pub fn bufferContents(br: *BufferedReader) []u8 {
-    const storage = &br.storage;
-    return storage.buffer[br.seek..storage.end];
+    return br.buffer[br.seek..br.end];
 }
 
 /// Although `BufferedReader` can easily satisfy the `Reader` interface, it's
@@ -65,8 +48,7 @@ pub fn reader(br: *BufferedReader) Reader {
 
 fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
-    const storage = &br.storage;
-    const buffer = storage.buffer[0..storage.end];
+    const buffer = br.buffer[0..br.end];
     const buffered = buffer[br.seek..];
     const limited = buffered[0..limit.min(buffered.len)];
     if (limited.len > 0) {
@@ -89,7 +71,7 @@ pub fn seekBy(br: *BufferedReader, seek_by: i64) !void {
 }
 
 pub fn seekBackwardBy(br: *BufferedReader, seek_by: u64) !void {
-    if (seek_by > br.storage.end - br.seek) return error.Unseekable; // TODO
+    if (seek_by > br.end - br.seek) return error.Unseekable; // TODO
     br.seek += @abs(seek_by);
 }
 
@@ -115,10 +97,9 @@ pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) !void {
 /// * `tryPeekArray`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
-    const storage = &br.storage;
-    assert(n <= storage.buffer.len);
+    assert(n <= br.buffer.len);
     try br.fill(n);
-    return storage.buffer[br.seek..][0..n];
+    return br.buffer[br.seek..][0..n];
 }
 
 /// Returns all the next buffered bytes from `unbuffered_reader`, after filling
@@ -137,10 +118,9 @@ pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 /// * `tryPeekGreedy`
 /// * `toss`
 pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
-    const storage = &br.storage;
-    assert(n <= storage.buffer.len);
+    assert(n <= br.buffer.len);
     try br.fill(n);
-    return storage.buffer[br.seek..storage.end];
+    return br.buffer[br.seek..br.end];
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position. This
@@ -153,7 +133,7 @@ pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 /// * `discard`.
 pub fn toss(br: *BufferedReader, n: usize) void {
     br.seek += n;
-    assert(br.seek <= br.storage.end);
+    assert(br.seek <= br.end);
 }
 
 /// Equivalent to `peek` followed by `toss`.
@@ -207,15 +187,14 @@ pub fn discard(br: *BufferedReader, n: usize) Reader.Error!void {
 /// * `toss`
 /// * `discardRemaining`
 pub fn discardShort(br: *BufferedReader, n: usize) Reader.ShortError!usize {
-    const storage = &br.storage;
     const proposed_seek = br.seek + n;
-    if (proposed_seek <= storage.end) {
+    if (proposed_seek <= br.end) {
         @branchHint(.likely);
         br.seek = proposed_seek;
         return n;
     }
-    var remaining = n - (storage.end - br.seek);
-    storage.end = 0;
+    var remaining = n - (br.end - br.seek);
+    br.end = 0;
     br.seek = 0;
     while (true) {
         const discard_len = br.unbuffered_reader.discard(.limited(remaining)) catch |err| switch (err) {
@@ -230,9 +209,8 @@ pub fn discardShort(br: *BufferedReader, n: usize) Reader.ShortError!usize {
 /// Reads the stream until the end, ignoring all the data.
 /// Returns the number of bytes discarded.
 pub fn discardRemaining(br: *BufferedReader) Reader.ShortError!usize {
-    const storage = &br.storage;
-    const buffered_len = storage.end;
-    storage.end = 0;
+    const buffered_len = br.end;
+    br.end = 0;
     return buffered_len + try br.unbuffered_reader.discardRemaining();
 }
 
@@ -247,36 +225,25 @@ pub fn discardRemaining(br: *BufferedReader) Reader.ShortError!usize {
 /// See also:
 /// * `peek`
 pub fn read(br: *BufferedReader, buffer: []u8) Reader.Error!void {
-    const storage = &br.storage;
-    const in_buffer = storage.buffer[0..storage.end];
-    const seek = br.seek;
-    const proposed_seek = seek + in_buffer.len;
-    if (proposed_seek <= in_buffer.len) {
-        @memcpy(buffer, in_buffer[seek..proposed_seek]);
-        br.seek = proposed_seek;
+    const in_buffer = br.buffer[br.seek..br.end];
+    const copy_len = @min(buffer.len, in_buffer.len);
+    @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
+    if (copy_len == buffer.len) {
+        br.seek += copy_len;
         return;
     }
-    @memcpy(buffer[0..in_buffer.len], in_buffer);
-    storage.end = 0;
+    var i: usize = copy_len;
+    br.end = 0;
     br.seek = 0;
-    var i: usize = in_buffer.len;
     while (true) {
-        // TODO if remaining buffer len is greater than storage len, read directly into buffer
-        const read_len = br.unbuffered_reader.read(storage, .unlimited) catch |err| switch (err) {
-            error.WriteFailed => storage.end,
-            else => |e| return e,
-        };
-        assert(read_len == storage.end);
-        const next_i = i + storage.end;
-        if (next_i >= buffer.len) {
-            const remaining = buffer[i..];
-            @memcpy(remaining, storage.buffer[0..remaining.len]);
-            br.seek = remaining.len;
-            return;
+        const remaining = buffer[i..];
+        const n = try br.unbuffered_reader.readVec(&.{ remaining, br.buffer });
+        if (n < remaining.len) {
+            i += n;
+            continue;
         }
-        @memcpy(buffer[i..next_i], storage.buffer[0..storage.end]);
-        storage.end = 0;
-        i = next_i;
+        br.end = n - remaining.len;
+        return;
     }
 }
 
@@ -365,8 +332,8 @@ pub const DelimiterExclusiveError = error{
 pub fn takeDelimiterExclusive(br: *BufferedReader, delimiter: u8) DelimiterExclusiveError![]u8 {
     const result = br.peekDelimiterInclusiveUnlessEnd(delimiter) catch |err| switch (err) {
         error.EndOfStream => {
-            br.toss(br.storage.end);
-            return br.storage.buffer[0..br.storage.end];
+            br.toss(br.end);
+            return br.buffer[0..br.end];
         },
         else => |e| return e,
     };
@@ -376,15 +343,14 @@ pub fn takeDelimiterExclusive(br: *BufferedReader, delimiter: u8) DelimiterExclu
 
 pub fn peekDelimiterExclusive(br: *BufferedReader, delimiter: u8) DelimiterExclusiveError![]u8 {
     const result = br.peekDelimiterInclusiveUnlessEnd(delimiter) catch |err| switch (err) {
-        error.EndOfStream => return br.storage.buffer[0..br.storage.end],
+        error.EndOfStream => return br.buffer[0..br.end],
         else => |e| return e,
     };
     return result[0 .. result.len - 1];
 }
 
 fn peekDelimiterInclusiveUnlessEnd(br: *BufferedReader, delimiter: u8) DelimiterInclusiveError!?[]u8 {
-    const storage = &br.storage;
-    const buffer = storage.buffer[0..storage.end];
+    const buffer = br.buffer[0..br.end];
     const seek = br.seek;
     if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |end| {
         @branchHint(.likely);
@@ -392,24 +358,15 @@ fn peekDelimiterInclusiveUnlessEnd(br: *BufferedReader, delimiter: u8) Delimiter
     }
     const remainder = buffer[seek..];
     std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-    var i = remainder.len;
-    storage.end = i;
+    br.end = remainder.len;
     br.seek = 0;
-    while (i < storage.buffer.len) {
-        const eos = eos: {
-            const read_len = br.unbuffered_reader.read(storage, .unlimited) catch |err| switch (err) {
-                error.WriteFailed => storage.end - i,
-                error.ReadFailed => return error.ReadFailed,
-                error.EndOfStream => break :eos true,
-            };
-            assert(read_len == storage.end - i);
-            break :eos false;
-        };
-        if (std.mem.indexOfScalarPos(u8, storage.buffer[0..storage.end], i, delimiter)) |end| {
-            return storage.buffer[0 .. end + 1];
+    while (br.end < br.buffer.len) {
+        const n = try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
+        const prev_end = br.end;
+        br.end = prev_end + n;
+        if (std.mem.indexOfScalarPos(u8, br.buffer[0..br.end], prev_end, delimiter)) |end| {
+            return br.buffer[0 .. end + 1];
         }
-        if (eos) return error.EndOfStream;
-        i = storage.end;
     }
     return error.StreamTooLong;
 }
@@ -494,9 +451,8 @@ pub fn discardDelimiterExclusive(br: *BufferedReader, delimiter: u8) Reader.Shor
 ///
 /// Asserts buffer capacity is at least `n`.
 pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
-    const storage = &br.storage;
-    assert(n <= storage.buffer.len);
-    const buffer = storage.buffer[0..storage.end];
+    assert(n <= br.buffer.len);
+    const buffer = br.buffer[0..br.end];
     const seek = br.seek;
     if (seek + n <= buffer.len) {
         @branchHint(.likely);
@@ -504,22 +460,17 @@ pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
     }
     const remainder = buffer[seek..];
     std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-    storage.end = remainder.len;
+    br.end = remainder.len;
     br.seek = 0;
     while (true) {
-        const read_len = br.unbuffered_reader.read(storage, .unlimited) catch |err| switch (err) {
-            error.WriteFailed => storage.end - remainder.len,
-            else => |e| return e,
-        };
-        assert(storage.end == remainder.len + read_len);
-        if (n <= storage.end) return;
+        br.end += try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
+        if (n <= br.end) return;
     }
 }
 
 /// Reads 1 byte from the stream or returns `error.EndOfStream`.
 pub fn takeByte(br: *BufferedReader) Reader.Error!u8 {
-    const storage = &br.storage;
-    const buffer = storage.buffer[0..storage.end];
+    const buffer = br.buffer[0..br.end];
     const seek = br.seek;
     if (seek >= buffer.len) {
         @branchHint(.unlikely);

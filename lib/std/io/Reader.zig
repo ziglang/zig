@@ -197,6 +197,19 @@ pub const ending: Reader = .{
     },
 };
 
+pub fn unbuffered(r: Reader) std.io.BufferedReader {
+    return buffered(r, &.{});
+}
+
+pub fn buffered(r: Reader, buffer: []u8) std.io.BufferedReader {
+    return .{
+        .unbuffered_reader = r,
+        .seek = 0,
+        .buffer = buffer,
+        .end = 0,
+    };
+}
+
 fn endingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize {
     _ = context;
     _ = bw;

@@ -92,10 +92,9 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
 
     var recv_buffer: [8000]u8 = undefined;
     var send_buffer: [4000]u8 = undefined;
-    var connection_br: std.io.BufferedReader = undefined;
     var stream_reader = connection.stream.reader();
-    connection_br.init(stream_reader.interface(), &recv_buffer);
     var stream_writer = connection.stream.writer();
+    var connection_br = stream_reader.interface().buffered(&recv_buffer);
     var connection_bw = stream_writer.interface().buffered(&send_buffer);
     var server = std.http.Server.init(&connection_br, &connection_bw);
 

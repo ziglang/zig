@@ -71,8 +71,7 @@ fn mainServer() !void {
     @disableInstrumentation();
     var stdin_reader = std.fs.File.stdin().reader();
     var stdout_writer = std.fs.File.stdout().writer();
-    var stdin_buffered_reader: std.io.BufferedReader = undefined;
-    stdin_buffered_reader.init(stdin_reader.interface(), &stdin_buffer);
+    var stdin_buffered_reader = stdin_reader.interface().buffered(&stdin_buffer);
     var stdout_buffered_writer = stdout_writer.interface().buffered(&stdout_buffer);
     var server = try std.zig.Server.init(.{
         .in = &stdin_buffered_reader,

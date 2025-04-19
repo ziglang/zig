@@ -2031,7 +2031,7 @@ pub const VirtualMachine = struct {
 
         var prev_row: Row = self.current_row;
         for (&readers, [2]bool{ true, false }) |*reader, is_initial| {
-            while (reader.seek < reader.storageBuffer().len) {
+            while (reader.seek < reader.buffer.len) {
                 const instruction = try std.debug.Dwarf.call_frame.Instruction.read(reader, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, is_initial, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;
