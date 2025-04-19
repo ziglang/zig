@@ -983,7 +983,7 @@ pub const Reader = struct {
                     }
                     return 0;
                 };
-                const new_limit: std.io.Reader.Limit = .limited(limit.min(size - pos));
+                const new_limit = limit.min(.limited(size - pos));
                 const n = bw.writeFile(file, .init(pos), new_limit, &.{}, 0) catch |err| switch (err) {
                     error.WriteFailed => return error.WriteFailed,
                     error.Unseekable => {

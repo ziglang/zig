@@ -925,7 +925,7 @@ fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.i
     const c: *Client = @alignCast(@ptrCast(context));
     const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
     const output = &c.output;
-    const ciphertext_buf = try output.writableSlice(min_buffer_len);
+    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
     var total_clear: usize = 0;
     var ciphertext_end: usize = 0;
     for (sliced_data) |buf| {
@@ -943,7 +943,7 @@ fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.i
 /// attack.
 pub fn end(c: *Client) std.io.Writer.Error!void {
     const output = &c.output;
-    const ciphertext_buf = try output.writableSlice(min_buffer_len);
+    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, &tls.close_notify_alert, .alert);
     output.advance(prepared.cleartext_len);
     return prepared.ciphertext_end;
@@ -1063,7 +1063,7 @@ fn read(
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
 ) std.io.Reader.RwError!std.io.Reader.Status {
-    const buf = limit.slice(try bw.writableSlice(1));
+    const buf = limit.slice(try bw.writableSliceGreedy(1));
     const status = try readVec(context, &.{buf});
     bw.advance(status.len);
     return status;
