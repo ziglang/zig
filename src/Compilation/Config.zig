@@ -343,7 +343,7 @@ pub fn resolve(options: Options) ResolveError!Config {
     const link_mode = b: {
         const explicitly_exe_or_dyn_lib = switch (options.output_mode) {
             .Obj => false,
-            .Lib => (options.link_mode orelse .static) == .dynamic,
+            .Lib => options.link_mode == .dynamic,
             .Exe => true,
         };
 
@@ -357,10 +357,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
         }
-        // When creating a executable that links to system libraries, we
-        // require dynamic linking, but we must not link static libraries
+        // When creating an executable or library that links to system libraries,
+        // we require dynamic linking, but we must not link static libraries
         // or object files dynamically!
-        if (options.any_dyn_libs and options.output_mode == .Exe) {
+        if (options.any_dyn_libs and options.output_mode != .Obj) {
             if (options.link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
             break :b .dynamic;
         }
