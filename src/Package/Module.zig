@@ -335,6 +335,43 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         // Append disabled features after enabled ones, so that their effects aren't overwritten.
         for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
+                if (target.cpu.arch == .amdgcn) {
+                    // Ignore these until we figure out how to handle the concept of omitting features.
+                    // See https://github.com/ziglang/zig/issues/23539
+                    const feature_tag: std.Target.amdgcn.Feature = @enumFromInt(feature.index);
+                    const sramecc_only = &.{
+                        &std.Target.amdgcn.cpu.gfx1010,
+                        &std.Target.amdgcn.cpu.gfx1011,
+                        &std.Target.amdgcn.cpu.gfx1012,
+                        &std.Target.amdgcn.cpu.gfx1013,
+                    };
+                    const xnack_or_sramecc = &.{
+                        &std.Target.amdgcn.cpu.gfx1030,
+                        &std.Target.amdgcn.cpu.gfx1031,
+                        &std.Target.amdgcn.cpu.gfx1032,
+                        &std.Target.amdgcn.cpu.gfx1033,
+                        &std.Target.amdgcn.cpu.gfx1034,
+                        &std.Target.amdgcn.cpu.gfx1035,
+                        &std.Target.amdgcn.cpu.gfx1036,
+                        &std.Target.amdgcn.cpu.gfx1100,
+                        &std.Target.amdgcn.cpu.gfx1101,
+                        &std.Target.amdgcn.cpu.gfx1102,
+                        &std.Target.amdgcn.cpu.gfx1103,
+                        &std.Target.amdgcn.cpu.gfx1150,
+                        &std.Target.amdgcn.cpu.gfx1151,
+                        &std.Target.amdgcn.cpu.gfx1152,
+                        &std.Target.amdgcn.cpu.gfx1153,
+                        &std.Target.amdgcn.cpu.gfx1200,
+                        &std.Target.amdgcn.cpu.gfx1201,
+                    };
+                    if (std.mem.indexOfScalar(*const std.Target.Cpu.Model, sramecc_only, target.cpu.model)) |_| {
+                        if (feature_tag == .sramecc) continue;
+                    }
+                    if (std.mem.indexOfScalar(*const std.Target.Cpu.Model, xnack_or_sramecc, target.cpu.model)) |_| {
+                        if (feature_tag == .sramecc or feature_tag == .xnack) continue;
+                    }
+                }
+
                 const is_enabled = target.cpu.features.isEnabled(feature.index);
 
                 if (is_enabled) {
