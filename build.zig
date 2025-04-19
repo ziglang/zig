@@ -58,7 +58,7 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     const install_std_docs = b.addInstallDirectory(.{
-        .source_dir = autodoc_test.getEmittedDocs(),
+        .source_dir = autodoc_test.getEmittedDocs(.{}),
         .install_dir = .prefix,
         .install_subdir = "doc/std",
     });
