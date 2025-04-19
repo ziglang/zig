@@ -1354,6 +1354,12 @@ pub const AliasList = std.ArrayList(struct {
     name: []const u8,
 });
 
+// Associates a container (structure or union) with its relevant member functions.
+pub const ContainerMemberFns = struct {
+    container_decl: ast.Node,
+    member_fns: std.ArrayList(*ast.Payload.Func),
+};
+
 pub const ResultUsed = enum {
     used,
     unused,
@@ -1558,6 +1564,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             blank_macros: std.StringArrayHashMap(void),
             context: *ScopeExtraContext,
             nodes: std.ArrayList(ast.Node),
+            container_member_fns_list: std.ArrayList(ContainerMemberFns),
 
             pub fn init(c: *ScopeExtraContext) Root {
                 return .{
@@ -1569,6 +1576,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                     .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
                     .nodes = std.ArrayList(ast.Node).init(c.gpa),
+                    .container_member_fns_list = std.ArrayList(ContainerMemberFns).init(c.gpa),
                 };
             }
 
@@ -1576,6 +1584,10 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 scope.sym_table.deinit();
                 scope.blank_macros.deinit();
                 scope.nodes.deinit();
+                for (scope.container_member_fns_list.items) |item| {
+                    item.member_fns.deinit();
+                }
+                scope.container_member_fns_list.deinit();
             }
 
             /// Check if the global scope contains this name, without looking into the "future", e.g.
@@ -1587,6 +1599,56 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
             pub fn contains(scope: *Root, name: []const u8) bool {
                 return scope.containsNow(name) or scope.context.global_names.contains(name) or scope.context.weak_global_names.contains(name);
+            }
+
+            pub fn addContainerDecl(scope: *Root, decl_node: ast.Node) !void {
+                const tag = decl_node.tag();
+                std.debug.assert(tag == .var_simple or tag == .pub_var_simple);
+                const container = switch (tag) {
+                    inline .var_simple, .pub_var_simple => |t| decl_node.castTag(t).?.data.init,
+                    else => unreachable,
+                };
+                const c_tag = container.tag();
+                if (!(c_tag == .@"struct" or c_tag == .@"union")) return;
+
+                const gpa = scope.context.gpa;
+                const item: ContainerMemberFns = .{
+                    .container_decl = decl_node,
+                    .member_fns = std.ArrayList(*ast.Payload.Func).init(gpa),
+                };
+                try scope.container_member_fns_list.append(item);
+            }
+
+            pub fn addMemberFunction(scope: *Root, func: *ast.Payload.Func) !void {
+                if (func.data.params.len == 0) return;
+                const param1_node = func.data.params[0].type;
+                const param1_type_name = if (param1_node.tag() == .c_pointer) blk_type: {
+                    const actual_param_node = param1_node.castTag(.c_pointer).?.data.elem_type;
+                    if (actual_param_node.tag() == .identifier)
+                        break :blk_type actual_param_node.castTag(.identifier).?.data
+                    else
+                        break :blk_type null;
+                } else if (param1_node.tag() == .identifier)
+                    param1_node.castTag(.identifier).?.data
+                else
+                    null;
+
+                const fn_name = func.data.name orelse return;
+                _ = fn_name;
+                const type_name = param1_type_name orelse return;
+
+                for (scope.container_member_fns_list.items) |*item| {
+                    const decl_node = item.container_decl;
+                    switch (decl_node.tag()) {
+                        inline .var_simple, .pub_var_simple => |tag| {
+                            const data = decl_node.castTag(tag).?.data;
+                            if (std.mem.eql(u8, type_name, data.name)) {
+                                try item.member_fns.append(func);
+                            } else continue;
+                        },
+                        else => unreachable,
+                    }
+                }
             }
         };
 
@@ -1700,6 +1762,66 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                     else => {},
                 }
                 scope = scope.parent.?;
+            }
+        }
+        pub fn processContainerMemberFnsList(c: *ScopeExtraContext, list: std.ArrayList(ContainerMemberFns)) !void {
+            for (list.items) |item| {
+                const decl_tag = item.container_decl.tag();
+                const decl_data = switch (decl_tag) {
+                    inline .var_simple, .pub_var_simple => |t| item.container_decl.castTag(t).?.data,
+                    else => unreachable,
+                };
+
+                var container_data = switch (decl_data.init.tag()) {
+                    inline .@"struct", .@"union" => |t| &decl_data.init.castTag(t).?.data,
+                    else => unreachable,
+                };
+
+                const arena = c.arena;
+                const old_variables = container_data.variables;
+                var new_variables = try arena.alloc(ast.Node, old_variables.len + item.member_fns.items.len);
+                @memcpy(new_variables[0..old_variables.len], old_variables);
+                // Assume the allocator of container_data.variables is arena,
+                // so don't add arena.free(old_variables).
+                var func_ref_vars = new_variables[old_variables.len..];
+                var last_name_array = try c.gpa.alloc([]const u8, item.member_fns.items.len);
+                defer c.gpa.free(last_name_array);
+                var count: u32 = 0;
+                for (item.member_fns.items, 0..) |func, i| {
+                    const func_name = func.data.name orelse continue;
+                    const ident_payload = try c.arena.create(ast.Payload.Value);
+                    ident_payload.* = .{
+                        .base = .{ .tag = .identifier },
+                        .data = func_name,
+                    };
+
+                    const last_index = std.mem.lastIndexOf(u8, func_name, "_");
+                    const last_name = if (last_index) |index| func_name[index + 1 ..] else continue;
+                    last_name_array[i] = last_name;
+                    var same_count: u32 = 0;
+                    for (last_name_array[0..i]) |name| {
+                        if (std.mem.eql(u8, name, last_name)) {
+                            same_count += 1;
+                        }
+                    }
+                    const var_name = if (same_count == 0)
+                        last_name
+                    else
+                        try std.fmt.allocPrint(c.arena, "{s}{d}", .{ last_name, same_count });
+
+                    // compare all before last_name
+                    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+                    payload.* = .{
+                        .base = .{ .tag = decl_tag },
+                        .data = .{
+                            .name = @as([]const u8, @ptrCast(var_name)),
+                            .init = ast.Node.initPayload(&ident_payload.base),
+                        },
+                    };
+                    func_ref_vars[count] = ast.Node.initPayload(&payload.base);
+                    count += 1;
+                }
+                container_data.variables = new_variables[0 .. old_variables.len + count];
             }
         }
     };

@@ -182,6 +182,7 @@ pub fn translate(
         try addTopLevelDecl(&context, alias.alias, node);
     }
 
+    try Scope.processContainerMemberFnsList(&context, context.global_scope.container_member_fns_list);
     return ast.render(gpa, context.global_scope.nodes.items);
 }
 
@@ -449,6 +450,7 @@ fn transFnDecl(c: *Context, scope: *Scope, fn_decl: *const clang.FunctionDecl) E
         if (scope.id != .root) {
             return addLocalExternFnDecl(c, scope, fn_name, Node.initPayload(&proto_node.base));
         }
+        try c.global_scope.addMemberFunction(proto_node);
         return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
     }
 
@@ -1027,6 +1029,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         // mangled name is of no real use here.
         if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
+        try c.global_scope.addContainerDecl(node);
     } else {
         try scope.appendNode(node);
         if (node.tag() != .pub_var_simple) {
