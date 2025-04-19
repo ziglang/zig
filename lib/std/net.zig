@@ -750,7 +750,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
     );
     errdefer Stream.close(.{ .handle = sockfd });
 
-    var addr = try std.net.Address.initUnix(path);
+    var addr = try Address.initUnix(path);
     try posix.connect(sockfd, &addr.any, addr.getOsSockLen());
 
     return .{ .handle = sockfd };
@@ -1859,7 +1859,7 @@ pub const Stream = struct {
             bw: *std.io.BufferedWriter,
             limit: std.io.Reader.Limit,
         ) std.io.Reader.Error!usize {
-            const buf = limit.slice(try bw.writableSlice(1));
+            const buf = limit.slice(try bw.writableSliceGreedy(1));
             const status = try windows_readVec(context, &.{buf});
             bw.advance(status.len);
             return status;
@@ -2080,7 +2080,11 @@ pub const Stream = struct {
         return switch (native_os) {
             .windows => .{ .impl = stream },
             else => .{ .impl = .{
-                .fr = std.fs.File.reader(.{ .handle = stream.handle }),
+                .fr = .{
+                    .file = .{ .handle = stream.handle },
+                    .mode = .streaming,
+                    .seek_err = error.Unseekable,
+                },
                 .err = {},
             } },
         };
@@ -2090,7 +2094,10 @@ pub const Stream = struct {
         return switch (native_os) {
             .windows => .{ .impl = stream },
             else => .{ .impl = .{
-                .fw = std.fs.File.writer(.{ .handle = stream.handle }),
+                .fw = .{
+                    .file = .{ .handle = stream.handle },
+                    .mode = .streaming,
+                },
                 .err = {},
             } },
         };
@@ -2101,10 +2108,10 @@ pub const Stream = struct {
 
 pub const Server = struct {
     listen_address: Address,
-    stream: std.net.Stream,
+    stream: Stream,
 
     pub const Connection = struct {
-        stream: std.net.Stream,
+        stream: Stream,
         address: Address,
     };
 

@@ -2344,11 +2344,11 @@ pub const Const = struct {
 
         const max_str_len = self.sizeInBaseUpperBound(base);
         const limbs_len = calcToStringLimbsBufferLen(self.limbs.len, base);
-        if (bw.writableSlice(max_str_len + @alignOf(Limb) - 1 + @sizeOf(Limb) * limbs_len)) |buf| {
+        if (bw.writableSliceGreedy(max_str_len + @alignOf(Limb) - 1 + @sizeOf(Limb) * limbs_len)) |buf| {
             const limbs: [*]Limb = @alignCast(@ptrCast(std.mem.alignPointer(buf[max_str_len..].ptr, @alignOf(Limb))));
             bw.advance(self.toString(buf[0..max_str_len], base, case, limbs[0..limbs_len]));
             return;
-        } else |_| if (bw.writableSlice(max_str_len)) |buf| {
+        } else |_| if (bw.writableSliceGreedy(max_str_len)) |buf| {
             const available_len = 64;
             var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
             if (limbs.len >= limbs_len) {

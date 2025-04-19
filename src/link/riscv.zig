@@ -38,7 +38,7 @@ pub fn writeAddend(
     bw: *std.io.BufferedWriter,
 ) std.io.Writer.Error!void {
     const n = @divExact(@bitSizeOf(Int), 8);
-    var V: Int = mem.readInt(Int, (try bw.writableSlice(n))[0..n], .little);
+    var V: Int = mem.readInt(Int, (try bw.writableSliceGreedy(n))[0..n], .little);
     const addend: Int = @truncate(value);
     switch (op) {
         .add => V +|= addend, // TODO: I think saturating arithmetic is correct here

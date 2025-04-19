@@ -386,8 +386,7 @@ pub fn generateSymbolInner(
             const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
             var space: Value.BigIntSpace = undefined;
             const int_val = val.toBigInt(&space, zcu);
-            int_val.writeTwosComplement((try bw.writableSlice(abi_size))[0..abi_size], endian);
-            bw.advance(abi_size);
+            int_val.writeTwosComplement((try bw.writableSlice(abi_size)), endian);
         },
         .err => |err| {
             const int = try pt.getErrorValue(err.name);
@@ -498,7 +497,7 @@ pub fn generateSymbolInner(
             .vector_type => |vector_type| {
                 const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
                 if (vector_type.child == .bool_type) {
-                    const buffer = (try bw.writableSlice(abi_size))[0..abi_size];
+                    const buffer = try bw.writableSlice(abi_size);
                     @memset(buffer, 0xaa);
                     var index: usize = 0;
                     const len = math.cast(usize, vector_type.len) orelse return error.Overflow;
@@ -535,7 +534,6 @@ pub fn generateSymbolInner(
                             },
                         }) byte.* |= mask else byte.* &= ~mask;
                     }
-                    bw.advance(abi_size);
                 } else {
                     switch (aggregate.storage) {
                         .bytes => |bytes| try bw.writeAll(bytes.toSlice(vector_type.len, ip)),
@@ -592,7 +590,7 @@ pub fn generateSymbolInner(
                     .@"packed" => {
                         const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
                         const current_end, const current_count = .{ bw.end, bw.count };
-                        const buffer = (try bw.writableSlice(abi_size))[0..abi_size];
+                        const buffer = try bw.writableSlice(abi_size);
                         @memset(buffer, 0);
                         var bits: u16 = 0;
 
@@ -628,7 +626,6 @@ pub fn generateSymbolInner(
                             }
                             bits += @intCast(Type.fromInterned(field_ty).bitSize(zcu));
                         }
-                        bw.advance(abi_size);
                     },
                     .auto, .@"extern" => {
                         const struct_begin = bw.count;

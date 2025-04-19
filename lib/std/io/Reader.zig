@@ -77,7 +77,11 @@ pub const Limit = enum(usize) {
         return @enumFromInt(n);
     }
 
-    pub fn min(l: Limit, n: usize) usize {
+    pub fn min(a: Limit, b: Limit) Limit {
+        return @enumFromInt(@min(@intFromEnum(a), @intFromEnum(b)));
+    }
+
+    pub fn minInt(l: Limit, n: usize) usize {
         return @min(n, @intFromEnum(l));
     }
 

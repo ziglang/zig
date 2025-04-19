@@ -349,8 +349,8 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
             limit: std.io.Reader.Limit,
         ) std.io.Reader.RwError!usize {
             const self: *Self = @alignCast(@ptrCast(context));
-            const out = try bw.writableSlice(1);
-            const in = self.get(limit.min(out.len)) catch |err| switch (err) {
+            const out = try bw.writableSliceGreedy(1);
+            const in = self.get(limit.minInt(out.len)) catch |err| switch (err) {
                 error.EndOfStream => return error.EndOfStream,
                 error.ReadFailed => return error.ReadFailed,
                 else => |e| {

@@ -1254,7 +1254,6 @@ const vec_section_header_size = section_header_size + size_header_size;
 fn reserveVecSectionHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(vec_section_header_size);
-    bw.advance(vec_section_header_size);
     return @intCast(offset);
 }
 
@@ -1275,7 +1274,6 @@ const section_header_size = 1 + size_header_size;
 fn reserveSectionHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(section_header_size);
-    bw.advance(section_header_size);
     return @intCast(offset);
 }
 
@@ -1290,7 +1288,6 @@ const size_header_size = 5;
 fn reserveSizeHeader(bw: *std.io.BufferedWriter) std.io.Writer.Error!u32 {
     const offset = bw.count;
     _ = try bw.writableSlice(size_header_size);
-    bw.advance(size_header_size);
     return @intCast(offset);
 }
 
