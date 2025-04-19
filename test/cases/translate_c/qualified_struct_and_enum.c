@@ -15,6 +15,7 @@ void func(struct Foo *a, enum Bar **b);
 // pub const struct_Foo = extern struct {
 //     x: c_int = @import("std").mem.zeroes(c_int),
 //     y: c_int = @import("std").mem.zeroes(c_int),
+//     pub const func = func;
 // };
 // pub const BarA: c_int = 0;
 // pub const BarB: c_int = 1;
