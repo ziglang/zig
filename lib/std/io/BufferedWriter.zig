@@ -17,8 +17,7 @@ const testing = std.testing;
 unbuffered_writer: Writer,
 /// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
 buffer: []u8,
-/// Marks the end of `buffer` - before this are buffered bytes, after this is
-/// undefined.
+/// In `buffer` before this are buffered bytes, after this is `undefined`.
 end: usize = 0,
 /// Tracks total number of bytes written to this `BufferedWriter`. This value
 /// only increases. In the case of fixed mode, this value always equals `end`.
