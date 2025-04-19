@@ -2026,8 +2026,8 @@ pub const VirtualMachine = struct {
         if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return error.AddressOutOfRange;
 
         var readers: [2]std.io.BufferedReader = undefined;
-        readers[0].initFixed(cie.initial_instructions);
-        readers[1].initFixed(fde.instructions);
+        readers[0].initFixed(@constCast(cie.initial_instructions));
+        readers[1].initFixed(@constCast(fde.instructions));
 
         var prev_row: Row = self.current_row;
         for (&readers, [2]bool{ true, false }) |*reader, is_initial| {

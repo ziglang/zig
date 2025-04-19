@@ -24,12 +24,14 @@ pub fn init(br: *BufferedReader, r: Reader, buffer: []u8) void {
 }
 
 /// Constructs `br` such that it will read from `buffer` and then end.
-/// TODO either remove the const cast here or make methods of this file return a const slice
-pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
+///
+/// Most methods do not require mutating `buffer`. Those that do are marked,
+/// and if they are avoided then `buffer` can be safely used with `@constCast`.
+pub fn initFixed(br: *BufferedReader, buffer: []u8) void {
     br.* = .{
         .seek = 0,
         .storage = .{
-            .buffer = @constCast(buffer),
+            .buffer = buffer,
             .unbuffered_writer = .failing,
         },
         .unbuffered_reader = .ending,

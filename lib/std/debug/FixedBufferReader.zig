@@ -53,7 +53,7 @@ pub fn readIntChecked(
 
 pub fn readLeb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
     var br: std.io.BufferedReader = undefined;
-    br.initFixed(fbr.buf);
+    br.initFixed(@constCast(fbr.buf));
     br.seek = fbr.pos;
     const result = br.takeLeb128(T);
     fbr.pos = br.seek;
