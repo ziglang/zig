@@ -176,9 +176,10 @@ fn serveDocsFile(
         },
     });
 
-    try response.writer().unbuffered().writeFileAll(file, .{
+    var bw = response.writer().unbuffered();
+    try bw.writeFileAll(file, .{
         .offset = .zero,
-        .limit = .init(content_length),
+        .limit = .limited(content_length),
     });
     try response.end();
 }
