@@ -659,8 +659,7 @@ const Unit = struct {
                 .eq => {
                     // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
                     op_len_bytes += 1;
-                    std.leb.writeUnsignedExtended((bw.writableSlice(op_len_bytes) catch unreachable)[0..op_len_bytes], len - extended_op_bytes - op_len_bytes);
-                    bw.advance(op_len_bytes);
+                    std.leb.writeUnsignedExtended((bw.writableSlice(op_len_bytes) catch unreachable), len - extended_op_bytes - op_len_bytes);
                     break;
                 },
                 .gt => op_len_bytes += 1,
@@ -849,8 +848,7 @@ const Entry = struct {
                     .eq => {
                         // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
                         block_len_bytes += 1;
-                        std.leb.writeUnsignedExtended((try bw.writableSlice(block_len_bytes))[0..block_len_bytes], len - abbrev_code_bytes - block_len_bytes);
-                        bw.advance(block_len_bytes);
+                        std.leb.writeUnsignedExtended((try bw.writableSlice(block_len_bytes)), len - abbrev_code_bytes - block_len_bytes);
                         break;
                     },
                     .gt => block_len_bytes += 1,
@@ -870,10 +868,9 @@ const Entry = struct {
                         // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
                         op_len_bytes += 1;
                         std.leb.writeUnsignedExtended(
-                            (bw.writableSlice(op_len_bytes) catch unreachable)[0..op_len_bytes],
+                            (bw.writableSlice(op_len_bytes) catch unreachable),
                             len - extended_op_bytes - op_len_bytes,
                         );
-                        bw.advance(op_len_bytes);
                         break;
                     },
                     .gt => op_len_bytes += 1,
@@ -2009,7 +2006,7 @@ pub const WipNav = struct {
                 .signed => abbrev_code.sdata,
                 .unsigned => abbrev_code.udata,
             });
-            _ = try dibw.writableSlice(std.math.divCeil(usize, bits, 7) catch unreachable);
+            _ = try dibw.writableSliceGreedy(std.math.divCeil(usize, bits, 7) catch unreachable);
             var bit: usize = 0;
             var carry: u1 = 1;
             while (bit < bits) {
@@ -2033,7 +2030,7 @@ pub const WipNav = struct {
             const bytes = @max(ty.abiSize(zcu), std.math.divCeil(usize, bits, 8) catch unreachable);
             try dibw.writeLeb128(bytes);
             big_int.writeTwosComplement(
-                try dibw.writableSlice(@intCast(bytes)),
+                try dibw.writableSliceGreedy(@intCast(bytes)),
                 wip_nav.dwarf.endian,
             );
             dibw.advance(@intCast(bytes));
@@ -6083,8 +6080,7 @@ fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
 }
 
 fn writeIntTo(dwarf: *Dwarf, bw: *std.io.BufferedWriter, len: usize, int: u64) !void {
-    dwarf.writeInt((try bw.writableSlice(len))[0..len], int);
-    bw.advance(len);
+    dwarf.writeInt(try bw.writableSlice(len), int);
 }
 
 fn resolveReloc(dwarf: *Dwarf, source: u64, target: u64, size: u32) RelocError!void {

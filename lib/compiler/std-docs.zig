@@ -90,8 +90,15 @@ pub fn main() !void {
 fn accept(context: *Context, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
-    var read_buffer: [8000]u8 = undefined;
-    var server = std.http.Server.init(connection, &read_buffer);
+    var recv_buffer: [8000]u8 = undefined;
+    var send_buffer: [4000]u8 = undefined;
+    var connection_br: std.io.BufferedReader = undefined;
+    var stream_reader = connection.stream.reader();
+    connection_br.init(stream_reader.interface(), &recv_buffer);
+    var stream_writer = connection.stream.writer();
+    var connection_bw = stream_writer.interface().buffered(&send_buffer);
+    var server = std.http.Server.init(&connection_br, &connection_bw);
+
     while (server.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
@@ -160,9 +167,7 @@ fn serveDocsFile(
     defer file.close();
     const content_length = std.math.cast(usize, (try file.stat()).size) orelse return error.FileTooBig;
 
-    var send_buffer: [4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buffer,
+    var response = try request.respondStreaming(.{
         .content_length = content_length,
         .respond_options = .{
             .extra_headers = &.{
@@ -182,9 +187,7 @@ fn serveDocsFile(
 fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     const gpa = context.gpa;
 
-    var send_buffer: [0x4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buffer,
+    var response = try request.respondStreaming(.{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },

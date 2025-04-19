@@ -84,12 +84,29 @@ pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
 }
 
 /// Asserts the provided buffer has total capacity enough for `len`.
-pub fn writableArray(bw: *BufferedWriter, comptime len: usize) anyerror!*[len]u8 {
-    return (try bw.writableSlice(len))[0..len];
+///
+/// Advances the buffer end position by `len`.
+pub fn writableArray(bw: *BufferedWriter, comptime len: usize) Writer.Error!*[len]u8 {
+    const big_slice = try bw.writableSliceGreedy(len);
+    advance(bw, len);
+    return big_slice[0..len];
+}
+
+/// Asserts the provided buffer has total capacity enough for `len`.
+///
+/// Advances the buffer end position by `len`.
+pub fn writableSlice(bw: *BufferedWriter, len: usize) Writer.Error![]u8 {
+    const big_slice = try bw.writableSliceGreedy(len);
+    advance(bw, len);
+    return big_slice[0..len];
 }
 
 /// Asserts the provided buffer has total capacity enough for `minimum_length`.
-pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) Writer.Error![]u8 {
+///
+/// Does not `advance` the buffer end position.
+///
+/// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
+pub fn writableSliceGreedy(bw: *BufferedWriter, minimum_length: usize) Writer.Error![]u8 {
     assert(bw.buffer.len >= minimum_length);
     const cap_slice = bw.buffer[bw.end..];
     if (cap_slice.len >= minimum_length) {
@@ -111,7 +128,10 @@ pub fn writableSlice(bw: *BufferedWriter, minimum_length: usize) Writer.Error![]
     return bw.buffer[bw.end..];
 }
 
-/// After calling `writableSlice`, this function tracks how many bytes were written to it.
+/// After calling `writableSliceGreedy`, this function tracks how many bytes
+/// were written to it.
+///
+/// This is not needed when using `writableSlice` or `writableArray`.
 pub fn advance(bw: *BufferedWriter, n: usize) void {
     const new_end = bw.end + n;
     assert(new_end <= bw.buffer.len);
@@ -135,12 +155,32 @@ pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
     }
 }
 
+/// If the number of bytes to write based on `data` and `splat` fits inside
+/// `unusedCapacitySlice`, this function is guaranteed to not fail, not call
+/// into the underlying writer, and return the full number of bytes.
 pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) Writer.Error!usize {
     return passthruWriteSplat(bw, data, splat);
 }
 
+/// If the total number of bytes of `data` fits inside `unusedCapacitySlice`,
+/// this function is guaranteed to not fail, not call into the underlying
+/// writer, and return the total bytes inside `data`.
 pub fn writeVec(bw: *BufferedWriter, data: []const []const u8) Writer.Error!usize {
     return passthruWriteSplat(bw, data, 1);
+}
+
+/// Equivalent to `writeSplat` but writes at most `limit` bytes.
+pub fn writeSplatLimit(
+    bw: *BufferedWriter,
+    data: []const []const u8,
+    splat: usize,
+    limit: Writer.Limit,
+) Writer.Error!usize {
+    _ = bw;
+    _ = data;
+    _ = splat;
+    _ = limit;
+    @panic("TODO");
 }
 
 fn passthruWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
@@ -435,6 +475,9 @@ pub fn writeArraySwap(bw: *BufferedWriter, Elem: type, array: []const Elem) Writ
     @panic("TODO");
 }
 
+/// Unlike `writeSplat` and `writeVec`, this function will call into the
+/// underlying writer even if there is enough buffer capacity for the file
+/// contents.
 pub fn writeFile(
     bw: *BufferedWriter,
     file: std.fs.File,
@@ -1400,7 +1443,7 @@ fn writeMultipleOf7Leb128(bw: *BufferedWriter, value: anytype) Writer.Error!void
     comptime assert(value_info.bits % 7 == 0);
     var remaining = value;
     while (true) {
-        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try bw.writableSlice(1));
+        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try bw.writableSliceGreedy(1));
         for (buffer, 1..) |*byte, len| {
             const more = switch (value_info.signedness) {
                 .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
