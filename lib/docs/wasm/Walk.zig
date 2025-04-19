@@ -49,6 +49,8 @@ pub const File = struct {
     node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .empty,
     /// Maps function declarations to doctests.
     doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
+    /// Maps "@import" tokens to their Ast node.
+    imports: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .empty,
     /// root node => its namespace scope
     /// struct/union/enum/opaque decl node => its namespace scope
     /// local var decl node => its local variable scope
@@ -409,6 +411,7 @@ pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
     shrinkToFit(&file.token_parents);
     shrinkToFit(&file.node_decls);
     shrinkToFit(&file.doctests);
+    shrinkToFit(&file.imports);
     shrinkToFit(&file.scopes);
 
     return file_index;
@@ -980,6 +983,10 @@ fn builtin_call(
     const builtin_name = ast.tokenSlice(builtin_token);
     if (std.mem.eql(u8, builtin_name, "@This")) {
         try w.file.get().node_decls.put(gpa, node, scope.getNamespaceDecl());
+    } else if (std.mem.eql(u8, builtin_name, "@import")) {
+        assert(params.len == 1);
+        const import_string_token = params[0];
+        try w.file.get().imports.put(gpa, ast.nodeMainToken(import_string_token), node);
     }
 
     for (params) |param| {
