@@ -3124,8 +3124,8 @@ fn buildOutputType(
 
     const root_mod = switch (arg_mode) {
         .zig_test, .zig_test_obj => root_mod: {
-            const test_mod = if (test_runner_path) |test_runner| test_mod: {
-                const test_mod = try Package.Module.create(arena, .{
+            const test_mod = if (test_runner_path) |test_runner|
+                try Package.Module.create(arena, .{
                     .global_cache_directory = global_cache_directory,
                     .paths = .{
                         .root = .{
@@ -3141,27 +3141,27 @@ fn buildOutputType(
                     .parent = main_mod,
                     .builtin_mod = main_mod.getBuiltinDependency(),
                     .builtin_modules = null, // `builtin_mod` is specified
-                });
-                test_mod.deps = try main_mod.deps.clone(arena);
-                break :test_mod test_mod;
-            } else try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
-                .paths = .{
-                    .root = .{
-                        .root_dir = zig_lib_directory,
-                        .sub_path = "compiler",
+                })
+            else
+                try Package.Module.create(arena, .{
+                    .global_cache_directory = global_cache_directory,
+                    .paths = .{
+                        .root = .{
+                            .root_dir = zig_lib_directory,
+                            .sub_path = "compiler",
+                        },
+                        .root_src_path = "test_runner.zig",
                     },
-                    .root_src_path = "test_runner.zig",
-                },
-                .fully_qualified_name = "root",
-                .cc_argv = &.{},
-                .inherited = .{},
-                .global = create_module.resolved_options,
-                .parent = main_mod,
-                .builtin_mod = main_mod.getBuiltinDependency(),
-                .builtin_modules = null, // `builtin_mod` is specified
-            });
+                    .fully_qualified_name = "root",
+                    .cc_argv = &.{},
+                    .inherited = .{},
+                    .global = create_module.resolved_options,
+                    .parent = main_mod,
+                    .builtin_mod = main_mod.getBuiltinDependency(),
+                    .builtin_modules = null, // `builtin_mod` is specified
+                });
 
+            test_mod.deps = try main_mod.deps.clone(arena);
             break :root_mod test_mod;
         },
         else => main_mod,
