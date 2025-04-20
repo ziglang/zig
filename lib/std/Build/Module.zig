@@ -474,7 +474,7 @@ pub fn addObjectFile(m: *Module, object: LazyPath) void {
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
-    assert(object.kind == .obj);
+    assert(object.kind == .obj or object.kind == .test_obj);
     m.linkLibraryOrObject(object);
 }
 

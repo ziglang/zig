@@ -278,6 +278,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "test")) {
         dev.check(.test_command);
         return buildOutputType(gpa, arena, args, .zig_test);
+    } else if (mem.eql(u8, cmd, "test-obj")) {
+        dev.check(.test_command);
+        return buildOutputType(gpa, arena, args, .zig_test_obj);
     } else if (mem.eql(u8, cmd, "run")) {
         dev.check(.run_command);
         return buildOutputType(gpa, arena, args, .run);
@@ -764,6 +767,7 @@ const ArgMode = union(enum) {
     cpp,
     translate_c,
     zig_test,
+    zig_test_obj,
     run,
 };
 
@@ -975,7 +979,10 @@ fn buildOutputType(
         .dynamic_linker = null,
         .modules = .{},
         .opts = .{
-            .is_test = arg_mode == .zig_test,
+            .is_test = switch (arg_mode) {
+                .zig_test, .zig_test_obj => true,
+                .build, .cc, .cpp, .translate_c, .run => false,
+            },
             // Populated while parsing CLI args.
             .output_mode = undefined,
             // Populated in the call to `createModule` for the root module.
@@ -1030,7 +1037,7 @@ fn buildOutputType(
     var n_jobs: ?u32 = null;
 
     switch (arg_mode) {
-        .build, .translate_c, .zig_test, .run => {
+        .build, .translate_c, .zig_test, .zig_test_obj, .run => {
             switch (arg_mode) {
                 .build => |m| {
                     create_module.opts.output_mode = m;
@@ -1041,6 +1048,9 @@ fn buildOutputType(
                 },
                 .zig_test, .run => {
                     create_module.opts.output_mode = .Exe;
+                },
+                .zig_test_obj => {
+                    create_module.opts.output_mode = .Obj;
                 },
                 else => unreachable,
             }
@@ -2834,6 +2844,10 @@ fn buildOutputType(
         },
     }
 
+    if (arg_mode == .zig_test_obj and !test_no_exec and listen == .none) {
+        fatal("test-obj requires --test-no-exec", .{});
+    }
+
     if (arg_mode == .translate_c and create_module.c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
     }
@@ -2903,10 +2917,10 @@ fn buildOutputType(
             create_module.opts.any_error_tracing = true;
 
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
-        const name = if (arg_mode == .zig_test)
-            "test"
-        else
-            fs.path.stem(fs.path.basename(src_path));
+        const name = switch (arg_mode) {
+            .zig_test => "test",
+            .build, .cc, .cpp, .translate_c, .zig_test_obj, .run => fs.path.stem(fs.path.basename(src_path)),
+        };
 
         try create_module.modules.put(arena, name, .{
             .paths = .{
@@ -2935,7 +2949,7 @@ fn buildOutputType(
         rc_source_files_owner_index = create_module.rc_source_files.items.len;
     }
 
-    if (!create_module.opts.have_zcu and arg_mode == .zig_test) {
+    if (!create_module.opts.have_zcu and create_module.opts.is_test) {
         fatal("`zig test` expects a zig source file argument", .{});
     }
 
@@ -3037,16 +3051,36 @@ fn buildOutputType(
         break :m null;
     };
 
-    const root_mod = if (arg_mode == .zig_test) root_mod: {
-        const test_mod = if (test_runner_path) |test_runner| test_mod: {
-            const test_mod = try Package.Module.create(arena, .{
+    const root_mod = switch (arg_mode) {
+        .zig_test, .zig_test_obj => root_mod: {
+            const test_mod = if (test_runner_path) |test_runner| test_mod: {
+                const test_mod = try Package.Module.create(arena, .{
+                    .global_cache_directory = global_cache_directory,
+                    .paths = .{
+                        .root = .{
+                            .root_dir = Cache.Directory.cwd(),
+                            .sub_path = fs.path.dirname(test_runner) orelse "",
+                        },
+                        .root_src_path = fs.path.basename(test_runner),
+                    },
+                    .fully_qualified_name = "root",
+                    .cc_argv = &.{},
+                    .inherited = .{},
+                    .global = create_module.resolved_options,
+                    .parent = main_mod,
+                    .builtin_mod = main_mod.getBuiltinDependency(),
+                    .builtin_modules = null, // `builtin_mod` is specified
+                });
+                test_mod.deps = try main_mod.deps.clone(arena);
+                break :test_mod test_mod;
+            } else try Package.Module.create(arena, .{
                 .global_cache_directory = global_cache_directory,
                 .paths = .{
                     .root = .{
-                        .root_dir = Cache.Directory.cwd(),
-                        .sub_path = fs.path.dirname(test_runner) orelse "",
+                        .root_dir = zig_lib_directory,
+                        .sub_path = "compiler",
                     },
-                    .root_src_path = fs.path.basename(test_runner),
+                    .root_src_path = "test_runner.zig",
                 },
                 .fully_qualified_name = "root",
                 .cc_argv = &.{},
@@ -3056,28 +3090,11 @@ fn buildOutputType(
                 .builtin_mod = main_mod.getBuiltinDependency(),
                 .builtin_modules = null, // `builtin_mod` is specified
             });
-            test_mod.deps = try main_mod.deps.clone(arena);
-            break :test_mod test_mod;
-        } else try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
-            .paths = .{
-                .root = .{
-                    .root_dir = zig_lib_directory,
-                    .sub_path = "compiler",
-                },
-                .root_src_path = "test_runner.zig",
-            },
-            .fully_qualified_name = "root",
-            .cc_argv = &.{},
-            .inherited = .{},
-            .global = create_module.resolved_options,
-            .parent = main_mod,
-            .builtin_mod = main_mod.getBuiltinDependency(),
-            .builtin_modules = null, // `builtin_mod` is specified
-        });
 
-        break :root_mod test_mod;
-    } else main_mod;
+            break :root_mod test_mod;
+        },
+        else => main_mod,
+    };
 
     const target = main_mod.resolved_target.result;
 
@@ -3196,7 +3213,7 @@ fn buildOutputType(
             .directory = blk: {
                 switch (arg_mode) {
                     .run, .zig_test => break :blk null,
-                    else => {
+                    .build, .cc, .cpp, .translate_c, .zig_test_obj => {
                         if (output_to_cache) {
                             break :blk null;
                         } else {
