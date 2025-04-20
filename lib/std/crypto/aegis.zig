@@ -898,7 +898,9 @@ test "Aegis128X failed authentication" {
     const key = [_]u8{0x00} ** aegis.key_length;
     const nonce = [_]u8{0x00} ** aegis.nonce_length;
     const ad = [_]u8{};
-    var m = [_]u8{0x00} ** 64;
+    var m: [64]u8 = undefined;
+    for (&m, 0..) |*byte, i| byte.* = @truncate(i);
+
     var c: [m.len]u8 = undefined;
     var tag = [_]u8{0x00} ** aegis.tag_length;
 
@@ -995,7 +997,8 @@ test "Aegis256X failed authentication" {
     const key = [_]u8{0x00} ** aegis.key_length;
     const nonce = [_]u8{0x00} ** aegis.nonce_length;
     const ad = [_]u8{};
-    var m = [_]u8{0x00} ** 64;
+    var m: [64]u8 = undefined;
+    for (&m, 0..) |*byte, i| byte.* = @truncate(i);
     var c: [m.len]u8 = undefined;
     var tag = [_]u8{0x00} ** aegis.tag_length;
 
