@@ -1341,12 +1341,41 @@ pub const Writer = struct {
     }
 };
 
+/// Defaults to positional reading; falls back to streaming.
+///
+/// Positional is more threadsafe, since the global seek position is not
+/// affected.
 pub fn reader(file: File) Reader {
     return .{ .file = file };
 }
 
+/// Positional is more threadsafe, since the global seek position is not
+/// affected, but when such syscalls are not available, preemptively choosing
+/// `Reader.Mode.streaming` will skip a failed syscall.
+pub fn readerStreaming(file: File) Reader {
+    return .{
+        .file = file,
+        .mode = .streaming,
+        .seek_err = error.Unseekable,
+    };
+}
+
+/// Defaults to positional reading; falls back to streaming.
+///
+/// Positional is more threadsafe, since the global seek position is not
+/// affected.
 pub fn writer(file: File) Writer {
     return .{ .file = file };
+}
+
+/// Positional is more threadsafe, since the global seek position is not
+/// affected, but when such syscalls are not available, preemptively choosing
+/// `Writer.Mode.streaming` will skip a failed syscall.
+pub fn writerStreaming(file: File) Writer {
+    return .{
+        .file = file,
+        .mode = .streaming,
+    };
 }
 
 const range_off: windows.LARGE_INTEGER = 0;
