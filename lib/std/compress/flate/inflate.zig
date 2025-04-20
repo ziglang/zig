@@ -704,7 +704,7 @@ pub fn BitReader(comptime T: type) type {
                 n += 1;
             }
             // Then use forward reader for all other bytes.
-            try self.forward_reader.read(buf[n..]);
+            try self.forward_reader.readSlice(buf[n..]);
         }
 
         /// Alias for readF(U, 0).

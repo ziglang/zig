@@ -45,18 +45,26 @@ pub const VTable = struct {
     discard: *const fn (context: ?*anyopaque, limit: Limit) Error!usize,
 };
 
-pub const RwError = RwAllError || error{
+pub const RwError = error{
+    /// See the `Reader` implementation for detailed diagnostics.
+    ReadFailed,
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
     /// End of stream indicated from the `Reader`. This error cannot originate
     /// from the `Writer`.
     EndOfStream,
 };
 
-pub const Error = ShortError || error{
+pub const Error = error{
+    /// See the `Reader` implementation for detailed diagnostics.
+    ReadFailed,
     EndOfStream,
 };
 
 /// For functions that handle end of stream as a success case.
-pub const RwAllError = ShortError || error{
+pub const RwAllError = error{
+    /// See the `Reader` implementation for detailed diagnostics.
+    ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
 };

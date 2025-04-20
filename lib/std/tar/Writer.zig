@@ -4,7 +4,6 @@ const testing = std.testing;
 const Writer = @This();
 
 const block_size = @sizeOf(Header);
-const empty_block: [block_size]u8 = [_]u8{0} ** block_size;
 
 /// Options for writing file/dir/link. If left empty 0o664 is used for
 /// file mode and current time for mtime.
@@ -14,80 +13,91 @@ pub const Options = struct {
     /// File system modification time.
     mtime: u64 = 0,
 };
-const Self = @This();
 
 underlying_writer: *std.io.BufferedWriter,
 prefix: []const u8 = "",
 mtime_now: u64 = 0,
 
+const Error = error{
+    WriteFailed,
+    OctalOverflow,
+    NameTooLong,
+};
+
 /// Sets prefix for all other write* method paths.
-pub fn setRoot(self: *Self, root: []const u8) !void {
+pub fn setRoot(w: *Writer, root: []const u8) Error!void {
     if (root.len > 0)
-        try self.writeDir(root, .{});
+        try w.writeDir(root, .{});
 
-    self.prefix = root;
+    w.prefix = root;
 }
 
-/// Writes directory.
-pub fn writeDir(self: *Self, sub_path: []const u8, opt: Options) !void {
-    try self.writeHeader(.directory, sub_path, "", 0, opt);
+pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
+    try w.writeHeader(.directory, sub_path, "", 0, options);
 }
 
-/// Writes file system file.
-pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
-    const stat = try file.stat();
+pub const WriteFileError = std.io.Writer.FileError || Error;
+
+pub fn writeFile(
+    w: *Writer,
+    sub_path: []const u8,
+    file: std.fs.File,
+    stat: std.fs.File.Stat,
+) WriteFileError!void {
     const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
 
-    var header = Header{};
-    try self.setPath(&header, sub_path);
+    var header: Header = .{};
+    try w.setPath(&header, sub_path);
     try header.setSize(stat.size);
     try header.setMtime(mtime);
-    try header.write(self.underlying_writer);
+    try header.write(w.underlying_writer);
 
-    try self.underlying_writer.writeFileAll(file, .{ .limit = .limited(stat.size) });
-    try self.writePadding(stat.size);
+    try w.underlying_writer.writeFileAll(file, .{ .limit = .limited(stat.size) });
+    try w.writePadding(stat.size);
 }
 
-/// Writes file reading file content from `reader`. Number of bytes in
-/// reader must be equal to `size`.
-pub fn writeFileStream(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
-    try self.writeHeader(.regular, sub_path, "", @intCast(size), opt);
-
-    var counting_reader = std.io.countingReader(reader);
-    var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-    try fifo.pump(counting_reader.reader(), self.underlying_writer);
-    if (counting_reader.bytes_read != size) return error.WrongReaderSize;
-    try self.writePadding(size);
+/// Writes file reading file content from `reader`. Reads exactly `size` bytes
+/// from `reader`, or returns `error.EndOfStream`.
+pub fn writeFileStream(
+    w: *Writer,
+    sub_path: []const u8,
+    size: usize,
+    reader: *std.io.BufferedReader,
+    options: Options,
+) std.io.Reader.RwError!void {
+    try w.writeHeader(.regular, sub_path, "", @intCast(size), options);
+    try reader.readAll(w.underlying_writer, .limited(size));
+    try w.writePadding(size);
 }
 
 /// Writes file using bytes buffer `content` for size and file content.
-pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
-    try self.writeHeader(.regular, sub_path, "", @intCast(content.len), opt);
-    try self.underlying_writer.writeAll(content);
-    try self.writePadding(content.len);
+pub fn writeFileBytes(w: *Writer, sub_path: []const u8, content: []const u8, options: Options) Error!void {
+    try w.writeHeader(.regular, sub_path, "", @intCast(content.len), options);
+    try w.underlying_writer.writeAll(content);
+    try w.writePadding(content.len);
 }
 
-/// Writes symlink.
-pub fn writeLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
-    try self.writeHeader(.symbolic_link, sub_path, link_name, 0, opt);
+pub fn writeLink(w: *Writer, sub_path: []const u8, link_name: []const u8, options: Options) Error!void {
+    try w.writeHeader(.symbolic_link, sub_path, link_name, 0, options);
 }
 
 /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
 /// default for entry mode .
-pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.Entry) !void {
+pub fn writeEntry(w: *Writer, entry: std.fs.Dir.Walker.Entry) Error!void {
     switch (entry.kind) {
         .directory => {
-            try self.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
+            try w.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
         },
         .file => {
             var file = try entry.dir.openFile(entry.basename, .{});
             defer file.close();
-            try self.writeFile(entry.path, file);
+            const stat = try file.stat();
+            try w.writeFile(entry.path, file, stat);
         },
         .sym_link => {
             var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
             const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-            try self.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
+            try w.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
         },
         else => {
             return error.UnsupportedWalkerEntryKind;
@@ -96,31 +106,31 @@ pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.Entry) !void {
 }
 
 fn writeHeader(
-    self: *Self,
+    w: *Writer,
     typeflag: Header.FileType,
     sub_path: []const u8,
     link_name: []const u8,
     size: u64,
-    opt: Options,
-) !void {
+    options: Options,
+) Error!void {
     var header = Header.init(typeflag);
-    try self.setPath(&header, sub_path);
+    try w.setPath(&header, sub_path);
     try header.setSize(size);
-    try header.setMtime(if (opt.mtime != 0) opt.mtime else self.mtimeNow());
-    if (opt.mode != 0)
-        try header.setMode(opt.mode);
+    try header.setMtime(if (options.mtime != 0) options.mtime else w.mtimeNow());
+    if (options.mode != 0)
+        try header.setMode(options.mode);
     if (typeflag == .symbolic_link)
         header.setLinkname(link_name) catch |err| switch (err) {
-            error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
+            error.NameTooLong => try w.writeExtendedHeader(.gnu_long_link, &.{link_name}),
             else => return err,
         };
-    try header.write(self.underlying_writer);
+    try header.write(w.underlying_writer);
 }
 
-fn mtimeNow(self: *Self) u64 {
-    if (self.mtime_now == 0)
-        self.mtime_now = @intCast(std.time.timestamp());
-    return self.mtime_now;
+fn mtimeNow(w: *Writer) u64 {
+    if (w.mtime_now == 0)
+        w.mtime_now = @intCast(std.time.timestamp());
+    return w.mtime_now;
 }
 
 fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
@@ -130,52 +140,51 @@ fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
 
 /// Writes path in posix header, if don't fit (in name+prefix; 100+155
 /// bytes) writes it in gnu extended header.
-fn setPath(self: *Self, header: *Header, sub_path: []const u8) !void {
-    header.setPath(self.prefix, sub_path) catch |err| switch (err) {
+fn setPath(w: *Writer, header: *Header, sub_path: []const u8) Error!void {
+    header.setPath(w.prefix, sub_path) catch |err| switch (err) {
         error.NameTooLong => {
             // write extended header
-            const buffers: []const []const u8 = if (self.prefix.len == 0)
+            const buffers: []const []const u8 = if (w.prefix.len == 0)
                 &.{sub_path}
             else
-                &.{ self.prefix, "/", sub_path };
-            try self.writeExtendedHeader(.gnu_long_name, buffers);
+                &.{ w.prefix, "/", sub_path };
+            try w.writeExtendedHeader(.gnu_long_name, buffers);
         },
         else => return err,
     };
 }
 
 /// Writes gnu extended header: gnu_long_name or gnu_long_link.
-fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
+fn writeExtendedHeader(w: *Writer, typeflag: Header.FileType, buffers: []const []const u8) Error!void {
     var len: usize = 0;
-    for (buffers) |buf|
-        len += buf.len;
+    for (buffers) |buf| len += buf.len;
 
-    var header = Header.init(typeflag);
+    var header: Header = .init(typeflag);
     try header.setSize(len);
-    try header.write(self.underlying_writer);
+    try header.write(w.underlying_writer);
     for (buffers) |buf|
-        try self.underlying_writer.writeAll(buf);
-    try self.writePadding(len);
+        try w.underlying_writer.writeAll(buf);
+    try w.writePadding(len);
 }
 
-fn writePadding(self: *Self, bytes: u64) !void {
-    const pos: usize = @intCast(bytes % block_size);
+fn writePadding(w: *Writer, bytes: usize) std.io.Writer.Error!void {
+    const pos = bytes % block_size;
     if (pos == 0) return;
-    try self.underlying_writer.writeAll(empty_block[pos..]);
+    try w.underlying_writer.splatByteAll(0, block_size - pos);
 }
 
-/// Tar should finish with two zero blocks, but 'reasonable system must
-/// not assume that such a block exists when reading an archive' (from
-/// reference). In practice it is safe to skip this finish.
-pub fn finish(self: *Self) !void {
-    try self.underlying_writer.writeAll(&empty_block);
-    try self.underlying_writer.writeAll(&empty_block);
+/// According to the specification, tar should finish with two zero blocks, but
+/// "reasonable system must not assume that such a block exists when reading an
+/// archive". Therefore, the Zig standard library recommends to not call this
+/// function.
+pub fn finishPedantically(w: *Writer) std.io.Writer.Error!void {
+    try w.underlying_writer.writeSplatAll(&.{&.{0}}, block_size * 2);
 }
 
 /// A struct that is exactly 512 bytes and matches tar file format. This is
 /// intended to be used for outputting tar files; for parsing there is
 /// `std.tar.Header`.
-const Header = extern struct {
+pub const Header = extern struct {
     // This struct was originally copied from
     // https://github.com/mattnite/tar/blob/main/src/main.zig which is MIT
     // licensed.
@@ -230,11 +239,11 @@ const Header = extern struct {
         };
     }
 
-    pub fn setSize(self: *Header, size: u64) !void {
-        try octal(&self.size, size);
+    pub fn setSize(w: *Header, size: u64) error{OctalOverflow}!void {
+        try octal(&w.size, size);
     }
 
-    fn octal(buf: []u8, value: u64) !void {
+    fn octal(buf: []u8, value: u64) error{OctalOverflow}!void {
         var remainder: u64 = value;
         var pos: usize = buf.len;
         while (remainder > 0 and pos > 0) {
@@ -246,36 +255,36 @@ const Header = extern struct {
         }
     }
 
-    pub fn setMode(self: *Header, mode: u32) !void {
-        try octal(&self.mode, mode);
+    pub fn setMode(w: *Header, mode: u32) error{OctalOverflow}!void {
+        try octal(&w.mode, mode);
     }
 
     // Integer number of seconds since January 1, 1970, 00:00 Coordinated Universal Time.
     // mtime == 0 will use current time
-    pub fn setMtime(self: *Header, mtime: u64) !void {
-        try octal(&self.mtime, mtime);
+    pub fn setMtime(w: *Header, mtime: u64) error{OctalOverflow}!void {
+        try octal(&w.mtime, mtime);
     }
 
-    pub fn updateChecksum(self: *Header) !void {
-        var checksum: usize = ' '; // other 7 self.checksum bytes are initialized to ' '
-        for (std.mem.asBytes(self)) |val|
+    pub fn updateChecksum(w: *Header) !void {
+        var checksum: usize = ' '; // other 7 w.checksum bytes are initialized to ' '
+        for (std.mem.asBytes(w)) |val|
             checksum += val;
-        try octal(&self.checksum, checksum);
+        try octal(&w.checksum, checksum);
     }
 
-    pub fn write(self: *Header, output_writer: anytype) !void {
-        try self.updateChecksum();
-        try output_writer.writeAll(std.mem.asBytes(self));
+    pub fn write(h: *Header, bw: *std.io.BufferedWriter) error{ OctalOverflow, WriteFailed }!void {
+        try h.updateChecksum();
+        try bw.writeAll(std.mem.asBytes(h));
     }
 
-    pub fn setLinkname(self: *Header, link: []const u8) !void {
-        if (link.len > self.linkname.len) return error.NameTooLong;
-        @memcpy(self.linkname[0..link.len], link);
+    pub fn setLinkname(w: *Header, link: []const u8) !void {
+        if (link.len > w.linkname.len) return error.NameTooLong;
+        @memcpy(w.linkname[0..link.len], link);
     }
 
-    pub fn setPath(self: *Header, prefix: []const u8, sub_path: []const u8) !void {
-        const max_prefix = self.prefix.len;
-        const max_name = self.name.len;
+    pub fn setPath(w: *Header, prefix: []const u8, sub_path: []const u8) !void {
+        const max_prefix = w.prefix.len;
+        const max_name = w.name.len;
         const sep = std.fs.path.sep_posix;
 
         if (prefix.len + sub_path.len > max_name + max_prefix or prefix.len > max_prefix)
@@ -283,32 +292,32 @@ const Header = extern struct {
 
         // both fit into name
         if (prefix.len > 0 and prefix.len + sub_path.len < max_name) {
-            @memcpy(self.name[0..prefix.len], prefix);
-            self.name[prefix.len] = sep;
-            @memcpy(self.name[prefix.len + 1 ..][0..sub_path.len], sub_path);
+            @memcpy(w.name[0..prefix.len], prefix);
+            w.name[prefix.len] = sep;
+            @memcpy(w.name[prefix.len + 1 ..][0..sub_path.len], sub_path);
             return;
         }
 
         // sub_path fits into name
         // there is no prefix or prefix fits into prefix
         if (sub_path.len <= max_name) {
-            @memcpy(self.name[0..sub_path.len], sub_path);
-            @memcpy(self.prefix[0..prefix.len], prefix);
+            @memcpy(w.name[0..sub_path.len], sub_path);
+            @memcpy(w.prefix[0..prefix.len], prefix);
             return;
         }
 
         if (prefix.len > 0) {
-            @memcpy(self.prefix[0..prefix.len], prefix);
-            self.prefix[prefix.len] = sep;
+            @memcpy(w.prefix[0..prefix.len], prefix);
+            w.prefix[prefix.len] = sep;
         }
         const prefix_pos = if (prefix.len > 0) prefix.len + 1 else 0;
 
         // add as much to prefix as you can, must split at /
         const prefix_remaining = max_prefix - prefix_pos;
         if (std.mem.lastIndexOf(u8, sub_path[0..@min(prefix_remaining, sub_path.len)], &.{'/'})) |sep_pos| {
-            @memcpy(self.prefix[prefix_pos..][0..sep_pos], sub_path[0..sep_pos]);
+            @memcpy(w.prefix[prefix_pos..][0..sep_pos], sub_path[0..sep_pos]);
             if ((sub_path.len - sep_pos - 1) > max_name) return error.NameTooLong;
-            @memcpy(self.name[0..][0 .. sub_path.len - sep_pos - 1], sub_path[sep_pos + 1 ..]);
+            @memcpy(w.name[0..][0 .. sub_path.len - sep_pos - 1], sub_path[sep_pos + 1 ..]);
             return;
         }
 

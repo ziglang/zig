@@ -202,34 +202,33 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(response.writer());
-    archiver.prefix = "std";
+    var tar_buffer: [@sizeOf(std.tar.Writer.Header)]u8 = undefined;
+    var response_bw = response.writer().buffered(&tar_buffer);
+    var tar_writer: std.tar.Writer = .{ .underlying_writer = &response_bw };
+    tar_writer.prefix = "std";
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
             .file => {
-                if (!std.mem.endsWith(u8, entry.basename, ".zig"))
-                    continue;
-                if (std.mem.endsWith(u8, entry.basename, "test.zig"))
-                    continue;
+                if (!std.mem.endsWith(u8, entry.basename, ".zig")) continue;
+                if (std.mem.endsWith(u8, entry.basename, "test.zig")) continue;
             },
             else => continue,
         }
         var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
-        try archiver.writeFile(entry.path, file);
+        const stat = try file.stat();
+        try tar_writer.writeFile(entry.path, file, stat);
     }
 
     {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-        archiver.prefix = "builtin";
-        try archiver.writeFileBytes("builtin.zig", builtin_zig, .{});
+        tar_writer.prefix = "builtin";
+        try tar_writer.writeFileBytes("builtin.zig", builtin_zig, .{});
     }
 
-    // intentionally omitting the pointless trailer
-    //try archiver.finish();
     try response.end();
 }
 
@@ -255,16 +254,27 @@ fn serveWasm(
         }) catch unreachable) catch unreachable),
         .output_mode = .Exe,
     });
-    // std.http.Server does not have a sendfile API yet.
     const bin_path = try wasm_base_path.join(arena, bin_name);
-    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
-    defer gpa.free(file_contents);
-    try request.respond(file_contents, .{
-        .extra_headers = &.{
-            .{ .name = "content-type", .value = "application/wasm" },
-            cache_control_header,
+    const file = try bin_path.root_dir.handle.openFile(bin_path.sub_path, .{});
+    defer file.close();
+    const content_length = std.math.cast(usize, (try file.stat()).size) orelse return error.FileTooBig;
+
+    var response = try request.respondStreaming(.{
+        .content_length = content_length,
+        .respond_options = .{
+            .extra_headers = &.{
+                .{ .name = "content-type", .value = "application/wasm" },
+                cache_control_header,
+            },
         },
     });
+
+    var bw = response.writer().unbuffered();
+    try bw.writeFileAll(file, .{
+        .offset = .zero,
+        .limit = .limited(content_length),
+    });
+    try response.end();
 }
 
 const autodoc_root_name = "autodoc";
@@ -396,8 +406,8 @@ fn receiveWasmMessage(
         },
         .error_bundle => {
             const eb_hdr = try br.takeStructEndian(std.zig.Server.Message.ErrorBundle, .little);
-            const extra_array = try br.readArrayEndianAlloc(arena, u32, eb_hdr.extra_len, .little);
-            const string_bytes = try br.readAlloc(arena, eb_hdr.string_bytes_len);
+            const extra_array = try br.readSliceEndianAlloc(arena, u32, eb_hdr.extra_len, .little);
+            const string_bytes = try br.readSliceAlloc(arena, eb_hdr.string_bytes_len);
             result_error_bundle.* = .{
                 .string_bytes = string_bytes,
                 .extra = extra_array,
