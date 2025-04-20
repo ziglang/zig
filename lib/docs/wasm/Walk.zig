@@ -350,23 +350,9 @@ pub const File = struct {
             if (std.mem.eql(u8, builtin_name, "@import")) {
                 const str_lit_token = ast.nodeMainToken(params[0]);
                 const str_bytes = ast.tokenSlice(str_lit_token);
-                const file_path = std.zig.string_literal.parseAlloc(gpa, str_bytes) catch @panic("OOM");
-                defer gpa.free(file_path);
-                if (modules.get(file_path)) |imported_file_index| {
-                    return .{ .alias = File.Index.findRootDecl(imported_file_index) };
-                }
-                const base_path = file_index.path();
-                const resolved_path = std.fs.path.resolvePosix(gpa, &.{
-                    base_path, "..", file_path,
-                }) catch @panic("OOM");
-                defer gpa.free(resolved_path);
-                log.debug("from '{s}' @import '{s}' resolved='{s}'", .{
-                    base_path, file_path, resolved_path,
-                });
-                if (files.getIndex(resolved_path)) |imported_file_index| {
-                    return .{ .alias = File.Index.findRootDecl(@enumFromInt(imported_file_index)) };
-                } else {
-                    log.warn("import target '{s}' did not resolve to any file", .{resolved_path});
+                switch (file_index.resolve_import(str_bytes)) {
+                    .none => {},
+                    else => |decl_index| return .{ .alias = decl_index },
                 }
             } else if (std.mem.eql(u8, builtin_name, "@This")) {
                 if (file_index.get().node_decls.get(node)) |decl_index| {
@@ -377,6 +363,28 @@ pub const File = struct {
             }
 
             return .{ .global_const = node };
+        }
+
+        pub fn resolve_import(file_index: File.Index, str_bytes: []const u8) Decl.Index {
+            const file_path = std.zig.string_literal.parseAlloc(gpa, str_bytes) catch @panic("OOM");
+            defer gpa.free(file_path);
+            if (modules.get(file_path)) |imported_file_index| {
+                return File.Index.findRootDecl(imported_file_index);
+            }
+            const base_path = file_index.path();
+            const resolved_path = std.fs.path.resolvePosix(gpa, &.{
+                base_path, "..", file_path,
+            }) catch @panic("OOM");
+            defer gpa.free(resolved_path);
+            log.debug("from '{s}' @import '{s}' resolved='{s}'", .{
+                base_path, file_path, resolved_path,
+            });
+            if (files.getIndex(resolved_path)) |imported_file_index| {
+                return File.Index.findRootDecl(@enumFromInt(imported_file_index));
+            } else {
+                log.warn("import target '{s}' did not resolve to any file", .{resolved_path});
+                return .none;
+            }
         }
 
         fn categorize_switch(file_index: File.Index, node: Ast.Node.Index) Category {

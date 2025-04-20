@@ -160,6 +160,26 @@ pub fn fileSourceHtml(
             .char_literal,
             .multiline_string_literal_line,
             => {
+                if (ast.isTokenPrecededByTags(token_index, &.{ .builtin, .l_paren }) and
+                    std.mem.eql(u8, "@import", ast.tokenSlice(token_index - 2)))
+                {
+                    g.field_access_buffer.clearRetainingCapacity();
+                    try resolveImportLink(
+                        file_index,
+                        &g.field_access_buffer,
+                        ast.tokenSlice(token_index),
+                    );
+                    if (g.field_access_buffer.items.len > 0) {
+                        try out.appendSlice(gpa, "<a class=\"tok-str\" href=\"#");
+                        _ = missing_feature_url_escape;
+                        try out.appendSlice(gpa, g.field_access_buffer.items);
+                        try out.appendSlice(gpa, "\">");
+                        try appendEscaped(out, slice);
+                        try out.appendSlice(gpa, "</a>");
+                        continue;
+                    }
+                }
+
                 try out.appendSlice(gpa, "<span class=\"tok-str\">");
                 try appendEscaped(out, slice);
                 try out.appendSlice(gpa, "</span>");
@@ -384,6 +404,17 @@ fn resolveIdentLink(
     const decl_index = file_index.get().lookup_token(ident_token);
     if (decl_index == .none) return;
     try resolveDeclLink(decl_index, out);
+}
+
+fn resolveImportLink(
+    file_index: Walk.File.Index,
+    out: *std.ArrayListUnmanaged(u8),
+    str_bytes: []const u8,
+) Oom!void {
+    switch (file_index.resolve_import(str_bytes)) {
+        .none => {},
+        else => |decl_index| try decl_index.get().fqn(out),
+    }
 }
 
 fn unindent(s: []const u8, indent: usize) []const u8 {
