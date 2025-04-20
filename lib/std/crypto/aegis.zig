@@ -895,24 +895,20 @@ test "Aegis128X2 test vector 1" {
 test "Aegis128X failed authentication" {
     const aegis = Aegis128L;
 
-    const key = [_]u8{0x00} ** aegis.key_length;
-    const nonce = [_]u8{0x00} ** aegis.nonce_length;
-    const ad = [_]u8{};
-    var m: [64]u8 = undefined;
-    for (&m, 0..) |*byte, i| byte.* = @truncate(i);
+    const key: [aegis.key_length]u8 = @splat(0);
+    const nonce: [aegis.nonce_length]u8 = @splat(0);
+    const ad = [0]u8{};
+    var m: [51]u8 = "This is the target buffer for the decrypted message".*;
+    const c: [m.len]u8 = @splat(0);
+    const tag: [aegis.tag_length]u8 = @splat(0);
 
-    var c: [m.len]u8 = undefined;
-    var tag = [_]u8{0x00} ** aegis.tag_length;
-
-    aegis.encrypt(&c, &tag, &m, &ad, nonce, key);
-
-    c[0] += 1; // maliciously modify the cipher text to fail authentication
-
+    // decrypt blank cipher text with blank key/nonce/tag; which will fail
     aegis.decrypt(&m, &c, tag, &ad, nonce, key) catch |err| {
         try std.testing.expect(err == error.AuthenticationFailed);
-        for (m) |byte| { // assert that the message is zeroed out
-            try std.testing.expect(byte == 0);
-        }
+
+        // assert that message buffer is zeroed out
+        const zeros: [m.len]u8 = @splat(0);
+        try std.testing.expectEqualSlices(u8, &zeros, &m);
         return;
     };
     try std.testing.expect(false);
@@ -994,23 +990,20 @@ test "Aegis256X4 test vector 1" {
 test "Aegis256X failed authentication" {
     const aegis = Aegis256;
 
-    const key = [_]u8{0x00} ** aegis.key_length;
-    const nonce = [_]u8{0x00} ** aegis.nonce_length;
-    const ad = [_]u8{};
-    var m: [64]u8 = undefined;
-    for (&m, 0..) |*byte, i| byte.* = @truncate(i);
-    var c: [m.len]u8 = undefined;
-    var tag = [_]u8{0x00} ** aegis.tag_length;
+    const key: [aegis.key_length]u8 = @splat(0);
+    const nonce: [aegis.nonce_length]u8 = @splat(0);
+    const ad = [0]u8{};
+    var m: [51]u8 = "This is the target buffer for the decrypted message".*;
+    const c: [m.len]u8 = @splat(0);
+    const tag: [aegis.tag_length]u8 = @splat(0);
 
-    aegis.encrypt(&c, &tag, &m, &ad, nonce, key);
-
-    c[0] += 1; // maliciously modify the cipher text to fail authentication
-
+    // decrypt blank cipher text with blank key/nonce/tag; which will fail
     aegis.decrypt(&m, &c, tag, &ad, nonce, key) catch |err| {
         try std.testing.expect(err == error.AuthenticationFailed);
-        for (m) |byte| { // assert that the message is zeroed out
-            try std.testing.expect(byte == 0);
-        }
+
+        // assert that message buffer is zeroed out
+        const zeros: [m.len]u8 = @splat(0);
+        try std.testing.expectEqualSlices(u8, &zeros, &m);
         return;
     };
     try std.testing.expect(false);
