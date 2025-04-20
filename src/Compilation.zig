@@ -2262,8 +2262,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
-        zcu.compile_log_text.shrinkAndFree(gpa, 0);
-
         zcu.skip_analysis_this_update = false;
 
         // Make sure std.zig is inside the import_table. We unconditionally need
@@ -3323,30 +3321,15 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 err: *?Error,
 
                 const Error = @typeInfo(
-                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).@"fn".return_type.?,
+                    @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
                 ).error_union.error_set;
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
-                    if (ctx.err.*) |_| return lhs_index < rhs_index;
-                    const lhs_src_loc = ctx.errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
-                        // LHS source location lost, so should never be referenced. Just sort it to the end.
-                        return false;
-                    };
-                    const rhs_src_loc = ctx.errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
-                        // RHS source location lost, so should never be referenced. Just sort it to the end.
-                        return true;
-                    };
-                    return if (lhs_src_loc.file_scope != rhs_src_loc.file_scope) std.mem.order(
-                        u8,
-                        lhs_src_loc.file_scope.sub_file_path,
-                        rhs_src_loc.file_scope.sub_file_path,
-                    ).compare(.lt) else (lhs_src_loc.span(ctx.zcu.gpa) catch |e| {
+                    if (ctx.err.* != null) return lhs_index < rhs_index;
+                    return ctx.errors[lhs_index].src_loc.lessThan(ctx.errors[rhs_index].src_loc, ctx.zcu) catch |e| {
                         ctx.err.* = e;
                         return lhs_index < rhs_index;
-                    }).main < (rhs_src_loc.span(ctx.zcu.gpa) catch |e| {
-                        ctx.err.* = e;
-                        return lhs_index < rhs_index;
-                    }).main;
+                    };
                 }
             };
 
@@ -3450,28 +3433,76 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
-    if (comp.zcu) |zcu| {
-        if (!zcu.skip_analysis_this_update and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
-            const values = zcu.compile_log_sources.values();
-            // First one will be the error; subsequent ones will be notes.
-            const src_loc = values[0].src();
-            const err_msg: Zcu.ErrorMsg = .{
-                .src_loc = src_loc,
-                .msg = "found compile log statement",
-                .notes = try gpa.alloc(Zcu.ErrorMsg, zcu.compile_log_sources.count() - 1),
-            };
-            defer gpa.free(err_msg.notes);
+    const compile_log_text: []const u8 = compile_log_text: {
+        const zcu = comp.zcu orelse break :compile_log_text "";
+        if (zcu.skip_analysis_this_update) break :compile_log_text "";
+        if (zcu.compile_logs.count() == 0) break :compile_log_text "";
 
-            for (values[1..], err_msg.notes) |src_info, *note| {
-                note.* = .{
-                    .src_loc = src_info.src(),
-                    .msg = "also here",
+        // If there are no other errors, we include a "found compile log statement" error.
+        // Otherwise, we just show the compile log output, with no error.
+        const include_compile_log_sources = bundle.root_list.items.len == 0;
+
+        const refs = try zcu.resolveReferences();
+
+        var messages: std.ArrayListUnmanaged(Zcu.ErrorMsg) = .empty;
+        defer messages.deinit(gpa);
+        for (zcu.compile_logs.keys(), zcu.compile_logs.values()) |logging_unit, compile_log| {
+            if (!refs.contains(logging_unit)) continue;
+            try messages.append(gpa, .{
+                .src_loc = compile_log.src(),
+                .msg = undefined, // populated later
+                .notes = &.{},
+                // We actually clear this later for most of these, but we populate
+                // this field for now to avoid having to allocate more data to track
+                // which compile log text this corresponds to.
+                .reference_trace_root = logging_unit.toOptional(),
+            });
+        }
+
+        if (messages.items.len == 0) break :compile_log_text "";
+
+        // Okay, there *are* referenced compile logs. Sort them into a consistent order.
+
+        const SortContext = struct {
+            err: *?Error,
+            zcu: *Zcu,
+            const Error = @typeInfo(
+                @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
+            ).error_union.error_set;
+            fn lessThan(ctx: @This(), lhs: Zcu.ErrorMsg, rhs: Zcu.ErrorMsg) bool {
+                if (ctx.err.* != null) return false;
+                return lhs.src_loc.lessThan(rhs.src_loc, ctx.zcu) catch |e| {
+                    ctx.err.* = e;
+                    return false;
                 };
             }
+        };
+        var sort_err: ?SortContext.Error = null;
+        std.mem.sort(Zcu.ErrorMsg, messages.items, @as(SortContext, .{ .err = &sort_err, .zcu = zcu }), SortContext.lessThan);
+        if (sort_err) |e| return e;
 
-            try addModuleErrorMsg(zcu, &bundle, err_msg);
+        var log_text: std.ArrayListUnmanaged(u8) = .empty;
+        defer log_text.deinit(gpa);
+
+        // Index 0 will be the root message; the rest will be notes.
+        // Only the actual message, i.e. index 0, will retain its reference trace.
+        try appendCompileLogLines(&log_text, zcu, messages.items[0].reference_trace_root.unwrap().?);
+        messages.items[0].notes = messages.items[1..];
+        messages.items[0].msg = "found compile log statement";
+        for (messages.items[1..]) |*note| {
+            try appendCompileLogLines(&log_text, zcu, note.reference_trace_root.unwrap().?);
+            note.reference_trace_root = .none; // notes don't have reference traces
+            note.msg = "also here";
         }
-    }
+
+        // We don't actually include the error here if `!include_compile_log_sources`.
+        // The sorting above was still necessary, though, to get `log_text` in the right order.
+        if (include_compile_log_sources) {
+            try addModuleErrorMsg(zcu, &bundle, messages.items[0]);
+        }
+
+        break :compile_log_text try log_text.toOwnedSlice(gpa);
+    };
 
     // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
     // very common way for incremental compilation bugs to manifest, so let's always check it.
@@ -3497,8 +3528,22 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     };
 
-    const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
+}
+
+/// Writes all compile log lines belonging to `logging_unit` into `log_text` using `zcu.gpa`.
+fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    var opt_line_idx = zcu.compile_logs.get(logging_unit).?.first_line.toOptional();
+    while (opt_line_idx.unwrap()) |line_idx| {
+        const line = line_idx.get(zcu).*;
+        opt_line_idx = line.next;
+        const line_slice = line.data.toSlice(ip);
+        try log_text.ensureUnusedCapacity(gpa, line_slice.len + 1);
+        log_text.appendSliceAssumeCapacity(line_slice);
+        log_text.appendAssumeCapacity('\n');
+    }
 }
 
 fn anyErrors(comp: *Compilation) bool {

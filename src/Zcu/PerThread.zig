@@ -599,6 +599,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         _ = zcu.outdated_ready.swapRemove(unit);
         // No need for `deleteUnitExports` because we never export anything.
         zcu.deleteUnitReferences(unit);
+        zcu.deleteUnitCompileLogs(unit);
         if (zcu.failed_analysis.fetchSwapRemove(unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -749,6 +750,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         if (dev.env.supports(.incremental)) {
             zcu.deleteUnitExports(anal_unit);
             zcu.deleteUnitReferences(anal_unit);
+            zcu.deleteUnitCompileLogs(anal_unit);
             if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
                 kv.value.destroy(gpa);
             }
@@ -921,6 +923,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1293,6 +1296,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1527,6 +1531,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -3764,6 +3769,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     // reusing the memory which is currently being used to track this state.
     zcu.deleteUnitExports(anal_unit);
     zcu.deleteUnitReferences(anal_unit);
+    zcu.deleteUnitCompileLogs(anal_unit);
     if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
         kv.value.destroy(gpa);
     }

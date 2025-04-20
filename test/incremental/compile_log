@@ -1,0 +1,30 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+
+#update=initial version with no compile log
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll("Hello, World!\n");
+}
+#expect_stdout="Hello, World!\n"
+
+#update=add compile log
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll("Hello, World!\n");
+    @compileLog("this is a log");
+}
+#expect_error=main.zig:4:5: error: found compile log statement
+#expect_compile_log=@as(*const [13:0]u8, "this is a log")
+
+#update=remove compile log
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll("Hello, World!\n");
+}
+#expect_stdout="Hello, World!\n"
