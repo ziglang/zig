@@ -51,6 +51,19 @@ pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
     return passthruReadVec(br, data);
 }
 
+pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+    return passthruRead(br, bw, limit);
+}
+
+/// "Pump" data from the reader to the writer.
+pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!void {
+    var remaining = limit;
+    while (true) {
+        const n = try passthruRead(br, bw, remaining);
+        remaining = remaining.subtract(n).?;
+    }
+}
+
 fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.buffer[0..br.end];
@@ -134,7 +147,6 @@ pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) !void {
 ///
 /// See also:
 /// * `peek`
-/// * `tryPeekArray`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
     assert(n <= br.buffer.len);
@@ -155,7 +167,6 @@ pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 ///
 /// See also:
 /// * `peek`
-/// * `tryPeekGreedy`
 /// * `toss`
 pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
     assert(n <= br.buffer.len);
@@ -280,7 +291,7 @@ pub fn discardRemaining(br: *BufferedReader) Reader.ShortError!usize {
 ///
 /// See also:
 /// * `peek`
-pub fn read(br: *BufferedReader, buffer: []u8) Reader.Error!void {
+pub fn readSlice(br: *BufferedReader, buffer: []u8) Reader.Error!void {
     const in_buffer = br.buffer[br.seek..br.end];
     const copy_len = @min(buffer.len, in_buffer.len);
     @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
@@ -313,7 +324,7 @@ pub fn readShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize {
 
 /// The function is inline to avoid the dead code in case `endian` is
 /// comptime-known and matches host endianness.
-pub inline fn readArrayEndianAlloc(
+pub inline fn readSliceEndianAlloc(
     br: *BufferedReader,
     allocator: Allocator,
     Elem: type,
@@ -322,17 +333,17 @@ pub inline fn readArrayEndianAlloc(
 ) ReadAllocError![]Elem {
     const dest = try allocator.alloc(Elem, len);
     errdefer allocator.free(dest);
-    try read(br, @ptrCast(dest));
+    try readSlice(br, @ptrCast(dest));
     if (native_endian != endian) std.mem.byteSwapAllFields(Elem, dest);
     return dest;
 }
 
 pub const ReadAllocError = Reader.Error || Allocator.Error;
 
-pub fn readAlloc(br: *BufferedReader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
+pub fn readSliceAlloc(br: *BufferedReader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
     const dest = try allocator.alloc(u8, len);
     errdefer allocator.free(dest);
-    try read(br, dest);
+    try readSlice(br, dest);
     return dest;
 }
 

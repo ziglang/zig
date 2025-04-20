@@ -453,24 +453,24 @@ pub inline fn writeStructEndian(bw: *BufferedWriter, value: anytype, endian: std
     }
 }
 
-pub inline fn writeArrayEndian(
+pub inline fn writeSliceEndian(
     bw: *BufferedWriter,
     Elem: type,
-    array: []const Elem,
+    slice: []const Elem,
     endian: std.builtin.Endian,
 ) Writer.Error!void {
     if (native_endian == endian) {
-        return writeAll(bw, @ptrCast(array));
+        return writeAll(bw, @ptrCast(slice));
     } else {
-        return bw.writeArraySwap(bw, Elem, array);
+        return bw.writeArraySwap(bw, Elem, slice);
     }
 }
 
 /// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-pub fn writeArraySwap(bw: *BufferedWriter, Elem: type, array: []const Elem) Writer.Error!void {
+pub fn writeSliceSwap(bw: *BufferedWriter, Elem: type, slice: []const Elem) Writer.Error!void {
     // copy to storage first, then swap in place
     _ = bw;
-    _ = array;
+    _ = slice;
     @panic("TODO");
 }
 
