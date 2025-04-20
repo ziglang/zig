@@ -3074,6 +3074,12 @@ fn buildOutputType(
 
     const target = main_mod.resolved_target.result;
 
+    if (target.cpu.arch.isNvptx()) {
+        if (emit_bin != .no and create_module.resolved_options.use_llvm) {
+            fatal("cannot emit PTX binary with the LLVM backend; only '-femit-asm' is supported", .{});
+        }
+    }
+
     if (target.os.tag == .windows and major_subsystem_version == null and minor_subsystem_version == null) {
         major_subsystem_version, minor_subsystem_version = switch (target.os.version_range.windows.min) {
             .nt4 => .{ 4, 0 },
