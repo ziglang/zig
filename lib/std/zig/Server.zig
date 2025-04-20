@@ -173,7 +173,7 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
         .bytes_len = @intCast(bytes_len),
     });
     try s.out.writeStructEndian(eb_hdr, .little);
-    try s.out.writeArrayEndian(u32, error_bundle.extra, .little);
+    try s.out.writeSliceEndian(u32, error_bundle.extra, .little);
     try s.out.writeAll(error_bundle.string_bytes);
     try s.out.flush();
 }
@@ -198,8 +198,8 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
         .bytes_len = @intCast(bytes_len),
     });
     try s.out.writeStructEndian(header, .little);
-    try s.out.writeArrayEndian(u32, test_metadata.names, .little);
-    try s.out.writeArrayEndian(u32, test_metadata.expected_panic_msgs, .little);
+    try s.out.writeSliceEndian(u32, test_metadata.names, .little);
+    try s.out.writeSliceEndian(u32, test_metadata.expected_panic_msgs, .little);
     try s.out.writeAll(test_metadata.string_bytes);
     try s.out.flush();
 }
