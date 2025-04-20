@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const BufferedWriter = std.io.BufferedWriter;
 const Reader = std.io.Reader;
+const Allocator = std.mem.Allocator;
 
 const BufferedReader = @This();
 
@@ -46,13 +47,17 @@ pub fn reader(br: *BufferedReader) Reader {
     };
 }
 
+pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
+    return passthruReadVec(br, data);
+}
+
 fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.buffer[0..br.end];
     const buffered = buffer[br.seek..];
     const limited = buffered[0..limit.min(buffered.len)];
     if (limited.len > 0) {
-        const n = try bw.writeSplat(limited, 1);
+        const n = try bw.write(limited);
         br.seek += n;
         return n;
     }
@@ -61,9 +66,44 @@ fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Read
 
 fn passthruReadVec(ctx: ?*anyopaque, data: []const []u8) Reader.Error!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
-    _ = br;
-    _ = data;
-    @panic("TODO");
+    var total: usize = 0;
+    for (data, 0..) |buf, i| {
+        const buffered = br.buffer[br.seek..br.end];
+        const copy_len = @min(buffered.len, buf.len);
+        @memcpy(buf[0..copy_len], buffered[0..copy_len]);
+        total += copy_len;
+        br.seek += copy_len;
+        if (copy_len < buf.len) {
+            br.seek = 0;
+            br.end = 0;
+            var vecs: [8][]u8 = undefined; // Arbitrarily chosen value.
+            vecs[0] = buf[copy_len..];
+            const vecs_len: usize = @min(vecs.len, data.len - i);
+            var vec_data_len: usize = vecs[0].len;
+            for (&vecs[1..vecs_len], data[i + 1 ..][0 .. vecs_len - 1]) |*v, d| {
+                vec_data_len += d.len;
+                v.* = d;
+            }
+            if (vecs_len < vecs.len) {
+                vecs[vecs_len] = br.buffer;
+                const n = try br.unbuffered_reader.readVec(vecs[0 .. vecs_len + 1]);
+                total += @min(n, vec_data_len);
+                br.end = n -| vec_data_len;
+                return total;
+            }
+            if (vecs[vecs.len - 1].len >= br.buffer.len) {
+                total += try br.unbuffered_reader.readVec(&vecs);
+                return total;
+            }
+            vec_data_len -= vecs[vecs.len - 1].len;
+            vecs[vecs.len - 1] = br.buffer;
+            const n = try br.unbuffered_reader.readVec(&vecs);
+            total += @min(n, vec_data_len);
+            br.end = n -| vec_data_len;
+            return total;
+        }
+    }
+    return total;
 }
 
 pub fn seekBy(br: *BufferedReader, seek_by: i64) !void {
@@ -147,7 +187,7 @@ pub fn take(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 }
 
 /// Returns the next `n` bytes from `unbuffered_reader` as an array, filling
-/// the buffer as necessary.
+/// the buffer as necessary and advancing the seek position `n` bytes.
 ///
 /// Asserts that the `BufferedReader` was initialized with a buffer capacity at
 /// least as big as `n`.
@@ -159,6 +199,22 @@ pub fn take(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 /// * `take`
 pub fn takeArray(br: *BufferedReader, comptime n: usize) Reader.Error!*[n]u8 {
     return (try br.take(n))[0..n];
+}
+
+/// Returns the next `n` bytes from `unbuffered_reader` as an array, filling
+/// the buffer as necessary, without advancing the seek position.
+///
+/// Asserts that the `BufferedReader` was initialized with a buffer capacity at
+/// least as big as `n`.
+///
+/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
+/// is returned instead.
+///
+/// See also:
+/// * `peek`
+/// * `takeArray`
+pub fn peekArray(br: *BufferedReader, comptime n: usize) Reader.Error!*[n]u8 {
+    return (try br.peek(n))[0..n];
 }
 
 /// Skips the next `n` bytes from the stream, advancing the seek position.
@@ -253,6 +309,31 @@ pub fn readShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize {
     _ = br;
     _ = buffer;
     @panic("TODO");
+}
+
+/// The function is inline to avoid the dead code in case `endian` is
+/// comptime-known and matches host endianness.
+pub inline fn readArrayEndianAlloc(
+    br: *BufferedReader,
+    allocator: Allocator,
+    Elem: type,
+    len: usize,
+    endian: std.builtin.Endian,
+) ReadAllocError![]Elem {
+    const dest = try allocator.alloc(Elem, len);
+    errdefer allocator.free(dest);
+    try read(br, @ptrCast(dest));
+    if (native_endian != endian) std.mem.byteSwapAllFields(Elem, dest);
+    return dest;
+}
+
+pub const ReadAllocError = Reader.Error || Allocator.Error;
+
+pub fn readAlloc(br: *BufferedReader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
+    const dest = try allocator.alloc(u8, len);
+    errdefer allocator.free(dest);
+    try read(br, dest);
+    return dest;
 }
 
 pub const DelimiterInclusiveError = error{
@@ -498,6 +579,11 @@ pub fn takeVarInt(br: *BufferedReader, comptime Int: type, endian: std.builtin.E
 }
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
+///
+/// Advances the seek position.
+///
+/// See also:
+/// * `peekStruct`
 pub fn takeStruct(br: *BufferedReader, comptime T: type) Reader.Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
@@ -506,10 +592,32 @@ pub fn takeStruct(br: *BufferedReader, comptime T: type) Reader.Error!*align(1) 
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 ///
+/// Does not advance the seek position.
+///
+/// See also:
+/// * `takeStruct`
+pub fn peekStruct(br: *BufferedReader, comptime T: type) Reader.Error!*align(1) T {
+    // Only extern and packed structs have defined in-memory layout.
+    comptime assert(@typeInfo(T).@"struct".layout != .auto);
+    return @ptrCast(try br.peekArray(@sizeOf(T)));
+}
+
+/// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
+///
 /// This function is inline to avoid referencing `std.mem.byteSwapAllFields`
 /// when `endian` is comptime-known and matches the host endianness.
 pub inline fn takeStructEndian(br: *BufferedReader, comptime T: type, endian: std.builtin.Endian) Reader.Error!T {
     var res = (try br.takeStruct(T)).*;
+    if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
+    return res;
+}
+
+/// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
+///
+/// This function is inline to avoid referencing `std.mem.byteSwapAllFields`
+/// when `endian` is comptime-known and matches the host endianness.
+pub inline fn peekStructEndian(br: *BufferedReader, comptime T: type, endian: std.builtin.Endian) Reader.Error!T {
+    var res = (try br.peekStruct(T)).*;
     if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
     return res;
 }
@@ -534,6 +642,28 @@ pub fn takeLeb128(br: *BufferedReader, comptime Result: type) TakeLeb128Error!Re
         .signedness = result_info.signedness,
         .bits = std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
     } }))) orelse error.Overflow;
+}
+
+/// Returns a slice into the unused capacity of `buffer` with at least
+/// `min_len` bytes, extending `buffer` by resizing it with `gpa` as necessary.
+///
+/// After calling this function, typically the caller will follow up with a
+/// call to `advanceBufferEnd` to report the actual number of bytes buffered.
+pub fn writableSliceGreedyAlloc(
+    br: *BufferedReader,
+    allocator: Allocator,
+    min_len: usize,
+) error{OutOfMemory}![]u8 {
+    _ = br;
+    _ = allocator;
+    _ = min_len;
+    @panic("TODO");
+}
+
+/// After writing directly into the unused capacity of `buffer`, this function
+/// updates `end` so that users of `BufferedReader` can receive the data.
+pub fn advanceBufferEnd(br: *BufferedReader, n: usize) void {
+    br.end += n;
 }
 
 fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) TakeLeb128Error!Result {
@@ -596,6 +726,10 @@ test take {
 }
 
 test takeArray {
+    return error.Unimplemented;
+}
+
+test peekArray {
     return error.Unimplemented;
 }
 
@@ -684,7 +818,15 @@ test takeStruct {
     return error.Unimplemented;
 }
 
+test peekStruct {
+    return error.Unimplemented;
+}
+
 test takeStructEndian {
+    return error.Unimplemented;
+}
+
+test peekStructEndian {
     return error.Unimplemented;
 }
 
@@ -697,5 +839,9 @@ test takeLeb128 {
 }
 
 test readShort {
+    return error.Unimplemented;
+}
+
+test readVec {
     return error.Unimplemented;
 }
