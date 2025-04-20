@@ -46,54 +46,57 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 pub const tty = @import("io/tty.zig");
 
 pub fn poll(
-    allocator: Allocator,
+    gpa: Allocator,
     comptime StreamEnum: type,
     files: PollFiles(StreamEnum),
 ) Poller(StreamEnum) {
     const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-    var result: Poller(StreamEnum) = undefined;
-
-    if (is_windows) result.windows = .{
-        .first_read_done = false,
-        .overlapped = [1]windows.OVERLAPPED{
-            mem.zeroes(windows.OVERLAPPED),
-        } ** enum_fields.len,
-        .small_bufs = undefined,
-        .active = .{
-            .count = 0,
-            .handles_buf = undefined,
-            .stream_map = undefined,
-        },
+    var result: Poller(StreamEnum) = .{
+        .gpa = gpa,
+        .readers = undefined,
+        .poll_fds = undefined,
+        .windows = if (is_windows) .{
+            .first_read_done = false,
+            .overlapped = [1]windows.OVERLAPPED{
+                mem.zeroes(windows.OVERLAPPED),
+            } ** enum_fields.len,
+            .small_bufs = undefined,
+            .active = .{
+                .count = 0,
+                .handles_buf = undefined,
+                .stream_map = undefined,
+            },
+        } else {},
     };
 
-    inline for (0..enum_fields.len) |i| {
-        result.fifos[i] = .{
-            .allocator = allocator,
-            .buf = &.{},
-            .head = 0,
-            .count = 0,
+    inline for (enum_fields, 0..) |field, i| {
+        result.readers[i] = .{
+            .unbuffered_reader = .failing,
+            .buffer = &.{},
+            .end = 0,
+            .seek = 0,
         };
         if (is_windows) {
-            result.windows.active.handles_buf[i] = @field(files, enum_fields[i].name).handle;
+            result.windows.active.handles_buf[i] = @field(files, field.name).handle;
         } else {
             result.poll_fds[i] = .{
-                .fd = @field(files, enum_fields[i].name).handle,
+                .fd = @field(files, field.name).handle,
                 .events = posix.POLL.IN,
                 .revents = undefined,
             };
         }
     }
+
     return result;
 }
-
-pub const PollFifo = std.fifo.LinearFifo(u8, .Dynamic);
 
 pub fn Poller(comptime StreamEnum: type) type {
     return struct {
         const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
         const PollFd = if (is_windows) void else posix.pollfd;
 
-        fifos: [enum_fields.len]PollFifo,
+        gpa: Allocator,
+        readers: [enum_fields.len]BufferedReader,
         poll_fds: [enum_fields.len]PollFd,
         windows: if (is_windows) struct {
             first_read_done: bool,
@@ -105,7 +108,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 stream_map: [enum_fields.len]StreamEnum,
 
                 pub fn removeAt(self: *@This(), index: u32) void {
-                    std.debug.assert(index < self.count);
+                    assert(index < self.count);
                     for (index + 1..self.count) |i| {
                         self.handles_buf[i - 1] = self.handles_buf[i];
                         self.stream_map[i - 1] = self.stream_map[i];
@@ -118,13 +121,14 @@ pub fn Poller(comptime StreamEnum: type) type {
         const Self = @This();
 
         pub fn deinit(self: *Self) void {
+            const gpa = self.gpa;
             if (is_windows) {
                 // cancel any pending IO to prevent clobbering OVERLAPPED value
                 for (self.windows.active.handles_buf[0..self.windows.active.count]) |h| {
                     _ = windows.kernel32.CancelIo(h);
                 }
             }
-            inline for (&self.fifos) |*q| q.deinit();
+            inline for (&self.readers) |*br| gpa.free(br.buffer);
             self.* = undefined;
         }
 
@@ -144,8 +148,8 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
         }
 
-        pub inline fn fifo(self: *Self, comptime which: StreamEnum) *PollFifo {
-            return &self.fifos[@intFromEnum(which)];
+        pub inline fn reader(self: *Self, comptime which: StreamEnum) *BufferedReader {
+            return &self.readers[@intFromEnum(which)];
         }
 
         fn pollWindows(self: *Self, nanoseconds: ?u64) !bool {
@@ -236,6 +240,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         }
 
         fn pollPosix(self: *Self, nanoseconds: ?u64) !bool {
+            const gpa = self.gpa;
             // We ask for ensureUnusedCapacity with this much extra space. This
             // has more of an effect on small reads because once the reads
             // start to get larger the amount of space an ArrayList will
@@ -255,18 +260,18 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
 
             var keep_polling = false;
-            inline for (&self.poll_fds, &self.fifos) |*poll_fd, *q| {
+            inline for (&self.poll_fds, &self.readers) |*poll_fd, *br| {
                 // Try reading whatever is available before checking the error
                 // conditions.
                 // It's still possible to read after a POLL.HUP is received,
                 // always check if there's some data waiting to be read first.
                 if (poll_fd.revents & posix.POLL.IN != 0) {
-                    const buf = try q.writableWithSize(bump_amt);
+                    const buf = try br.writableSliceGreedyAlloc(gpa, bump_amt);
                     const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
                         error.BrokenPipe => 0, // Handle the same as EOF.
                         else => |e| return e,
                     };
-                    q.update(amt);
+                    br.advanceBufferEnd(amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
                         poll_fd.fd = -1;
@@ -297,14 +302,14 @@ var win_dummy_bytes_read: u32 = undefined;
 fn windowsAsyncReadToFifoAndQueueSmallRead(
     handle: windows.HANDLE,
     overlapped: *windows.OVERLAPPED,
-    fifo: *PollFifo,
+    br: *BufferedReader,
     small_buf: *[128]u8,
     bump_amt: usize,
 ) !enum { empty, populated, closed_populated, closed } {
     var read_any_data = false;
     while (true) {
         const fifo_read_pending = while (true) {
-            const buf = try fifo.writableWithSize(bump_amt);
+            const buf = try br.writableWithSize(bump_amt);
             const buf_len = math.cast(u32, buf.len) orelse math.maxInt(u32);
 
             if (0 == windows.kernel32.ReadFile(
@@ -326,7 +331,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
             };
 
             read_any_data = true;
-            fifo.update(num_bytes_read);
+            br.update(num_bytes_read);
 
             if (num_bytes_read == buf_len) {
                 // We filled the buffer, so there's probably more data available.
@@ -356,7 +361,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
                 .aborted => break :cancel_read,
             };
             read_any_data = true;
-            fifo.update(num_bytes_read);
+            br.update(num_bytes_read);
         }
 
         // Try to queue the 1-byte read.
@@ -381,7 +386,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
             .closed => return if (read_any_data) .closed_populated else .closed,
             .aborted => unreachable,
         };
-        try fifo.write(small_buf[0..num_bytes_read]);
+        try br.write(small_buf[0..num_bytes_read]);
         read_any_data = true;
     }
 }

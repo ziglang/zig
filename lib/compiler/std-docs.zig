@@ -320,69 +320,19 @@ fn buildWasmBinary(
     try sendMessage(child.stdin.?, .update);
     try sendMessage(child.stdin.?, .exit);
 
-    const Header = std.zig.Server.Message.Header;
     var result: ?Cache.Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
-    const stdout = poller.fifo(.stdout);
-
-    poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const body = stdout.readableSliceOfLen(header.bytes_len);
-
-        switch (header.tag) {
-            .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
-                    return error.ZigProtocolVersionMismatch;
-                }
-            },
-            .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                // TODO: use @ptrCast when the compiler supports it
-                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
-            },
-            .emit_digest => {
-                const EmitDigest = std.zig.Server.Message.EmitDigest;
-                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
-                if (!emit_digest.flags.cache_hit) {
-                    std.log.info("source changes detected; rebuilt wasm component", .{});
-                }
-                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
-                result = .{
-                    .root_dir = Cache.Directory.cwd(),
-                    .sub_path = try std.fs.path.join(arena, &.{
-                        context.global_cache_path, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*),
-                    }),
-                };
-            },
-            else => {}, // ignore other messages
-        }
-
-        stdout.discard(body.len);
+    while (true) {
+        receiveWasmMessage(arena, context, poller.reader(.stdout), &result, &result_error_bundle) catch |err| switch (err) {
+            error.EndOfStream => break,
+            error.ReadFailed => if (!(try poller.poll())) break,
+            else => |e| return e,
+        };
     }
 
-    const stderr = poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        const owned_stderr = try stderr.toOwnedSlice();
-        defer gpa.free(owned_stderr);
-        std.debug.print("{s}", .{owned_stderr});
+    if (poller.reader(.stderr).buffer.len > 0) {
+        std.debug.print("{s}", .{poller.reader(.stderr).bufferContents()});
     }
 
     // Send EOF to stdin.
@@ -424,6 +374,53 @@ fn buildWasmBinary(
         });
         return error.WasmCompilationFailed;
     };
+}
+
+fn receiveWasmMessage(
+    arena: Allocator,
+    context: *Context,
+    br: *std.io.BufferedReader,
+    result: *?Cache.Path,
+    result_error_bundle: *std.zig.ErrorBundle,
+) !void {
+    // Ensure that we will be able to read the entire message without blocking.
+    const header = try br.peekStructEndian(std.zig.Server.Message.Header, .little);
+    try br.fill(@sizeOf(std.zig.Server.Message.Header) + header.bytes_len);
+    br.toss(@sizeOf(std.zig.Server.Message.Header));
+    switch (header.tag) {
+        .zig_version => {
+            const body = try br.take(header.bytes_len);
+            if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                return error.ZigProtocolVersionMismatch;
+            }
+        },
+        .error_bundle => {
+            const eb_hdr = try br.takeStructEndian(std.zig.Server.Message.ErrorBundle, .little);
+            const extra_array = try br.readArrayEndianAlloc(arena, u32, eb_hdr.extra_len, .little);
+            const string_bytes = try br.readAlloc(arena, eb_hdr.string_bytes_len);
+            result_error_bundle.* = .{
+                .string_bytes = string_bytes,
+                .extra = extra_array,
+            };
+        },
+        .emit_digest => {
+            const emit_digest = try br.takeStructEndian(std.zig.Server.Message.EmitDigest, .little);
+            if (!emit_digest.flags.cache_hit) {
+                std.log.info("source changes detected; rebuilt wasm component", .{});
+            }
+            const digest = try br.takeArray(Cache.bin_digest_len);
+            result.* = .{
+                .root_dir = Cache.Directory.cwd(),
+                .sub_path = try std.fs.path.join(arena, &.{
+                    context.global_cache_path, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*),
+                }),
+            };
+        },
+        else => {
+            // Ignore other messages.
+            try br.discard(header.bytes_len);
+        },
+    }
 }
 
 fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
