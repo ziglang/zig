@@ -318,7 +318,7 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
         /// `k`: Private key
         /// Asserts `c.len == m.len`.
         ///
-        /// Contents of `m` are undefined if an error is returned.
+        /// Contents of `m` are zeroed out if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State.init(key, npub);
@@ -343,7 +343,7 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
             const verify = crypto.timing_safe.eql([tag_length]u8, computed_tag, tag);
             if (!verify) {
                 crypto.secureZero(u8, &computed_tag);
-                @memset(m, undefined);
+                crypto.secureZero(u8, m);
                 return error.AuthenticationFailed;
             }
         }
@@ -613,7 +613,7 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
         /// `k`: Private key
         /// Asserts `c.len == m.len`.
         ///
-        /// Contents of `m` are undefined if an error is returned.
+        /// Contents of `m` are zeroed out if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State.init(key, npub);
@@ -638,7 +638,7 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
             const verify = crypto.timing_safe.eql([tag_length]u8, computed_tag, tag);
             if (!verify) {
                 crypto.secureZero(u8, &computed_tag);
-                @memset(m, undefined);
+                crypto.secureZero(u8, m);
                 return error.AuthenticationFailed;
             }
         }
@@ -892,6 +892,30 @@ test "Aegis128X2 test vector 1" {
     try testing.expectError(error.AuthenticationFailed, Aegis128X2_256.decrypt(&empty, &empty, tag256, &empty, nonce, key));
 }
 
+test "Aegis128X failed authentication" {
+    const aegis = Aegis128L;
+
+    const key = [_]u8{0x00} ** aegis.key_length;
+    const nonce = [_]u8{0x00} ** aegis.nonce_length;
+    const ad = [_]u8{};
+    var m = [_]u8{0x00} ** 64;
+    var c: [m.len]u8 = undefined;
+    var tag = [_]u8{0x00} ** aegis.tag_length;
+
+    aegis.encrypt(&c, &tag, &m, &ad, nonce, key);
+
+    c[0] += 1; // maliciously modify the cipher text to fail authentication
+
+    aegis.decrypt(&m, &c, tag, &ad, nonce, key) catch |err| {
+        try std.testing.expect(err == error.AuthenticationFailed);
+        for (m) |byte| { // assert that the message is zeroed out
+            try std.testing.expect(byte == 0);
+        }
+        return;
+    };
+    try std.testing.expect(false);
+}
+
 test "Aegis256 test vector 1" {
     const key: [Aegis256.key_length]u8 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** 30;
     const nonce: [Aegis256.nonce_length]u8 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** 29;
@@ -963,6 +987,30 @@ test "Aegis256X4 test vector 1" {
     try testing.expectError(error.AuthenticationFailed, Aegis256X4.decrypt(&empty, &empty, tag, &empty, nonce, key));
     tag256[0] +%= 1;
     try testing.expectError(error.AuthenticationFailed, Aegis256X4_256.decrypt(&empty, &empty, tag256, &empty, nonce, key));
+}
+
+test "Aegis256X failed authentication" {
+    const aegis = Aegis256;
+
+    const key = [_]u8{0x00} ** aegis.key_length;
+    const nonce = [_]u8{0x00} ** aegis.nonce_length;
+    const ad = [_]u8{};
+    var m = [_]u8{0x00} ** 64;
+    var c: [m.len]u8 = undefined;
+    var tag = [_]u8{0x00} ** aegis.tag_length;
+
+    aegis.encrypt(&c, &tag, &m, &ad, nonce, key);
+
+    c[0] += 1; // maliciously modify the cipher text to fail authentication
+
+    aegis.decrypt(&m, &c, tag, &ad, nonce, key) catch |err| {
+        try std.testing.expect(err == error.AuthenticationFailed);
+        for (m) |byte| { // assert that the message is zeroed out
+            try std.testing.expect(byte == 0);
+        }
+        return;
+    };
+    try std.testing.expect(false);
 }
 
 test "Aegis MAC" {
