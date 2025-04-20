@@ -83,7 +83,7 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     var head_end: usize = 0;
 
     while (true) {
-        if (head_end >= in.bufferContents().len) return error.HttpHeadersOversize;
+        if (head_end >= in.buffer.len) return error.HttpHeadersOversize;
         const buf = in.peekGreedy(head_end + 1) catch |err| switch (err) {
             error.EndOfStream => switch (head_end) {
                 0 => return error.HttpConnectionClosing,
