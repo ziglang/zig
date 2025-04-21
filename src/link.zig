@@ -1023,15 +1023,24 @@ pub const File = struct {
         };
     }
 
-    fn loadGnuLdScript(base: *File, path: Path, parent_query: UnresolvedInput.Query, file: fs.File) anyerror!void {
+    fn loadGnuLdScript(
+        base: *File,
+        path: Path,
+        parent_query: UnresolvedInput.Query,
+        file: fs.File,
+    ) anyerror!void {
         const diags = &base.comp.link_diags;
         const gpa = base.comp.gpa;
         const stat = try file.stat();
         const size = std.math.cast(u32, stat.size) orelse return error.FileTooBig;
         const buf = try gpa.alloc(u8, size);
         defer gpa.free(buf);
-        const n = try file.preadAll(buf, 0);
-        if (buf.len != n) return error.UnexpectedEndOfFile;
+        var fr = file.reader();
+        var br = fr.interface().unbuffered();
+        br.readSlice(buf) catch |err| switch (err) {
+            error.ReadFailed => if (fr.err) |_| unreachable else |e| return e,
+            error.EndOfStream => return error.UnexpectedEndOfFile,
+        };
         var ld_script = try LdScript.parse(gpa, diags, path, buf);
         defer ld_script.deinit(gpa);
         for (ld_script.args) |arg| {
@@ -2092,24 +2101,33 @@ fn resolvePathInputLib(
         };
         errdefer file.close();
         try ld_script_bytes.resize(gpa, @max(std.elf.MAGIC.len, std.elf.ARMAG.len));
-        const n = file.preadAll(ld_script_bytes.items, 0) catch |err| fatal("failed to read '{f'}': {s}", .{
-            test_path, @errorName(err),
-        });
-        const buf = ld_script_bytes.items[0..n];
-        if (mem.startsWith(u8, buf, std.elf.MAGIC) or mem.startsWith(u8, buf, std.elf.ARMAG)) {
-            // Appears to be an ELF or archive file.
-            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+        var fr = file.reader();
+        var br = fr.interface().unbuffered();
+        ok: {
+            br.readSlice(ld_script_bytes.items) catch |err| switch (err) {
+                error.ReadFailed => fatal("failed to read '{f'}': {s}", .{
+                    test_path,
+                    @errorName(if (fr.err) |_| unreachable else |e| e),
+                }),
+                error.EndOfStream => break :ok,
+            };
+            if (mem.startsWith(u8, ld_script_bytes.items, std.elf.MAGIC) or
+                mem.startsWith(u8, ld_script_bytes.items, std.elf.ARMAG))
+            {
+                // Appears to be an ELF or archive file.
+                return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+            }
         }
         const stat = file.stat() catch |err|
             fatal("failed to stat {f}: {s}", .{ test_path, @errorName(err) });
         const size = std.math.cast(u32, stat.size) orelse
             fatal("{f}: linker script too big", .{test_path});
         try ld_script_bytes.resize(gpa, size);
-        const buf2 = ld_script_bytes.items[n..];
-        const n2 = file.preadAll(buf2, n) catch |err|
-            fatal("failed to read {f}: {s}", .{ test_path, @errorName(err) });
-        if (n2 != buf2.len) fatal("failed to read {f}: unexpected end of file", .{test_path});
-        var diags = Diags.init(gpa);
+        br.readSlice(ld_script_bytes.items[@intCast(fr.pos)..]) catch |err| switch (err) {
+            error.ReadFailed => if (fr.err) |_| unreachable else |e| fatal("failed to read {f}: {s}", .{ test_path, @errorName(e) }),
+            error.EndOfStream => fatal("failed to read {f}: unexpected end of file", .{test_path}),
+        };
+        var diags: Diags = .init(gpa);
         defer diags.deinit();
         const ld_script_result = LdScript.parse(gpa, &diags, test_path, ld_script_bytes.items);
         if (diags.hasErrors()) {

@@ -268,7 +268,7 @@ pub fn updateFile(
                 file.zir = try AstGen.generate(gpa, file.tree.?);
                 Zcu.saveZirCache(gpa, cache_file, stat, file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
-                    else => log.warn("unable to write cached ZIR code for {} to {}{s}: {s}", .{
+                    else => log.warn("unable to write cached ZIR code for {f} to {f}{s}: {s}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, @errorName(err),
                     }),
                 };
@@ -276,7 +276,7 @@ pub fn updateFile(
             .zon => {
                 file.zoir = try ZonGen.generate(gpa, file.tree.?, .{});
                 Zcu.saveZoirCache(cache_file, stat, file.zoir.?) catch |err| {
-                    log.warn("unable to write cached ZOIR code for {} to {}{s}: {s}", .{
+                    log.warn("unable to write cached ZOIR code for {f} to {f}{s}: {s}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, @errorName(err),
                     });
                 };
