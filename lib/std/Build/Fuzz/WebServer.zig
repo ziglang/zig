@@ -100,8 +100,7 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
 
     var sr = connection.stream.reader();
     var rb: [0x4000]u8 = undefined;
-    var br: std.io.BufferedReader = undefined;
-    br.init(sr.interface(), &rb);
+    var br = sr.interface().buffered(&rb);
 
     var sw = connection.stream.writer();
     var wb: [0x4000]u8 = undefined;
@@ -109,7 +108,6 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
 
     var server: std.http.Server = .init(&br, &bw);
     var web_socket: std.http.WebSocket = undefined;
-    var send_buffer: [0x4000]u8 = undefined;
     var ws_recv_buffer: [0x4000]u8 align(4) = undefined;
     while (server.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
@@ -119,7 +117,7 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
                 return;
             },
         };
-        if (web_socket.init(&request, &send_buffer, &ws_recv_buffer) catch |err| {
+        if (web_socket.init(&request, &ws_recv_buffer) catch |err| {
             log.err("initializing web socket: {s}", .{@errorName(err)});
             return;
         }) {
@@ -281,19 +279,16 @@ fn buildWasmBinary(
     try sendMessage(child.stdin.?, .update);
     try sendMessage(child.stdin.?, .exit);
 
-    const Header = std.zig.Server.Message.Header;
     var result: ?Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
-    const stdout = poller.fifo(.stdout);
-
+    const stdout_br = poller.reader(.stdout);
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) if (!try poller.poll()) break :poll;
-        var header: Header = undefined;
-        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(Header));
-        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout.readableSliceOfLen(header.bytes_len);
-
+        const Header = std.zig.Server.Message.Header;
+        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
+        while (stdout_br.bufferContents().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -330,15 +325,12 @@ fn buildWasmBinary(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
-    const stderr = poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        const owned_stderr = try stderr.toOwnedSlice();
-        defer gpa.free(owned_stderr);
-        std.debug.print("{s}", .{owned_stderr});
+    const stderr_br = poller.reader(.stderr);
+    const stderr_contents = stderr_br.bufferContents();
+    if (stderr_contents.len > 0) {
+        std.debug.print("{s}", .{stderr_contents});
     }
 
     // Send EOF to stdin.
@@ -484,9 +476,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var send_buffer: [0x4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buffer,
+    var response = try request.respondStreaming(.{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },
@@ -538,7 +528,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         defer file.close();
 
         archiver.prefix = joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache);
-        try archiver.writeFile(joined_path.sub_path, file);
+        try archiver.writeFile(joined_path.sub_path, file, try file.stat());
     }
 
     // intentionally omitting the pointless trailer
