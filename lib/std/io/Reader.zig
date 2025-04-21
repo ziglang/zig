@@ -126,7 +126,9 @@ pub const Limit = enum(usize) {
 };
 
 pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) RwError!usize {
-    return r.vtable.read(r.context, bw, limit);
+    const n = try r.vtable.read(r.context, bw, limit);
+    assert(n <= @intFromEnum(limit));
+    return n;
 }
 
 pub fn readVec(r: Reader, data: []const []u8) Error!usize {
@@ -134,7 +136,9 @@ pub fn readVec(r: Reader, data: []const []u8) Error!usize {
 }
 
 pub fn discard(r: Reader, limit: Limit) Error!usize {
-    return r.vtable.discard(r.context, limit);
+    const n = try r.vtable.discard(r.context, limit);
+    assert(n <= @intFromEnum(limit));
+    return n;
 }
 
 /// Returns total number of bytes written to `bw`.

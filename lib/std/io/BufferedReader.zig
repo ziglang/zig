@@ -43,12 +43,24 @@ pub fn reader(br: *BufferedReader) Reader {
         .vtable = &.{
             .read = passthruRead,
             .readVec = passthruReadVec,
+            .discard = passthruDiscard,
         },
     };
 }
 
+/// Equivalent semantics to `std.io.Reader.VTable.readVec`.
 pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
     return passthruReadVec(br, data);
+}
+
+/// Equivalent semantics to `std.io.Reader.VTable.read`.
+pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+    return passthruRead(br, bw, limit);
+}
+
+/// Equivalent semantics to `std.io.Reader.VTable.discard`.
+pub fn discard(br: *BufferedReader, limit: Reader.Limit) Reader.Error!usize {
+    return passthruDiscard(br, limit);
 }
 
 pub fn readVecAll(br: *BufferedReader, data: [][]u8) Reader.Error!void {
@@ -68,10 +80,6 @@ pub fn readVecAll(br: *BufferedReader, data: [][]u8) Reader.Error!void {
     }
 }
 
-pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
-    return passthruRead(br, bw, limit);
-}
-
 /// "Pump" data from the reader to the writer.
 pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!void {
     var remaining = limit;
@@ -81,21 +89,46 @@ pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Re
     }
 }
 
-fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
-    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
-    const buffer = br.buffer[0..br.end];
-    const buffered = buffer[br.seek..];
-    const limited = buffered[0..limit.minInt(buffered.len)];
-    if (limited.len > 0) {
-        const n = try bw.write(limited);
+/// Equivalent to `readVec` but reads at most `limit` bytes.
+pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit) Reader.Error!usize {
+    _ = br;
+    _ = data;
+    _ = limit;
+    @panic("TODO");
+}
+
+fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+    const br: *BufferedReader = @alignCast(@ptrCast(context));
+    const buffer = limit.slice(br.buffer[br.end..br.seek]);
+    if (buffer.len > 0) {
+        const n = try bw.write(buffer);
         br.seek += n;
         return n;
     }
     return br.unbuffered_reader.read(bw, limit);
 }
 
-fn passthruReadVec(ctx: ?*anyopaque, data: []const []u8) Reader.Error!usize {
-    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
+fn passthruDiscard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
+    const br: *BufferedReader = @alignCast(@ptrCast(context));
+    const buffered_len = br.end - br.seek;
+    if (limit.toInt()) |n| {
+        if (buffered_len >= n) {
+            br.seek += n;
+            return n;
+        }
+        br.seek = 0;
+        br.end = 0;
+        const additional = try br.unbuffered_reader.discard(.limited(n - buffered_len));
+        return n + additional;
+    }
+    const n = try br.unbuffered_reader.discard(.unlimited);
+    br.seek = 0;
+    br.end = 0;
+    return buffered_len + n;
+}
+
+fn passthruReadVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
+    const br: *BufferedReader = @alignCast(@ptrCast(context));
     var total: usize = 0;
     for (data, 0..) |buf, i| {
         const buffered = br.buffer[br.seek..br.end];
@@ -171,14 +204,14 @@ pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 }
 
 /// Returns all the next buffered bytes from `unbuffered_reader`, after filling
-/// the buffer to ensure it contains at least `min_len` bytes.
+/// the buffer to ensure it contains at least `n` bytes.
 ///
 /// Invalidates previously returned values from `peek` and `peekGreedy`.
 ///
 /// Asserts that the `BufferedReader` was initialized with a buffer capacity at
-/// least as big as `min_len`.
+/// least as big as `n`.
 ///
-/// If there are fewer than `min_len` bytes left in the stream, `error.EndOfStream`
+/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
 /// is returned instead.
 ///
 /// See also:
@@ -253,7 +286,8 @@ pub fn peekArray(br: *BufferedReader, comptime n: usize) Reader.Error!*[n]u8 {
 /// * `toss`
 /// * `discardRemaining`
 /// * `discardShort`
-pub fn discard(br: *BufferedReader, n: usize) Reader.Error!void {
+/// * `discard`
+pub fn discardAll(br: *BufferedReader, n: usize) Reader.Error!void {
     if ((try br.discardShort(n)) != n) return error.EndOfStream;
 }
 
@@ -265,9 +299,9 @@ pub fn discard(br: *BufferedReader, n: usize) Reader.Error!void {
 /// if the stream reached the end.
 ///
 /// See also:
-/// * `discard`
-/// * `toss`
+/// * `discardAll`
 /// * `discardRemaining`
+/// * `discard`
 pub fn discardShort(br: *BufferedReader, n: usize) Reader.ShortError!usize {
     const proposed_seek = br.seek + n;
     if (proposed_seek <= br.end) {
@@ -609,16 +643,28 @@ pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
     }
 }
 
-/// Reads 1 byte from the stream or returns `error.EndOfStream`.
-pub fn takeByte(br: *BufferedReader) Reader.Error!u8 {
+/// Returns the next byte from the stream or returns `error.EndOfStream`.
+///
+/// Does not advance the seek position.
+///
+/// Asserts the buffer capacity is nonzero.
+pub fn peekByte(br: *BufferedReader) Reader.Error!u8 {
     const buffer = br.buffer[0..br.end];
     const seek = br.seek;
     if (seek >= buffer.len) {
         @branchHint(.unlikely);
         try fill(br, 1);
     }
-    br.seek = seek + 1;
     return buffer[seek];
+}
+
+/// Reads 1 byte from the stream or returns `error.EndOfStream`.
+///
+/// Asserts the buffer capacity is nonzero.
+pub fn takeByte(br: *BufferedReader) Reader.Error!u8 {
+    const result = try peekByte(br);
+    br.seek += 1;
+    return result;
 }
 
 /// Same as `takeByte` except the returned byte is signed.
@@ -813,7 +859,7 @@ test peekArray {
     return error.Unimplemented;
 }
 
-test discard {
+test discardAll {
     var br: BufferedReader = undefined;
     br.initFixed("foobar");
     try br.discard(3);
