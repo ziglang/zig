@@ -558,8 +558,8 @@ fn passthruWriteFile(
     const remaining_buffers = buffers[1..];
     const send_trailers_len: usize = @min(trailers.len, remaining_buffers.len);
     @memcpy(remaining_buffers[0..send_trailers_len], trailers[0..send_trailers_len]);
-    const send_headers_len = 1;
-    const send_buffers = buffers[0 .. send_headers_len + send_trailers_len];
+    const send_headers_len = @intFromBool(end != 0);
+    const send_buffers = buffers[1 - send_headers_len .. 1 + send_trailers_len];
     const n = try bw.unbuffered_writer.writeFile(file, offset, limit, send_buffers, send_headers_len);
     if (n < end) {
         @branchHint(.unlikely);
