@@ -2068,6 +2068,13 @@ pub inline fn isDarwinLibC(target: Target) bool {
     };
 }
 
+pub inline fn isFreeBSDLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .eabihf => target.os.tag == .freebsd,
+        else => false,
+    };
+}
+
 pub inline fn isWasiLibC(target: Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
 }
