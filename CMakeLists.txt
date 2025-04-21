@@ -586,11 +586,11 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
-    src/glibc.zig
+    src/libs/glibc.zig
     src/introspect.zig
-    src/libcxx.zig
-    src/libtsan.zig
-    src/libunwind.zig
+    src/libs/libcxx.zig
+    src/libs/libtsan.zig
+    src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
@@ -664,8 +664,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/tapi/yaml.zig
     src/link/tapi/yaml/test.zig
     src/main.zig
-    src/mingw.zig
-    src/musl.zig
+    src/libs/mingw.zig
+    src/libs/musl.zig
     src/mutable_value.zig
     src/print_air.zig
     src/print_env.zig
@@ -676,7 +676,7 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/wasi_libc.zig
+    src/libs/wasi_libc.zig
 )
 
 if(MSVC)

@@ -2,11 +2,11 @@ const std = @import("std");
 const path = std.fs.path;
 const assert = std.debug.assert;
 
-const target_util = @import("target.zig");
-const Compilation = @import("Compilation.zig");
+const target_util = @import("../target.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
-const Module = @import("Package/Module.zig");
+const trace = @import("../tracy.zig").trace;
+const Module = @import("../Package/Module.zig");
 
 const libcxxabi_files = [_][]const u8{
     "src/abort_message.cpp",

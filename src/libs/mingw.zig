@@ -6,10 +6,10 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.mingw);
 
 const builtin = @import("builtin");
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Cache = std.Build.Cache;
-const dev = @import("dev.zig");
+const dev = @import("../dev.zig");
 
 pub const CrtFile = enum {
     crt2_o,
@@ -348,7 +348,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     errdefer gpa.free(lib_final_path);
 
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
-    const llvm_bindings = @import("codegen/llvm/bindings.zig");
+    const llvm_bindings = @import("../codegen/llvm/bindings.zig");
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
     const lib_final_path_z = try comp.global_cache_directory.joinZ(arena, &.{lib_final_path});
     if (llvm_bindings.WriteImportLibrary(

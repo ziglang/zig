@@ -1,10 +1,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
-const Module = @import("Package/Module.zig");
+const trace = @import("../tracy.zig").trace;
+const Module = @import("../Package/Module.zig");
 
 pub const BuildError = error{
     OutOfMemory,

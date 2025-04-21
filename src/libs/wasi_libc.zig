@@ -3,7 +3,7 @@ const mem = std.mem;
 const path = std.fs.path;
 
 const Allocator = std.mem.Allocator;
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 
 pub const CrtFile = enum {

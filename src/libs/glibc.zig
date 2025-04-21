@@ -8,12 +8,12 @@ const assert = std.debug.assert;
 const Version = std.SemanticVersion;
 const Path = std.Build.Cache.Path;
 
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
+const trace = @import("../tracy.zig").trace;
 const Cache = std.Build.Cache;
-const Module = @import("Package/Module.zig");
-const link = @import("link.zig");
+const Module = @import("../Package/Module.zig");
+const link = @import("../link.zig");
 
 pub const Lib = struct {
     name: []const u8,

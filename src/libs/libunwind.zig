@@ -2,11 +2,11 @@ const std = @import("std");
 const path = std.fs.path;
 const assert = std.debug.assert;
 
-const target_util = @import("target.zig");
-const Compilation = @import("Compilation.zig");
-const Module = @import("Package/Module.zig");
+const target_util = @import("../target.zig");
+const Compilation = @import("../Compilation.zig");
+const Module = @import("../Package/Module.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
+const trace = @import("../tracy.zig").trace;
 
 pub const BuildError = error{
     OutOfMemory,
