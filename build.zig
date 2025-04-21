@@ -679,7 +679,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
 
     const exe = b.addExecutable(.{
         .name = "zig",
-        .max_rss = 7_800_000_000,
+        .max_rss = 9_000_000_000,
         .root_module = compiler_mod,
     });
     exe.stack_size = stack_size;
