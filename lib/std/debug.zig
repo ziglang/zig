@@ -645,7 +645,7 @@ pub fn defaultPanic(
             if (uefi.system_table.boot_services) |bs| {
                 // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
                 const exit_data = uefi.raw_pool_allocator.dupeZ(u16, exit_msg) catch @trap();
-                bs.exit(uefi.handle, .aborted, exit_data);
+                bs.exit(uefi.handle, .aborted, exit_data) catch {};
             }
             @trap();
         },
