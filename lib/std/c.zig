@@ -7000,8 +7000,8 @@ pub const RTLD = switch (native_os) {
 
 pub const dirent = switch (native_os) {
     .linux, .emscripten => extern struct {
-        ino: c_uint,
-        off: c_uint,
+        ino: ino_t,
+        off: off_t,
         reclen: c_ushort,
         type: u8,
         name: [256]u8,
