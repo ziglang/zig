@@ -3511,7 +3511,7 @@ fn buildOutputType(
                 if (t.arch == target.cpu.arch and t.os == target.os.tag) {
                     // If there's a `glibc_min`, there's also an `os_ver`.
                     if (t.glibc_min) |glibc_min| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{}-{s}.{d}.{d}", .{
+                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
                             @tagName(t.arch),
                             @tagName(t.os),
                             t.os_ver.?,
@@ -3520,7 +3520,7 @@ fn buildOutputType(
                             glibc_min.minor,
                         });
                     } else if (t.os_ver) |os_ver| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{}-{s}", .{
+                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
                             @tagName(t.arch),
                             @tagName(t.os),
                             os_ver,

@@ -1000,11 +1000,14 @@ pub const CObject = struct {
                 defer file.close();
                 file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
 
-                var line = std.ArrayList(u8).init(eb.gpa);
-                defer line.deinit();
-                file.reader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
-
-                break :source_line try eb.addString(line.items);
+                var buffer: [1 << 10]u8 = undefined;
+                var fr = file.reader();
+                var br = fr.interface().buffered(&buffer);
+                var bw: std.io.BufferedWriter = undefined;
+                bw.initFixed(&buffer);
+                break :source_line try eb.addString(
+                    buffer[0 .. br.streamToDelimiterOrEnd(&bw, '\n') catch break :source_line 0],
+                );
             };
 
             return .{
@@ -3781,7 +3784,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
+            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{f}'", .{
                 error_msg.msg,
                 zcu.fmtAnalUnit(anal_unit),
             });
@@ -3941,12 +3944,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            var stderr = std.debug.lockStdErr2(&.{});
-            defer std.debug.unlockStdErr();
-            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
-            try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            var stderr_bw = std.debug.lockStderrWriter(&.{});
+            defer std.debug.unlockStderrWriter();
+            try stderr_bw.writeAll("referenced transitive analysis errors, but none actually emitted\n");
+            try stderr_bw.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
-                try stderr.print("referenced by: {}{s}\n", .{
+                try stderr_bw.print("referenced by: {f}{s}\n", .{
                     zcu.fmtAnalUnit(r.referencer),
                     if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
                 });

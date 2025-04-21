@@ -484,11 +484,13 @@ fn peekDelimiterInclusiveUnlessEnd(br: *BufferedReader, delimiter: u8) Delimiter
 /// found. Does not write the delimiter itself.
 ///
 /// Returns number of bytes streamed.
-pub fn streamReadDelimiter(br: *BufferedReader, bw: *BufferedWriter, delimiter: u8) Reader.Error!usize {
-    _ = br;
-    _ = bw;
-    _ = delimiter;
-    @panic("TODO");
+pub fn streamToDelimiter(br: *BufferedReader, bw: *BufferedWriter, delimiter: u8) Reader.RwError!usize {
+    const amount, const to = try br.streamToAny(bw, delimiter, .unlimited);
+    return switch (to) {
+        .delimiter => amount,
+        .limit => unreachable,
+        .end => error.EndOfStream,
+    };
 }
 
 /// Appends to `bw` contents by reading from the stream until `delimiter` is found.
@@ -497,18 +499,19 @@ pub fn streamReadDelimiter(br: *BufferedReader, bw: *BufferedWriter, delimiter: 
 /// Succeeds if stream ends before delimiter found.
 ///
 /// Returns number of bytes streamed. The end is not signaled to the writer.
-pub fn streamReadDelimiterExclusive(
+pub fn streamToDelimiterOrEnd(
     br: *BufferedReader,
     bw: *BufferedWriter,
     delimiter: u8,
-) Reader.ShortError!usize {
-    _ = br;
-    _ = bw;
-    _ = delimiter;
-    @panic("TODO");
+) Reader.RwAllError!usize {
+    const amount, const to = try br.streamToAny(bw, delimiter, .unlimited);
+    return switch (to) {
+        .delimiter, .end => amount,
+        .limit => unreachable,
+    };
 }
 
-pub const StreamDelimiterLimitedError = Reader.ShortError || error{
+pub const StreamDelimiterLimitedError = Reader.RwAllError || error{
     /// Stream ended before the delimiter was found.
     EndOfStream,
     /// The delimiter was not found within the limit.
@@ -517,19 +520,46 @@ pub const StreamDelimiterLimitedError = Reader.ShortError || error{
 
 /// Appends to `bw` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
-//
+///
 /// Returns number of bytes streamed.
-pub fn streamReadDelimiterLimited(
+pub fn streamToDelimiterOrLimit(
     br: *BufferedReader,
     bw: *BufferedWriter,
     delimiter: u8,
     limit: Reader.Limit,
 ) StreamDelimiterLimitedError!usize {
-    _ = br;
-    _ = bw;
-    _ = delimiter;
-    _ = limit;
-    @panic("TODO");
+    const amount, const to = try br.streamToAny(bw, delimiter, limit);
+    return switch (to) {
+        .delimiter => amount,
+        .limit => error.StreamTooLong,
+        .end => error.EndOfStream,
+    };
+}
+
+fn streamToAny(
+    br: *BufferedReader,
+    bw: *BufferedWriter,
+    delimiter: ?u8,
+    limit: Reader.Limit,
+) Reader.RwAllError!struct { usize, enum { delimiter, limit, end } } {
+    var amount: usize = 0;
+    var remaining = limit;
+    while (remaining.nonzero()) {
+        const available = remaining.slice(br.peekGreedy(1) catch |err| switch (err) {
+            error.ReadFailed => |e| return e,
+            error.EndOfStream => return .{ amount, .end },
+        });
+        if (delimiter) |d| if (std.mem.indexOfScalar(u8, available, d)) |delimiter_index| {
+            try bw.writeAll(available[0..delimiter_index]);
+            br.toss(delimiter_index + 1);
+            return .{ amount + delimiter_index, .delimiter };
+        };
+        try bw.writeAll(available);
+        br.toss(available.len);
+        amount += available.len;
+        remaining = remaining.subtract(available.len).?;
+    }
+    return .{ amount, .limit };
 }
 
 /// Reads from the stream until specified byte is found, discarding all data,
@@ -824,15 +854,15 @@ test peekDelimiterExclusive {
     return error.Unimplemented;
 }
 
-test streamReadDelimiter {
+test streamToDelimiter {
     return error.Unimplemented;
 }
 
-test streamReadDelimiterExclusive {
+test streamToDelimiterOrEnd {
     return error.Unimplemented;
 }
 
-test streamReadDelimiterLimited {
+test streamToDelimiterOrLimit {
     return error.Unimplemented;
 }
 
