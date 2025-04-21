@@ -1218,7 +1218,7 @@ a -= b{#endsyntax#}</pre></td>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@subWithOverflow#}.</li>
               <li>{#syntax#}[*]T - int{#endsyntax#} is supported.</li>
-              <li>{#syntax#}[*]T - [*]T{#endsyntax#} and {#syntax#}*T - *T{#endsyntax#} are supprorted.</li>
+              <li>{#syntax#}[*]T - [*]T{#endsyntax#} and {#syntax#}*T - *T{#endsyntax#} are supported.</li>
             </ul>
           </td>
           <td>
