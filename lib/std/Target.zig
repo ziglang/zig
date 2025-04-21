@@ -522,7 +522,19 @@ pub const Os = struct {
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
+                        .min = blk: {
+                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                if (libc.os_ver) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
