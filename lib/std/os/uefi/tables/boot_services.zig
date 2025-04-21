@@ -48,10 +48,10 @@ pub const BootServices = extern struct {
     restoreTpl: *const fn (old_tpl: TaskPriorityLevel) callconv(cc) void,
 
     /// Allocates memory pages from the system.
-    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]Page) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) Page) callconv(cc) Status,
 
     /// Frees memory pages.
-    _freePages: *const fn (memory: [*]Page, pages: usize) callconv(cc) Status,
+    _freePages: *const fn (memory: [*]align(4096) Page, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
     _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]align(@alignOf(MemoryDescriptor)) u8, map_key: *MemoryMapKey, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
@@ -376,8 +376,8 @@ pub const BootServices = extern struct {
         location: AllocateLocation,
         mem_type: MemoryType,
         pages: usize,
-    ) AllocatePagesError![]Page {
-        var ptr: [*]Page = switch (location) {
+    ) AllocatePagesError![]align(4096) Page {
+        var ptr: [*]align(4096) Page = switch (location) {
             .allocate_any_pages => undefined,
             .allocate_address, .allocate_max_address => |ptr| ptr,
         };
@@ -396,7 +396,7 @@ pub const BootServices = extern struct {
         }
     }
 
-    pub fn freePages(self: *BootServices, pages: []Page) FreePagesError!void {
+    pub fn freePages(self: *BootServices, pages: []align(4096) Page) FreePagesError!void {
         switch (self._freePages(pages.ptr, pages.len)) {
             .success => {},
             .not_found => return Error.NotFound,
