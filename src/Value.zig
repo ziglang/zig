@@ -924,13 +924,13 @@ pub fn clz(val: Value, ty: Type, zcu: *Zcu) u64 {
 pub fn ctz(val: Value, ty: Type, zcu: *Zcu) u64 {
     var bigint_buf: BigIntSpace = undefined;
     const bigint = val.toBigInt(&bigint_buf, zcu);
-    return bigint.ctz(ty.intInfo(zcu).bits);
+    return bigint.ctz(if (ty.toIntern() == .comptime_int_type) std.math.maxInt(std.math.big.Limb) else ty.intInfo(zcu).bits);
 }
 
 pub fn popCount(val: Value, ty: Type, zcu: *Zcu) u64 {
     var bigint_buf: BigIntSpace = undefined;
     const bigint = val.toBigInt(&bigint_buf, zcu);
-    return @intCast(bigint.popCount(ty.intInfo(zcu).bits));
+    return @intCast(bigint.popCount(if (ty.toIntern() == .comptime_int_type) undefined else ty.intInfo(zcu).bits));
 }
 
 pub fn bitReverse(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) !Value {

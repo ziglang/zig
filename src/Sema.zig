@@ -23258,15 +23258,25 @@ fn zirBitCount(
     const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    _ = try sema.checkIntOrVector(block, operand, operand_src);
-    const bits = operand_ty.intInfo(zcu).bits;
-
-    if (try sema.typeHasOnePossibleValue(operand_ty)) |val| {
-        return Air.internedToRef(val.toIntern());
+    const operand_ty_tag = operand_ty.zigTypeTag(zcu);
+    if (air_tag == .clz) {
+        _ = try sema.checkIntOrVector(block, operand, operand_src);
+    } else {
+        _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
     }
 
-    const result_scalar_ty = try pt.smallestUnsignedInt(bits);
-    switch (operand_ty.zigTypeTag(zcu)) {
+    const result_scalar_ty = if (operand_ty_tag == .comptime_int)
+        operand_ty
+    else blk: {
+        const bits = operand_ty.intInfo(zcu).bits;
+
+        if (try sema.typeHasOnePossibleValue(operand_ty)) |val| {
+            return Air.internedToRef(val.toIntern());
+        }
+
+        break :blk try pt.smallestUnsignedInt(bits);
+    };
+    switch (operand_ty_tag) {
         .vector => {
             const vec_len = operand_ty.vectorLen(zcu);
             const result_ty = try pt.vectorType(.{
@@ -23292,11 +23302,39 @@ fn zirBitCount(
                 return block.addTyOp(air_tag, result_ty, operand);
             }
         },
-        .int => {
+        .int, .comptime_int => {
             if (try sema.resolveValueResolveLazy(operand)) |val| {
                 if (val.isUndef(zcu)) return pt.undefRef(result_scalar_ty);
+                if (operand_ty_tag == .comptime_int) {
+                    var space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+                    const bigint = val.toBigInt(&space, zcu);
+                    switch (air_tag) {
+                        .ctz => {
+                            if (bigint.eqlZero()) {
+                                return sema.fail(
+                                    block,
+                                    operand_src,
+                                    "cannot count number of least-significant zeroes in integer '0' of type 'comptime_int'",
+                                    .{},
+                                );
+                            }
+                        },
+                        .popcount => {
+                            if (!bigint.positive) {
+                                return sema.fail(
+                                    block,
+                                    operand_src,
+                                    "cannot count number of bits set in negative integer '{}' of type 'comptime_int'",
+                                    .{val.fmtValueSema(pt, sema)},
+                                );
+                            }
+                        },
+                        else => unreachable,
+                    }
+                }
                 return pt.intRef(result_scalar_ty, comptimeOp(val, operand_ty, zcu));
             } else {
+                std.debug.assert(operand_ty_tag != .comptime_int);
                 try sema.requireRuntimeBlock(block, src, operand_src);
                 return block.addTyOp(air_tag, result_scalar_ty, operand);
             }
