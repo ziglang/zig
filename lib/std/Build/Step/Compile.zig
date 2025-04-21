@@ -1900,7 +1900,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic and
-        compile.version != null and std.Build.wantSharedLibSymLinks(compile.rootModuleTarget()))
+        compile.version != null and compile.generated_bin != null and
+        std.Build.wantSharedLibSymLinks(compile.rootModuleTarget()))
     {
         try doAtomicSymLinks(
             step,
