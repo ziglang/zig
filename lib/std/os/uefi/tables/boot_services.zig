@@ -241,7 +241,6 @@ pub const BootServices = extern struct {
 
     pub const LocateHandleError = uefi.UnexpectedError || error{
         BufferTooSmall,
-        NotFound,
         InvalidParameter,
     };
 
@@ -315,7 +314,6 @@ pub const BootServices = extern struct {
     };
 
     pub const OpenProtocolInformationError = uefi.UnexpectedError || error{
-        NotFound,
         OutOfResources,
     };
 
@@ -326,13 +324,11 @@ pub const BootServices = extern struct {
 
     pub const LocateHandleBufferError = uefi.UnexpectedError || error{
         InvalidParameter,
-        NotFound,
         OutOfResources,
     };
 
     pub const LocateProtocolError = uefi.UnexpectedError || error{
         InvalidParameter,
-        NotFound,
     };
 
     pub const InstallProtocolInterfacesError = uefi.UnexpectedError || error{
@@ -723,8 +719,8 @@ pub const BootServices = extern struct {
             buffer.ptr,
         )) {
             .success => return buffer[0..@divExact(len, @sizeOf(Handle))],
+            .not_found => return buffer[0..0],
             .buffer_too_small => return Error.BufferTooSmall,
-            .not_found => return Error.NotFound,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
@@ -736,7 +732,7 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         device_path: *const DevicePathProtocol,
         Protocol: type,
-    ) LocateHandleError!struct { *const DevicePathProtocol, Handle } {
+    ) LocateHandleError!?struct { *const DevicePathProtocol, Handle } {
         if (!@hasDecl(Protocol, "guid"))
             @compileError("Protocol is missing guid");
 
@@ -748,7 +744,7 @@ pub const BootServices = extern struct {
             &device,
         )) {
             .success => return .{ dev_path, device.? },
-            .not_found => return Error.NotFound,
+            .not_found => return null,
             .invalid_parameter => return Error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
@@ -1054,7 +1050,7 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         handle: Handle,
         Protocol: type,
-    ) OpenProtocolInformationError![]ProtocolInformationEntry {
+    ) OpenProtocolInformationError!?[]ProtocolInformationEntry {
         var entries: [*]ProtocolInformationEntry = undefined;
         var len: usize = undefined;
 
@@ -1065,7 +1061,7 @@ pub const BootServices = extern struct {
             &len,
         )) {
             .success => return entries[0..len],
-            .not_found => return Error.NotFound,
+            .not_found => return null,
             .out_of_resources => return Error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
@@ -1093,7 +1089,7 @@ pub const BootServices = extern struct {
     pub fn locateHandleBuffer(
         self: *const BootServices,
         search: LocateSearch,
-    ) LocateHandleBufferError![]Handle {
+    ) LocateHandleBufferError!?[]Handle {
         var handles: [*]Handle = undefined;
         var len: usize = undefined;
 
@@ -1106,7 +1102,7 @@ pub const BootServices = extern struct {
         )) {
             .success => return handles[0..len],
             .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .not_found => return null,
             .out_of_resources => return Error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
@@ -1117,7 +1113,7 @@ pub const BootServices = extern struct {
         Protocol: type,
         registration: ?EventRegistration,
     ) LocateProtocolError!?*Protocol {
-        var interface: ?*Protocol = undefined;
+        var interface: *Protocol = undefined;
 
         switch (self._locateProtocol(
             &Protocol.guid,
@@ -1125,8 +1121,8 @@ pub const BootServices = extern struct {
             @ptrCast(&interface),
         )) {
             .success => return interface,
+            .not_found => return null,
             .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

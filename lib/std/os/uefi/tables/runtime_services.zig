@@ -98,7 +98,6 @@ pub const RuntimeServices = extern struct {
     };
 
     pub const ConvertPointerError = uefi.UnexpectedError || error{
-        NotFound,
         InvalidParameter,
         Unsupported,
     };
@@ -233,12 +232,12 @@ pub const RuntimeServices = extern struct {
         self: *const RuntimeServices,
         comptime disposition: DebugDisposition,
         cvt: @FieldType(PointerConversion, @tagName(disposition)),
-    ) ConvertPointerError!@FieldType(PointerConversion, @tagName(disposition)) {
+    ) ConvertPointerError!?@FieldType(PointerConversion, @tagName(disposition)) {
         var pointer = cvt;
 
         switch (self._convertPointer(disposition, @ptrCast(&pointer))) {
             .success => return pointer,
-            .not_found => return Error.NotFound,
+            .not_found => return null,
             .invalid_parameter => return Error.InvalidParameter,
             .unsupported => return Error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
@@ -490,7 +489,6 @@ pub const RuntimeServices = extern struct {
 
         pub const IterateVariableNameError = NextSizeError || error{
             BufferTooSmall,
-            NotFound,
         };
 
         services: *const RuntimeServices,
@@ -516,7 +514,7 @@ pub const RuntimeServices = extern struct {
         /// if `buffer` is large enough to hold the name.
         pub fn next(
             self: *VariableNameIterator,
-        ) IterateVariableNameError![:0]const u16 {
+        ) IterateVariableNameError!?[:0]const u16 {
             var len = self.buffer.len;
             switch (self.services._getNextVariableName(
                 &len,
@@ -524,7 +522,7 @@ pub const RuntimeServices = extern struct {
                 &self.guid,
             )) {
                 .success => return self.buffer[0 .. len - 1 :0],
-                .not_found => return Error.NotFound,
+                .not_found => return null,
                 .buffer_too_small => return Error.BufferTooSmall,
                 .device_error => return Error.DeviceError,
                 .unsupported => return Error.Unsupported,
