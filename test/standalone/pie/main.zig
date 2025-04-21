@@ -5,7 +5,7 @@ threadlocal var foo: u8 = 42;
 
 test "Check ELF header" {
     // PIE executables are marked as ET_DYN, regular exes as ET_EXEC.
-    const header = @as(*elf.Ehdr, @ptrFromInt(std.process.getBaseAddress()));
+    const header = @as(*elf.native_elf.Ehdr, @ptrFromInt(std.process.getBaseAddress()));
     try std.testing.expectEqual(elf.ET.DYN, header.e_type);
 }
 

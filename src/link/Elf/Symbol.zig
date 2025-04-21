@@ -14,7 +14,7 @@ file_index: File.Index = 0,
 ref: Elf.Ref = .{},
 
 /// Assigned output section index for this symbol.
-output_section_index: u32 = 0,
+output_section_index: elf.SHN = .UNDEF,
 
 /// Index of the source symbol this symbol references.
 /// Use `elfSym` to pull the source symbol from the relevant file.
@@ -22,7 +22,7 @@ esym_index: Index = 0,
 
 /// Index of the source version symbol this symbol references if any.
 /// If the symbol is unversioned it will have either VER_NDX_LOCAL or VER_NDX_GLOBAL.
-version_index: elf.Versym = .LOCAL,
+version_index: elf.Versym = .local,
 
 /// Misc flags for the symbol packaged as packed struct for compression.
 flags: Flags = .{},
@@ -31,35 +31,35 @@ extra_index: u32 = 0,
 
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
-    if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
+    if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == .ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and
         symbol.mergeSubsection(elf_file) == null and symbol.outputShndx(elf_file) == null and
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?u32 {
+pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?elf.SHN {
     if (symbol.mergeSubsection(elf_file)) |msub|
         return if (msub.alive) msub.mergeSection(elf_file).output_section_index else null;
     if (symbol.atom(elf_file)) |atom_ptr|
         return if (atom_ptr.alive) atom_ptr.output_section_index else null;
-    if (symbol.output_section_index == 0) return null;
+    if (symbol.output_section_index == .UNDEF) return null;
     return symbol.output_section_index;
 }
 
 pub fn isLocal(symbol: Symbol, elf_file: *Elf) bool {
-    if (elf_file.base.isRelocatable()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
+    if (elf_file.base.isRelocatable()) return symbol.elfSym(elf_file).st_info.bind == .LOCAL;
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
 pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
-    return symbol.type(elf_file) == elf.STT_GNU_IFUNC;
+    return symbol.type(elf_file) == .GNU_IFUNC;
 }
 
-pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
+pub fn @"type"(symbol: Symbol, elf_file: *Elf) elf.STT {
     const esym = symbol.elfSym(elf_file);
     const file_ptr = symbol.file(elf_file).?;
-    if (esym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared_object) return elf.STT_FUNC;
-    return esym.st_type();
+    if (esym.st_info.type == .GNU_IFUNC and file_ptr == .shared_object) return .FUNC;
+    return esym.st_info.type;
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
@@ -84,7 +84,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
     return elf_file.file(symbol.file_index);
 }
 
-pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
+pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.elf64.Sym {
     return switch (symbol.file(elf_file).?) {
         .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
         .shared_object => |so| so.parsed.symtab[symbol.esym_index],
@@ -136,7 +136,7 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool
                 if (mem.startsWith(u8, sym_name, "__EH_FRAME_BEGIN__") or
                     mem.startsWith(u8, sym_name, "__EH_FRAME_LIST__") or
                     mem.startsWith(u8, sym_name, ".eh_frame_seg") or
-                    symbol.elfSym(elf_file).st_type() == elf.STT_SECTION)
+                    symbol.elfSym(elf_file).st_info.type == .SECTION)
                 {
                     return @intCast(sh_addr);
                 }
@@ -283,33 +283,33 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const file_ptr = symbol.file(elf_file).?;
     const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
-    const st_bind: u8 = blk: {
+    const st_bind: elf.STB = blk: {
         if (symbol.isLocal(elf_file)) break :blk 0;
-        if (symbol.flags.weak) break :blk elf.STB_WEAK;
-        if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
-        break :blk esym.st_bind();
+        if (symbol.flags.weak) break :blk .WEAK;
+        if (file_ptr == .shared_object) break :blk .GLOBAL;
+        break :blk esym.st_info.bind;
     };
-    const st_shndx: u16 = blk: {
+    const st_shndx: elf.SHN = blk: {
         if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.section_indexes.copy_rel.?);
-        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
+        if (file_ptr == .shared_object or esym.st_shndx == .UNDEF) break :blk .UNDEF;
+        if (elf_file.base.isRelocatable() and esym.st_shndx == .COMMON) break :blk .COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk @intCast(symbol.outputShndx(elf_file) orelse elf.SHN_UNDEF);
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk .ABS;
+        break :blk @intCast(symbol.outputShndx(elf_file) orelse .UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
-        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) {
+        if (file_ptr == .shared_object or esym.st_shndx == .UNDEF) {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
+        if (st_shndx == .ABS or st_shndx == .COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
         const shdr = elf_file.sections.items(.shdr)[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
         break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);
     };
-    out.st_info = (st_bind << 4) | st_type;
+    out.st_info = .{ .type = st_type, .bind = st_bind };
     out.st_other = esym.st_other;
     out.st_shndx = st_shndx;
     out.st_value = @intCast(st_value);
@@ -352,8 +352,8 @@ fn formatName(
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
     try writer.writeAll(symbol.name(elf_file));
-    switch (symbol.version_index.VERSION) {
-        @intFromEnum(elf.VER_NDX.LOCAL), @intFromEnum(elf.VER_NDX.GLOBAL) => {},
+    switch (symbol.version_index) {
+        .local, .global => {},
         else => {
             const file_ptr = symbol.file(elf_file).?;
             assert(file_ptr == .shared_object);
@@ -387,7 +387,7 @@ fn format2(
     });
     if (symbol.file(elf_file)) |file_ptr| {
         if (symbol.isAbs(elf_file)) {
-            if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
+            if (symbol.elfSym(elf_file).st_shndx == .UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");

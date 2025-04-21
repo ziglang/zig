@@ -535,7 +535,7 @@ pub const ElfDynLib = struct {
 
 fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
-    const vsym_index = vsym_arg.VERSION;
+    const vsym_index = vsym_arg.version;
     while (true) {
         if (0 == (def.flags & elf.VER_FLG_BASE) and @intFromEnum(def.ndx) == vsym_index) break;
         if (def.next == 0) return false;
