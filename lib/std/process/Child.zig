@@ -348,16 +348,15 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn writeFifoDataToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), fifo: *std.io.PollFifo) !void {
-    if (fifo.head != 0) fifo.realign();
+fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), br: *std.io.BufferedReader) !void {
+    assert(br.seek == 0);
     if (list.capacity == 0) {
         list.* = .{
-            .items = fifo.buf[0..fifo.count],
-            .capacity = fifo.buf.len,
+            .items = br.bufferContents(),
+            .capacity = br.buffer.len,
         };
-        fifo.* = std.io.PollFifo.init(fifo.allocator);
     } else {
-        try list.appendSlice(allocator, fifo.buf[0..fifo.count]);
+        try list.appendSlice(allocator, br.bufferContents());
     }
 }
 
@@ -384,14 +383,14 @@ pub fn collectOutput(
     defer poller.deinit();
 
     while (try poller.poll()) {
-        if (poller.fifo(.stdout).count > max_output_bytes)
+        if (poller.reader(.stdout).bufferContents().len > max_output_bytes)
             return error.StdoutStreamTooLong;
-        if (poller.fifo(.stderr).count > max_output_bytes)
+        if (poller.reader(.stderr).bufferContents().len > max_output_bytes)
             return error.StderrStreamTooLong;
     }
 
-    try writeFifoDataToArrayList(allocator, stdout, poller.fifo(.stdout));
-    try writeFifoDataToArrayList(allocator, stderr, poller.fifo(.stderr));
+    try writeBufferedReaderToArrayList(allocator, stdout, poller.reader(.stdout));
+    try writeBufferedReaderToArrayList(allocator, stderr, poller.reader(.stderr));
 }
 
 pub const RunError = posix.GetCwdError || posix.ReadError || SpawnError || posix.PollError || error{

@@ -249,11 +249,14 @@ pub fn updateFile(
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
 
-        const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         defer if (file.source == null) gpa.free(source);
-        const amt = try source_file.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
+        var source_fr = source_file.reader();
+        var source_br = source_fr.interface().unbuffered();
+        source_br.readSlice(source) catch |err| switch (err) {
+            error.ReadFailed => if (source_fr.err) |_| unreachable else |e| return e,
+            error.EndOfStream => return error.UnexpectedEndOfFile,
+        };
 
         file.source = source;
 
@@ -340,13 +343,17 @@ fn loadZirZoirCache(
         .zon => Zoir.Header,
     };
 
+    var buffer: [@sizeOf(Header)]u8 = undefined;
+    var cache_fr = cache_file.reader();
+    var cache_br = cache_fr.interface().buffered(&buffer);
+
     // First we read the header to determine the lengths of arrays.
-    const header = cache_file.reader().readStruct(Header) catch |err| switch (err) {
+    const header = (cache_br.takeStruct(Header) catch |err| switch (err) {
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
         error.EndOfStream => return .invalid,
         else => |e| return e,
-    };
+    }).*;
 
     const unchanged_metadata =
         stat.size == header.stat_size and
@@ -2433,8 +2440,12 @@ fn updateEmbedFileInner(
         const old_len = strings.mutate.len;
         errdefer strings.shrinkRetainingCapacity(old_len);
         const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
-        const actual_read = try file.readAll(bytes[0..size]);
-        if (actual_read != size) return error.UnexpectedEof;
+        var fr = file.reader();
+        var br = fr.interface().unbuffered();
+        br.readSlice(bytes[0..size]) catch |err| switch (err) {
+            error.ReadFailed => if (fr.err) |_| unreachable else |e| return e,
+            error.EndOfStream => return error.UnexpectedEof,
+        };
         bytes[size] = 0;
         break :str try ip.getOrPutTrailingString(gpa, tid, @intCast(bytes.len), .maybe_embedded_nulls);
     };

@@ -1517,11 +1517,6 @@ fn evalZigTest(
         break :failed false;
     };
 
-    const Header = std.zig.Server.Message.Header;
-
-    const stdout = poller.fifo(.stdout);
-    const stderr = poller.fifo(.stderr);
-
     var fail_count: u32 = 0;
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
@@ -1534,13 +1529,14 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
+    const stdout_br = poller.reader(.stdout);
+    const stderr_br = poller.reader(.stderr);
     const any_write_failed = first_write_failed or poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
-        var header: Header = undefined;
-        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(Header));
-        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll false;
-        const body = stdout.readableSliceOfLen(header.bytes_len);
-
+        const Header = std.zig.Server.Message.Header;
+        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
+        while (stdout_br.bufferContents().len < header.bytes_len) if (!try poller.poll()) break :poll false;
+        const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -1597,9 +1593,9 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const orig_msg = stderr.readableSlice(0);
-                    defer stderr.discard(orig_msg.len);
-                    const msg = std.mem.trim(u8, orig_msg, "\n");
+                    const stderr_contents = stderr_br.bufferContents();
+                    stderr_br.toss(stderr_contents.len);
+                    const msg = std.mem.trim(u8, stderr_contents, "\n");
                     const label = if (tr_hdr.flags.fail)
                         "failed"
                     else if (tr_hdr.flags.leak)
@@ -1650,8 +1646,6 @@ fn evalZigTest(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     };
 
     if (any_write_failed) {
@@ -1660,9 +1654,9 @@ fn evalZigTest(
         while (try poller.poll()) {}
     }
 
-    if (stderr.readableLength() > 0) {
-        const msg = std.mem.trim(u8, try stderr.toOwnedSlice(), "\n");
-        if (msg.len > 0) run.step.result_stderr = msg;
+    const stderr_contents = std.mem.trim(u8, stderr_br.bufferContents(), "\n");
+    if (stderr_contents.len > 0) {
+        run.step.result_stderr = try arena.dupe(u8, stderr_contents);
     }
 
     // Send EOF to stdin.
@@ -1776,7 +1770,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
     var stdout_bytes: ?[]const u8 = null;
     var stderr_bytes: ?[]const u8 = null;
 
-    run.stdio_limit = .limited(run.stdio_limit.min(run.max_stdio_size));
+    run.stdio_limit = run.stdio_limit.min(.limited(run.max_stdio_size));
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
             var poller = std.io.poll(arena, enum { stdout, stderr }, .{
@@ -1787,15 +1781,15 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
 
             while (try poller.poll()) {
                 if (run.stdio_limit.toInt()) |limit| {
-                    if (poller.fifo(.stderr).count > limit)
+                    if (poller.reader(.stderr).bufferContents().len > limit)
                         return error.StdoutStreamTooLong;
-                    if (poller.fifo(.stderr).count > limit)
+                    if (poller.reader(.stderr).bufferContents().len > limit)
                         return error.StderrStreamTooLong;
                 }
             }
 
-            stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
-            stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
+            stdout_bytes = poller.reader(.stdout).bufferContents();
+            stderr_bytes = poller.reader(.stderr).bufferContents();
         } else {
             stdout_bytes = try stdout.readToEndAlloc(arena, run.stdio_limit);
         }

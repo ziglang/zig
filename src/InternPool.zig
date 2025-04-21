@@ -11263,8 +11263,8 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     var buffer: [4096]u8 = undefined;
-    var bw = std.debug.lockStdErr2(&buffer);
-    defer std.debug.unlockStdErr();
+    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
         for (
@@ -11273,12 +11273,12 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             0..,
         ) |tag, data, index| {
             const i = Index.Unwrapped.wrap(.{ .tid = @enumFromInt(tid), .index = @intCast(index) }, ip);
-            try bw.print("${d} = {s}(", .{ i, @tagName(tag) });
+            try stderr_bw.print("${d} = {s}(", .{ i, @tagName(tag) });
             switch (tag) {
                 .removed => {},
 
-                .simple_type => try bw.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
-                .simple_value => try bw.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
+                .simple_type => try stderr_bw.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
+                .simple_value => try stderr_bw.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
 
                 .type_int_signed,
                 .type_int_unsigned,
@@ -11351,17 +11351,16 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .func_coerced,
                 .union_value,
                 .memoized_call,
-                => try bw.print("{d}", .{data}),
+                => try stderr_bw.print("{d}", .{data}),
 
                 .opt_null,
                 .type_slice,
                 .only_possible_value,
-                => try bw.print("${d}", .{data}),
+                => try stderr_bw.print("${d}", .{data}),
             }
-            try bw.writeAll(")\n");
+            try stderr_bw.writeAll(")\n");
         }
     }
-    try bw.flush();
 }
 
 pub fn dumpGenericInstances(ip: *const InternPool, allocator: Allocator) void {
@@ -11396,8 +11395,8 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     }
 
     var buffer: [4096]u8 = undefined;
-    var bw = std.debug.lockStdErr2(&buffer);
-    defer std.debug.unlockStdErr();
+    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
 
     const SortContext = struct {
         values: []std.ArrayListUnmanaged(Index),
@@ -11410,23 +11409,21 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var it = instances.iterator();
     while (it.next()) |entry| {
         const generic_fn_owner_nav = ip.getNav(ip.funcDeclInfo(entry.key_ptr.*).owner_nav);
-        try bw.print("{f} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
+        try stderr_bw.print("{f} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
         for (entry.value_ptr.items) |index| {
             const unwrapped_index = index.unwrap(ip);
             const func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), unwrapped_index.getData(ip));
             const owner_nav = ip.getNav(func.owner_nav);
-            try bw.print("  {f}: (", .{owner_nav.name.fmt(ip)});
+            try stderr_bw.print("  {f}: (", .{owner_nav.name.fmt(ip)});
             for (func.comptime_args.get(ip)) |arg| {
                 if (arg != .none) {
                     const key = ip.indexToKey(arg);
-                    try bw.print(" {} ", .{key});
+                    try stderr_bw.print(" {} ", .{key});
                 }
             }
-            try bw.writeAll(")\n");
+            try stderr_bw.writeAll(")\n");
         }
     }
-
-    try bw.flush();
 }
 
 pub fn getNav(ip: *const InternPool, index: Nav.Index) Nav {

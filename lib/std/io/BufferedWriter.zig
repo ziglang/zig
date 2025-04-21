@@ -141,16 +141,19 @@ pub fn advance(bw: *BufferedWriter, n: usize) void {
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `Writer.VTable.writeVec`.
 pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
-    var i: usize = 0;
-    while (true) {
-        var n = try passthruWriteSplat(bw, data[i..], 1);
-        const len = data[i].len;
-        while (n >= len) {
-            n -= len;
-            i += 1;
-            if (i >= data.len) return;
+    var index: usize = 0;
+    var truncate: usize = 0;
+    while (index < data.len) {
+        {
+            const untruncated = data[index];
+            data[index] = untruncated[truncate..];
+            defer data[index] = untruncated;
+            truncate += try bw.writeVec(data[index..]);
         }
-        data[i] = data[i][n..];
+        while (index < data.len and truncate <= data[index].len) {
+            truncate -= data[index].len;
+            index += 1;
+        }
     }
 }
 
