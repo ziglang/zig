@@ -251,8 +251,6 @@ pub const Stat = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const MMAP2_UNIT = 4096;
-
 pub const VDSO = void;
 
 /// TODO

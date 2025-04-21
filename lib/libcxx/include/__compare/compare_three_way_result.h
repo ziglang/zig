@@ -33,7 +33,8 @@ struct _LIBCPP_HIDE_FROM_ABI __compare_three_way_result<
 };
 
 template <class _Tp, class _Up = _Tp>
-struct _LIBCPP_TEMPLATE_VIS compare_three_way_result : __compare_three_way_result<_Tp, _Up, void> {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS compare_three_way_result
+    : __compare_three_way_result<_Tp, _Up, void> {};
 
 template <class _Tp, class _Up = _Tp>
 using compare_three_way_result_t = typename compare_three_way_result<_Tp, _Up>::type;

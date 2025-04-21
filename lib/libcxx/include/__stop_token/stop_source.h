@@ -22,7 +22,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN) && !defined(_LIBCPP_HAS_NO_THREADS)
+#if _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 struct nostopstate_t {
   explicit nostopstate_t() = default;
@@ -84,8 +84,8 @@ private:
   __intrusive_shared_ptr<__stop_state> __state_;
 };
 
-#endif // _LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN) && !defined(_LIBCPP_HAS_NO_THREADS)
+#endif // _LIBCPP___STOP_TOKEN_STOP_SOURCE_H

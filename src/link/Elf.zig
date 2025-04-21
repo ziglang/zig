@@ -1596,8 +1596,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.addListOfBytes(self.rpath_table.keys());
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
-            man.hash.add(self.base.build_id);
         }
+        man.hash.add(self.base.build_id);
         man.hash.addListOfBytes(self.symbol_wrap_set.keys());
         man.hash.add(comp.skip_linker_dependencies);
         man.hash.add(self.z_nodelete);
@@ -1753,20 +1753,14 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             });
         }
 
-        if (is_exe_or_dyn_lib) {
-            switch (self.base.build_id) {
-                .none => {},
-                .fast, .uuid, .sha1, .md5 => {
-                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
-                        @tagName(self.base.build_id),
-                    }));
-                },
-                .hexstring => |hs| {
-                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                        std.fmt.fmtSliceHexLower(hs.toSlice()),
-                    }));
-                },
-            }
+        switch (self.base.build_id) {
+            .none => try argv.append("--build-id=none"),
+            .fast, .uuid, .sha1, .md5 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                @tagName(self.base.build_id),
+            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                std.fmt.fmtSliceHexLower(hs.toSlice()),
+            })),
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
@@ -1984,16 +1978,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append(try p.toString(arena));
         }
 
-        // libc
-        if (is_exe_or_dyn_lib and
-            !comp.skip_linker_dependencies and
-            !comp.config.link_libc)
-        {
-            if (comp.libc_static_lib) |lib| {
-                try argv.append(try lib.full_object_path.toString(arena));
-            }
-        }
-
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             // Worst-case, we need an --as-needed argument for every lib, as well
@@ -2070,6 +2054,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     }));
                 } else {
                     diags.flags.missing_libc = true;
+                }
+
+                if (comp.zigc_static_lib) |zigc| {
+                    try argv.append(try zigc.full_object_path.toString(arena));
                 }
             }
         }

@@ -38,6 +38,10 @@ pub const Alignment = enum(math.Log2Int(usize)) {
         return @enumFromInt(@ctz(n));
     }
 
+    pub inline fn of(comptime T: type) Alignment {
+        return comptime fromByteUnits(@alignOf(T));
+    }
+
     pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
         return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
@@ -164,21 +168,6 @@ pub fn ValidationAllocator(comptime T: type) type {
 
 pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)) {
     return ValidationAllocator(@TypeOf(allocator)).init(allocator);
-}
-
-/// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
-/// `full_len` should be the full capacity of the allocation which may be greater
-/// than the `len` that was requested.  This function should only be used by allocators
-/// that are unaffected by `len_align`.
-pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
-    assert(alloc_len > 0);
-    assert(alloc_len >= len_align);
-    assert(full_len >= alloc_len);
-    if (len_align == 0)
-        return alloc_len;
-    const adjusted = alignBackwardAnyAlign(usize, full_len, len_align);
-    assert(adjusted >= alloc_len);
-    return adjusted;
 }
 
 test "Allocator basics" {
@@ -431,7 +420,9 @@ test zeroes {
     }
     try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
     try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
-    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    }
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);

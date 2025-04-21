@@ -129,15 +129,16 @@ test "parse and render IPv6 addresses" {
     try testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
     try testing.expectError(error.Incomplete, net.Address.parseIp6("1", 0));
     // TODO Make this test pass on other operating systems.
-    if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
         try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
-        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
+        // Assumes IFNAMESIZE will always be a multiple of 2
+        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
         try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
     }
 }
 
 test "invalid but parseable IPv6 scope ids" {
-    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin() and builtin.os.tag != .windows) {
         // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
         // TODO Make this test pass on other operating systems.
         return error.SkipZigTest;
@@ -261,7 +262,7 @@ test "listen on a port, send bytes, receive bytes" {
 }
 
 test "listen on an in use port" {
-    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin() and builtin.os.tag != .windows) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }

@@ -11,6 +11,7 @@
 #define _LIBCPP___FUNCTIONAL_PERFECT_FORWARD_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/invoke.h>
 #include <__type_traits/is_constructible.h>
@@ -93,7 +94,7 @@ public:
 
 // __perfect_forward implements a perfect-forwarding call wrapper as explained in [func.require].
 template <class _Op, class... _Args>
-using __perfect_forward = __perfect_forward_impl<_Op, index_sequence_for<_Args...>, _Args...>;
+using __perfect_forward _LIBCPP_NODEBUG = __perfect_forward_impl<_Op, index_sequence_for<_Args...>, _Args...>;
 
 #endif // _LIBCPP_STD_VER >= 17
 

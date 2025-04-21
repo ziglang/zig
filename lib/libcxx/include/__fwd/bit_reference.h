@@ -20,6 +20,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Cp, bool _IsConst, typename _Cp::__storage_type = 0>
 class __bit_iterator;
 
+template <class, class = void>
+struct __size_difference_type_traits;
+
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP___FWD_BIT_REFERENCE_H

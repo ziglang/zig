@@ -172,31 +172,39 @@ void vprint_nonunicode(ostream& os, string_view fmt, format_args args);         
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/ostream>
+#else
+#  include <__config>
 
-#include <__ostream/basic_ostream.h>
+#  if _LIBCPP_HAS_LOCALIZATION
 
-#if _LIBCPP_STD_VER >= 23
-#  include <__ostream/print.h>
-#endif
+#    include <__ostream/basic_ostream.h>
 
-#include <version>
+#    if _LIBCPP_STD_VER >= 23
+#      include <__ostream/print.h>
+#    endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#    include <version>
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <concepts>
-#  include <cstdio>
-#  include <cstdlib>
-#  include <format>
-#  include <iosfwd>
-#  include <iterator>
-#  include <print>
-#  include <stdexcept>
-#  include <type_traits>
-#endif
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
+
+#  endif // _LIBCPP_HAS_LOCALIZATION
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <concepts>
+#    include <cstdio>
+#    include <cstdlib>
+#    include <format>
+#    include <iosfwd>
+#    include <iterator>
+#    include <print>
+#    include <stdexcept>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_OSTREAM

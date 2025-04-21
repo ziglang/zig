@@ -82,7 +82,6 @@ pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
-pub const MMAP2_UNIT = system.MMAP2_UNIT;
 pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
@@ -724,9 +723,12 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (native_os == .linux) {
+        // https://git.musl-libc.org/cgit/musl/commit/?id=0bed7e0acfd34e3fb63ca0e4d99b7592571355a9
+        //
+        // Unlike musl, libc-less Zig std does not have any internal signals for implementation purposes, so we
+        // need to block all signals on the assumption that any of them could potentially fork() in a handler.
         var set: sigset_t = undefined;
-        // block application signals
-        sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
+        sigprocmask(SIG.BLOCK, &linux.all_mask, &set);
 
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
@@ -867,7 +869,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
@@ -931,7 +933,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1011,7 +1013,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
@@ -1153,7 +1155,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1275,7 +1277,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1351,7 +1353,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1441,7 +1443,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1526,7 +1528,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
-            .NOENT => return error.ProcessNotFound,
+            .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1605,6 +1607,9 @@ pub const OpenError = error{
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
 
+    /// This error occurs in Linux if the process to be open was not found.
+    ProcessNotFound,
+
     /// One of these three things:
     /// * pathname  refers to an executable image which is currently being
     ///   executed and write access was requested.
@@ -1664,6 +1669,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .NFILE => return error.SystemFdQuotaExceeded,
             .NODEV => return error.NoDevice,
             .NOENT => return error.FileNotFound,
+            .SRCH => return error.ProcessNotFound,
             .NOMEM => return error.SystemResources,
             .NOSPC => return error.NoSpaceLeft,
             .NOTDIR => return error.NotDir,
@@ -1835,6 +1841,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .NFILE => return error.SystemFdQuotaExceeded,
             .NODEV => return error.NoDevice,
             .NOENT => return error.FileNotFound,
+            .SRCH => return error.ProcessNotFound,
             .NOMEM => return error.SystemResources,
             .NOSPC => return error.NoSpaceLeft,
             .NOTDIR => return error.NotDir,
@@ -2005,14 +2012,18 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (native_os == .windows) {
         @compileError("std.posix.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
     }
+    if (mem.indexOfScalar(u8, key, '=') != null) {
+        return null;
+    }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
-            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
-            const this_key = line[0..line_i];
-
-            if (!mem.eql(u8, this_key, key)) continue;
+            while (line[line_i] != 0) : (line_i += 1) {
+                if (line_i == key.len) break;
+                if (line[line_i] != key[line_i]) break;
+            }
+            if ((line_i != key.len) or (line[line_i] != '=')) continue;
 
             return mem.sliceTo(line + line_i + 1, 0);
         }
@@ -2026,9 +2037,11 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (std.os.environ) |ptr| {
         var line_i: usize = 0;
-        while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-        const this_key = ptr[0..line_i];
-        if (!mem.eql(u8, key, this_key)) continue;
+        while (ptr[line_i] != 0) : (line_i += 1) {
+            if (line_i == key.len) break;
+            if (ptr[line_i] != key[line_i]) break;
+        }
+        if ((line_i != key.len) or (ptr[line_i] != '=')) continue;
 
         return mem.sliceTo(ptr + line_i + 1, 0);
     }
@@ -5475,6 +5488,7 @@ pub const RealPathError = error{
     FileSystem,
     BadPathName,
     DeviceBusy,
+    ProcessNotFound,
 
     SharingViolation,
     PipeBusy,
@@ -6588,7 +6602,7 @@ pub const CopyFileRangeError = error{
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
+    if (builtin.os.tag == .freebsd or
         (comptime builtin.os.tag == .linux and std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);

@@ -41,8 +41,8 @@
 //   Returns the iterator composed of the segment iterator and local iterator.
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/integral_constant.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -72,7 +72,7 @@ template <class _Tp>
 struct __has_specialization<_Tp, sizeof(_Tp) * 0> : true_type {};
 
 template <class _Iterator>
-using __is_segmented_iterator = __has_specialization<__segmented_iterator_traits<_Iterator> >;
+using __is_segmented_iterator _LIBCPP_NODEBUG = __has_specialization<__segmented_iterator_traits<_Iterator> >;
 
 _LIBCPP_END_NAMESPACE_STD
 

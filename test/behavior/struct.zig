@@ -421,9 +421,7 @@ const Foo96Bits = packed struct {
 test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -763,7 +761,6 @@ const S0 = struct {
 var g_foo: S0 = S0.init();
 
 test "packed struct with fp fields" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1527,7 +1524,7 @@ test "optional generic function label struct field" {
 }
 
 test "struct fields get automatically reordered" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S1 = struct {
         a: u32,
@@ -2136,4 +2133,46 @@ test "anonymous struct equivalence" {
     comptime assert(A == B);
     comptime assert(A != C);
     comptime assert(B != C);
+}
+
+test "field access through mem ptr arg" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn nestedFieldAccess(
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            ptr_struct: *const struct { field: u32 },
+        ) u32 {
+            return ptr_struct.field;
+        }
+    };
+    try expect(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x6b00a2eb },
+    ) == 0x6b00a2eb);
+    comptime assert(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x0ced271f },
+    ) == 0x0ced271f);
 }
