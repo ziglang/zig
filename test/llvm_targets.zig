@@ -125,8 +125,6 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .m68k, .os_tag = .netbsd, .abi = .none },
     // .{ .cpu_arch = .m68k, .os_tag = .rtems, .abi = .none },
 
-    .{ .cpu_arch = .mips, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .mips, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .mips, .os_tag = .linux, .abi = .eabi },
@@ -140,8 +138,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .mips, .os_tag = .rtems, .abi = .eabi },
     .{ .cpu_arch = .mips, .os_tag = .rtems, .abi = .eabihf },
 
-    .{ .cpu_arch = .mipsel, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .mipsel, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .mipsel, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .mipsel, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .mipsel, .os_tag = .linux, .abi = .eabi },
@@ -155,7 +151,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .mipsel, .os_tag = .rtems, .abi = .eabi },
     .{ .cpu_arch = .mipsel, .os_tag = .rtems, .abi = .eabihf },
 
-    .{ .cpu_arch = .mips64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .mips64, .os_tag = .linux, .abi = .gnuabi64 },
     .{ .cpu_arch = .mips64, .os_tag = .linux, .abi = .gnuabin32 },
@@ -165,7 +160,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .mips64, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .mips64, .os_tag = .openbsd, .abi = .none },
 
-    .{ .cpu_arch = .mips64el, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .mips64el, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .mips64el, .os_tag = .linux, .abi = .gnuabi64 },
     .{ .cpu_arch = .mips64el, .os_tag = .linux, .abi = .gnuabin32 },
