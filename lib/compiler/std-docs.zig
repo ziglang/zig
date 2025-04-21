@@ -428,7 +428,7 @@ fn receiveWasmMessage(
         },
         else => {
             // Ignore other messages.
-            try br.discard(header.bytes_len);
+            try br.discardAll(header.bytes_len);
         },
     }
 }
