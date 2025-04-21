@@ -176,7 +176,7 @@ const Writer = struct {
         }
     } = .{},
 
-    const Error = std.io.Writer.Error;
+    const Error = std.io.Writer.Error || std.mem.Allocator.Error;
 
     fn writeInstToStream(
         self: *Writer,

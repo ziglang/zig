@@ -9,7 +9,7 @@ const native_endian = builtin.cpu.arch.endian();
 key: []const u8,
 request: *std.http.Server.Request,
 recv_fifo: std.fifo.LinearFifo(u8, .Slice),
-reader: *std.io.BufferedReader,
+reader: std.io.BufferedReader,
 response: std.http.Server.Response,
 /// Number of bytes that have been peeked but not discarded yet.
 outstanding_len: usize,
@@ -20,7 +20,6 @@ pub const InitError = error{WebSocketUpgradeMissingKey} ||
 pub fn init(
     ws: *WebSocket,
     request: *std.http.Server.Request,
-    send_buffer: []u8,
     recv_buffer: []align(4) u8,
 ) InitError!bool {
     switch (request.head.version) {
@@ -58,9 +57,8 @@ pub fn init(
     ws.* = .{
         .key = key,
         .recv_fifo = .init(recv_buffer),
-        .reader = undefined,
-        .response = request.respondStreaming(.{
-            .send_buffer = send_buffer,
+        .reader = (try request.reader()).unbuffered(),
+        .response = try request.respondStreaming(.{
             .respond_options = .{
                 .status = .switching_protocols,
                 .extra_headers = &.{
@@ -74,7 +72,6 @@ pub fn init(
         .request = request,
         .outstanding_len = 0,
     };
-    ws.reader.init(try request.reader(), &.{});
     return true;
 }
 
@@ -239,9 +236,8 @@ pub fn writeMessagev(ws: *WebSocket, message: []const std.posix.iovec_const, opc
         },
     };
 
-    const response = &ws.response;
-    try response.writeAll(header);
-    for (message) |iovec|
-        try response.writeAll(iovec.base[0..iovec.len]);
-    try response.flush();
+    var bw = ws.response.writer().unbuffered();
+    try bw.writeAll(header);
+    for (message) |iovec| try bw.writeAll(iovec.base[0..iovec.len]);
+    try bw.flush();
 }

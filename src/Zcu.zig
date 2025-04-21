@@ -1043,12 +1043,12 @@ pub const File = struct {
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
 
-        const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        const amt = try f.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
+        var fr = f.reader();
+        var br = fr.interface().unbuffered();
+        try br.readSlice(source);
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
@@ -2845,34 +2845,21 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
 
-    const data_ptr = if (data_has_safety_tag)
-        @as([*]u8, @ptrCast(safety_buffer.ptr))
-    else
-        @as([*]u8, @ptrCast(zir.instructions.items(.data).ptr));
-
-    var iovecs = [_]std.posix.iovec{
-        .{
-            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .len = header.instructions_len,
-        },
-        .{
-            .base = data_ptr,
-            .len = header.instructions_len * 8,
-        },
-        .{
-            .base = zir.string_bytes.ptr,
-            .len = header.string_bytes_len,
-        },
-        .{
-            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .len = header.extra_len * 4,
-        },
+    var vecs = [_][]u8{
+        @ptrCast(zir.instructions.items(.tag)),
+        if (data_has_safety_tag)
+            @ptrCast(safety_buffer)
+        else
+            zir.instructions.items(.data),
+        zir.string_bytes,
+        @ptrCast(zir.extra),
     };
-    const amt_read = try cache_file.readvAll(&iovecs);
-    const amt_expected = zir.instructions.len * 9 +
-        zir.string_bytes.len +
-        zir.extra.len * 4;
-    if (amt_read != amt_expected) return error.UnexpectedFileSize;
+    var cache_fr = cache_file.reader();
+    var cache_br = cache_fr.interface().unbuffered();
+    cache_br.readVecAll(&vecs) catch |err| switch (err) {
+        error.ReadFailed => if (cache_fr.err) |_| unreachable else |e| return e,
+        error.EndOfStream => return error.UnexpectedFileSize,
+    };
     if (data_has_safety_tag) {
         const tags = zir.instructions.items(.tag);
         for (zir.instructions.items(.data), 0..) |*data, i| {
@@ -2895,14 +2882,6 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
 
-    const data_ptr: [*]const u8 = if (data_has_safety_tag)
-        if (zir.instructions.len == 0)
-            undefined
-        else
-            @ptrCast(safety_buffer.ptr)
-    else
-        @ptrCast(zir.instructions.items(.data).ptr);
-
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
         for (zir.instructions.items(.data), 0..) |*data, i| {
@@ -2920,29 +2899,21 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs: [5]std.posix.iovec_const = .{
-        .{
-            .base = @ptrCast(&header),
-            .len = @sizeOf(Zir.Header),
-        },
-        .{
-            .base = @ptrCast(zir.instructions.items(.tag).ptr),
-            .len = zir.instructions.len,
-        },
-        .{
-            .base = data_ptr,
-            .len = zir.instructions.len * 8,
-        },
-        .{
-            .base = zir.string_bytes.ptr,
-            .len = zir.string_bytes.len,
-        },
-        .{
-            .base = @ptrCast(zir.extra.ptr),
-            .len = zir.extra.len * 4,
-        },
+    var vecs = [_][]const u8{
+        @ptrCast((&header)[0..1]),
+        @ptrCast(zir.instructions.items(.tag)),
+        if (data_has_safety_tag)
+            @ptrCast(safety_buffer)
+        else
+            @ptrCast(zir.instructions.items(.data)),
+        zir.string_bytes,
+        @ptrCast(zir.extra),
     };
-    try cache_file.writevAll(&iovecs);
+    var cache_fw = cache_file.writer();
+    var cache_bw = cache_fw.interface().unbuffered();
+    cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
+        error.WriteFailed => if (cache_fw.err) |_| unreachable else |e| return e,
+    };
 }
 
 pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir) std.fs.File.WriteError!void {
@@ -2958,45 +2929,22 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs: [9]std.posix.iovec_const = .{
-        .{
-            .base = @ptrCast(&header),
-            .len = @sizeOf(Zoir.Header),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.tag)),
-            .len = zoir.nodes.len * @sizeOf(Zoir.Node.Repr.Tag),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.data)),
-            .len = zoir.nodes.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.ast_node)),
-            .len = zoir.nodes.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.extra),
-            .len = zoir.extra.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.limbs),
-            .len = zoir.limbs.len * @sizeOf(std.math.big.Limb),
-        },
-        .{
-            .base = zoir.string_bytes.ptr,
-            .len = zoir.string_bytes.len,
-        },
-        .{
-            .base = @ptrCast(zoir.compile_errors),
-            .len = zoir.compile_errors.len * @sizeOf(Zoir.CompileError),
-        },
-        .{
-            .base = @ptrCast(zoir.error_notes),
-            .len = zoir.error_notes.len * @sizeOf(Zoir.CompileError.Note),
-        },
+    var vecs = [_][]const u8{
+        @ptrCast((&header)[0..1]),
+        @ptrCast(zoir.nodes.items(.tag)),
+        @ptrCast(zoir.nodes.items(.data)),
+        @ptrCast(zoir.nodes.items(.ast_node)),
+        @ptrCast(zoir.extra),
+        @ptrCast(zoir.limbs),
+        zoir.string_bytes,
+        @ptrCast(zoir.compile_errors),
+        @ptrCast(zoir.error_notes),
     };
-    try cache_file.writevAll(&iovecs);
+    var cache_fw = cache_file.writer();
+    var cache_bw = cache_fw.interface().unbuffered();
+    cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
+        error.WriteFailed => if (cache_fw.err) |_| unreachable else |e| return e,
+    };
 }
 
 pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs.File) !Zoir {
@@ -3025,49 +2973,22 @@ pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs
     zoir.compile_errors = try gpa.alloc(Zoir.CompileError, header.compile_errors_len);
     zoir.error_notes = try gpa.alloc(Zoir.CompileError.Note, header.error_notes_len);
 
-    var iovecs: [8]std.posix.iovec = .{
-        .{
-            .base = @ptrCast(zoir.nodes.items(.tag)),
-            .len = header.nodes_len * @sizeOf(Zoir.Node.Repr.Tag),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.data)),
-            .len = header.nodes_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.ast_node)),
-            .len = header.nodes_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.extra),
-            .len = header.extra_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.limbs),
-            .len = header.limbs_len * @sizeOf(std.math.big.Limb),
-        },
-        .{
-            .base = zoir.string_bytes.ptr,
-            .len = header.string_bytes_len,
-        },
-        .{
-            .base = @ptrCast(zoir.compile_errors),
-            .len = header.compile_errors_len * @sizeOf(Zoir.CompileError),
-        },
-        .{
-            .base = @ptrCast(zoir.error_notes),
-            .len = header.error_notes_len * @sizeOf(Zoir.CompileError.Note),
-        },
+    var vecs = [_][]u8{
+        @ptrCast(zoir.nodes.items(.tag)),
+        @ptrCast(zoir.nodes.items(.data)),
+        @ptrCast(zoir.nodes.items(.ast_node)),
+        @ptrCast(zoir.extra),
+        @ptrCast(zoir.limbs),
+        zoir.string_bytes,
+        @ptrCast(zoir.compile_errors),
+        @ptrCast(zoir.error_notes),
     };
-
-    const bytes_expected = expected: {
-        var n: usize = 0;
-        for (iovecs) |v| n += v.len;
-        break :expected n;
+    var cache_fr = cache_file.reader();
+    var cache_br = cache_fr.interface().unbuffered();
+    cache_br.readVecAll(&vecs) catch |err| switch (err) {
+        error.ReadFailed => if (cache_fr.err) |_| unreachable else |e| return e,
+        error.EndOfStream => return error.UnexpectedFileSize,
     };
-
-    const bytes_read = try cache_file.readvAll(&iovecs);
-    if (bytes_read != bytes_expected) return error.UnexpectedFileSize;
     return zoir;
 }
 

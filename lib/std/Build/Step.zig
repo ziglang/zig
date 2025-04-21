@@ -511,18 +511,15 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     try sendMessage(zp.child.stdin.?, .update);
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
 
-    const Header = std.zig.Server.Message.Header;
     var result: ?Path = null;
 
-    const stdout = zp.poller.fifo(.stdout);
-
+    const stdout_br = zp.poller.reader(.stdout);
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
-        var header: Header = undefined;
-        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(Header));
-        while (stdout.readableLength() < header.bytes_len) if (!try zp.poller.poll()) break :poll;
-        const body = stdout.readableSliceOfLen(header.bytes_len);
-
+        const Header = std.zig.Server.Message.Header;
+        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
+        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
+        while (stdout_br.bufferContents().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
+        const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -547,11 +544,8 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
                 };
-                if (watch) {
-                    // This message indicates the end of the update.
-                    stdout.discard(body.len);
-                    break;
-                }
+                // This message indicates the end of the update.
+                if (watch) break :poll;
             },
             .emit_digest => {
                 const EmitDigest = std.zig.Server.Message.EmitDigest;
@@ -611,15 +605,14 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
     s.result_duration_ns = timer.read();
 
-    const stderr = zp.poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        try s.result_error_msgs.append(arena, try stderr.toOwnedSlice());
+    const stderr_br = zp.poller.reader(.stderr);
+    const stderr_contents = stderr_br.bufferContents();
+    if (stderr_contents.len > 0) {
+        try s.result_error_msgs.append(arena, try arena.dupe(u8, stderr_contents));
     }
 
     return result;

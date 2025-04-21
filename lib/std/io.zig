@@ -53,7 +53,12 @@ pub fn poll(
     const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
     var result: Poller(StreamEnum) = .{
         .gpa = gpa,
-        .readers = undefined,
+        .readers = @splat(.{
+            .unbuffered_reader = .failing,
+            .buffer = &.{},
+            .end = 0,
+            .seek = 0,
+        }),
         .poll_fds = undefined,
         .windows = if (is_windows) .{
             .first_read_done = false,
@@ -70,12 +75,6 @@ pub fn poll(
     };
 
     inline for (enum_fields, 0..) |field, i| {
-        result.readers[i] = .{
-            .unbuffered_reader = .failing,
-            .buffer = &.{},
-            .end = 0,
-            .seek = 0,
-        };
         if (is_windows) {
             result.windows.active.handles_buf[i] = @field(files, field.name).handle;
         } else {

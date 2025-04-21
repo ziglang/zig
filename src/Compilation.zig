@@ -1881,14 +1881,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                var stderr = std.debug.lockStdErr2(&.{});
-                defer std.debug.unlockStdErr();
-                nosuspend {
-                    stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
-                    stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
-                    stderr.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
-                    stderr.print("  features: {s}\n", .{cf}) catch {};
-                }
+                const stderr_bw = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                stderr_bw.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                stderr_bw.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
+                stderr_bw.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
+                stderr_bw.print("  features: {s}\n", .{cf}) catch {};
             }
         }
 

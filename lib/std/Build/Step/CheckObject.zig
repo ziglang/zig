@@ -1239,7 +1239,7 @@ const MachODumper = struct {
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
             var br: std.io.BufferedReader = undefined;
-            br.initFixed(data);
+            br.initFixed(@constCast(data));
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
@@ -1350,7 +1350,7 @@ const MachODumper = struct {
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
             var br: std.io.BufferedReader = undefined;
-            br.initFixed(data);
+            br.initFixed(@constCast(data));
 
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
@@ -1448,7 +1448,7 @@ const MachODumper = struct {
 
             var exports: std.ArrayList(Export) = .init(arena.allocator());
             var br: std.io.BufferedReader = undefined;
-            br.initFixed(data);
+            br.initFixed(@constCast(data));
             try parseTrieNode(arena.allocator(), &br, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
@@ -1706,7 +1706,7 @@ const ElfDumper = struct {
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var br: std.io.BufferedReader = undefined;
-        br.initFixed(bytes);
+        br.initFixed(@constCast(bytes));
 
         if (!mem.eql(u8, try br.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
 
@@ -1781,7 +1781,7 @@ const ElfDumper = struct {
 
         fn parseSymtab(ctx: *ArchiveContext, data: []const u8, ptr_width: enum { p32, p64 }) !void {
             var br: std.io.BufferedReader = undefined;
-            br.initFixed(data);
+            br.initFixed(@constCast(data));
             const num = switch (ptr_width) {
                 .p32 => try br.takeInt(u32, .big),
                 .p64 => try br.takeInt(u64, .big),
@@ -1791,7 +1791,7 @@ const ElfDumper = struct {
                 .p64 => @sizeOf(u64),
             };
             try br.discard(num * ptr_size);
-            const strtab = try br.peekGreedy(0);
+            const strtab = br.bufferContents();
 
             assert(ctx.symtab.len == 0);
             ctx.symtab = try ctx.gpa.alloc(ArSymtabEntry, num);
@@ -1852,7 +1852,7 @@ const ElfDumper = struct {
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var br: std.io.BufferedReader = undefined;
-        br.initFixed(bytes);
+        br.initFixed(@constCast(bytes));
 
         const hdr = try br.takeStruct(elf.Elf64_Ehdr);
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidMagicNumber;
@@ -2355,7 +2355,7 @@ const WasmDumper = struct {
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var br: std.io.BufferedReader = undefined;
-        br.initFixed(bytes);
+        br.initFixed(@constCast(bytes));
 
         const buf = try br.takeArray(8);
         if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) return error.InvalidMagicByte;
@@ -2402,7 +2402,7 @@ const WasmDumper = struct {
         try bw.print(
             \\Section {s}
             \\size {d}
-        , .{ @tagName(section), br.storageBuffer().len });
+        , .{ @tagName(section), br.buffer.len });
 
         switch (section) {
             .type,
@@ -2615,7 +2615,7 @@ const WasmDumper = struct {
     /// https://webassembly.github.io/spec/core/appendix/custom.html
     fn parseDumpNames(step: *Step, br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
         var subsection_br: std.io.BufferedReader = undefined;
-        while (br.seek < br.storageBuffer().len) {
+        while (br.seek < br.buffer.len) {
             switch (try parseDumpType(step, std.wasm.NameSubsection, br, bw)) {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
@@ -2626,7 +2626,7 @@ const WasmDumper = struct {
                         \\name {s}
                         \\
                     , .{name});
-                    if (subsection_br.seek != subsection_br.storageBuffer().len) return error.BadSubsectionSize;
+                    if (subsection_br.seek != subsection_br.buffer.len) return error.BadSubsectionSize;
                 },
 
                 // The function name subsection ... consists of a name map
@@ -2647,7 +2647,7 @@ const WasmDumper = struct {
                             \\
                         , .{ index, name });
                     }
-                    if (subsection_br.seek != subsection_br.storageBuffer().len) return error.BadSubsectionSize;
+                    if (subsection_br.seek != subsection_br.buffer.len) return error.BadSubsectionSize;
                 },
 
                 // The local name subsection ... consists of an indirect name

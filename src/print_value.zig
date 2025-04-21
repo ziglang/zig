@@ -47,7 +47,7 @@ pub fn print(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) std.io.Writer.Error!void {
+) (std.io.Writer.Error || Zcu.CompileError)!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
@@ -190,7 +190,7 @@ fn printAggregate(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) std.io.Writer.Error!void {
+) (std.io.Writer.Error || Zcu.CompileError)!void {
     if (level == 0) {
         if (is_ref) try bw.writeByte('&');
         return bw.writeAll(".{ ... }");
@@ -276,7 +276,7 @@ fn printPtr(
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) std.io.Writer.Error!void {
+) (std.io.Writer.Error || Zcu.CompileError)!void {
     const ptr = switch (pt.zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
         .undef => return bw.writeAll("undefined"),
         .ptr => |ptr| ptr,
@@ -336,7 +336,7 @@ pub fn printPtrDerivation(
     /// The maximum recursion depth. We can never recurse infinitely here, but the depth can be arbitrary,
     /// so at this depth we just write "..." to prevent stack overflow.
     ptr_depth: u8,
-) std.io.Writer.Error!Value.PointerDeriveStep {
+) (std.io.Writer.Error || Zcu.CompileError)!Value.PointerDeriveStep {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 

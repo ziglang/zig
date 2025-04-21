@@ -51,6 +51,23 @@ pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
     return passthruReadVec(br, data);
 }
 
+pub fn readVecAll(br: *BufferedReader, data: [][]u8) Reader.Error!void {
+    var index: usize = 0;
+    var truncate: usize = 0;
+    while (index < data.len) {
+        {
+            const untruncated = data[index];
+            data[index] = untruncated[truncate..];
+            defer data[index] = untruncated;
+            truncate += try br.readVec(data[index..]);
+        }
+        while (index < data.len and truncate <= data[index].len) {
+            truncate -= data[index].len;
+            index += 1;
+        }
+    }
+}
+
 pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     return passthruRead(br, bw, limit);
 }
@@ -58,8 +75,8 @@ pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reade
 /// "Pump" data from the reader to the writer.
 pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!void {
     var remaining = limit;
-    while (true) {
-        const n = try passthruRead(br, bw, remaining);
+    while (remaining.nonzero()) {
+        const n = try br.read(bw, remaining);
         remaining = remaining.subtract(n).?;
     }
 }
@@ -68,7 +85,7 @@ fn passthruRead(ctx: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Read
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.buffer[0..br.end];
     const buffered = buffer[br.seek..];
-    const limited = buffered[0..limit.min(buffered.len)];
+    const limited = buffered[0..limit.minInt(buffered.len)];
     if (limited.len > 0) {
         const n = try bw.write(limited);
         br.seek += n;
@@ -93,7 +110,7 @@ fn passthruReadVec(ctx: ?*anyopaque, data: []const []u8) Reader.Error!usize {
             vecs[0] = buf[copy_len..];
             const vecs_len: usize = @min(vecs.len, data.len - i);
             var vec_data_len: usize = vecs[0].len;
-            for (&vecs[1..vecs_len], data[i + 1 ..][0 .. vecs_len - 1]) |*v, d| {
+            for (vecs[1..vecs_len], data[i + 1 ..][0 .. vecs_len - 1]) |*v, d| {
                 vec_data_len += d.len;
                 v.* = d;
             }
@@ -149,7 +166,6 @@ pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) !void {
 /// * `peek`
 /// * `toss`
 pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
-    assert(n <= br.buffer.len);
     try br.fill(n);
     return br.buffer[br.seek..][0..n];
 }
@@ -169,7 +185,6 @@ pub fn peek(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 /// * `peek`
 /// * `toss`
 pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
-    assert(n <= br.buffer.len);
     try br.fill(n);
     return br.buffer[br.seek..br.end];
 }
@@ -448,10 +463,12 @@ fn peekDelimiterInclusiveUnlessEnd(br: *BufferedReader, delimiter: u8) Delimiter
         @branchHint(.likely);
         return buffer[seek .. end + 1];
     }
-    const remainder = buffer[seek..];
-    std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-    br.end = remainder.len;
-    br.seek = 0;
+    if (seek > 0) {
+        const remainder = buffer[seek..];
+        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        br.end = remainder.len;
+        br.seek = 0;
+    }
     while (br.end < br.buffer.len) {
         const n = try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
         const prev_end = br.end;
@@ -550,10 +567,12 @@ pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
         @branchHint(.likely);
         return;
     }
-    const remainder = buffer[seek..];
-    std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-    br.end = remainder.len;
-    br.seek = 0;
+    if (seek > 0) {
+        const remainder = buffer[seek..];
+        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        br.end = remainder.len;
+        br.seek = 0;
+    }
     while (true) {
         br.end += try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
         if (n <= br.end) return;
@@ -665,15 +684,35 @@ pub fn writableSliceGreedyAlloc(
     allocator: Allocator,
     min_len: usize,
 ) error{OutOfMemory}![]u8 {
-    _ = br;
-    _ = allocator;
-    _ = min_len;
-    @panic("TODO");
+    {
+        const unused = br.buffer[br.end..];
+        if (unused.len >= min_len) return unused;
+    }
+    const seek = br.seek;
+    if (seek > 0) {
+        const buffer = br.buffer[0..br.end];
+        const remainder = buffer[seek..];
+        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        br.end = remainder.len;
+        br.seek = 0;
+    }
+    {
+        var list: std.ArrayListUnmanaged(u8) = .{
+            .items = br.buffer[0..br.end],
+            .capacity = br.buffer.len,
+        };
+        defer br.buffer = list.allocatedSlice();
+        try list.ensureUnusedCapacity(allocator, min_len);
+    }
+    const unused = br.buffer[br.end..];
+    assert(unused.len >= min_len);
+    return unused;
 }
 
 /// After writing directly into the unused capacity of `buffer`, this function
 /// updates `end` so that users of `BufferedReader` can receive the data.
 pub fn advanceBufferEnd(br: *BufferedReader, n: usize) void {
+    assert(n <= br.buffer.len - br.end);
     br.end += n;
 }
 

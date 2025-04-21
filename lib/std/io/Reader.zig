@@ -94,7 +94,7 @@ pub const Limit = enum(usize) {
     }
 
     pub fn slice(l: Limit, s: []u8) []u8 {
-        return s[0..min(l, s.len)];
+        return s[0..l.minInt(s.len)];
     }
 
     pub fn toInt(l: Limit) ?usize {
