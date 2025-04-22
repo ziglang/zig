@@ -931,7 +931,8 @@ pub const WriteFileError = PReadError || WriteError;
 
 pub fn writeFileAll(self: File, in_file: File, options: BufferedWriter.WriteFileOptions) WriteFileError!void {
     var file_writer = self.writer();
-    var bw = file_writer.interface().buffered(&.{});
+    var buffer: [2000]u8 = undefined;
+    var bw = file_writer.interface().buffered(&buffer);
     bw.writeFileAll(in_file, options) catch |err| switch (err) {
         error.WriteFailed => if (file_writer.err) |_| unreachable else |e| return e,
         else => |e| return e,
@@ -940,14 +941,27 @@ pub fn writeFileAll(self: File, in_file: File, options: BufferedWriter.WriteFile
 
 pub const Reader = struct {
     file: File,
-    err: ReadError!void = {},
+    err: ?ReadError = null,
     mode: Reader.Mode = .positional,
     pos: u64 = 0,
     size: ?u64 = null,
-    size_err: GetEndPosError!void = {},
-    seek_err: SeekError!void = {},
+    size_err: ?GetEndPosError = null,
+    seek_err: ?SeekError = null,
 
-    pub const Mode = enum { streaming, positional };
+    pub const Mode = enum {
+        streaming,
+        positional,
+        streaming_reading,
+        positional_reading,
+
+        pub fn toStreaming(m: @This()) @This() {
+            return switch (m) {
+                .positional => .streaming,
+                .positional_reading => .streaming_reading,
+                else => unreachable,
+            };
+        }
+    };
 
     pub fn interface(r: *Reader) std.io.Reader {
         return .{
@@ -975,7 +989,7 @@ pub const Reader = struct {
         switch (r.mode) {
             .positional => {
                 const size = r.size orelse {
-                    if (r.file.getEndPos()) |size| {
+                    if (file.getEndPos()) |size| {
                         r.size = size;
                     } else |err| {
                         r.size_err = err;
@@ -991,6 +1005,10 @@ pub const Reader = struct {
                         assert(pos == 0);
                         return 0;
                     },
+                    error.Unimplemented => {
+                        r.mode = .positional_reading;
+                        return 0;
+                    },
                     else => |e| {
                         r.err = e;
                         return error.ReadFailed;
@@ -1003,12 +1021,45 @@ pub const Reader = struct {
                 const n = bw.writeFile(file, .none, limit, &.{}, 0) catch |err| switch (err) {
                     error.WriteFailed => return error.WriteFailed,
                     error.Unseekable => unreachable, // Passing `Offset.none`.
+                    error.Unimplemented => {
+                        r.mode = .streaming_reading;
+                        return 0;
+                    },
                     else => |e| {
                         r.err = e;
                         return error.ReadFailed;
                     },
                 };
                 r.pos = pos + n;
+                return n;
+            },
+            .positional_reading => {
+                const dest = limit.slice(try bw.writableSliceGreedy(1));
+                const n = file.pread(dest, pos) catch |err| switch (err) {
+                    error.Unseekable => {
+                        r.mode = .streaming_reading;
+                        assert(pos == 0);
+                        return 0;
+                    },
+                    else => |e| {
+                        r.err = e;
+                        return error.ReadFailed;
+                    },
+                };
+                if (n == 0) return error.EndOfStream;
+                r.pos = pos + n;
+                bw.advance(n);
+                return n;
+            },
+            .streaming_reading => {
+                const dest = limit.slice(try bw.writableSliceGreedy(1));
+                const n = file.read(dest) catch |err| {
+                    r.err = err;
+                    return error.ReadFailed;
+                };
+                if (n == 0) return error.EndOfStream;
+                r.pos = pos + n;
+                bw.advance(n);
                 return n;
             },
         }
@@ -1020,7 +1071,7 @@ pub const Reader = struct {
         const pos = r.pos;
 
         switch (r.mode) {
-            .positional => {
+            .positional, .positional_reading => {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it requires
                     // page alignment, so we are stuck using only the first slice.
@@ -1053,7 +1104,7 @@ pub const Reader = struct {
                 if (send_vecs.len == 0) return 0; // Prevent false positive end detection on empty `data`.
                 const n = posix.preadv(handle, send_vecs, pos) catch |err| switch (err) {
                     error.Unseekable => {
-                        r.mode = .streaming;
+                        r.mode = r.mode.toStreaming();
                         assert(pos == 0);
                         return 0;
                     },
@@ -1066,7 +1117,7 @@ pub const Reader = struct {
                 r.pos = pos + n;
                 return n;
             },
-            .streaming => {
+            .streaming, .streaming_reading => {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it requires
                     // page alignment, so we are stuck using only the first slice.
@@ -1113,13 +1164,13 @@ pub const Reader = struct {
         const file = r.file;
         const pos = r.pos;
         switch (r.mode) {
-            .positional => {
+            .positional, .positional_reading => {
                 const size = r.size orelse {
                     if (file.getEndPos()) |size| {
                         r.size = size;
                     } else |err| {
                         r.size_err = err;
-                        r.mode = .streaming;
+                        r.mode = r.mode.toStreaming();
                     }
                     return 0;
                 };
@@ -1127,17 +1178,13 @@ pub const Reader = struct {
                 r.pos = pos + delta;
                 return delta;
             },
-            .streaming => {
+            .streaming, .streaming_reading => {
                 // Unfortunately we can't seek forward without knowing the
                 // size because the seek syscalls provided to us will not
                 // return the true end position if a seek would exceed the
                 // end.
                 fallback: {
-                    if (r.size_err) |_| {
-                        if (r.seek_err) |_| {
-                            break :fallback;
-                        } else |_| {}
-                    } else |_| {}
+                    if (r.size_err == null and r.seek_err == null) break :fallback;
                     var trash_buffer: [std.atomic.cache_line]u8 = undefined;
                     const trash = &trash_buffer;
                     if (is_windows) {
@@ -1188,8 +1235,15 @@ pub const Writer = struct {
     err: WriteError!void = {},
     mode: Writer.Mode = .positional,
     pos: u64 = 0,
+    sendfile_err: ?SendfileError = null,
+    read_err: ?ReadError = null,
 
     pub const Mode = Reader.Mode;
+
+    pub const SendfileError = error{
+        UnsupportedOperation,
+        Unexpected,
+    };
 
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
@@ -1269,75 +1323,38 @@ pub const Writer = struct {
         const w: *Writer = @ptrCast(@alignCast(context));
         const out_fd = w.file.handle;
         const in_fd = in_file.handle;
-        const len_int = switch (in_limit) {
-            .nothing => return writeSplat(context, headers_and_trailers, 1),
-            .unlimited => 0,
-            else => in_limit.toInt().?,
-        };
-        // TODO try using copy_file_range on linux
-        // TODO try using copy_file_range on freebsd
-        if (native_os == .linux) sf: {
+        // TODO try using copy_file_range on Linux
+        // TODO try using copy_file_range on FreeBSD
+        // TODO try using sendfile on macOS
+        // TODO try using sendfile on FreeBSD
+        if (native_os == .linux and w.mode == .streaming) sf: {
+            // Try using sendfile on Linux.
+            if (w.sendfile_err != null) break :sf;
             // Linux sendfile does not support headers or trailers but it does
             // support a streaming read from in_file.
             if (headers_len > 0) return writeSplat(context, headers_and_trailers[0..headers_len], 1);
             const max_count = 0x7ffff000; // Avoid EINVAL.
-            const smaller_len = if (len_int == 0) max_count else @min(len_int, max_count);
+            const smaller_len = in_limit.minInt(max_count);
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
                 off = std.math.cast(std.os.linux.off_t, offset) orelse
                     return writeSplat(context, headers_and_trailers, 1);
                 break :b &off;
             } else null;
-            if (true) @panic("TODO");
             const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, smaller_len) catch |err| switch (err) {
-                error.UnsupportedOperation => break :sf,
-                error.Unseekable => break :sf,
-                error.Unexpected => break :sf,
+                // Errors that imply sendfile should be avoided on the next write.
+                error.UnsupportedOperation,
+                error.Unexpected,
+                => |e| {
+                    w.sendfile_err = e;
+                    break :sf;
+                },
                 else => |e| return e,
             };
-            if (in_offset.toInt()) |offset| {
-                assert(n == off - offset);
-            } else if (n == 0 and len_int == 0) {
-                // The caller wouldn't be able to tell that the file transfer is
-                // done and would incorrectly repeat the same call.
-                return writeSplat(context, headers_and_trailers, 1);
-            }
+            w.pos += n;
             return n;
         }
-        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
-        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers_and_trailers.len)];
-        for (iovecs, headers_and_trailers[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
-        const headers = iovecs[0..@min(headers_len, iovecs.len)];
-        const trailers = iovecs[headers.len..];
-        const flags = 0;
-        return posix.sendfile(out_fd, in_fd, in_offset, len_int, headers, trailers, flags) catch |err| switch (err) {
-            error.Unseekable,
-            error.FastOpenAlreadyInProgress,
-            error.MessageTooBig,
-            error.FileDescriptorNotASocket,
-            error.NetworkUnreachable,
-            error.NetworkSubsystemFailed,
-            => return writeFileUnseekable(out_fd, in_fd, in_offset, in_limit, headers_and_trailers, headers_len),
-
-            else => |e| return e,
-        };
-    }
-
-    fn writeFileUnseekable(
-        out_fd: Handle,
-        in_fd: Handle,
-        in_offset: u64,
-        in_limit: std.io.Writer.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) std.io.Writer.FileError!usize {
-        _ = out_fd;
-        _ = in_fd;
-        _ = in_offset;
-        _ = in_limit;
-        _ = headers_and_trailers;
-        _ = headers_len;
-        @panic("TODO writeFileUnseekable");
+        return error.Unimplemented;
     }
 };
 

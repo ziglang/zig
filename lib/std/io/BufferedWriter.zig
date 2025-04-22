@@ -480,6 +480,14 @@ pub fn writeSliceSwap(bw: *BufferedWriter, Elem: type, slice: []const Elem) Writ
 /// Unlike `writeSplat` and `writeVec`, this function will call into the
 /// underlying writer even if there is enough buffer capacity for the file
 /// contents.
+///
+/// Although it would be possible to eliminate `error.Unimplemented` from
+/// the error set by reading directly into the buffer in such case,
+/// this is not done because it is more efficient to do it in `writeFileAll`
+/// so that the error does not occur with each write.
+///
+/// See `writeFileReading` for an alternative that does not have
+/// `error.Unimplemented` in the error set.
 pub fn writeFile(
     bw: *BufferedWriter,
     file: std.fs.File,
@@ -489,6 +497,23 @@ pub fn writeFile(
     headers_len: usize,
 ) Writer.FileError!usize {
     return passthruWriteFile(bw, file, offset, limit, headers_and_trailers, headers_len);
+}
+
+pub const WriteFileReadingError = std.fs.File.PReadError || Writer.Error;
+
+/// Returning zero bytes means end of stream.
+///
+/// Asserts nonzero buffer capacity.
+pub fn writeFileReading(
+    bw: *BufferedWriter,
+    file: std.fs.File,
+    offset: Writer.Offset,
+    limit: Writer.Limit,
+) WriteFileReadingError!usize {
+    const dest = limit.slice(try bw.writableSliceGreedy(1));
+    const n = if (offset.toInt()) |pos| try file.pread(dest, pos) else try file.read(dest);
+    bw.advance(n);
+    return n;
 }
 
 fn passthruWriteFile(
@@ -588,7 +613,7 @@ pub const WriteFileOptions = struct {
     headers_len: usize = 0,
 };
 
-pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) Writer.FileError!void {
+pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) WriteFileReadingError!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
     switch (options.limit) {
@@ -601,7 +626,15 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
             var i: usize = 0;
             var offset = options.offset;
             while (true) {
-                var n = try bw.writeFile(file, offset, .unlimited, headers[i..], headers.len - i);
+                var n = bw.writeFile(file, offset, .unlimited, headers[i..], headers.len - i) catch |err| switch (err) {
+                    error.Unimplemented => {
+                        try bw.writeVecAll(headers[i..]);
+                        try bw.writeFileReadingAll(file, offset, .unlimited);
+                        try bw.writeVecAll(headers_and_trailers[headers.len..]);
+                        return;
+                    },
+                    else => |e| return e,
+                };
                 while (i < headers.len and n >= headers[i].len) {
                     n -= headers[i].len;
                     i += 1;
@@ -619,7 +652,15 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
             var i: usize = 0;
             var offset = options.offset;
             while (true) {
-                var n = try bw.writeFile(file, offset, .limited(len), headers_and_trailers[i..], headers.len - i);
+                var n = bw.writeFile(file, offset, .limited(len), headers_and_trailers[i..], headers.len - i) catch |err| switch (err) {
+                    error.Unimplemented => {
+                        try bw.writeVecAll(headers[i..]);
+                        try bw.writeFileReadingAll(file, offset, .limited(len));
+                        try bw.writeVecAll(headers_and_trailers[headers.len..]);
+                        return;
+                    },
+                    else => |e| return e,
+                };
                 while (i < headers.len and n >= headers[i].len) {
                     n -= headers[i].len;
                     i += 1;
@@ -643,6 +684,40 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
                 len -= n;
             }
         },
+    }
+}
+
+/// Equivalent to `writeFileAll` but uses direct `pread` and `read` calls on
+/// `file` rather than `Writer.writeFile`. This is generally used as a fallback
+/// when the underlying implementation returns `error.Unimplemented`, which is
+/// why that error code does not appear in this function's error set.
+///
+/// Asserts nonzero buffer capacity.
+pub fn writeFileReadingAll(
+    bw: *BufferedWriter,
+    file: std.fs.File,
+    offset: Writer.Offset,
+    limit: Writer.Limit,
+) WriteFileReadingError!void {
+    if (offset.toInt()) |start_pos| {
+        var remaining = limit;
+        var pos = start_pos;
+        while (remaining.nonzero()) {
+            const dest = remaining.slice(try bw.writableSliceGreedy(1));
+            const n = try file.pread(dest, pos);
+            if (n == 0) return;
+            bw.advance(n);
+            pos += n;
+            remaining = remaining.subtract(n).?;
+        }
+    }
+    var remaining = limit;
+    while (remaining.nonzero()) {
+        const dest = remaining.slice(try bw.writableSliceGreedy(1));
+        const n = try file.read(dest);
+        if (n == 0) return;
+        bw.advance(n);
+        remaining = remaining.subtract(n).?;
     }
 }
 

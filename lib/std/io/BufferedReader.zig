@@ -99,7 +99,7 @@ pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit
 
 fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(context));
-    const buffer = limit.slice(br.buffer[br.end..br.seek]);
+    const buffer = limit.slice(br.buffer[br.seek..br.end]);
     if (buffer.len > 0) {
         const n = try bw.write(buffer);
         br.seek += n;
