@@ -38,9 +38,12 @@ next_https_rescan_certs: bool = true,
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
 /// Each `Connection` allocates this amount for the reader buffer.
-read_buffer_size: usize,
+///
+/// If the entire HTTP header cannot fit in this amount of bytes,
+/// `error.HttpHeadersOversize` will be returned from `Request.wait`.
+read_buffer_size: usize = 4096,
 /// Each `Connection` allocates this amount for the writer buffer.
-write_buffer_size: usize,
+write_buffer_size: usize = 1024,
 
 /// If populated, all http traffic travels through this third party.
 /// This field cannot be modified while the client has active connections.
@@ -177,23 +180,21 @@ pub const ConnectionPool = struct {
     /// All future operations on the connection pool will deadlock.
     ///
     /// Threadsafe.
-    pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
+    pub fn deinit(pool: *ConnectionPool) void {
         pool.mutex.lock();
 
         var next = pool.free.first;
         while (next) |node| {
             const connection: *Connection = @fieldParentPtr("pool_node", node);
             next = node.next;
-            connection.close(allocator);
-            allocator.destroy(connection);
+            connection.destroy();
         }
 
         next = pool.used.first;
         while (next) |node| {
             const connection: *Connection = @fieldParentPtr("pool_node", node);
             next = node.next;
-            connection.close(allocator);
-            allocator.destroy(node);
+            connection.destroy();
         }
 
         pool.* = undefined;
@@ -324,8 +325,9 @@ pub const Connection = struct {
             return tls;
         }
 
-        fn destroy(tls: *Tls, gpa: Allocator) void {
+        fn destroy(tls: *Tls) void {
             const c = &tls.connection;
+            const gpa = c.client.allocator;
             const base: [*]u8 = @ptrCast(tls);
             gpa.free(base[0..allocLen(c.client, c.host_len)]);
         }
@@ -1262,10 +1264,8 @@ pub const Proxy = struct {
 pub fn deinit(client: *Client) void {
     assert(client.connection_pool.used.first == null); // There are still active requests.
 
-    client.connection_pool.deinit(client.allocator);
-
-    if (!disable_tls)
-        client.ca_bundle.deinit(client.allocator);
+    client.connection_pool.deinit();
+    if (!disable_tls) client.ca_bundle.deinit(client.allocator);
 
     client.* = undefined;
 }
@@ -1574,8 +1574,7 @@ pub fn connect(
 
 /// TODO collapse each error set into its own meta error code, and store
 /// the underlying error code as a field on Request
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || std.io.Writer.Error ||
-    std.fmt.ParseIntError || Connection.WriteError ||
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || std.io.Writer.Error || std.fmt.ParseIntError ||
     error{
         UnsupportedUriScheme,
         UriMissingHost,

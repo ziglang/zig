@@ -236,7 +236,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
     const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
-    const end_index = try file.readAll(buffer);
+    const end_index = try file.readShort(buffer);
     const encoded_bytes = buffer[0..end_index];
 
     const begin_marker = "-----BEGIN CERTIFICATE-----";

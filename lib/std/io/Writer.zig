@@ -156,6 +156,23 @@ pub const failing: Writer = .{
     },
 };
 
+pub fn unimplementedWriteFile(
+    context: ?*anyopaque,
+    file: std.fs.File,
+    offset: std.io.Writer.Offset,
+    limit: std.io.Writer.Limit,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Error!usize {
+    _ = context;
+    _ = file;
+    _ = offset;
+    _ = limit;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    return error.Unimplemented;
+}
+
 test {
     _ = Null;
 }
