@@ -1149,3 +1149,44 @@ test "reinterpreted 0-sized array at comptime" {
         S.writeReinterpreted(u0); //(0-sized) works
     }
 }
+
+test "bitcast reified struct with zero sized array" {
+    const StructField = std.builtin.Type.StructField;
+    const S = struct {
+        pub fn doZeroes(comptime T: type) T {
+            var item: T = undefined;
+            @memset(std.mem.asBytes(&item), 0);
+            return item;
+        }
+    };
+
+    comptime {
+        const info = @typeInfo(extern struct {
+            y: f32,
+            r: f32,
+            tag: void,
+        }).@"struct";
+
+        var archetypes: [info.fields.len]StructField = undefined;
+
+        for (&archetypes, info.fields) |*component, field| {
+            component.* = .{
+                .name = field.name,
+                .type = [2]field.type, // has to be more than one
+                .default_value_ptr = null,
+                .alignment = 0,
+                .is_comptime = false,
+            };
+        }
+
+        const M = @Type(.{
+            .@"struct" = .{
+                .layout = .@"extern",
+                .fields = &archetypes,
+                .decls = &.{},
+                .is_tuple = false,
+            },
+        });
+        _ = S.doZeroes(M);
+    }
+}
