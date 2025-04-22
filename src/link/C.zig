@@ -237,7 +237,6 @@ pub fn updateFunc(
         self.aligned_uavs = function.object.dg.aligned_uavs;
         ctype_pool.* = function.object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
-        function.object.dg.scratch.deinit(gpa);
         lazy_fns.* = function.lazy_fns.move();
         lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
 
@@ -289,7 +288,6 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) link.File.FlushError!void {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
         object.dg.ctype_pool.deinit(object.dg.gpa);
-        object.dg.scratch.deinit(gpa);
 
         self.fwd_decl_buf = object.dg.fwd_decl.toArrayList().allocatedSlice();
         self.code_buf = object.code.toArrayList().allocatedSlice();
@@ -366,7 +364,6 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         self.aligned_uavs = object.dg.aligned_uavs;
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
-        object.dg.scratch.deinit(gpa);
 
         self.fwd_decl_buf = object.dg.fwd_decl.toArrayList().allocatedSlice();
         self.code_buf = object.code.toArrayList().allocatedSlice();
