@@ -397,7 +397,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
             .unwind_tables = unwind_tables,
-            .pic = comp.root_mod.pic,
+            .pic = if (target_util.supports_fpic(target)) true else null,
             .code_model = comp.root_mod.code_model,
         },
         .global = config,
@@ -437,9 +437,6 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-nostdinc++");
         try cflags.append("-fstrict-aliasing");
         try cflags.append("-std=c++23");
