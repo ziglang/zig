@@ -252,10 +252,15 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         fn writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
             const self: *Self = @alignCast(@ptrCast(ctx));
             var len: usize = 0;
-            for (0..splat) |_| for (data) |slice| {
+            for (data[0 .. data.len - 1]) |slice| {
                 self.update(slice);
                 len += slice.len;
-            };
+            }
+            {
+                const slice = data[data.len - 1];
+                for (0..splat) |_| self.update(slice);
+                len += slice.len * splat;
+            }
             return len;
         }
 
