@@ -659,17 +659,27 @@ pub const Object = struct {
     indent_counter: usize,
 
     const indent_width = 1;
+    const indent_char = ' ';
 
     fn newline(o: *Object) !void {
         const bw = &o.code.buffered_writer;
         try bw.writeByte('\n');
-        try bw.splatByteAll(' ', o.indent_counter);
+        try bw.splatByteAll(indent_char, o.indent_counter);
     }
     fn indent(o: *Object) void {
         o.indent_counter += indent_width;
     }
-    fn outdent(o: *Object) void {
+    fn outdent(o: *Object) !void {
         o.indent_counter -= indent_width;
+        const written = o.code.getWritten();
+        switch (written[written.len - 1]) {
+            indent_char => o.code.shrinkRetainingCapacity(written.len - indent_width),
+            '\n' => try o.code.buffered_writer.splatByteAll(indent_char, o.indent_counter),
+            else => {
+                std.debug.print("\"{f}\"\n", .{std.zig.fmtEscapes(written[written.len -| 100..])});
+                unreachable;
+            },
+        }
     }
 };
 
@@ -1004,7 +1014,7 @@ pub const DeclGen = struct {
             .error_union => |error_union| switch (ctype.info(ctype_pool)) {
                 .basic => switch (error_union.val) {
                     .err_name => |err_name| try dg.renderErrorName(writer, err_name),
-                    .payload => try writer.writeAll("0"),
+                    .payload => try writer.writeByte('0'),
                 },
                 .pointer, .aligned, .array, .vector, .fwd_decl, .function => unreachable,
                 .aggregate => |aggregate| {
@@ -1160,7 +1170,7 @@ pub const DeclGen = struct {
                     .none => "true",
                     else => "false",
                 }) else switch (opt.val) {
-                    .none => try writer.writeAll("0"),
+                    .none => try writer.writeByte('0'),
                     else => |payload| switch (ip.indexToKey(payload)) {
                         .undef => |err_ty| try dg.renderUndefValue(
                             writer,
@@ -1491,7 +1501,7 @@ pub const DeclGen = struct {
                                 try writer.writeByte(')');
                             }
                             try dg.renderValue(writer, Value.fromInterned(un.val), location);
-                        } else try writer.writeAll("0");
+                        } else try writer.writeByte('0');
                         return;
                     }
 
@@ -2738,7 +2748,7 @@ pub fn genErrDecls(o: *Object) Error!void {
             try bw.print(" = {d}u,", .{value});
             try o.newline();
         }
-        o.outdent();
+        try o.outdent();
         try bw.writeAll("};");
         try o.newline();
     }
@@ -2847,6 +2857,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                 try bw.print("case {f}: {{", .{
                     try o.dg.fmtIntLiteral(try tag_val.intFromEnum(enum_ty, pt), .Other),
                 });
+                o.indent();
                 try o.newline();
                 try bw.writeAll("static ");
                 try o.dg.renderTypeAndName(bw, name_ty, .{ .identifier = "name" }, Const, .none, .complete);
@@ -2861,16 +2872,15 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                     try o.dg.fmtIntLiteral(try pt.intValue(.usize, tag_name_len), .Other),
                 });
                 try o.newline();
-
+                try o.outdent();
                 try bw.writeByte('}');
                 try o.newline();
             }
+            try o.outdent();
             try bw.writeByte('}');
             try o.newline();
-            try bw.writeAll("while (");
-            try o.dg.renderValue(bw, Value.true, .Other);
-            try bw.writeAll(") ");
-            _ = try airBreakpoint(o, bw);
+            try airUnreach(o);
+            try o.outdent();
             try bw.writeByte('}');
             try o.newline();
         },
@@ -2892,6 +2902,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                 .fmt_ctype_pool_string = fn_name,
             });
             try bw.writeAll(" {");
+            o.indent();
             try o.newline();
             try bw.writeAll("return ");
             try o.dg.renderNavName(bw, fn_nav_index);
@@ -2902,6 +2913,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             }
             try bw.writeAll(");");
             try o.newline();
+            try o.outdent();
             try bw.writeByte('}');
             try o.newline();
         },
@@ -2946,7 +2958,10 @@ pub fn genFunc(f: *Function) Error!void {
     f.free_locals_map.clearRetainingCapacity();
 
     const main_body = f.air.getMainBody();
-    try genBodyResolveState(f, undefined, &.{}, main_body, false);
+    o.indent();
+    try genBodyResolveState(f, undefined, &.{}, main_body, true);
+    try o.outdent();
+    try o.code.buffered_writer.writeByte('}');
     try o.newline();
     if (o.dg.expected_block) |_|
         return f.fail("runtime code not allowed in naked function", .{});
@@ -3166,11 +3181,11 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) Error!void {
     if (body.len == 0) {
         try bw.writeAll("{}");
     } else {
-        try bw.writeAll("{");
+        try bw.writeByte('{');
         f.object.indent();
         try f.object.newline();
         try genBodyInner(f, body);
-        f.object.outdent();
+        try f.object.outdent();
         try bw.writeByte('}');
     }
 }
@@ -3248,7 +3263,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
 
             .arg      => try airArg(f, inst),
 
-            .breakpoint => try airBreakpoint(&f.object, &f.object.code.buffered_writer),
+            .breakpoint => try airBreakpoint(f),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
 
@@ -3500,7 +3515,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             .ret_safe        => return airRet(f, inst, false), // TODO
             .ret_load        => return airRet(f, inst, true),
             .trap            => return airTrap(f, &f.object.code.buffered_writer),
-            .unreach         => return airUnreach(f),
+            .unreach         => return airUnreach(&f.object),
 
             // Instructions which may be `noreturn`.
             .block => res: {
@@ -3896,18 +3911,14 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !void {
             try f.writeCValueDeref(bw, ret_val)
         else
             try f.writeCValue(bw, ret_val, .Other);
-        try bw.writeByte(';');
-        try f.object.newline();
+        try bw.writeAll(";\n");
         if (is_array) {
             try freeLocal(f, inst, ret_val.new_local, null);
         }
     } else {
         try reap(f, inst, &.{un_op});
         // Not even allowed to return void in a naked function.
-        if (!f.object.dg.is_naked_fn) {
-            try bw.writeAll("return;");
-            try f.object.newline();
-        }
+        if (!f.object.dg.is_naked_fn) try bw.writeAll("return;\n");
     }
 }
 
@@ -4696,7 +4707,10 @@ fn airCall(
         try f.freeCValue(inst, resolved_arg);
     }
     try bw.writeAll(");");
-    try f.object.newline();
+    switch (modifier) {
+        .always_tail => try bw.writeByte('\n'),
+        else => try f.object.newline(),
+    }
 
     const result = result: {
         if (result_local == .none or !lowersToArray(ret_ty, pt))
@@ -4804,8 +4818,6 @@ fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
         try die(f, inst, death.toRef());
     }
 
-    try f.object.newline();
-
     // noreturn blocks have no `br` instructions reaching them, so we don't want a label
     if (f.object.dg.is_naked_fn) {
         if (f.object.dg.expected_block) |expected_block| {
@@ -4815,7 +4827,7 @@ fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
         }
     } else if (!f.typeOfIndex(inst).isNoReturn(zcu)) {
         // label must be followed by an expression, include an empty one.
-        try bw.print("zig_block_{d}:;", .{block_id});
+        try bw.print("\nzig_block_{d}:;", .{block_id});
         try f.object.newline();
     }
 
@@ -4936,14 +4948,12 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !void {
         try a.end(f, bw);
     }
 
-    try bw.print("goto zig_block_{d};", .{block.block_id});
-    try f.object.newline();
+    try bw.print("goto zig_block_{d};\n", .{block.block_id});
 }
 
 fn airRepeat(f: *Function, inst: Air.Inst.Index) !void {
     const repeat = f.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
-    try f.object.code.buffered_writer.print("goto zig_loop_{d};", .{@intFromEnum(repeat.loop_inst)});
-    try f.object.newline();
+    try f.object.code.buffered_writer.print("goto zig_loop_{d};\n", .{@intFromEnum(repeat.loop_inst)});
 }
 
 fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
@@ -4972,8 +4982,7 @@ fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
                 }
             }
         } else switch_br.cases_len;
-        try bw.print("goto zig_switch_{d}_dispatch_{d};", .{ @intFromEnum(br.block_inst), target_case_idx });
-        try f.object.newline();
+        try bw.print("goto zig_switch_{d}_dispatch_{d};\n", .{ @intFromEnum(br.block_inst), target_case_idx });
         return;
     }
 
@@ -4985,7 +4994,7 @@ fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
     try f.writeCValue(bw, cond, .Other);
     try bw.writeByte(';');
     try f.object.newline();
-    try bw.print("goto zig_switch_{d}_loop;", .{@intFromEnum(br.block_inst)});
+    try bw.print("goto zig_switch_{d}_loop;\n", .{@intFromEnum(br.block_inst)});
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -5120,13 +5129,13 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
 fn airTrap(f: *Function, bw: *std.io.BufferedWriter) !void {
     // Not even allowed to call trap in a naked function.
     if (f.object.dg.is_naked_fn) return;
-    try bw.writeAll("zig_trap();");
-    try f.object.newline();
+    try bw.writeAll("zig_trap();\n");
 }
 
-fn airBreakpoint(o: *Object, bw: *std.io.BufferedWriter) !CValue {
+fn airBreakpoint(f: *Function) !CValue {
+    const bw = &f.object.code.buffered_writer;
     try bw.writeAll("zig_breakpoint();");
-    try o.newline();
+    try f.object.newline();
     return .none;
 }
 
@@ -5152,11 +5161,10 @@ fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airUnreach(f: *Function) !void {
+fn airUnreach(o: *Object) !void {
     // Not even allowed to call unreachable in a naked function.
-    if (f.object.dg.is_naked_fn) return;
-    try f.object.code.buffered_writer.writeAll("zig_unreachable();");
-    try f.object.newline();
+    if (o.dg.is_naked_fn) return;
+    try o.code.buffered_writer.writeAll("zig_unreachable();\n");
 }
 
 fn airLoop(f: *Function, inst: Air.Inst.Index) !void {
@@ -5286,10 +5294,11 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
         f.object.indent();
         try f.object.newline();
         if (is_dispatch_loop) {
-            try bw.print("zig_switch_{d}_dispatch_{d}: ", .{ @intFromEnum(inst), case.idx });
+            try bw.print("zig_switch_{d}_dispatch_{d}:;", .{ @intFromEnum(inst), case.idx });
+            try f.object.newline();
         }
         try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
-        f.object.outdent();
+        try f.object.outdent();
         try bw.writeByte('}');
         if (f.object.dg.expected_block) |_|
             return f.fail("runtime code not allowed in naked function", .{});
@@ -5335,7 +5344,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
                 try bw.print("zig_switch_{d}_dispatch_{d}: ", .{ @intFromEnum(inst), case.idx });
             }
             try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
-            f.object.outdent();
+            try f.object.outdent();
             try bw.writeByte('}');
             if (f.object.dg.expected_block) |_|
                 return f.fail("runtime code not allowed in naked function", .{});
@@ -5353,14 +5362,10 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
         try genBody(f, else_body);
         if (f.object.dg.expected_block) |_|
             return f.fail("runtime code not allowed in naked function", .{});
-    } else {
-        try bw.writeAll("zig_unreachable();");
-    }
+    } else try airUnreach(&f.object);
     try f.object.newline();
-
-    f.object.outdent();
-    try bw.writeByte('}');
-    try f.object.newline();
+    try f.object.outdent();
+    try bw.writeAll("}\n");
 }
 
 fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {
@@ -6747,7 +6752,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
             try bw.writeAll("NULL");
             try a.end(f, bw);
         }
-        f.object.outdent();
+        try f.object.outdent();
         try bw.writeByte('}');
         try f.object.newline();
     } else {
@@ -7998,6 +8003,7 @@ fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
 const StringLiteral = struct {
     len: usize,
     cur_len: usize,
+    start_count: usize,
     bw: *std.io.BufferedWriter,
 
     // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal,
@@ -8015,6 +8021,7 @@ const StringLiteral = struct {
         return .{
             .cur_len = 0,
             .len = len,
+            .start_count = bw.count,
             .bw = bw,
         };
     }
@@ -8054,7 +8061,7 @@ const StringLiteral = struct {
 
     pub fn writeChar(sl: *StringLiteral, c: u8) std.io.Writer.Error!void {
         if (sl.len <= max_string_initializer_len) {
-            if (sl.cur_len == 0 and sl.bw.count > 1)
+            if (sl.cur_len == 0 and sl.bw.count - sl.start_count > 1)
                 try sl.bw.writeAll("\"\"");
 
             const count = sl.bw.count;
@@ -8065,7 +8072,7 @@ const StringLiteral = struct {
 
             if (sl.cur_len >= max_literal_len) sl.cur_len = 0;
         } else {
-            if (sl.bw.count > 1) try sl.bw.writeByte(',');
+            if (sl.bw.count - sl.start_count > 1) try sl.bw.writeByte(',');
             try sl.bw.print("'\\x{x}'", .{c});
         }
     }
@@ -8381,7 +8388,7 @@ const Vectorize = struct {
 
     pub fn end(self: Vectorize, f: *Function, inst: Air.Inst.Index, bw: *std.io.BufferedWriter) !void {
         if (self.index != .none) {
-            f.object.outdent();
+            try f.object.outdent();
             try bw.writeByte('}');
             try f.object.newline();
             try freeLocal(f, inst, self.index.new_local, null);
