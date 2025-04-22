@@ -1038,7 +1038,7 @@ pub const File = struct {
         var fr = file.reader();
         var br = fr.interface().unbuffered();
         br.readSlice(buf) catch |err| switch (err) {
-            error.ReadFailed => if (fr.err) |_| unreachable else |e| return e,
+            error.ReadFailed => return fr.err.?,
             error.EndOfStream => return error.UnexpectedEndOfFile,
         };
         var ld_script = try LdScript.parse(gpa, diags, path, buf);
@@ -2107,7 +2107,7 @@ fn resolvePathInputLib(
             br.readSlice(ld_script_bytes.items) catch |err| switch (err) {
                 error.ReadFailed => fatal("failed to read '{f'}': {s}", .{
                     test_path,
-                    @errorName(if (fr.err) |_| unreachable else |e| e),
+                    @errorName(fr.err.?),
                 }),
                 error.EndOfStream => break :ok,
             };
@@ -2124,7 +2124,7 @@ fn resolvePathInputLib(
             fatal("{f}: linker script too big", .{test_path});
         try ld_script_bytes.resize(gpa, size);
         br.readSlice(ld_script_bytes.items[@intCast(fr.pos)..]) catch |err| switch (err) {
-            error.ReadFailed => if (fr.err) |_| unreachable else |e| fatal("failed to read {f}: {s}", .{ test_path, @errorName(e) }),
+            error.ReadFailed => fatal("failed to read {f}: {s}", .{ test_path, @errorName(fr.err.?) }),
             error.EndOfStream => fatal("failed to read {f}: unexpected end of file", .{test_path}),
         };
         var diags: Diags = .init(gpa);

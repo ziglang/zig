@@ -254,7 +254,7 @@ pub fn updateFile(
         var source_fr = source_file.reader();
         var source_br = source_fr.interface().unbuffered();
         source_br.readSlice(source) catch |err| switch (err) {
-            error.ReadFailed => if (source_fr.err) |_| unreachable else |e| return e,
+            error.ReadFailed => return source_fr.err.?,
             error.EndOfStream => return error.UnexpectedEndOfFile,
         };
 
@@ -2443,7 +2443,7 @@ fn updateEmbedFileInner(
         var fr = file.reader();
         var br = fr.interface().unbuffered();
         br.readSlice(bytes[0..size]) catch |err| switch (err) {
-            error.ReadFailed => if (fr.err) |_| unreachable else |e| return e,
+            error.ReadFailed => return fr.err.?,
             error.EndOfStream => return error.UnexpectedEof,
         };
         bytes[size] = 0;

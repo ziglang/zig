@@ -209,7 +209,7 @@ pub fn getStandardDefineAbbrev(ctype: CType) ?[]const u8 {
     };
 }
 
-pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *const Pool) @TypeOf(writer).Error!void {
+pub fn renderLiteralPrefix(ctype: CType, bw: *std.io.BufferedWriter, kind: Kind, pool: *const Pool) std.io.Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -224,7 +224,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .uintptr_t,
             .intptr_t,
             => switch (kind) {
-                else => try writer.print("({s})", .{@tagName(basic_info)}),
+                else => try bw.print("({s})", .{@tagName(basic_info)}),
                 .global => {},
             },
             .int,
@@ -246,7 +246,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .int32_t,
             .uint64_t,
             .int64_t,
-            => try writer.print("{s}_C(", .{ctype.getStandardDefineAbbrev().?}),
+            => try bw.print("{s}_C(", .{ctype.getStandardDefineAbbrev().?}),
             .zig_u128,
             .zig_i128,
             .zig_f16,
@@ -255,7 +255,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .zig_f80,
             .zig_f128,
             .zig_c_longdouble,
-            => try writer.print("zig_{s}_{s}(", .{
+            => try bw.print("zig_{s}_{s}(", .{
                 switch (kind) {
                     else => "make",
                     .global => "init",
@@ -265,12 +265,12 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .va_list => unreachable,
             _ => unreachable,
         },
-        .array, .vector => try writer.writeByte('{'),
+        .array, .vector => try bw.writeByte('{'),
         else => unreachable,
     }
 }
 
-pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @TypeOf(writer).Error!void {
+pub fn renderLiteralSuffix(ctype: CType, bw: *std.io.BufferedWriter, pool: *const Pool) std.io.Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -280,20 +280,20 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
             .short,
             .int,
             => {},
-            .long => try writer.writeByte('l'),
-            .@"long long" => try writer.writeAll("ll"),
+            .long => try bw.writeByte('l'),
+            .@"long long" => try bw.writeAll("ll"),
             .@"unsigned char",
             .@"unsigned short",
             .@"unsigned int",
-            => try writer.writeByte('u'),
+            => try bw.writeByte('u'),
             .@"unsigned long",
             .size_t,
             .uintptr_t,
-            => try writer.writeAll("ul"),
-            .@"unsigned long long" => try writer.writeAll("ull"),
-            .float => try writer.writeByte('f'),
+            => try bw.writeAll("ul"),
+            .@"unsigned long long" => try bw.writeAll("ull"),
+            .float => try bw.writeByte('f'),
             .double => {},
-            .@"long double" => try writer.writeByte('l'),
+            .@"long double" => try bw.writeByte('l'),
             .bool,
             .ptrdiff_t,
             .intptr_t,
@@ -314,11 +314,11 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
             .zig_f80,
             .zig_f128,
             .zig_c_longdouble,
-            => try writer.writeByte(')'),
+            => try bw.writeByte(')'),
             .va_list => unreachable,
             _ => unreachable,
         },
-        .array, .vector => try writer.writeByte('}'),
+        .array, .vector => try bw.writeByte('}'),
         else => unreachable,
     }
 }
@@ -940,15 +940,14 @@ pub const Pool = struct {
         const FormatData = struct { string: String, pool: *const Pool };
         fn format(
             data: FormatData,
+            bw: *std.io.BufferedWriter,
             comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
+        ) std.io.Writer.Error!void {
             if (fmt_str.len > 0) @compileError("invalid format string '" ++ fmt_str ++ "'");
             if (data.string.toSlice(data.pool)) |slice|
-                try writer.writeAll(slice)
+                try bw.writeAll(slice)
             else
-                try writer.print("f{d}", .{@intFromEnum(data.string.index)});
+                try bw.print("f{d}", .{@intFromEnum(data.string.index)});
         }
         pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(format) {
             return .{ .data = .{ .string = str, .pool = pool } };
@@ -2890,7 +2889,7 @@ pub const Pool = struct {
         comptime fmt_str: []const u8,
         fmt_args: anytype,
     ) !String {
-        try pool.string_bytes.writer(allocator).print(fmt_str, fmt_args);
+        try pool.string_bytes.print(allocator, fmt_str, fmt_args);
         return pool.trailingString(allocator);
     }
 

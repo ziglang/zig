@@ -2857,7 +2857,7 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
     var cache_fr = cache_file.reader();
     var cache_br = cache_fr.interface().unbuffered();
     cache_br.readVecAll(&vecs) catch |err| switch (err) {
-        error.ReadFailed => if (cache_fr.err) |_| unreachable else |e| return e,
+        error.ReadFailed => return cache_fr.err.?,
         error.EndOfStream => return error.UnexpectedFileSize,
     };
     if (data_has_safety_tag) {
@@ -2912,7 +2912,7 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
     var cache_fw = cache_file.writer();
     var cache_bw = cache_fw.interface().unbuffered();
     cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
-        error.WriteFailed => if (cache_fw.err) |_| unreachable else |e| return e,
+        error.WriteFailed => return cache_fw.err.?,
     };
 }
 
@@ -2943,7 +2943,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     var cache_fw = cache_file.writer();
     var cache_bw = cache_fw.interface().unbuffered();
     cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
-        error.WriteFailed => if (cache_fw.err) |_| unreachable else |e| return e,
+        error.WriteFailed => return cache_fw.err.?,
     };
 }
 
@@ -2986,7 +2986,7 @@ pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs
     var cache_fr = cache_file.reader();
     var cache_br = cache_fr.interface().unbuffered();
     cache_br.readVecAll(&vecs) catch |err| switch (err) {
-        error.ReadFailed => if (cache_fr.err) |_| unreachable else |e| return e,
+        error.ReadFailed => return cache_fr.err.?,
         error.EndOfStream => return error.UnexpectedFileSize,
     };
     return zoir;

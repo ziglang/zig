@@ -177,8 +177,8 @@ pub const ReadAllocError = std.mem.Allocator.Error || ShortError;
 pub fn readAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) ReadAllocError![]u8 {
     const readFn = r.vtable.read;
     var aw: std.io.AllocatingWriter = undefined;
-    errdefer aw.deinit();
     aw.init(gpa);
+    errdefer aw.deinit();
     var remaining = max_size;
     while (remaining > 0) {
         const n = readFn(r.context, &aw.buffered_writer, .limited(remaining)) catch |err| switch (err) {
