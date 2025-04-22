@@ -227,6 +227,8 @@ pub fn peekGreedy(br: *BufferedReader, n: usize) Reader.Error![]u8 {
 ///
 /// Asserts that the number of bytes buffered is at least as many as `n`.
 ///
+/// The "tossed" memory remains alive until a "peek" operation occurs.
+///
 /// See also:
 /// * `peek`.
 /// * `discard`.

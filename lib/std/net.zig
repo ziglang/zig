@@ -1357,7 +1357,8 @@ fn linuxLookupNameFromHosts(
     defer file.close();
 
     var line_buf: [512]u8 = undefined;
-    var br = file.reader().buffered(&line_buf);
+    var file_reader = file.reader();
+    var br = file_reader.interface().buffered(&line_buf);
     while (br.takeSentinel('\n')) |line| {
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
@@ -1530,7 +1531,7 @@ const ResolvConf = struct {
 /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
 /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
 fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
-    rc.* = ResolvConf{
+    rc.* = .{
         .ns = std.ArrayList(LookupAddr).init(allocator),
         .search = std.ArrayList(u8).init(allocator),
         .ndots = 1,
@@ -1549,7 +1550,8 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     defer file.close();
 
     var line_buf: [512]u8 = undefined;
-    var br = file.reader().buffered(&line_buf);
+    var file_reader = file.reader();
+    var br = file_reader.interface().buffered(&line_buf);
     while (br.takeSentinel('\n')) |line_with_comment| {
         const line = line: {
             var split = mem.splitScalar(u8, line_with_comment, '#');
