@@ -349,6 +349,7 @@ fn loadZirZoirCache(
 
     // First we read the header to determine the lengths of arrays.
     const header = (cache_br.takeStruct(Header) catch |err| switch (err) {
+        error.ReadFailed => return cache_fr.err.?,
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
         error.EndOfStream => return .invalid,
@@ -365,17 +366,15 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .zig => {
-            file.zir = Zcu.loadZirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
-                error.UnexpectedFileSize => return .truncated,
-                else => |e| return e,
-            };
+        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, &cache_br) catch |err| switch (err) {
+            error.ReadFailed => return cache_fr.err.?,
+            error.EndOfStream => return .truncated,
+            else => |e| return e,
         },
-        .zon => {
-            file.zoir = Zcu.loadZoirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
-                error.UnexpectedFileSize => return .truncated,
-                else => |e| return e,
-            };
+        .zon => file.zoir = Zcu.loadZoirCacheBody(gpa, header, &cache_br) catch |err| switch (err) {
+            error.ReadFailed => return cache_fr.err.?,
+            error.EndOfStream => return .truncated,
+            else => |e| return e,
         },
     }
 
