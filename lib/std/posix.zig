@@ -677,7 +677,8 @@ pub fn abort() noreturn {
         raise(SIG.ABRT) catch {};
 
         // Disable all signal handlers.
-        sigprocmask(SIG.BLOCK, &linux.filled_sigset, null);
+        const filledset = linux.sigfillset();
+        sigprocmask(SIG.BLOCK, &filledset, null);
 
         // Only one thread may proceed to the rest of abort().
         if (!builtin.single_threaded) {
@@ -690,14 +691,14 @@ pub fn abort() noreturn {
         // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
             .handler = .{ .handler = SIG.DFL },
-            .mask = linux.empty_sigset,
+            .mask = sigemptyset(),
             .flags = 0,
         };
         sigaction(SIG.ABRT, &sigact, null);
 
         _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
-        var sigabrtmask = linux.empty_sigset;
+        var sigabrtmask = sigemptyset();
         sigaddset(&sigabrtmask, SIG.ABRT);
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
@@ -727,7 +728,7 @@ pub fn raise(sig: u8) RaiseError!void {
         // cannot trigger an extra, unexpected, inter-process signal.  Signal paranoia inherited from Musl.
         const filled = linux.sigfillset();
         var orig: sigset_t = undefined;
-        sigprocmask(SIG.BLOCK, &linux.filled_sigset, &orig);
+        sigprocmask(SIG.BLOCK, &filled, &orig);
         const rc = linux.tkill(linux.gettid(), sig);
         sigprocmask(SIG.SETMASK, &orig, null);
 
@@ -5813,24 +5814,28 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
     }
 }
 
-pub fn sigfillset(set: *sigset_t) void {
+/// Return a filled sigset_t.
+pub fn sigfillset() sigset_t {
     if (builtin.link_libc) {
-        switch (errno(system.sigfillset(set))) {
-            .SUCCESS => return,
+        var set: sigset_t = undefined;
+        switch (errno(system.sigfillset(&set))) {
+            .SUCCESS => return set,
             else => unreachable,
         }
     }
-    set.* = system.filled_sigset;
+    return system.sigfillset();
 }
 
-pub fn sigemptyset(set: *sigset_t) void {
+/// Return an empty sigset_t.
+pub fn sigemptyset() sigset_t {
     if (builtin.link_libc) {
-        switch (errno(system.sigemptyset(set))) {
-            .SUCCESS => return,
+        var set: sigset_t = undefined;
+        switch (errno(system.sigemptyset(&set))) {
+            .SUCCESS => return set,
             else => unreachable,
         }
     }
-    set.* = mem.zeroes(sigset_t);
+    return system.sigemptyset();
 }
 
 pub fn sigaddset(set: *sigset_t, sig: u8) void {

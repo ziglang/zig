@@ -128,7 +128,7 @@ test "fadvise" {
 test "sigset_t" {
     std.debug.assert(@sizeOf(linux.sigset_t) == (linux.NSIG / 8));
 
-    var sigset = linux.empty_sigset;
+    var sigset = linux.sigemptyset();
 
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
@@ -140,8 +140,6 @@ test "sigset_t" {
     }
     for (1..linux.NSIG) |i| {
         try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
-        try expectEqual(linux.sigismember(&linux.filled_sigset, @truncate(i)), true);
-        try expectEqual(linux.sigismember(&linux.empty_sigset, @truncate(i)), false);
     }
     for (1..linux.NSIG) |i| {
         linux.sigdelset(&sigset, @truncate(i));
@@ -183,16 +181,16 @@ test "sigset_t" {
     }
 }
 
-test "filled_sigset" {
+test "sigfillset" {
     // unlike the C library, all the signals are set in the kernel-level fillset
-    const sigset = linux.filled_sigset;
+    const sigset = linux.sigfillset();
     for (1..linux.NSIG) |i| {
         try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
     }
 }
 
-test "empty_sigset" {
-    const sigset = linux.empty_sigset;
+test "sigemptyset" {
+    const sigset = linux.sigemptyset();
     for (1..linux.NSIG) |i| {
         try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
     }

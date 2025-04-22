@@ -1800,11 +1800,15 @@ const SigsetElement = c_ulong;
 
 const sigset_len = @typeInfo(sigset_t).array.len;
 
-/// Empty set to initialize sigset_t instances from.  No need for `sigemptyset`.
-pub const empty_sigset: sigset_t = [_]SigsetElement{0} ** sigset_len;
+/// Zig's version of sigemptyset.  Returns initialized sigset_t.
+pub fn sigemptyset() sigset_t {
+    return [_]SigsetElement{0} ** sigset_len;
+}
 
-/// Filled set to initialize sigset_t instances from.  No need for `sigfillset`.
-pub const filled_sigset: sigset_t = [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+/// Zig's version of sigfillset.  Returns initalized sigset_t.
+pub fn sigfillset() sigset_t {
+    return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+}
 
 fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
     assert(sig > 0);

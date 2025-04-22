@@ -745,14 +745,13 @@ fn maybeIgnoreSigpipe() void {
 
     if (have_sigpipe_support and !std.options.keep_sigpipe) {
         const posix = std.posix;
-        var act: posix.Sigaction = .{
+        const act: posix.Sigaction = .{
             // Set handler to a noop function instead of `SIG.IGN` to prevent
             // leaking signal disposition to a child process.
             .handler = .{ .handler = noopSigHandler },
-            .mask = undefined,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
-        posix.sigemptyset(&act.mask);
         posix.sigaction(posix.SIG.PIPE, &act, null);
     }
 }

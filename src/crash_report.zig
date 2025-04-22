@@ -175,12 +175,11 @@ pub fn attachSegfaultHandler() void {
         _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act: posix.Sigaction = .{
+    const act: posix.Sigaction = .{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = undefined,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-    posix.sigemptyset(&act.mask);
     debug.updateSegfaultHandler(&act);
 }
 

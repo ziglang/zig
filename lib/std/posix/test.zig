@@ -863,17 +863,15 @@ test "sigset empty/full" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    var set: posix.sigset_t = undefined;
-
-    posix.sigemptyset(&set);
+    var set: posix.sigset_t = posix.sigemptyset();
     for (1..posix.NSIG) |i| {
         try expectEqual(false, posix.sigismember(&set, @truncate(i)));
     }
 
     // The C library can reserve some (unnamed) signals, so can't check the full
     // NSIG set is defined, but just test a couple:
-    posix.sigfillset(&set);
-    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.USR1)));
+    set = posix.sigfillset();
+    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.CHLD)));
     try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.INT)));
 }
 
@@ -887,8 +885,7 @@ test "sigset add/del" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    var sigset: posix.sigset_t = undefined;
-    posix.sigemptyset(&sigset);
+    var sigset: posix.sigset_t = posix.sigemptyset();
 
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
@@ -924,7 +921,7 @@ test "sigaction" {
         return error.SkipZigTest;
     }
 
-    const test_signo = posix.SIG.USR1;
+    const test_signo = posix.SIG.URG; // URG only because it is ignored by default in debuggers
 
     const S = struct {
         var handler_called_count: u32 = 0;
@@ -944,10 +941,10 @@ test "sigaction" {
 
     var sa: posix.Sigaction = .{
         .handler = .{ .sigaction = &S.handler },
-        .mask = undefined,
+        .mask = posix.sigemptyset(),
         .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
     };
-    posix.sigemptyset(&sa.mask);
+
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
@@ -1009,29 +1006,29 @@ test "sigset_t bits" {
 
     const self_pid = posix.system.getpid();
 
-    // To check that sigset_t mapping matches kernel (think u32/u64
-    // mismatches on big-endian), try sending a blocked signal to make
-    // sure the mask matches the signal.
-    inline for ([_]usize{ posix.SIG.INT, posix.SIG.USR1, 62, 94, 126 }) |test_signo| {
+    // To check that sigset_t mapping matches kernel (think u32/u64 mismatches on
+    // big-endian), try sending a blocked signal to make sure the mask matches the
+    // signal.  (Send URG and CHLD because they're ignored by default in the
+    // debugger, vs. USR1 or other named signals)
+    inline for ([_]usize{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
         if (test_signo >= posix.NSIG) continue;
 
         S.expected_sig = test_signo;
         S.handler_called_count = 0;
 
-        var sa: posix.Sigaction = .{
+        const sa: posix.Sigaction = .{
             .handler = .{ .sigaction = &S.handler },
-            .mask = undefined,
+            .mask = posix.sigemptyset(),
             .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
         };
-        posix.sigemptyset(&sa.mask);
+
         var old_sa: posix.Sigaction = undefined;
 
         // Install the new signal handler.
         posix.sigaction(test_signo, &sa, &old_sa);
 
         // block the signal and see that its delayed until unblocked
-        var block_one: posix.sigset_t = undefined;
-        posix.sigemptyset(&block_one);
+        var block_one: posix.sigset_t = posix.sigemptyset();
         posix.sigaddset(&block_one, test_signo);
         posix.sigprocmask(posix.SIG.BLOCK, &block_one, null);
 

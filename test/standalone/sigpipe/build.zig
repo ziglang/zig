@@ -16,12 +16,11 @@ pub fn build(b: *std.build.Builder) !void {
     // This test runs "breakpipe" as a child process and that process
     // depends on inheriting a SIGPIPE disposition of "default".
     {
-        var act = posix.Sigaction{
+        const act = posix.Sigaction{
             .handler = .{ .handler = posix.SIG.DFL },
-            .mask = undefined,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
-        posix.sigemptyset(&act.mask);
         try posix.sigaction(posix.SIG.PIPE, &act, null);
     }
 
