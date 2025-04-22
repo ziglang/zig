@@ -179,6 +179,9 @@ pub fn deinit(self: *C) void {
     self.uavs.deinit(gpa);
     self.aligned_uavs.deinit(gpa);
 
+    self.exported_navs.deinit(gpa);
+    self.exported_uavs.deinit(gpa);
+
     self.string_bytes.deinit(gpa);
     gpa.free(self.fwd_decl_buf);
     gpa.free(self.code_header_buf);
@@ -600,13 +603,15 @@ const Flush = struct {
     }
 
     fn deinit(f: *Flush, gpa: Allocator) void {
-        f.all_buffers.deinit(gpa);
-        f.lazy_fns.deinit(gpa);
-        f.lazy_ctype_pool.deinit(gpa);
-        f.ctypes.deinit(gpa);
+        f.ctype_pool.deinit(gpa);
         assert(f.ctype_global_from_decl_map.items.len == 0);
         f.ctype_global_from_decl_map.deinit(gpa);
-        f.ctype_pool.deinit(gpa);
+        f.ctypes.deinit(gpa);
+        f.lazy_ctype_pool.deinit(gpa);
+        f.lazy_fns.deinit(gpa);
+        f.lazy_fwd_decl.deinit(gpa);
+        f.lazy_code.deinit(gpa);
+        f.all_buffers.deinit(gpa);
     }
 };
 
@@ -686,7 +691,7 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, f: *Flush) FlushDeclError!void {
             .is_naked_fn = false,
             .expected_block = null,
             .fwd_decl = undefined,
-            .ctype_pool = f.ctype_pool,
+            .ctype_pool = f.lazy_ctype_pool,
             .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = self.uavs,
             .aligned_uavs = self.aligned_uavs,
@@ -700,8 +705,8 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, f: *Flush) FlushDeclError!void {
     defer {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
-        f.ctype_pool = object.dg.ctype_pool.move();
-        f.ctype_pool.freeUnusedCapacity(gpa);
+        f.lazy_ctype_pool = object.dg.ctype_pool.move();
+        f.lazy_ctype_pool.freeUnusedCapacity(gpa);
 
         f.lazy_fwd_decl = object.dg.fwd_decl.toArrayList();
         f.lazy_code = object.code.toArrayList();
