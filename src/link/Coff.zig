@@ -3097,8 +3097,11 @@ const ImportTable = struct {
 fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!void {
     const comp = coff.base.comp;
     const diags = &comp.link_diags;
-    coff.base.file.?.pwriteAll(bytes, offset) catch |err| {
-        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    var fw = coff.base.file.?.writer();
+    fw.pos = offset;
+    var bw = fw.interface().unbuffered();
+    bw.writeAll(bytes) catch |err| switch (err) {
+        error.WriteFailed => return diags.fail("failed to write: {s}", .{@errorName(fw.err.?)}),
     };
 }
 

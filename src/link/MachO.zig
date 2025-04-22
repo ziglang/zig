@@ -5330,8 +5330,11 @@ fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
 pub fn pwriteAll(macho_file: *MachO, bytes: []const u8, offset: u64) error{LinkFailure}!void {
     const comp = macho_file.base.comp;
     const diags = &comp.link_diags;
-    macho_file.base.file.?.pwriteAll(bytes, offset) catch |err| {
-        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    var fw = macho_file.base.file.?.writer();
+    fw.pos = offset;
+    var bw = fw.interface().unbuffered();
+    bw.writeAll(bytes) catch |err| switch (err) {
+        error.WriteFailed => return diags.fail("failed to write: {s}", .{@errorName(fw.err.?)}),
     };
 }
 

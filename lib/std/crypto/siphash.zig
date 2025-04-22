@@ -249,7 +249,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             };
         }
 
-        fn writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        fn writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
             const self: *Self = @alignCast(@ptrCast(ctx));
             var len: usize = 0;
             for (data[0 .. data.len - 1]) |slice| {
@@ -271,14 +271,14 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             limit: std.io.Writer.Limit,
             headers_and_trailers: []const []const u8,
             headers_len: usize,
-        ) anyerror!usize {
+        ) std.io.Writer.Error!usize {
             _ = ctx;
             _ = file;
             _ = offset;
             _ = limit;
             _ = headers_and_trailers;
             _ = headers_len;
-            return error.Unimplemented;
+            @panic("TODO");
         }
     };
 }
