@@ -1389,9 +1389,10 @@ pub fn attachSegfaultHandler() void {
     }
     var act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = undefined,
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
+    posix.sigemptyset(&act.mask);
 
     updateSegfaultHandler(&act);
 }
@@ -1406,9 +1407,10 @@ fn resetSegfaultHandler() void {
     }
     var act = posix.Sigaction{
         .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
+        .mask = undefined,
         .flags = 0,
     };
+    posix.sigemptyset(&act.mask);
     updateSegfaultHandler(&act);
 }
 

@@ -887,7 +887,8 @@ test "sigset add/del" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    var sigset = posix.empty_sigset;
+    var sigset: posix.sigset_t = undefined;
+    posix.sigemptyset(&sigset);
 
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
@@ -903,7 +904,6 @@ test "sigset add/del" {
         if (!reserved_signo(i)) {
             try expectEqual(true, posix.sigismember(&sigset, @truncate(i)));
         }
-        try expectEqual(false, posix.sigismember(&posix.empty_sigset, @truncate(i)));
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
@@ -944,9 +944,10 @@ test "sigaction" {
 
     var sa: posix.Sigaction = .{
         .handler = .{ .sigaction = &S.handler },
-        .mask = posix.empty_sigset,
+        .mask = undefined,
         .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
     };
+    posix.sigemptyset(&sa.mask);
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
@@ -1019,17 +1020,19 @@ test "sigset_t bits" {
 
         var sa: posix.Sigaction = .{
             .handler = .{ .sigaction = &S.handler },
-            .mask = posix.empty_sigset,
+            .mask = undefined,
             .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
         };
+        posix.sigemptyset(&sa.mask);
         var old_sa: posix.Sigaction = undefined;
 
         // Install the new signal handler.
         posix.sigaction(test_signo, &sa, &old_sa);
 
         // block the signal and see that its delayed until unblocked
-        var block_one = posix.empty_sigset;
-        _ = posix.sigaddset(&block_one, test_signo);
+        var block_one: posix.sigset_t = undefined;
+        posix.sigemptyset(&block_one);
+        posix.sigaddset(&block_one, test_signo);
         posix.sigprocmask(posix.SIG.BLOCK, &block_one, null);
 
         // qemu maps target signals to host signals 1-to-1, so targets

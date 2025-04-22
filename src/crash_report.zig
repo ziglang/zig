@@ -177,10 +177,10 @@ pub fn attachSegfaultHandler() void {
     }
     var act: posix.Sigaction = .{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = undefined,
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
+    posix.sigemptyset(&act.mask);
     debug.updateSegfaultHandler(&act);
 }
 

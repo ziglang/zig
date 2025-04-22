@@ -127,7 +127,6 @@ pub const timerfd_clockid_t = system.timerfd_clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
-pub const empty_sigset = system.empty_sigset;
 pub const fd_t = system.fd_t;
 pub const file_obj = system.file_obj;
 pub const gid_t = system.gid_t;
@@ -691,14 +690,14 @@ pub fn abort() noreturn {
         // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
             .handler = .{ .handler = SIG.DFL },
-            .mask = empty_sigset,
+            .mask = linux.empty_sigset,
             .flags = 0,
         };
         sigaction(SIG.ABRT, &sigact, null);
 
         _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
-        var sigabrtmask = empty_sigset;
+        var sigabrtmask = linux.empty_sigset;
         sigaddset(&sigabrtmask, SIG.ABRT);
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
@@ -5831,7 +5830,7 @@ pub fn sigemptyset(set: *sigset_t) void {
             else => unreachable,
         }
     }
-    set.* = system.empty_sigset;
+    set.* = mem.zeroes(sigset_t);
 }
 
 pub fn sigaddset(set: *sigset_t, sig: u8) void {
