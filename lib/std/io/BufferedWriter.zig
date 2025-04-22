@@ -78,6 +78,15 @@ pub fn flush(bw: *BufferedWriter) Writer.Error!void {
     bw.end = 0;
 }
 
+pub fn flushLimit(bw: *BufferedWriter, limit: Writer.Limit) Writer.Error!void {
+    const buffer = limit.slice(bw.buffer[0..bw.end]);
+    var index: usize = 0;
+    while (index < buffer.len) index += try bw.unbuffered_writer.writeVec(&.{buffer[index..]});
+    const remainder = bw.buffer[index..];
+    std.mem.copyForwards(u8, bw.buffer[0..remainder.len], remainder);
+    bw.end = remainder.len;
+}
+
 pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
     return bw.buffer[bw.end..];
 }
@@ -1851,4 +1860,8 @@ test "fixed output" {
 
     try bw.seekTo((try bw.getEndPos()) + 1);
     try testing.expectError(error.WriteStreamEnd, bw.writeAll("H"));
+}
+
+test flushLimit {
+    return error.Unimplemented;
 }

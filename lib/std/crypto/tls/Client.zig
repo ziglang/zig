@@ -916,7 +916,7 @@ pub fn writer(c: *Client) std.io.Writer {
         .context = c,
         .vtable = &.{
             .writeSplat = writeSplat,
-            .writeFile = std.io.Writer.unimplemented_writeFile,
+            .writeFile = std.io.Writer.unimplementedWriteFile,
         },
     };
 }
