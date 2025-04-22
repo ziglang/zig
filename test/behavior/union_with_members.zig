@@ -10,8 +10,8 @@ const ET = union(enum) {
 
     pub fn print(a: *const ET, buf: []u8) anyerror!usize {
         return switch (a.*) {
-            ET.SINT => |x| fmt.formatIntBuf(buf, x, 10, .lower, fmt.FormatOptions{}),
-            ET.UINT => |x| fmt.formatIntBuf(buf, x, 10, .lower, fmt.FormatOptions{}),
+            ET.SINT => |x| fmt.printInt(buf, x, 10, .lower, fmt.FormatOptions{}),
+            ET.UINT => |x| fmt.printInt(buf, x, 10, .lower, fmt.FormatOptions{}),
         };
     }
 };

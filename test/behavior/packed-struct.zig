@@ -1086,7 +1086,10 @@ test "packed struct used as part of anon decl name" {
     const S = packed struct { a: u0 = 0 };
     var a: u8 = 0;
     _ = &a;
-    try std.io.null_writer.print("\n{} {}\n", .{ a, S{} });
+    var buffer: [std.atomic.cache_line]u8 = undefined;
+    var nw: std.io.Writer.Null = undefined;
+    var bw = nw.writer().buffered(&buffer);
+    try bw.print("\n{} {}\n", .{ a, S{} });
 }
 
 test "packed struct acts as a namespace" {
