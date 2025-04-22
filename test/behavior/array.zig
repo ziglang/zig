@@ -1133,3 +1133,19 @@ test "initialize pointer to anyopaque with reference to empty array initializer"
     // We can't check the value, but it's zero-bit, so the type matching is good enough.
     comptime assert(@TypeOf(loaded) == @TypeOf(.{}));
 }
+
+test "reinterpreted 0-sized array at comptime" {
+    const S = struct {
+        fn writeReinterpreted(comptime Buffer: type) void {
+            var buffer: Buffer = undefined;
+            const pointer: *void = @ptrCast(&buffer);
+            pointer.* = {};
+        }
+    };
+    comptime {
+        S.writeReinterpreted([0]u8); //[0](positive-sized) crashes
+        S.writeReinterpreted([8]u0); //[positive](0-sized) crashes
+        S.writeReinterpreted([8]u8); //[positive](positive-sized) works
+        S.writeReinterpreted(u0); //(0-sized) works
+    }
+}

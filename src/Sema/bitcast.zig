@@ -155,6 +155,8 @@ fn bitCastSpliceInner(
 
     const abi_pad_bits, const host_pad_bits = if (host_bits > 0)
         .{ val_ty.abiSize(zcu) * 8 - host_bits, host_bits - val_ty.bitSize(zcu) }
+    else if (splice_val.toIntern() == .void_value and val_ty.abiSize(zcu) == 0)
+        .{ 0, 0 }
     else
         .{ val_ty.abiSize(zcu) * 8 - val_ty.bitSize(zcu), 0 };
 

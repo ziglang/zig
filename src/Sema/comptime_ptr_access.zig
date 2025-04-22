@@ -855,8 +855,12 @@ fn prepareComptimePtrStore(
             => break, // terminal types (no sub-values)
             .optional => break, // this can only be a pointer-like optional so is terminal
             .array => {
+                const len = ip.indexToKey(cur_ty.toIntern()).array_type.len;
                 const elem_ty = cur_ty.childType(zcu);
                 const elem_size = try elem_ty.abiSizeSema(pt);
+                if (len == 0 or elem_size == 0) {
+                    break; // terminal array (0-sized array)
+                }
                 const elem_idx = cur_offset / elem_size;
                 const next_elem_off = elem_size * (elem_idx + 1);
                 if (cur_offset + need_bytes <= next_elem_off) {
