@@ -130,6 +130,7 @@ pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
 }
 
 fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+    if (data.len == 0 and splat == 0) return 0;
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const start_len = aw.written.len;
     const bw = &aw.buffered_writer;
@@ -140,24 +141,21 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.
         .capacity = start_len + bw.buffer.len,
     };
     defer setArrayList(aw, list);
-    const rest = data[1 .. data.len - 1];
+    const rest = if (splat == 0) data[1 .. data.len - 1] else data[1..];
     const pattern = data[data.len - 1];
-    var new_capacity: usize = list.capacity + pattern.len * splat;
+    const remaining_splat = splat - 1;
+    var new_capacity: usize = list.capacity + pattern.len * remaining_splat;
     for (rest) |bytes| new_capacity += bytes.len;
     list.ensureTotalCapacity(aw.allocator, new_capacity + 1) catch return error.WriteFailed;
     for (rest) |bytes| list.appendSliceAssumeCapacity(bytes);
-    appendPatternAssumeCapacity(&list, pattern, splat);
+    if (pattern.len == 1) {
+        list.appendNTimesAssumeCapacity(pattern[0], remaining_splat);
+    } else {
+        for (0..remaining_splat) |_| list.appendSliceAssumeCapacity(pattern);
+    }
     aw.written = list.items;
     bw.buffer = list.unusedCapacitySlice();
     return list.items.len - start_len;
-}
-
-fn appendPatternAssumeCapacity(list: *std.ArrayListUnmanaged(u8), pattern: []const u8, splat: usize) void {
-    if (pattern.len == 1) {
-        list.appendNTimesAssumeCapacity(pattern[0], splat);
-    } else {
-        for (0..splat) |_| list.appendSliceAssumeCapacity(pattern);
-    }
 }
 
 fn writeFile(
