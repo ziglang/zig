@@ -5011,11 +5011,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
         fn deinit(_: @This()) void {}
-    } = .{
-        .allocator = gpa,
-        .read_buffer_size = 0x4000,
-        .write_buffer_size = 0x4000,
-    };
+    } = .{ .allocator = gpa };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -6823,11 +6819,7 @@ fn cmdFetch(
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    var http_client: std.http.Client = .{
-        .allocator = gpa,
-        .read_buffer_size = 0x4000,
-        .write_buffer_size = 0x4000,
-    };
+    var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
     try http_client.initDefaultProxies(arena);

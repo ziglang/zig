@@ -4454,8 +4454,11 @@ pub fn stringTableLookup(strtab: []const u8, off: u32) [:0]const u8 {
 pub fn pwriteAll(elf_file: *Elf, bytes: []const u8, offset: u64) error{LinkFailure}!void {
     const comp = elf_file.base.comp;
     const diags = &comp.link_diags;
-    elf_file.base.file.?.pwriteAll(bytes, offset) catch |err| {
-        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    var fw = elf_file.base.file.?.writer();
+    fw.pos = offset;
+    var bw = fw.interface().unbuffered();
+    bw.writeAll(bytes) catch |err| switch (err) {
+        error.WriteFailed => return diags.fail("failed to write: {s}", .{@errorName(fw.err.?)}),
     };
 }
 
