@@ -218,11 +218,11 @@ test "variadic functions" {
             for (std.mem.span(format)) |c| switch (c) {
                 's' => {
                     const arg = @cVaArg(ap, [*:0]const u8);
-                    list.writer().print("{s}", .{arg}) catch return;
+                    list.print("{s}", .{arg}) catch return;
                 },
                 'd' => {
                     const arg = @cVaArg(ap, c_int);
-                    list.writer().print("{d}", .{arg}) catch return;
+                    list.print("{d}", .{arg}) catch return;
                 },
                 else => unreachable,
             };

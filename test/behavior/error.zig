@@ -1042,12 +1042,32 @@ test "generic type constructed from inferred error set of unresolved function" {
             _ = bytes;
             return 0;
         }
-        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
+        fn Writer(
+            comptime Context: type,
+            comptime WriteError: type,
+            comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+        ) type {
+            return struct {
+                context: Context,
+                comptime {
+                    _ = writeFn;
+                }
+            };
+        }
+        const T = Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
         fn writer() T {
             return .{ .context = {} };
         }
+        fn multiWriter(streams: anytype) MultiWriter(@TypeOf(streams)) {
+            return .{ .streams = streams };
+        }
+        fn MultiWriter(comptime Writers: type) type {
+            return struct {
+                streams: Writers,
+            };
+        }
     };
-    _ = std.io.multiWriter(.{S.writer()});
+    _ = S.multiWriter(.{S.writer()});
 }
 
 test "errorCast to adhoc inferred error set" {
