@@ -20,7 +20,8 @@ out: *std.io.BufferedWriter,
 /// same connection, and makes invalid API usage cause assertion failures
 /// rather than HTTP protocol violations.
 state: State,
-head_parse_err: Request.Head.ParseError,
+/// Populated when `receiveHead` returns `ReceiveHeadError.HttpHeadersInvalid`.
+head_parse_err: ?Request.Head.ParseError = null,
 
 pub const State = enum {
     /// The connection is available to be used for the first time, or reused.
@@ -46,7 +47,6 @@ pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
         .in = in,
         .out = out,
         .state = .ready,
-        .head_parse_err = undefined,
     };
 }
 
@@ -92,8 +92,6 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
         if (hp.state == .finished) return .{
             .server = s,
             .head_end = head_end,
-            .trailers_len = 0,
-            .read_err = null,
             .head = Request.Head.parse(buf[0..head_end]) catch |err| {
                 s.head_parse_err = err;
                 return error.HttpHeadersInvalid;
@@ -109,13 +107,13 @@ pub const Request = struct {
     head_end: usize,
     /// Number of bytes of HTTP trailers. These are at the end of a
     /// transfer-encoding: chunked message.
-    trailers_len: usize,
+    trailers_len: usize = 0,
     head: Head,
     reader_state: union {
         remaining_content_length: u64,
         remaining_chunk_len: RemainingChunkLen,
     },
-    read_err: ?ReadError,
+    read_err: ?ReadError = null,
 
     pub const ReadError = error{
         HttpChunkInvalid,
@@ -330,12 +328,12 @@ pub const Request = struct {
             .in = &br,
             .out = undefined,
             .state = .ready,
-            .in_err = undefined,
         };
 
         var request: Request = .{
             .server = &server,
             .head_end = request_bytes.len,
+            .trailers_len = 0,
             .head = undefined,
             .reader_state = undefined,
         };
@@ -513,15 +511,16 @@ pub const Request = struct {
         respond_options: RespondOptions = .{},
     };
 
-    /// The header is buffered but not sent until `Response.flush` is called.
+    /// The header is not guaranteed to be sent until `Response.flush` is called.
     ///
     /// If the request contains a body and the connection is to be reused,
     /// discards the request body, leaving the Server in the `ready` state. If
     /// this discarding fails, the connection is marked as not to be reused and
     /// no error is surfaced.
     ///
-    /// HEAD requests are handled transparently by setting a flag on the
-    /// returned Response to omit the body. However it may be worth noticing
+    /// HEAD requests are handled transparently by setting the
+    /// `Response.elide_body` flag on the returned `Response`, causing
+    /// the response stream to omit the body. However, it may be worth noticing
     /// that flag and skipping any expensive work that would otherwise need to
     /// be done to satisfy the request.
     ///
@@ -922,6 +921,9 @@ pub const Response = struct {
     ///
     /// This is the underlying stream; use `buffered` to create a
     /// `BufferedWriter` for this `Response`.
+    ///
+    /// Until the lifetime of `Response` ends, it is illegal to modify the
+    /// state of this other than via methods of `Response`.
     server_output: *std.io.BufferedWriter,
     /// `null` means transfer-encoding: chunked.
     /// As a debugging utility, counts down to zero as bytes are written.
@@ -966,12 +968,30 @@ pub const Response = struct {
         };
     };
 
-    /// When using content-length, asserts that the amount of data sent matches
-    /// the value sent in the header, then calls `flush`.
+    /// Sends all buffered data across `Response.server_output`.
     ///
-    /// Otherwise, transfer-encoding: chunked is being used, and it writes the
-    /// end-of-stream message with empty trailers, then flushes the stream to
-    /// the system.
+    /// Some buffered data will remain if transfer-encoding is chunked and the
+    /// response is mid-chunk.
+    pub fn flush(r: *Response) WriteError!void {
+        switch (r.transfer_encoding) {
+            .none, .content_length => return r.server_output.flush(),
+            .chunked => |*chunked| switch (chunked.*) {
+                .offset => |*offset| {
+                    try r.server_output.flushLimit(.limited(r.server_output.end - offset.*));
+                    offset.* = 0;
+                },
+                .chunk_len => return r.server_output.flush(),
+            },
+        }
+    }
+
+    /// When using content-length, asserts that the amount of data sent matches
+    /// the value sent in the header, then flushes. Asserts the amount of bytes
+    /// sent matches the content-length value provided in the HTTP header.
+    ///
+    /// When using transfer-encoding: chunked, writes the end-of-stream message
+    /// with empty trailers, then flushes the stream to the system. Asserts any
+    /// started chunk has been completely finished.
     ///
     /// Respects the value of `elide_body` to omit all data after the headers.
     ///
