@@ -2817,12 +2817,18 @@ comptime {
 }
 
 pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
-    var header: Zir.Header = undefined;
-    if (try cache_file.readAll(std.mem.asBytes(&header)) < @sizeOf(Zir.Header)) return error.EndOfStream;
-    return loadZirCacheBody(gpa, header, cache_file);
+    var cache_fr = cache_file.reader();
+    var cache_br = cache_fr.interface().unbuffered();
+    return result: {
+        const header = cache_br.takeStruct(Zir.Header) catch |err| break :result err;
+        break :result loadZirCacheBody(gpa, header.*, &cache_br);
+    } catch |err| switch (err) {
+        error.ReadFailed => return cache_fr.err.?,
+        else => |e| return e,
+    };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.io.BufferedReader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2850,16 +2856,11 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
         if (data_has_safety_tag)
             @ptrCast(safety_buffer)
         else
-            zir.instructions.items(.data),
+            @ptrCast(zir.instructions.items(.data)),
         zir.string_bytes,
         @ptrCast(zir.extra),
     };
-    var cache_fr = cache_file.reader();
-    var cache_br = cache_fr.interface().unbuffered();
-    cache_br.readVecAll(&vecs) catch |err| switch (err) {
-        error.ReadFailed => return cache_fr.err.?,
-        error.EndOfStream => return error.UnexpectedFileSize,
-    };
+    try cache_br.readVecAll(&vecs);
     if (data_has_safety_tag) {
         const tags = zir.instructions.items(.tag);
         for (zir.instructions.items(.data), 0..) |*data, i| {
@@ -2871,7 +2872,6 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
             };
         }
     }
-
     return zir;
 }
 
@@ -2947,7 +2947,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs.File) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.io.BufferedReader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -2983,12 +2983,7 @@ pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs
         @ptrCast(zoir.compile_errors),
         @ptrCast(zoir.error_notes),
     };
-    var cache_fr = cache_file.reader();
-    var cache_br = cache_fr.interface().unbuffered();
-    cache_br.readVecAll(&vecs) catch |err| switch (err) {
-        error.ReadFailed => return cache_fr.err.?,
-        error.EndOfStream => return error.UnexpectedFileSize,
-    };
+    try cache_br.readVecAll(&vecs);
     return zoir;
 }
 
