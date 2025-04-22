@@ -150,7 +150,7 @@ pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
             defer data[index] = untruncated;
             truncate += try bw.writeVec(data[index..]);
         }
-        while (index < data.len and truncate <= data[index].len) {
+        while (index < data.len and truncate >= data[index].len) {
             truncate -= data[index].len;
             index += 1;
         }

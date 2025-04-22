@@ -856,6 +856,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) usize {
 pub fn allocPrint(gpa: Allocator, comptime fmt: []const u8, args: anytype) Allocator.Error![]u8 {
     var aw: std.io.AllocatingWriter = undefined;
     try aw.initCapacity(gpa, fmt.len);
+    defer aw.deinit();
     aw.buffered_writer.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
@@ -870,6 +871,7 @@ pub fn allocPrintSentinel(
 ) Allocator.Error![:sentinel]u8 {
     var aw: std.io.AllocatingWriter = undefined;
     try aw.initCapacity(gpa, fmt.len);
+    defer aw.deinit();
     aw.buffered_writer.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };

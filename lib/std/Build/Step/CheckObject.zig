@@ -1790,7 +1790,7 @@ const ElfDumper = struct {
                 .p32 => @sizeOf(u32),
                 .p64 => @sizeOf(u64),
             };
-            try br.discard(num * ptr_size);
+            _ = try br.discard(.limited(num * ptr_size));
             const strtab = br.bufferContents();
 
             assert(ctx.symtab.len == 0);
@@ -2569,7 +2569,7 @@ const WasmDumper = struct {
                     if (!flags.passive) try parseDumpInit(step, br, bw);
                     const size = try br.takeLeb128(u32);
                     try bw.print("size {d}\n", .{size});
-                    try br.discard(size); // we do not care about the content of the segments
+                    _ = try br.discard(.limited(size)); // we do not care about the content of the segments
                 }
             },
             else => unreachable,
