@@ -304,8 +304,8 @@ pub fn dumpHexFallible(bw: *std.io.BufferedWriter, ttyconf: std.io.tty.Config, b
 test dumpHexFallible {
     const bytes: []const u8 = &.{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x12, 0x13 };
     var aw: std.io.AllocatingWriter = undefined;
-    defer aw.deinit();
     var bw = aw.init(std.testing.allocator);
+    defer aw.deinit();
 
     try dumpHexFallible(&bw, .no_color, bytes);
     const expected = try std.fmt.allocPrint(std.testing.allocator,

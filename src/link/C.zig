@@ -254,13 +254,13 @@ pub fn updateFunc(
             zcu.failed_codegen.putAssumeCapacityNoClobber(func.owner_nav, function.object.dg.error_msg.?);
             return;
         },
-        else => |e| return e,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
     gop.value_ptr.fwd_decl = try self.addString(&.{&function.object.dg.fwd_decl});
     gop.value_ptr.code = try self.addString(&.{ &function.object.code_header, &function.object.code });
 }
 
-fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
+fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) link.File.FlushError!void {
     const gpa = self.base.comp.gpa;
     const uav = self.uavs.keys()[i];
 
@@ -305,13 +305,13 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
             //try zcu.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
             //return;
         },
-        else => |e| return e,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 
     object.dg.ctype_pool.freeUnusedCapacity(gpa);
     object.dg.uav_deps.values()[i] = .{
-        .fwd_decl = try self.addString(&.{object.dg.fwd_decl.getWritten()}),
-        .code = try self.addString(&.{object.code.getWritten()}),
+        .fwd_decl = try self.addString(&.{&object.dg.fwd_decl}),
+        .code = try self.addString(&.{&object.code}),
         .ctype_pool = object.dg.ctype_pool.move(),
     };
 }
@@ -379,10 +379,10 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
             zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, object.dg.error_msg.?);
             return;
         },
-        else => |e| return e,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    gop.value_ptr.fwd_decl = try self.addString(&.{object.dg.fwd_decl.getWritten()});
-    gop.value_ptr.code = try self.addString(&.{object.code.getWritten()});
+    gop.value_ptr.fwd_decl = try self.addString(&.{&object.dg.fwd_decl});
+    gop.value_ptr.code = try self.addString(&.{&object.code});
 }
 
 pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -397,19 +397,14 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     return self.flushModule(arena, tid, prog_node);
 }
 
-fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
-    const gpa = self.base.comp.gpa;
-    var defines = std.ArrayList(u8).init(gpa);
-    errdefer defines.deinit();
-    const writer = defines.writer();
+fn abiDefines(bw: *std.io.BufferedWriter, target: std.Target) !void {
     switch (target.abi) {
-        .msvc, .itanium => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try bw.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
+    try bw.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
         target.cMaxIntAlignment(),
     });
-    return defines;
 }
 
 pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -442,46 +437,47 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     var f: Flush = .{
         .ctype_pool = .empty,
         .ctype_global_from_decl_map = .empty,
-        .ctypes_buf = .empty,
+        .ctypes = .empty,
 
         .lazy_ctype_pool = .empty,
         .lazy_fns = .empty,
         .lazy_fwd_decl = .empty,
         .lazy_code = .empty,
 
-        .asm_buf = .empty,
-
         .all_buffers = .empty,
         .file_size = 0,
     };
     defer f.deinit(gpa);
 
-    const abi_defines = try self.abiDefines(zcu.getTarget());
-    defer abi_defines.deinit();
+    var abi_defines_aw: std.io.AllocatingWriter = undefined;
+    abi_defines_aw.init(gpa);
+    defer abi_defines_aw.deinit();
+    abiDefines(&abi_defines_aw.buffered_writer, zcu.getTarget()) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 
     // Covers defines, zig.h, ctypes, asm, lazy fwd.
     try f.all_buffers.ensureUnusedCapacity(gpa, 5);
 
-    f.appendBufAssumeCapacity(abi_defines.items);
+    f.appendBufAssumeCapacity(abi_defines_aw.getWritten());
     f.appendBufAssumeCapacity(zig_h);
 
     const ctypes_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    {
-        var asm_buf = f.asm_buf.toManaged(gpa);
-        defer f.asm_buf = asm_buf.moveToUnmanaged();
-        try codegen.genGlobalAsm(zcu, asm_buf.writer());
-        f.appendBufAssumeCapacity(asm_buf.items);
-    }
+    var asm_aw: std.io.AllocatingWriter = undefined;
+    asm_aw.init(gpa);
+    defer asm_aw.deinit();
+    codegen.genGlobalAsm(zcu, &asm_aw.buffered_writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
+    f.appendBufAssumeCapacity(asm_aw.getWritten());
 
     const lazy_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    self.lazy_fwd_decl_buf.clearRetainingCapacity();
-    self.lazy_code_buf.clearRetainingCapacity();
     try f.lazy_ctype_pool.init(gpa);
-    try self.flushErrDecls(pt, &f.lazy_ctype_pool);
+    try self.flushErrDecls(pt, &f);
 
     // Unlike other backends, the .c code we are emitting has order-dependent decls.
     // `CType`s, forward decls, and non-functions first.
@@ -539,22 +535,15 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         }
     }
 
-    f.all_buffers.items[ctypes_index] = .{
-        .base = if (f.ctypes_buf.items.len > 0) f.ctypes_buf.items.ptr else "",
-        .len = f.ctypes_buf.items.len,
-    };
-    f.file_size += f.ctypes_buf.items.len;
+    f.all_buffers.items[ctypes_index] = f.ctypes.items;
+    f.file_size += f.ctypes.items.len;
 
-    const lazy_fwd_decl_len = self.lazy_fwd_decl_buf.items.len;
-    f.all_buffers.items[lazy_index] = .{
-        .base = if (lazy_fwd_decl_len > 0) self.lazy_fwd_decl_buf.items.ptr else "",
-        .len = lazy_fwd_decl_len,
-    };
-    f.file_size += lazy_fwd_decl_len;
+    f.all_buffers.items[lazy_index] = f.lazy_fwd_decl.items;
+    f.file_size += f.lazy_fwd_decl.items.len;
 
     // Now the code.
     try f.all_buffers.ensureUnusedCapacity(gpa, 1 + (self.uavs.count() + self.navs.count()) * 2);
-    f.appendBufAssumeCapacity(self.lazy_code_buf.items);
+    f.appendBufAssumeCapacity(f.lazy_code.items);
     for (self.uavs.keys(), self.uavs.values()) |uav, av_block| f.appendCodeAssumeCapacity(
         if (self.exported_uavs.contains(uav)) .default else switch (ip.indexToKey(uav)) {
             .@"extern" => .zig_extern,
@@ -570,25 +559,27 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
     const file = self.base.file.?;
     file.setEndPos(f.file_size) catch |err| return diags.fail("failed to allocate file: {s}", .{@errorName(err)});
-    file.pwritevAll(f.all_buffers.items, 0) catch |err| return diags.fail("failed to write to '{'}': {s}", .{
-        self.base.emit, @errorName(err),
-    });
+    var fw = file.writer();
+    var bw = fw.interface().unbuffered();
+    bw.writeVecAll(f.all_buffers.items) catch |err| switch (err) {
+        error.WriteFailed => return diags.fail("failed to write to '{f'}': {s}", .{
+            self.base.emit, @errorName(fw.err.?),
+        }),
+    };
 }
 
 const Flush = struct {
     ctype_pool: codegen.CType.Pool,
     ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType),
-    ctypes_buf: std.ArrayListUnmanaged(u8),
+    ctypes: std.ArrayListUnmanaged(u8),
 
     lazy_ctype_pool: codegen.CType.Pool,
     lazy_fns: LazyFns,
     lazy_fwd_decl: std.ArrayListUnmanaged(u8),
     lazy_code: std.ArrayListUnmanaged(u8),
 
-    asm_buf: std.ArrayListUnmanaged(u8),
-
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const),
+    all_buffers: std.ArrayListUnmanaged([]const u8),
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64,
 
@@ -596,7 +587,7 @@ const Flush = struct {
 
     fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
         if (buf.len == 0) return;
-        f.all_buffers.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
+        f.all_buffers.appendAssumeCapacity(buf);
         f.file_size += buf.len;
     }
 
@@ -612,10 +603,9 @@ const Flush = struct {
 
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
-        f.asm_buf.deinit(gpa);
         f.lazy_fns.deinit(gpa);
         f.lazy_ctype_pool.deinit(gpa);
-        f.ctypes_buf.deinit(gpa);
+        f.ctypes.deinit(gpa);
         assert(f.ctype_global_from_decl_map.items.len == 0);
         f.ctype_global_from_decl_map.deinit(gpa);
         f.ctype_pool.deinit(gpa);
@@ -641,9 +631,9 @@ fn flushCTypes(
     try global_from_decl_map.ensureTotalCapacity(gpa, decl_ctype_pool.items.len);
     defer global_from_decl_map.clearRetainingCapacity();
 
-    var ctypes_buf = f.ctypes_buf.toManaged(gpa);
-    defer f.ctypes_buf = ctypes_buf.moveToUnmanaged();
-    const writer = ctypes_buf.writer();
+    var ctypes_aw: std.io.AllocatingWriter = undefined;
+    const ctypes_bw = ctypes_aw.fromArrayList(gpa, &f.ctypes);
+    defer f.ctypes = ctypes_aw.toArrayList();
 
     for (0..decl_ctype_pool.items.len) |decl_ctype_pool_index| {
         const PoolAdapter = struct {
@@ -670,23 +660,25 @@ fn flushCTypes(
             PoolAdapter{ .global_from_decl_map = global_from_decl_map.items },
         );
         global_from_decl_map.appendAssumeCapacity(global_ctype);
-        try codegen.genTypeDecl(
+        codegen.genTypeDecl(
             zcu,
-            writer,
+            ctypes_bw,
             global_ctype_pool,
             global_ctype,
             pass,
             decl_ctype_pool,
             decl_ctype,
             found_existing,
-        );
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
     }
 }
 
-fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) FlushDeclError!void {
+fn flushErrDecls(self: *C, pt: Zcu.PerThread, f: *Flush) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
 
-    var object = codegen.Object{
+    var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
             .pt = pt,
@@ -696,7 +688,7 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
             .is_naked_fn = false,
             .expected_block = null,
             .fwd_decl = undefined,
-            .ctype_pool = ctype_pool.*,
+            .ctype_pool = f.ctype_pool,
             .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = self.uavs,
             .aligned_uavs = self.aligned_uavs,
@@ -705,22 +697,22 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
         .code = undefined,
         .indent_counter = 0,
     };
-    object.dg.fwd_decl.initArrayList(gpa, &self.lazy_fwd_decl_buf);
-    object.code.initArrayList(gpa, &self.lazy_code_buf);
+    _ = object.dg.fwd_decl.fromArrayList(gpa, &f.lazy_fwd_decl);
+    _ = object.code.fromArrayList(gpa, &f.lazy_code);
     defer {
         self.uavs = object.dg.uav_deps;
         self.aligned_uavs = object.dg.aligned_uavs;
-        ctype_pool.* = object.dg.ctype_pool.move();
-        ctype_pool.freeUnusedCapacity(gpa);
+        f.ctype_pool = object.dg.ctype_pool.move();
+        f.ctype_pool.freeUnusedCapacity(gpa);
 
-        self.lazy_fwd_decl_buf = object.dg.fwd_decl.toArrayList();
-        self.lazy_code_buf = object.code.toArrayList();
+        f.lazy_fwd_decl = object.dg.fwd_decl.toArrayList();
+        f.lazy_code = object.code.toArrayList();
         self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
 
     codegen.genErrDecls(&object) catch |err| switch (err) {
         error.AnalysisFail => unreachable,
-        else => |e| return e,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 }
 
@@ -728,13 +720,13 @@ fn flushLazyFn(
     self: *C,
     pt: Zcu.PerThread,
     mod: *Module,
-    ctype_pool: *codegen.CType.Pool,
+    f: *Flush,
     lazy_ctype_pool: *const codegen.CType.Pool,
     lazy_fn: codegen.LazyFnMap.Entry,
 ) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
 
-    var object = codegen.Object{
+    var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
             .pt = pt,
@@ -744,7 +736,7 @@ fn flushLazyFn(
             .is_naked_fn = false,
             .expected_block = null,
             .fwd_decl = undefined,
-            .ctype_pool = ctype_pool.*,
+            .ctype_pool = f.lazy_ctype_pool,
             .scratch = .initBuffer(self.scratch_buf),
             .uav_deps = .{},
             .aligned_uavs = .{},
@@ -753,24 +745,24 @@ fn flushLazyFn(
         .code = undefined,
         .indent_counter = 0,
     };
-    object.dg.fwd_decl.initArrayList(gpa, &self.lazy_fwd_decl_buf);
-    object.code.initArrayList(gpa, &self.lazy_code_buf);
+    _ = object.dg.fwd_decl.fromArrayList(gpa, &f.lazy_fwd_decl);
+    _ = object.code.fromArrayList(gpa, &f.lazy_code);
     defer {
         // If this assert trips just handle the anon_decl_deps the same as
         // `updateFunc()` does.
         assert(object.dg.uav_deps.count() == 0);
         assert(object.dg.aligned_uavs.count() == 0);
-        ctype_pool.* = object.dg.ctype_pool.move();
-        ctype_pool.freeUnusedCapacity(gpa);
+        f.lazy_ctype_pool = object.dg.ctype_pool.move();
+        f.lazy_ctype_pool.freeUnusedCapacity(gpa);
 
-        self.lazy_fwd_decl_buf = object.dg.fwd_decl.toArrayList();
-        self.lazy_code_buf = object.dg.code.toArrayList();
+        f.lazy_fwd_decl = object.dg.fwd_decl.toArrayList();
+        f.lazy_code = object.code.toArrayList();
         self.scratch_buf = object.dg.scratch.allocatedSlice();
     }
 
     codegen.genLazyFn(&object, lazy_ctype_pool, lazy_fn) catch |err| switch (err) {
         error.AnalysisFail => unreachable,
-        else => |e| return e,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 }
 
@@ -790,7 +782,7 @@ fn flushLazyFns(
         const gop = f.lazy_fns.getOrPutAssumeCapacity(entry.key_ptr.*);
         if (gop.found_existing) continue;
         gop.value_ptr.* = {};
-        try self.flushLazyFn(pt, mod, &f.lazy_ctype_pool, lazy_ctype_pool, entry);
+        try self.flushLazyFn(pt, mod, f, lazy_ctype_pool, entry);
     }
 }
 
@@ -905,10 +897,12 @@ pub fn updateExports(
         ctype_pool.freeUnusedCapacity(gpa);
 
         self.fwd_decl_buf = dg.fwd_decl.toArrayList().allocatedSlice();
-        self.scratch_buf = dg.scratch.alignedSlice();
+        self.scratch_buf = dg.scratch.allocatedSlice();
     }
-    try codegen.genExports(&dg, exported, export_indices);
-    exported_block.* = .{ .fwd_decl = try self.addString(&.{dg.fwd_decl.getWritten()}) };
+    codegen.genExports(&dg, exported, export_indices) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    exported_block.* = .{ .fwd_decl = try self.addString(&.{&dg.fwd_decl}) };
 }
 
 pub fn deleteExport(
