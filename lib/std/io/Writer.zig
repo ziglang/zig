@@ -30,12 +30,20 @@ pub const VTable = struct {
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via `error.WriteFailed`.
+    ///
+    /// If `error.Unimplemented` is returned, the caller should do its own
+    /// reads from the file. The callee indicates it cannot offer a more
+    /// efficient implementation.
     writeFile: *const fn (
         ctx: ?*anyopaque,
         file: std.fs.File,
-        /// If this is `none`, `file` will be streamed, affecting the seek
-        /// position. Otherwise, it will be read positionally without affecting
-        /// the seek position.
+        /// If this is `Offset.none`, `file` will be streamed, affecting the
+        /// seek position. Otherwise, it will be read positionally without
+        /// affecting the seek position. `error.Unseekable` is only possible
+        /// when reading positionally.
+        ///
+        /// An offset past the end of the file is treated the same as an offset
+        /// equal to the end of the file.
         offset: Offset,
         /// Maximum amount of bytes to read from the file. Implementations may
         /// assume that the file size does not exceed this amount.
@@ -52,7 +60,13 @@ pub const Error = error{
     WriteFailed,
 };
 
-pub const FileError = Error || std.fs.File.PReadError;
+pub const FileError = std.fs.File.PReadError || error{
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
+    /// Indicates the caller should do its own file reading; the callee cannot
+    /// offer a more efficient implementation.
+    Unimplemented,
+};
 
 pub const Limit = std.io.Reader.Limit;
 

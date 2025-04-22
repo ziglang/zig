@@ -9421,3 +9421,66 @@ pub const msghdr_const = extern struct {
     controllen: usize,
     flags: u32,
 };
+
+/// The syscalls, but with Zig error sets, going through libc if linking libc,
+/// and with some footguns eliminated.
+pub const wrapped = struct {
+    pub const lfs64_abi = builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
+    const system = if (builtin.link_libc) std.c else std.os.linux;
+
+    pub const SendfileError = std.posix.UnexpectedError || error{
+        /// `out_fd` is an unconnected socket, or out_fd closed its read end.
+        BrokenPipe,
+        /// Descriptor is not valid or locked, or an mmap(2)-like operation is not available for in_fd.
+        UnsupportedOperation,
+        /// Nonblocking I/O has been selected but the write would block.
+        WouldBlock,
+        /// Unspecified error while reading from in_fd.
+        InputOutput,
+        /// Insufficient kernel memory to read from in_fd.
+        SystemResources,
+        /// `offset` is not `null` but the input file is not seekable.
+        Unseekable,
+    };
+
+    pub fn sendfile(
+        out_fd: fd_t,
+        in_fd: fd_t,
+        in_offset: ?*off_t,
+        in_len: usize,
+    ) SendfileError!usize {
+        const adjusted_len = @min(in_len, 0x7ffff000); // Prevents EOVERFLOW.
+        const sendfileSymbol = if (lfs64_abi) system.sendfile64 else system.sendfile;
+        const rc = sendfileSymbol(out_fd, in_fd, in_offset, adjusted_len);
+        switch (errno(rc)) {
+            .SUCCESS => return @bitCast(rc),
+            .BADF => return invalidApiUsage(), // Always a race condition.
+            .FAULT => return invalidApiUsage(), // Segmentation fault.
+            .OVERFLOW => return unexpectedErrno(.OVERFLOW), // We avoid passing too large of a `count`.
+            .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
+            .INVAL => return error.UnsupportedOperation,
+            .AGAIN => return error.WouldBlock,
+            .IO => return error.InputOutput,
+            .PIPE => return error.BrokenPipe,
+            .NOMEM => return error.SystemResources,
+            .NXIO => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    const unexpectedErrno = std.posix.unexpectedErrno;
+
+    fn invalidApiUsage() error{Unexpected} {
+        if (builtin.mode == .Debug) @panic("invalid API usage");
+        return error.Unexpected;
+    }
+
+    fn errno(rc: anytype) E {
+        if (builtin.link_libc) {
+            return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
+        } else {
+            return errnoFromSyscall(rc);
+        }
+    }
+};
