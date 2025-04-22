@@ -73,7 +73,7 @@ pub fn readVecAll(br: *BufferedReader, data: [][]u8) Reader.Error!void {
             defer data[index] = untruncated;
             truncate += try br.readVec(data[index..]);
         }
-        while (index < data.len and truncate <= data[index].len) {
+        while (index < data.len and truncate >= data[index].len) {
             truncate -= data[index].len;
             index += 1;
         }

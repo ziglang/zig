@@ -934,7 +934,7 @@ pub fn writeFileAll(self: File, in_file: File, options: BufferedWriter.WriteFile
     var buffer: [2000]u8 = undefined;
     var bw = file_writer.interface().buffered(&buffer);
     bw.writeFileAll(in_file, options) catch |err| switch (err) {
-        error.WriteFailed => if (file_writer.err) |_| unreachable else |e| return e,
+        error.WriteFailed => return file_writer.err.?,
         else => |e| return e,
     };
 }
@@ -1232,7 +1232,7 @@ pub const Reader = struct {
 
 pub const Writer = struct {
     file: File,
-    err: WriteError!void = {},
+    err: ?WriteError = null,
     mode: Writer.Mode = .positional,
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
