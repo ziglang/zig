@@ -5884,10 +5884,12 @@ fn zirCompileLog(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
-    var managed = zcu.compile_log_text.toManaged(sema.gpa);
-    defer pt.zcu.compile_log_text = managed.moveToUnmanaged();
-    const writer = managed.writer();
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(gpa);
+
+    const writer = buf.writer(gpa);
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
@@ -5906,13 +5908,37 @@ fn zirCompileLog(
             try writer.print("@as({}, [runtime value])", .{arg_ty.fmt(pt)});
         }
     }
-    try writer.print("\n", .{});
 
-    const gop = try zcu.compile_log_sources.getOrPut(sema.gpa, sema.owner);
-    if (!gop.found_existing) gop.value_ptr.* = .{
-        .base_node_inst = block.src_base_inst,
-        .node_offset = src_node,
+    const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
+
+    const line_idx: Zcu.CompileLogLine.Index = if (zcu.free_compile_log_lines.pop()) |idx| idx: {
+        zcu.compile_log_lines.items[@intFromEnum(idx)] = .{
+            .next = .none,
+            .data = line_data,
+        };
+        break :idx idx;
+    } else idx: {
+        try zcu.compile_log_lines.append(gpa, .{
+            .next = .none,
+            .data = line_data,
+        });
+        break :idx @enumFromInt(zcu.compile_log_lines.items.len - 1);
     };
+
+    const gop = try zcu.compile_logs.getOrPut(gpa, sema.owner);
+    if (gop.found_existing) {
+        const prev_line = gop.value_ptr.last_line.get(zcu);
+        assert(prev_line.next == .none);
+        prev_line.next = line_idx.toOptional();
+        gop.value_ptr.last_line = line_idx;
+    } else {
+        gop.value_ptr.* = .{
+            .base_node_inst = block.src_base_inst,
+            .node_offset = src_node,
+            .first_line = line_idx,
+            .last_line = line_idx,
+        };
+    }
     return .void_value;
 }
 
