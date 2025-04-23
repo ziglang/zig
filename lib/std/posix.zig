@@ -5675,10 +5675,9 @@ pub const RealPathError = error{
 /// Calling this function is usually a bug.
 pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
+        var pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
 
-        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try realpathW(pathname_w.span(), &wide_buf);
+        const wide_slice = try realpathW(pathname_w.span(), &pathname_w.data);
 
         const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
         return out_buffer[0..end_index];
@@ -5694,10 +5693,9 @@ pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathE
 /// Calling this function is usually a bug.
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
+        var pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
 
-        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try realpathW(pathname_w.span(), &wide_buf);
+        const wide_slice = try realpathW(pathname_w.span(), &pathname_w.data);
 
         const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
         return out_buffer[0..end_index];

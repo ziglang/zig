@@ -1369,10 +1369,9 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
         @compileError("realpath is not available on WASI");
     }
     if (native_os == .windows) {
-        const pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
+        var pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
 
-        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try self.realpathW(pathname_w.span(), &wide_buf);
+        const wide_slice = try self.realpathW(pathname_w.span(), &pathname_w.data);
 
         const len = std.unicode.calcWtf8Len(wide_slice);
         if (len > out_buffer.len)
@@ -1389,10 +1388,9 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
 /// See also `Dir.realpath`, `realpathZ`.
 pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
+        var pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
 
-        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try self.realpathW(pathname_w.span(), &wide_buf);
+        const wide_slice = try self.realpathW(pathname_w.span(), &pathname_w.data);
 
         const len = std.unicode.calcWtf8Len(wide_slice);
         if (len > out_buffer.len)
