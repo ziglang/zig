@@ -113,8 +113,9 @@ test "HTTP server handles a chunked transfer coding request" {
             try expect(request.head.transfer_encoding == .chunked);
 
             var buf: [128]u8 = undefined;
-            const n = try (try request.reader()).readAll(&buf);
-            try expect(mem.eql(u8, buf[0..n], "ABCD"));
+            var br = (try request.reader()).unbuffered();
+            const n = try br.readSliceShort(&buf);
+            try expectEqualStrings("ABCD", buf[0..n]);
 
             try request.respond("message from server!\n", .{
                 .extra_headers = &.{
@@ -143,7 +144,8 @@ test "HTTP server handles a chunked transfer coding request" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    var writer = stream.writer().unbuffered();
+    var stream_writer = stream.writer();
+    var writer = stream_writer.interface().unbuffered();
     try writer.writeAll(request_bytes);
 
     const expected_response =
@@ -153,7 +155,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    const response = try stream.reader().readRemainingAlloc(gpa, expected_response.len);
+    var stream_reader = stream.reader();
+    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(expected_response.len));
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -206,7 +209,7 @@ test "echo content server" {
             //    request.head.target,
             //});
 
-            const body = try (try request.reader()).readRemainingAlloc(std.testing.allocator, 8192);
+            const body = try (try request.reader()).readRemainingAlloc(std.testing.allocator, .limited(8192));
             defer std.testing.allocator.free(body);
 
             try expect(mem.startsWith(u8, request.head.target, "/echo-content"));
@@ -288,10 +291,12 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    var writer = stream.writer().unbuffered();
+    var stream_writer = stream.writer();
+    var writer = stream_writer.interface().unbuffered();
     try writer.writeAll(request_bytes);
 
-    const response = try stream.reader().readRemainingAlloc(gpa, 8192);
+    var stream_reader = stream.reader();
+    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -362,7 +367,8 @@ test "receiving arbitrary http headers from the client" {
     var writer = stream_writer.interface().unbuffered();
     try writer.writeAll(request_bytes);
 
-    const response = try stream.reader().readRemainingAlloc(gpa, .limited(8192));
+    var stream_reader = stream.reader();
+    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
