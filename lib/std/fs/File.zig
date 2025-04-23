@@ -788,46 +788,6 @@ pub fn updateTimes(
     try posix.futimens(self.handle, &times);
 }
 
-pub const ReadAllocError = ReadError || Allocator.Error || error{FileTooBig};
-
-/// Reads all the bytes from the current position to the end of the file.
-///
-/// On success, caller owns returned buffer.
-///
-/// If `limit` is exceeded, returns `error.FileTooBig`.
-pub fn readToEndAlloc(file: File, gpa: Allocator, limit: std.io.Reader.Limit) ReadAllocError![]u8 {
-    var buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer buffer.deinit(gpa);
-    try buffer.ensureUnusedCapacity(gpa, std.heap.page_size_min);
-    try readIntoArrayList(file, gpa, limit, null, &buffer);
-    return buffer.toOwnedSlice(gpa);
-}
-
-/// Reads all the bytes from the current position to the end of the file,
-/// appending them into the provided array list.
-///
-/// If `limit` is exceeded:
-/// * The array list's length is increased by exactly one byte past `limit`.
-/// * The file seek position is advanced by exactly one byte past `limit`.
-/// * `error.FileTooBig` is returned.
-pub fn readIntoArrayList(
-    file: File,
-    gpa: Allocator,
-    limit: std.io.Reader.Limit,
-    comptime alignment: ?std.mem.Alignment,
-    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
-) ReadAllocError!void {
-    var remaining = limit;
-    while (true) {
-        try list.ensureUnusedCapacity(gpa, 1);
-        const buffer = remaining.slice1(list.unusedCapacitySlice());
-        const n = try read(file, buffer);
-        if (n == 0) return;
-        list.items.len += n;
-        remaining = remaining.subtract(n) orelse return error.FileTooBig;
-    }
-}
-
 pub const ReadError = posix.ReadError;
 pub const PReadError = posix.PReadError;
 
