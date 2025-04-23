@@ -2,6 +2,9 @@ const std = @import("../std.zig");
 const Reader = @This();
 const assert = std.debug.assert;
 const BufferedWriter = std.io.BufferedWriter;
+const BufferedReader = std.io.BufferedReader;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayListUnmanaged;
 
 context: ?*anyopaque,
 vtable: *const VTable,
@@ -166,29 +169,56 @@ pub fn discardRemaining(r: Reader) ShortError!usize {
     }
 }
 
-pub const ReadAllocError = std.mem.Allocator.Error || ShortError;
+pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLong};
 
-/// Allocates enough memory to hold all the contents of the stream. If the allocated
-/// memory would be greater than `max_size`, returns `error.StreamTooLong`.
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, returning them as a caller-owned allocated slice.
 ///
-/// Caller owns returned memory.
+/// If `limit` is exceeded, returns `error.StreamTooLong`. In such case, the
+/// stream is advanced one byte beyond the limit, and the consumed data is
+/// unrecoverable. Other functions listed below do not have this caveat.
 ///
-/// If this function returns an error, the contents from the stream read so far are lost.
-pub fn readAlloc(r: Reader, gpa: std.mem.Allocator, max_size: usize) ReadAllocError![]u8 {
-    const readFn = r.vtable.read;
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(gpa);
-    errdefer aw.deinit();
-    var remaining = max_size;
-    while (remaining > 0) {
-        const n = readFn(r.context, &aw.buffered_writer, .limited(remaining)) catch |err| switch (err) {
-            error.WriteFailed => return error.OutOfMemory,
-            error.EndOfStream => break,
+/// See also:
+/// * `readRemainingArrayList`
+/// * `BufferedReader.readRemainingArrayList`
+pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Reader.Limit) LimitedAllocError![]u8 {
+    var buffer: ArrayList(u8) = .empty;
+    defer buffer.deinit(gpa);
+    try readRemainingArrayList(r, gpa, null, &buffer, limit);
+    return buffer.toOwnedSlice(gpa);
+}
+
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, appending them to `list`.
+///
+/// If `limit` is exceeded:
+/// * The array list's length is increased by exactly one byte past `limit`.
+/// * The stream seek position is advanced by exactly one byte past `limit`.
+/// * `error.StreamTooLong` is returned.
+///
+/// The other function listed below has different semantics for an exceeded
+/// limit.
+///
+/// See also:
+/// * `BufferedReader.readRemainingArrayList`
+pub fn readRemainingArrayList(
+    r: Reader,
+    gpa: Allocator,
+    comptime alignment: ?std.mem.Alignment,
+    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
+    limit: Limit,
+) LimitedAllocError!void {
+    var remaining = limit;
+    while (true) {
+        try list.ensureUnusedCapacity(gpa, 1);
+        const buffer = remaining.slice1(list.unusedCapacitySlice());
+        const n = r.vtable.readVec(r.context, &.{buffer}) catch |err| switch (err) {
+            error.EndOfStream => return,
             error.ReadFailed => return error.ReadFailed,
         };
-        remaining -= n;
+        list.items.len += n;
+        remaining = remaining.subtract(n) orelse return error.StreamTooLong;
     }
-    return aw.toOwnedSlice();
 }
 
 pub const failing: Reader = .{
@@ -209,11 +239,11 @@ pub const ending: Reader = .{
     },
 };
 
-pub fn unbuffered(r: Reader) std.io.BufferedReader {
+pub fn unbuffered(r: Reader) BufferedReader {
     return buffered(r, &.{});
 }
 
-pub fn buffered(r: Reader, buffer: []u8) std.io.BufferedReader {
+pub fn buffered(r: Reader, buffer: []u8) BufferedReader {
     return .{
         .unbuffered_reader = r,
         .seek = 0,

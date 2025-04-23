@@ -70,7 +70,7 @@ test "trailers" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -153,7 +153,7 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    const response = try stream.reader().readAllAlloc(gpa, expected_response.len);
+    const response = try stream.reader().readRemainingAlloc(gpa, expected_response.len);
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -206,7 +206,7 @@ test "echo content server" {
             //    request.head.target,
             //});
 
-            const body = try (try request.reader()).readAllAlloc(std.testing.allocator, 8192);
+            const body = try (try request.reader()).readRemainingAlloc(std.testing.allocator, 8192);
             defer std.testing.allocator.free(body);
 
             try expect(mem.startsWith(u8, request.head.target, "/echo-content"));
@@ -291,7 +291,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     var writer = stream.writer().unbuffered();
     try writer.writeAll(request_bytes);
 
-    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    const response = try stream.reader().readRemainingAlloc(gpa, 8192);
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -362,7 +362,7 @@ test "receiving arbitrary http headers from the client" {
     var writer = stream_writer.interface().unbuffered();
     try writer.writeAll(request_bytes);
 
-    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    const response = try stream.reader().readRemainingAlloc(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -419,7 +419,7 @@ test "general client/server API coverage" {
             });
 
             const gpa = std.testing.allocator;
-            const body = try (try request.reader()).readAllAlloc(gpa, 8192);
+            const body = try (try request.reader()).readRemainingAlloc(gpa, .limited(8192));
             defer gpa.free(body);
 
             if (mem.startsWith(u8, request.head.target, "/get")) {
@@ -568,7 +568,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -593,7 +593,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192 * 1024);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192 * 1024));
         defer gpa.free(body);
 
         try expectEqual(@as(usize, 14 * 1024 + 14 * 10), body.len);
@@ -617,7 +617,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -643,7 +643,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -668,7 +668,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -695,7 +695,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -725,7 +725,7 @@ test "general client/server API coverage" {
 
         try std.testing.expectEqual(.ok, req.response.status);
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -764,7 +764,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -788,7 +788,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -812,7 +812,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -855,7 +855,7 @@ test "general client/server API coverage" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Encoded redirect successful!\n", body);
@@ -946,7 +946,7 @@ test "Server streams both reading and writing" {
             var server = http.Server.init(&connection_br, &connection_bw);
             var request = try server.receiveHead();
             var read_buffer: [100]u8 = undefined;
-            var br = try request.reader().buffered(&read_buffer);
+            var br = (try request.reader()).buffered(&read_buffer);
             var response = try request.respondStreaming(.{
                 .respond_options = .{
                     .transfer_encoding = .none, // Causes keep_alive=false
@@ -993,7 +993,7 @@ test "Server streams both reading and writing" {
 
     try req.finish();
 
-    const body = try req.reader().readAllAlloc(std.testing.allocator, 8192);
+    const body = try req.reader().readRemainingAlloc(std.testing.allocator, .limited(8192));
     defer std.testing.allocator.free(body);
 
     try expectEqualStrings("ONE FISH", body);
@@ -1027,7 +1027,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1062,7 +1062,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1118,7 +1118,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         try req.wait();
         try expectEqual(.ok, req.response.status);
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1258,7 +1258,7 @@ test "redirect to different connection" {
         try req.send();
         try req.wait();
 
-        const body = try req.reader().readAllAlloc(gpa, 8192);
+        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("good job, you pass", body);

@@ -7,6 +7,7 @@ const testing = std.testing;
 const BufferedWriter = std.io.BufferedWriter;
 const Reader = std.io.Reader;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayListUnmanaged;
 
 const BufferedReader = @This();
 
@@ -373,6 +374,8 @@ pub fn readShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize {
     @panic("TODO");
 }
 
+pub const ReadAllocError = Reader.Error || Allocator.Error;
+
 /// The function is inline to avoid the dead code in case `endian` is
 /// comptime-known and matches host endianness.
 pub inline fn readSliceEndianAlloc(
@@ -389,13 +392,79 @@ pub inline fn readSliceEndianAlloc(
     return dest;
 }
 
-pub const ReadAllocError = Reader.Error || Allocator.Error;
-
 pub fn readSliceAlloc(br: *BufferedReader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
     const dest = try allocator.alloc(u8, len);
     errdefer allocator.free(dest);
     try readSlice(br, dest);
     return dest;
+}
+
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, returning them as a caller-owned allocated slice.
+///
+/// If `limit` is exceeded, returns `error.StreamTooLong`. In such case, the
+/// stream is advanced an unspecified amount, and the consumed data is
+/// unrecoverable. The other function listed below does not have this caveat.
+///
+/// Asserts `br` was initialized with at least one byte of storage capacity.
+///
+/// See also:
+/// * `readRemainingArrayList`
+pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Reader.Limit) Reader.LimitedAllocError![]u8 {
+    var buffer: ArrayList(u8) = .empty;
+    defer buffer.deinit(gpa);
+    try readRemainingArrayList(r, gpa, null, &buffer, limit);
+    return buffer.toOwnedSlice(gpa);
+}
+
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, appending them to `list`.
+///
+/// If `limit` would be exceeded, `error.StreamTooLong` is returned instead. In
+/// such case, the stream is in a well-defined state. The next byte that would
+/// be read will be the first one to exceed `limit`, and all preceeding bytes
+/// have been appended to `list`.
+///
+/// Asserts `br` was initialized with at least one byte of storage capacity.
+///
+/// See also:
+/// * `readRemainingAlloc`
+pub fn readRemainingArrayList(
+    br: *BufferedReader,
+    gpa: Allocator,
+    comptime alignment: ?std.mem.Alignment,
+    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
+    limit: Reader.Limit,
+) Reader.LimitedAllocError!void {
+    const buffer = br.buffer;
+    const buffered = buffer[br.seek..br.end];
+    const copy_len = limit.minInt(buffered.len);
+    try list.ensureUnusedCapacity(gpa, copy_len);
+    @memcpy(list.unusedCapacitySlice()[0..copy_len], buffer[0..copy_len]);
+    list.items.len += copy_len;
+    br.seek += copy_len;
+    if (copy_len == buffered.len) {
+        br.seek = 0;
+        br.end = 0;
+    }
+    var remaining = limit.subtract(copy_len).?;
+    while (true) {
+        try list.ensureUnusedCapacity(gpa, 1);
+        const dest = remaining.slice(list.unusedCapacitySlice());
+        const additional_buffer = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
+        const n = br.unbuffered_reader.readVec(&.{ dest, additional_buffer }) catch |err| switch (err) {
+            error.EndOfStream => break,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        if (n >= dest.len) {
+            br.end = n - dest.len;
+            list.items.len += dest.len;
+            if (n == dest.len) return;
+            return error.StreamTooLong;
+        }
+        list.items.len += n;
+        remaining = remaining.subtract(n).?;
+    }
 }
 
 pub const DelimiterInclusiveError = error{
@@ -775,7 +844,7 @@ pub fn writableSliceGreedyAlloc(
         br.seek = 0;
     }
     {
-        var list: std.ArrayListUnmanaged(u8) = .{
+        var list: ArrayList(u8) = .{
             .items = br.buffer[0..br.end],
             .capacity = br.buffer.len,
         };
