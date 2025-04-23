@@ -799,20 +799,6 @@ pub fn read(self: File, buffer: []u8) ReadError!usize {
     return posix.read(self.handle, buffer);
 }
 
-/// One-shot alternative to `std.io.BufferedReader.readShort` via `reader`.
-///
-/// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
-/// means the file reached the end.
-pub fn readShort(self: File, buffer: []u8) ReadError!usize {
-    var index: usize = 0;
-    while (index != buffer.len) {
-        const n = try self.read(buffer[index..]);
-        if (n == 0) break;
-        index += n;
-    }
-    return index;
-}
-
 /// On Windows, this function currently does alter the file pointer.
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
@@ -945,6 +931,19 @@ pub const Reader = struct {
                 .readVec = Reader.readVec,
                 .discard = Reader.discard,
             },
+        };
+    }
+
+    pub fn getSize(r: *Reader) GetEndPosError!u64 {
+        return r.size orelse {
+            if (r.size_err) |err| return err;
+            if (r.file.getEndPos()) |size| {
+                r.size = size;
+                return size;
+            } else |err| {
+                r.size_err = err;
+                return err;
+            }
         };
     }
 
