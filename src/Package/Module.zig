@@ -335,6 +335,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         // Append disabled features after enabled ones, so that their effects aren't overwritten.
         for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
+                // Ignore these until we figure out how to handle the concept of omitting features.
+                // See https://github.com/ziglang/zig/issues/23539
+                if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
                 const is_enabled = target.cpu.features.isEnabled(feature.index);
 
                 if (is_enabled) {
