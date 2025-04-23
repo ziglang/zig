@@ -1428,8 +1428,13 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     return result;
 }
 
-/// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
-/// The result is encoded as WTF16 LE.
+/// Windows-only. Same as `Dir.realpath` except
+/// * `pathname` and the result are WTF-16 LE encoded
+/// * `pathname` is relative or has the NT namespace prefix. See `windows.wToPrefixedFileW` for details.
+///
+/// Additionally, `pathname` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
 /// See also `Dir.realpath`, `realpathW`.
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u16) RealPathError![]u16 {
     const w = windows;
