@@ -179,7 +179,8 @@ const InitializedDepContext = struct {
 };
 
 pub const RunError = error{
-    ReadFailure,
+    ReadFailed,
+    StreamTooLong,
     ExitCodeFailure,
     ProcessTerminated,
     ExecNotSupported,
@@ -2059,9 +2060,8 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.readToEndAlloc(b.allocator, .limited(max_output_size)) catch {
-        return error.ReadFailure;
-    };
+    var file_reader = child.stdout.?.readerStreaming();
+    const stdout = try file_reader.interface().readRemainingAlloc(b.allocator, .limited(max_output_size));
     errdefer b.allocator.free(stdout);
 
     const term = try child.wait();

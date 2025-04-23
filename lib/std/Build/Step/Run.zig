@@ -1791,10 +1791,20 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             stdout_bytes = poller.reader(.stdout).bufferContents();
             stderr_bytes = poller.reader(.stderr).bufferContents();
         } else {
-            stdout_bytes = try stdout.readToEndAlloc(arena, run.stdio_limit);
+            var fr = stdout.readerStreaming();
+            stdout_bytes = fr.interface().readRemainingAlloc(arena, run.stdio_limit) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReadFailed => return fr.err.?,
+                error.StreamTooLong => return error.StdoutStreamTooLong,
+            };
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes = try stderr.readToEndAlloc(arena, run.stdio_limit);
+        var fr = stderr.readerStreaming();
+        stderr_bytes = fr.interface().readRemainingAlloc(arena, run.stdio_limit) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ReadFailed => return fr.err.?,
+            error.StreamTooLong => return error.StderrStreamTooLong,
+        };
     }
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {

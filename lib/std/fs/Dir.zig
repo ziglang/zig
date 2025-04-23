@@ -1963,6 +1963,8 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     return buffer[0..end_index];
 }
 
+pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Error || error{StreamTooLong};
+
 /// Reads all the bytes from the named file. On success, caller owns returned
 /// buffer.
 pub fn readFileAlloc(
@@ -1972,13 +1974,13 @@ pub fn readFileAlloc(
     /// On other platforms, an opaque sequence of bytes with no particular encoding.
     file_path: []const u8,
     /// Used to allocate the result.
-    gpa: mem.Allocator,
+    gpa: Allocator,
     /// If exceeded:
     /// * The array list's length is increased by exactly one byte past `limit`.
     /// * The file seek position is advanced by exactly one byte past `limit`.
-    /// * `error.FileTooBig` is returned.
+    /// * `error.StreamTooLong` is returned.
     limit: std.io.Reader.Limit,
-) (File.OpenError || File.ReadAllocError)![]u8 {
+) ReadFileAllocError![]u8 {
     return dir.readFileAllocOptions(file_path, gpa, limit, null, .of(u8), null);
 }
 
@@ -1991,18 +1993,18 @@ pub fn readFileAllocOptions(
     /// On other platforms, an opaque sequence of bytes with no particular encoding.
     file_path: []const u8,
     /// Used to allocate the result.
-    gpa: mem.Allocator,
+    gpa: Allocator,
     /// If exceeded:
     /// * The array list's length is increased by exactly one byte past `limit`.
     /// * The file seek position is advanced by exactly one byte past `limit`.
-    /// * `error.FileTooBig` is returned.
+    /// * `error.StreamTooLong` is returned.
     limit: std.io.Reader.Limit,
     /// If specified, the initial buffer size is calculated using this value,
     /// otherwise the effective file size is used instead.
     size_hint: ?usize,
     comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) (File.OpenError || File.ReadAllocError)!(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+) ReadFileAllocError!(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var buffer: std.ArrayListAlignedUnmanaged(u8, alignment) = .empty;
     defer buffer.deinit(gpa);
     try readFileIntoArrayList(
@@ -2026,7 +2028,7 @@ pub fn readFileAllocOptions(
 /// If `limit` is exceeded:
 /// * The array list's length is increased by exactly one byte past `limit`.
 /// * The file seek position is advanced by exactly one byte past `limit`.
-/// * `error.FileTooBig` is returned.
+/// * `error.StreamTooLong` is returned.
 pub fn readFileIntoArrayList(
     dir: Dir,
     /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
@@ -2040,7 +2042,7 @@ pub fn readFileIntoArrayList(
     size_hint: ?usize,
     comptime alignment: ?std.mem.Alignment,
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
-) (File.OpenError || File.ReadAllocError)!void {
+) ReadFileAllocError!void {
     var file = try dir.openFile(file_path, .{});
     defer file.close();
 
@@ -2049,14 +2051,19 @@ pub fn readFileIntoArrayList(
         try list.ensureUnusedCapacity(gpa, size);
     } else if (file.getEndPos()) |size| {
         // If the file size doesn't fit a usize it'll be certainly exceed the limit.
-        try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.FileTooBig);
+        try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.StreamTooLong);
     } else |err| switch (err) {
         // Ignore most errors; size hint is only an optimization.
         error.Unexpected, error.AccessDenied, error.PermissionDenied => {},
         else => |e| return e,
     }
 
-    try file.readIntoArrayList(gpa, limit, alignment, list);
+    var file_reader = file.reader();
+    file_reader.interface().readRemainingArrayList(gpa, alignment, list, limit) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.StreamTooLong => return error.StreamTooLong,
+        error.ReadFailed => return file_reader.err.?,
+    };
 }
 
 pub const DeleteTreeError = error{
