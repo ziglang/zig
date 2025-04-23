@@ -1947,22 +1947,6 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
-/// Read all of file contents using a preallocated buffer.
-/// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
-/// the situation is ambiguous. It could either mean that the entire file was read, and
-/// it exactly fits the buffer, or it could mean the buffer was not big enough for the
-/// entire file.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
-    var file = try self.openFile(file_path, .{});
-    defer file.close();
-
-    const end_index = try file.readAll(buffer);
-    return buffer[0..end_index];
-}
-
 pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Error || error{StreamTooLong};
 
 /// Reads all the bytes from the named file. On success, caller owns returned
@@ -2046,10 +2030,13 @@ pub fn readFileIntoArrayList(
     var file = try dir.openFile(file_path, .{});
     defer file.close();
 
+    var file_reader = file.reader();
+
     // Apply size hint by adjusting the array list's capacity.
     if (size_hint) |size| {
         try list.ensureUnusedCapacity(gpa, size);
-    } else if (file.getEndPos()) |size| {
+        file_reader.size = size;
+    } else if (file_reader.getSize()) |size| {
         // If the file size doesn't fit a usize it'll be certainly exceed the limit.
         try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.StreamTooLong);
     } else |err| switch (err) {
@@ -2058,7 +2045,6 @@ pub fn readFileIntoArrayList(
         else => |e| return e,
     }
 
-    var file_reader = file.reader();
     file_reader.interface().readRemainingArrayList(gpa, alignment, list, limit) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.StreamTooLong => return error.StreamTooLong,

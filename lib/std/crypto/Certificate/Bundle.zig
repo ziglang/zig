@@ -225,7 +225,9 @@ pub const AddCertsFromFileError = Allocator.Error ||
     error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
-    const size = try file.getEndPos();
+    var file_reader = file.reader();
+    const size = try file_reader.getSize();
+    var br = file_reader.interface().unbuffered();
 
     // We borrow `bytes` as a temporary buffer for the base64-encoded data.
     // This is possible by computing the decoded length and reserving the space
@@ -236,7 +238,9 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
     const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
-    const end_index = try file.readShort(buffer);
+    const end_index = br.readSliceShort(buffer) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+    };
     const encoded_bytes = buffer[0..end_index];
 
     const begin_marker = "-----BEGIN CERTIFICATE-----";
