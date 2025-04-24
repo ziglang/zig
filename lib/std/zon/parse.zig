@@ -1381,7 +1381,7 @@ test "std.zon comments" {
 
     {
         var diag: Diagnostics = .{};
-        defer status.deinit(gpa);
+        defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSliceAlloc(u8, gpa,
             \\//! comment
             \\10 // comment
@@ -1402,7 +1402,7 @@ test "std.zon failure/oom formatting" {
         .resize_fail_index = 0,
     });
     var diag: Diagnostics = .{};
-    defer status.deinit(gpa);
+    defer diag.deinit(gpa);
     try std.testing.expectError(error.OutOfMemory, fromSliceAlloc(
         []const u8,
         failing_allocator.allocator(),
