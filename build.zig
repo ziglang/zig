@@ -1392,7 +1392,14 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             // in a temporary directory
             "--cache-root", b.cache_root.path orelse ".",
         });
-        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+        if (b.graph.zig_lib_directory.path) |zig_lib_dir| {
+            cmd.addArgs(&.{"--zig-lib-dir"});
+            if (fs.path.isAbsolute(zig_lib_dir)) {
+                cmd.addArgs(&.{zig_lib_dir});
+            } else {
+                cmd.addDirectoryArg(b.path(zig_lib_dir));
+            }
+        }
         cmd.addArgs(&.{"-i"});
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 
