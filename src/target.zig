@@ -582,7 +582,6 @@ pub fn isDynamicAMDGCNFeature(target: *const std.Target, feature: std.Target.Cpu
         &std.Target.amdgcn.cpu.gfx1150,
         &std.Target.amdgcn.cpu.gfx1151,
         &std.Target.amdgcn.cpu.gfx1152,
-        &std.Target.amdgcn.cpu.gfx1153,
         &std.Target.amdgcn.cpu.gfx1200,
         &std.Target.amdgcn.cpu.gfx1201,
     };
