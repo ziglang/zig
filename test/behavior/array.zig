@@ -1143,10 +1143,10 @@ test "reinterpreted 0-sized array at comptime" {
         }
     };
     comptime {
-        S.writeReinterpreted([0]u8); //[0](positive-sized) crashes
-        S.writeReinterpreted([8]u0); //[positive](0-sized) crashes
-        S.writeReinterpreted([8]u8); //[positive](positive-sized) works
-        S.writeReinterpreted(u0); //(0-sized) works
+        S.writeReinterpreted([0]u8);
+        S.writeReinterpreted([8]u0);
+        S.writeReinterpreted([8]u8);
+        S.writeReinterpreted(u0);
     }
 }
 

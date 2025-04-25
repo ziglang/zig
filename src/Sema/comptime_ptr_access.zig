@@ -859,7 +859,7 @@ fn prepareComptimePtrStore(
                 const elem_ty = cur_ty.childType(zcu);
                 const elem_size = try elem_ty.abiSizeSema(pt);
                 if (len == 0 or elem_size == 0) {
-                    break; // terminal array (0-sized array)
+                    break; // break for 0-sized array
                 }
                 const elem_idx = cur_offset / elem_size;
                 const next_elem_off = elem_size * (elem_idx + 1);
