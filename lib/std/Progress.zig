@@ -40,7 +40,7 @@ draw_buffer: []u8,
 node_parents: []Node.Parent,
 node_storage: []Node.Storage,
 node_freelist: []Node.OptionalIndex,
-node_freelist_first: Node.OptionalIndex,
+node_freelist_first: Node.GenOptIndex,
 node_end_index: u32,
 
 pub const TerminalMode = union(enum) {
@@ -142,6 +142,30 @@ pub const Node = struct {
         }
     };
 
+    /// Generational optional index.
+    const GenOptIndex = packed struct(u32) {
+        opt_index: u8,
+        generation: u24,
+
+        const none_gen0: @This() = .{
+            .generation = 0,
+            .opt_index = @intFromEnum(OptionalIndex.none),
+        };
+
+        fn unwrap_index(i: @This()) ?Index {
+            const oi: OptionalIndex = @enumFromInt(i.opt_index);
+            return oi.unwrap();
+        }
+
+        fn without_generation(i: @This()) OptionalIndex {
+            return @enumFromInt(i.opt_index);
+        }
+
+        fn next_generation(i: @This()) u24 {
+            return i.generation +% 1;
+        }
+    };
+
     pub const OptionalIndex = enum(u8) {
         none = std.math.maxInt(u8),
         /// Index into `node_storage`.
@@ -155,6 +179,10 @@ pub const Node = struct {
         fn toParent(i: @This()) Parent {
             assert(@intFromEnum(i) != @intFromEnum(Parent.unused));
             return @enumFromInt(@intFromEnum(i));
+        }
+
+        fn withGeneration(i: @This(), gen: u24) GenOptIndex {
+            return .{ .generation = gen, .opt_index = @intFromEnum(i) };
         }
     };
 
@@ -185,11 +213,12 @@ pub const Node = struct {
         const parent = node_index.toParent();
 
         const freelist_head = &global_progress.node_freelist_first;
-        var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
-        while (opt_free_index.unwrap()) |free_index| {
+        var opt_free_index = @atomicLoad(Node.GenOptIndex, freelist_head, .seq_cst);
+        while (opt_free_index.unwrap_index()) |free_index| {
             const freelist_ptr = freelistByIndex(free_index);
             const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
+            const new_free = next.withGeneration(opt_free_index.next_generation());
+            opt_free_index = @cmpxchgWeak(Node.GenOptIndex, freelist_head, opt_free_index, new_free, .seq_cst, .seq_cst) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -251,10 +280,11 @@ pub const Node = struct {
             @atomicStore(Node.Parent, parent_ptr, .unused, .seq_cst);
 
             const freelist_head = &global_progress.node_freelist_first;
-            var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
+            var first = @atomicLoad(Node.GenOptIndex, freelist_head, .seq_cst);
             while (true) {
-                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
-                first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
+                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first.without_generation(), .seq_cst);
+                const new_first = index.toOptional().withGeneration(first.next_generation());
+                first = @cmpxchgWeak(Node.GenOptIndex, freelist_head, first, new_first, .seq_cst, .seq_cst) orelse break;
             }
         } else {
             @atomicStore(bool, &global_progress.done, true, .seq_cst);
@@ -334,7 +364,7 @@ var global_progress: Progress = .{
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
     .node_freelist = &node_freelist_buffer,
-    .node_freelist_first = .none,
+    .node_freelist_first = .none_gen0,
     .node_end_index = 0,
 };
 
