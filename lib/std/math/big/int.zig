@@ -2405,27 +2405,7 @@ pub const Const = struct {
     /// Returns `math.Order.lt`, `math.Order.eq`, `math.Order.gt` if
     /// `|a| < |b|`, `|a| == |b|`, or `|a| > |b|` respectively.
     pub fn orderAbs(a: Const, b: Const) math.Order {
-        if (a.limbs.len < b.limbs.len) {
-            return .lt;
-        }
-        if (a.limbs.len > b.limbs.len) {
-            return .gt;
-        }
-
-        var i: usize = a.limbs.len - 1;
-        while (i != 0) : (i -= 1) {
-            if (a.limbs[i] != b.limbs[i]) {
-                break;
-            }
-        }
-
-        if (a.limbs[i] < b.limbs[i]) {
-            return .lt;
-        } else if (a.limbs[i] > b.limbs[i]) {
-            return .gt;
-        } else {
-            return .eq;
-        }
+        return llcmp(a.limbs, b.limbs);
     }
 
     /// Returns `math.Order.lt`, `math.Order.eq`, `math.Order.gt` if `a < b`, `a == b` or `a > b` respectively.
@@ -3424,8 +3404,16 @@ fn llmulaccKaratsuba(
     const a0x = a0[0..@min(a0.len, limbs_after_split)];
     const b0x = b0[0..@min(b0.len, limbs_after_split)];
 
-    const j0_sign = llcmp(a0x, a1);
-    const j1_sign = llcmp(b1, b0x);
+    const j0_sign: i8 = switch (llcmp(a0x, a1)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1
+    };
+    const j1_sign: i8 = switch (llcmp(b1, b0x)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1
+    };
 
     if (j0_sign * j1_sign == 0) {
         // p1 is zero, we don't need to do any computation at all.
@@ -3503,15 +3491,15 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
     }
 }
 
-/// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
-pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
+/// Returns .lt, .eq, .gt if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
+pub fn llcmp(a: []const Limb, b: []const Limb) math.Order {
     const a_len = llnormalize(a);
     const b_len = llnormalize(b);
     if (a_len < b_len) {
-        return -1;
+        return .lt;
     }
     if (a_len > b_len) {
-        return 1;
+        return .gt;
     }
 
     var i: usize = a_len - 1;
@@ -3522,11 +3510,11 @@ pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
     }
 
     if (a[i] < b[i]) {
-        return -1;
+        return .lt;
     } else if (a[i] > b[i]) {
-        return 1;
+        return .gt;
     } else {
-        return 0;
+        return .eq;
     }
 }
 
@@ -3719,9 +3707,8 @@ fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
 /// if a and r overlaps, then r.ptr >= a.ptr is asserted
 /// r must have the capacity to store a << shift
 fn llshl(r: []Limb, a: []const Limb, shift: usize) usize {
-    std.debug.assert(a.len >= 1);
-    if (slicesOverlap(a, r))
-        std.debug.assert(@intFromPtr(r.ptr) >= @intFromPtr(a.ptr));
+    assert(a.len >= 1);
+    assert(!slicesOverlap(a, r) or @intFromPtr(r.ptr) >= @intFromPtr(a.ptr));
 
     if (shift == 0) {
         if (a.ptr != r.ptr)
@@ -3771,8 +3758,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) usize {
 ///
 /// See tests below for examples of behaviour
 fn llshr(r: []Limb, a: []const Limb, shift: usize) usize {
-    if (slicesOverlap(a, r))
-        std.debug.assert(@intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
+    assert(!slicesOverlap(a, r) or @intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
 
     if (a.len == 0) return 0;
 
