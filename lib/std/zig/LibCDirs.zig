@@ -229,7 +229,6 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuf32,
         .gnusf,
         .gnux32,
-        .gnuilp32,
         => return "glibc",
         .musl,
         .muslabin32,
