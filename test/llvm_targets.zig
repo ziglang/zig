@@ -242,7 +242,6 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .s390x, .os_tag = .zos, .abi = .none },
 
     // .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none },
-    // .{ .cpu_arch = .sparc, .os_tag = .illumos, .abi = .none },
     // .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .gnu },
     // .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .none },
     // .{ .cpu_arch = .sparc, .os_tag = .netbsd, .abi = .none },
@@ -250,7 +249,6 @@ const targets = [_]std.Target.Query{
 
     .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .haiku, .abi = .none },
-    .{ .cpu_arch = .sparc64, .os_tag = .illumos, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .sparc64, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .netbsd, .abi = .none },
