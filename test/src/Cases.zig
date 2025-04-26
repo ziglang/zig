@@ -62,6 +62,7 @@ pub const Case = struct {
         Header: []const u8,
     },
 
+    emit_asm: bool = false,
     emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
@@ -371,6 +372,7 @@ fn addFromDirInner(
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
         const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
         const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_asm = try manifest.getConfigForKeyAssertSingle("emit_asm", bool);
         const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
         const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
@@ -438,6 +440,7 @@ fn addFromDirInner(
                     .backend = backend,
                     .files = .init(ctx.arena),
                     .case = null,
+                    .emit_asm = emit_asm,
                     .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
@@ -663,7 +666,10 @@ pub fn lowerToBuildSteps(
 
         switch (case.case.?) {
             .Compile => {
-                // Force the binary to be emitted if requested.
+                // Force the assembly/binary to be emitted if requested.
+                if (case.emit_asm) {
+                    _ = artifact.getEmittedAsm();
+                }
                 if (case.emit_bin) {
                     _ = artifact.getEmittedBin();
                 }
@@ -761,6 +767,8 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_asm")) {
+            return "false";
         } else if (std.mem.eql(u8, key, "emit_bin")) {
             return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
@@ -802,6 +810,7 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_asm", {} },
         .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
