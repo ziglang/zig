@@ -602,7 +602,8 @@ pub const ReadFileError = error{
     OperationAborted,
     /// Unable to read file due to lock.
     LockViolation,
-    /// Unable to read from disconnected virtual com port
+    /// Known to be possible when:
+    /// - Unable to read from disconnected virtual com port (Windows)
     AccessDenied,
     Unexpected,
 };
@@ -654,7 +655,8 @@ pub const WriteFileError = error{
     LockViolation,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
-    /// Unable to write to disconnected virtual com port
+    /// Known to be possible when:
+    /// - Unable to write to disconnected virtual com port (Windows)
     AccessDenied,
     Unexpected,
 };
