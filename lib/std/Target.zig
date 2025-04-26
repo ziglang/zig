@@ -470,7 +470,28 @@ pub const Os = struct {
                             .max = .{ .major = 6, .minor = 13, .patch = 4 },
                         },
                         .glibc = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 31, .patch = 0 };
+                            // For 32-bit targets that traditionally used 32-bit time, we require
+                            // glibc 2.34 for full 64-bit time support. For everything else, we only
+                            // require glibc 2.31.
+                            const default_min: std.SemanticVersion = switch (arch) {
+                                .arm,
+                                .armeb,
+                                .csky,
+                                .m68k,
+                                .mips,
+                                .mipsel,
+                                .powerpc,
+                                .sparc,
+                                .x86,
+                                => .{ .major = 2, .minor = 34, .patch = 0 },
+                                .mips64,
+                                .mips64el,
+                                => if (abi == .gnuabin32)
+                                    .{ .major = 2, .minor = 34, .patch = 0 }
+                                else
+                                    .{ .major = 2, .minor = 31, .patch = 0 },
+                                else => .{ .major = 2, .minor = 31, .patch = 0 },
+                            };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.os != tag or libc.arch != arch or libc.abi != abi) continue;
