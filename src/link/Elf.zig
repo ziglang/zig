@@ -4174,7 +4174,6 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {
-            .elfiamcu => "elf_iamcu",
             .freebsd => "elf_i386_fbsd",
             else => "elf_i386",
         },

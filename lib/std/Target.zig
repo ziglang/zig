@@ -20,7 +20,6 @@ pub const Os = struct {
         other,
 
         contiki,
-        elfiamcu,
         fuchsia,
         hermit,
 
@@ -155,8 +154,6 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
-
-                .elfiamcu,
 
                 .haiku,
                 .plan9,
@@ -399,8 +396,6 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
-
-                .elfiamcu,
 
                 .haiku,
                 .plan9,
@@ -729,7 +724,6 @@ pub const Os = struct {
             .amdhsa,
             .ps4,
             .ps5,
-            .elfiamcu,
             .mesa3d,
             .contiki,
             .amdpal,
@@ -922,7 +916,6 @@ pub const Abi = enum {
             .wasi, .emscripten => .musl,
 
             .contiki,
-            .elfiamcu,
             .fuchsia,
             .hermit,
             .plan9,
@@ -1094,7 +1087,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .ve => .VE,
-        .x86 => if (target.os.tag == .elfiamcu) .IAMCU else .@"386",
+        .x86 => .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa => .XTENSA,
@@ -2155,7 +2148,6 @@ pub const DynamicLinker = struct {
             .other,
 
             .contiki,
-            .elfiamcu,
             .hermit,
 
             .aix,
@@ -2550,7 +2542,6 @@ pub const DynamicLinker = struct {
             .other,
 
             .contiki,
-            .elfiamcu,
             .hermit,
 
             .aix,
@@ -2690,7 +2681,7 @@ pub fn stackAlignment(target: Target) u16 {
         .riscv64,
         => if (!Target.riscv.featureSetHas(target.cpu.features, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
-        .x86_64 => return if (target.os.tag == .elfiamcu) 4 else 16,
+        .x86_64 => return 16,
         else => {},
     }
 
@@ -2851,7 +2842,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
-        .elfiamcu,
         .fuchsia,
         .hermit,
 
@@ -2918,10 +2908,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .longdouble => switch (target.cpu.arch) {
                     .x86 => switch (target.abi) {
                         .android => return 64,
-                        else => switch (target.os.tag) {
-                            .elfiamcu => return 64,
-                            else => return 80,
-                        },
+                        else => return 80,
                     },
 
                     .powerpc,
@@ -3089,10 +3076,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
     switch (target.cpu.arch) {
         .avr => return 1,
         .x86 => switch (target.os.tag) {
-            .elfiamcu => switch (c_type) {
-                .longlong, .ulonglong, .double => return 4,
-                else => {},
-            },
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
                 .longdouble => switch (target.abi) {
@@ -3191,10 +3174,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
         },
         .avr => return 1,
         .x86 => switch (target.os.tag) {
-            .elfiamcu => switch (c_type) {
-                .longlong, .ulonglong, .double, .longdouble => return 4,
-                else => {},
-            },
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
                     .gnu, .ilp32, .cygnus => return 4,
