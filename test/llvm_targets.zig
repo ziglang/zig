@@ -247,7 +247,6 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .none },
     // .{ .cpu_arch = .sparc, .os_tag = .netbsd, .abi = .none },
     // .{ .cpu_arch = .sparc, .os_tag = .rtems, .abi = .none },
-    // .{ .cpu_arch = .sparc, .os_tag = .solaris, .abi = .none },
 
     .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .haiku, .abi = .none },
@@ -308,7 +307,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .x86, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .openbsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .rtems, .abi = .none },
-    .{ .cpu_arch = .x86, .os_tag = .solaris, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .uefi, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .windows, .abi = .cygnus },
     .{ .cpu_arch = .x86, .os_tag = .windows, .abi = .gnu },
