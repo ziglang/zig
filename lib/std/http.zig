@@ -1,6 +1,9 @@
+const builtin = @import("builtin");
+const std = @import("std.zig");
+const assert = std.debug.assert;
+
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
-pub const protocol = @import("http/protocol.zig");
 pub const HeadParser = @import("http/HeadParser.zig");
 pub const ChunkParser = @import("http/ChunkParser.zig");
 pub const HeaderIterator = @import("http/HeaderIterator.zig");
@@ -77,7 +80,9 @@ pub const Method = enum(u64) {
         };
     }
 
-    /// An HTTP method is idempotent if an identical request can be made once or several times in a row with the same effect while leaving the server in the same state.
+    /// An HTTP method is idempotent if an identical request can be made once
+    /// or several times in a row with the same effect while leaving the server
+    /// in the same state.
     ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/Idempotent
     ///
@@ -90,7 +95,8 @@ pub const Method = enum(u64) {
         };
     }
 
-    /// A cacheable response is an HTTP response that can be cached, that is stored to be retrieved and used later, saving a new request to the server.
+    /// A cacheable response can be stored to be retrieved and used later,
+    /// saving a new request to the server.
     ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/cacheable
     ///
@@ -282,10 +288,10 @@ pub const Status = enum(u10) {
     }
 };
 
+/// compression is intentionally omitted here since it is handled in `ContentEncoding`.
 pub const TransferEncoding = enum {
     chunked,
     none,
-    // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
 };
 
 pub const ContentEncoding = enum {
@@ -308,18 +314,740 @@ pub const Header = struct {
     value: []const u8,
 };
 
-const builtin = @import("builtin");
-const std = @import("std.zig");
+pub const Reader = struct {
+    in: *std.io.BufferedReader,
+    /// Keeps track of whether the stream is ready to accept a new request,
+    /// making invalid API usage cause assertion failures rather than HTTP
+    /// protocol violations.
+    state: State,
+    /// Number of bytes of HTTP trailers. These are at the end of a
+    /// transfer-encoding: chunked message.
+    trailers_len: usize = 0,
+    body_state: union {
+        none: void,
+        remaining_content_length: u64,
+        remaining_chunk_len: RemainingChunkLen,
+    },
+    body_err: ?BodyError = null,
+    /// Stolen from `in`.
+    head_buffer: []u8 = &.{},
+
+    pub const max_chunk_header_len = 22;
+
+    pub const RemainingChunkLen = enum(u64) {
+        head = 0,
+        n = 1,
+        rn = 2,
+        done = std.math.maxInt(u64),
+        _,
+
+        pub fn init(integer: u64) RemainingChunkLen {
+            return @enumFromInt(integer);
+        }
+
+        pub fn int(rcl: RemainingChunkLen) u64 {
+            return @intFromEnum(rcl);
+        }
+    };
+
+    pub const State = enum {
+        /// The stream is available to be used for the first time, or reused.
+        ready,
+        receiving_head,
+        received_head,
+        receiving_body,
+        /// The stream would be eligible for another HTTP request, however the
+        /// client and server did not negotiate a persistent connection.
+        closing,
+    };
+
+    pub const BodyError = error{
+        HttpChunkInvalid,
+        HttpHeadersOversize,
+    };
+
+    pub const HeadError = error{
+        /// Too many bytes of HTTP headers.
+        ///
+        /// The HTTP specification suggests to respond with a 431 status code
+        /// before closing the connection.
+        HttpHeadersOversize,
+        /// Partial HTTP request was received but the connection was closed
+        /// before fully receiving the headers.
+        HttpRequestTruncated,
+        /// The client sent 0 bytes of headers before closing the stream. This
+        /// happens when a keep-alive connection is finally closed.
+        HttpConnectionClosing,
+        /// Transitive error occurred reading from `in`.
+        ReadFailed,
+    };
+
+    /// Buffers the entire head into `head_buffer`, invalidating the previous
+    /// `head_buffer`, if any.
+    pub fn receiveHead(reader: *Reader) HeadError!void {
+        const in = reader.in;
+        in.restitute(reader.head_buffer.len);
+        in.rebase();
+        var hp: HeadParser = .{};
+        var head_end: usize = 0;
+        while (true) {
+            if (head_end >= in.buffer.len) return error.HttpHeadersOversize;
+            const buf = in.peekGreedy(head_end + 1) catch |err| switch (err) {
+                error.EndOfStream => switch (head_end) {
+                    0 => return error.HttpConnectionClosing,
+                    else => return error.HttpRequestTruncated,
+                },
+                error.ReadFailed => return error.ReadFailed,
+            };
+            head_end += hp.feed(buf[head_end..]);
+            if (hp.state == .finished) {
+                reader.head_buffer = in.steal(head_end);
+                return;
+            }
+        }
+    }
+
+    /// Asserts only called once and after `receiveHead`.
+    pub fn interface(reader: *Reader, transfer_encoding: TransferEncoding, content_length: ?u64) std.io.Reader {
+        assert(reader.state == .received_head);
+        reader.state = .receiving_body;
+        switch (transfer_encoding) {
+            .chunked => {
+                reader.body_state = .{ .remaining_chunk_len = .head };
+                return .{
+                    .context = reader,
+                    .vtable = &.{
+                        .read = &chunkedRead,
+                        .readVec = &chunkedReadVec,
+                        .discard = &chunkedDiscard,
+                    },
+                };
+            },
+            .none => {
+                if (content_length) |len| {
+                    reader.body_state = .{ .remaining_content_length = len };
+                    return .{
+                        .context = reader,
+                        .vtable = &.{
+                            .read = &contentLengthRead,
+                            .readVec = &contentLengthReadVec,
+                            .discard = &contentLengthDiscard,
+                        },
+                    };
+                } else {
+                    return reader.in.reader();
+                }
+            },
+        }
+    }
+
+    fn contentLengthRead(
+        ctx: ?*anyopaque,
+        bw: *std.io.BufferedWriter,
+        limit: std.io.Reader.Limit,
+    ) std.io.Reader.RwError!usize {
+        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining = remaining_content_length.*;
+        if (remaining == 0) {
+            reader.state = .ready;
+            return error.EndOfStream;
+        }
+        const n = try reader.in.read(bw, limit.min(.limited(remaining)));
+        remaining_content_length.* = remaining - n;
+        return n;
+    }
+
+    fn contentLengthReadVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+        const reader: *Reader = @alignCast(@ptrCast(context));
+        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining = remaining_content_length.*;
+        if (remaining == 0) {
+            reader.state = .ready;
+            return error.EndOfStream;
+        }
+        const n = try reader.in.readVecLimit(data, .limited(remaining));
+        remaining_content_length.* = remaining - n;
+        return n;
+    }
+
+    fn contentLengthDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining = remaining_content_length.*;
+        if (remaining == 0) {
+            reader.state = .ready;
+            return error.EndOfStream;
+        }
+        const n = try reader.in.discard(limit.min(.limited(remaining)));
+        remaining_content_length.* = remaining - n;
+        return n;
+    }
+
+    fn chunkedRead(
+        ctx: ?*anyopaque,
+        bw: *std.io.BufferedWriter,
+        limit: std.io.Reader.Limit,
+    ) std.io.Reader.RwError!usize {
+        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const in = reader.in;
+        len: switch (chunk_len_ptr.*) {
+            .head => {
+                var cp: ChunkParser = .init;
+                const i = cp.feed(in.bufferContents());
+                switch (cp.state) {
+                    .invalid => return reader.failBody(error.HttpChunkInvalid),
+                    .data => {
+                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(i);
+                    },
+                    else => {
+                        try in.fill(max_chunk_header_len);
+                        const next_i = cp.feed(in.bufferContents()[i..]);
+                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        const header_len = i + next_i;
+                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(header_len);
+                    },
+                }
+                if (cp.chunk_len == 0) return parseTrailers(reader, 0);
+                const n = try in.read(bw, limit.min(.limited(cp.chunk_len)));
+                chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
+                return n;
+            },
+            .n => {
+                if ((try in.peekByte()) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                in.toss(1);
+                continue :len .head;
+            },
+            .rn => {
+                const rn = try in.peekArray(2);
+                if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                in.toss(2);
+                continue :len .head;
+            },
+            else => |remaining_chunk_len| {
+                const n = try in.read(bw, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2)));
+                chunk_len_ptr.* = .init(@intFromEnum(remaining_chunk_len) - n);
+                return n;
+            },
+            .done => return error.EndOfStream,
+        }
+    }
+
+    fn chunkedReadVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const in = reader.in;
+        var already_requested_more = false;
+        var amt_read: usize = 0;
+        data: for (data) |d| {
+            len: switch (chunk_len_ptr.*) {
+                .head => {
+                    var cp: ChunkParser = .init;
+                    const available_buffer = in.bufferContents();
+                    const i = cp.feed(available_buffer);
+                    if (cp.state == .invalid) return reader.failBody(error.HttpChunkInvalid);
+                    if (i == available_buffer.len) {
+                        if (already_requested_more) {
+                            chunk_len_ptr.* = .head;
+                            return amt_read;
+                        }
+                        already_requested_more = true;
+                        try in.fill(max_chunk_header_len);
+                        const next_i = cp.feed(in.bufferContents()[i..]);
+                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        const header_len = i + next_i;
+                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(header_len);
+                    } else {
+                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(i);
+                    }
+                    if (cp.chunk_len == 0) return parseTrailers(reader, amt_read);
+                    continue :len .init(cp.chunk_len + 2);
+                },
+                .n => {
+                    if (in.bufferContents().len < 1) already_requested_more = true;
+                    if ((try in.takeByte()) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                    continue :len .head;
+                },
+                .rn => {
+                    if (in.bufferContents().len < 2) already_requested_more = true;
+                    const rn = try in.takeArray(2);
+                    if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                    continue :len .head;
+                },
+                else => |remaining_chunk_len| {
+                    const available_buffer = in.bufferContents();
+                    const copy_len = @min(available_buffer.len, d.len, remaining_chunk_len.int() - 2);
+                    @memcpy(d[0..copy_len], available_buffer[0..copy_len]);
+                    amt_read += copy_len;
+                    in.toss(copy_len);
+                    const next_chunk_len: RemainingChunkLen = .init(remaining_chunk_len.int() - copy_len);
+                    if (copy_len == d.len) {
+                        chunk_len_ptr.* = next_chunk_len;
+                        continue :data;
+                    }
+                    if (already_requested_more) {
+                        chunk_len_ptr.* = next_chunk_len;
+                        return amt_read;
+                    }
+                    already_requested_more = true;
+                    try in.fill(3);
+                    continue :len next_chunk_len;
+                },
+                .done => return error.EndOfStream,
+            }
+        }
+        return amt_read;
+    }
+
+    fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const in = reader.in;
+        len: switch (chunk_len_ptr.*) {
+            .head => {
+                var cp: ChunkParser = .init;
+                const i = cp.feed(in.bufferContents());
+                switch (cp.state) {
+                    .invalid => return reader.failBody(error.HttpChunkInvalid),
+                    .data => {
+                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(i);
+                    },
+                    else => {
+                        try in.fill(max_chunk_header_len);
+                        const next_i = cp.feed(in.bufferContents()[i..]);
+                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        const header_len = i + next_i;
+                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        in.toss(header_len);
+                    },
+                }
+                if (cp.chunk_len == 0) return parseTrailers(reader, 0);
+                const n = try in.discard(limit.min(.limited(cp.chunk_len)));
+                chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
+                return n;
+            },
+            .n => {
+                if ((try in.peekByte()) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                in.toss(1);
+                continue :len .head;
+            },
+            .rn => {
+                const rn = try in.peekArray(2);
+                if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                in.toss(2);
+                continue :len .head;
+            },
+            else => |remaining_chunk_len| {
+                const n = try in.discard(limit.min(.limited(remaining_chunk_len.int() - 2)));
+                chunk_len_ptr.* = .init(remaining_chunk_len.int() - n);
+                return n;
+            },
+            .done => return error.EndOfStream,
+        }
+    }
+
+    /// Called when next bytes in the stream are trailers, or "\r\n" to indicate
+    /// end of chunked body.
+    fn parseTrailers(reader: *Reader, amt_read: usize) std.io.Reader.Error!usize {
+        const in = reader.in;
+        var hp: HeadParser = .{};
+        var trailers_len: usize = 0;
+        while (true) {
+            if (trailers_len >= in.buffer.len) return reader.failBody(error.HttpHeadersOversize);
+            try in.fill(trailers_len + 1);
+            trailers_len += hp.feed(in.bufferContents()[trailers_len..]);
+            if (hp.state == .finished) {
+                reader.body_state.remaining_chunk_len = .done;
+                reader.state = .ready;
+                reader.trailers_len = trailers_len;
+                return amt_read;
+            }
+        }
+    }
+
+    fn failBody(r: *Reader, err: BodyError) error{ReadFailed} {
+        r.body_err = err;
+        return error.ReadFailed;
+    }
+};
+
+/// Request or response body.
+pub const BodyWriter = struct {
+    /// Until the lifetime of `BodyWriter` ends, it is illegal to modify the
+    /// state of this other than via methods of `BodyWriter`.
+    http_protocol_output: *std.io.BufferedWriter,
+    state: State,
+    elide: bool,
+    err: Error!void = {},
+
+    pub const Error = error{
+        /// Attempted to write a file to the stream, an expensive operation
+        /// that should be avoided when `elide` is true.
+        UnableToElideBody,
+    };
+    pub const WriteError = std.io.Writer.Error;
+
+    /// How many zeroes to reserve for hex-encoded chunk length.
+    const chunk_len_digits = 8;
+    const max_chunk_len: usize = std.math.pow(usize, 16, chunk_len_digits) - 1;
+    const chunk_header_template = ("0" ** chunk_len_digits) ++ "\r\n";
+
+    comptime {
+        assert(max_chunk_len == std.math.maxInt(u32));
+    }
+
+    pub const State = union(enum) {
+        /// End of connection signals the end of the stream.
+        none,
+        /// As a debugging utility, counts down to zero as bytes are written.
+        content_length: u64,
+        /// Each chunk is wrapped in a header and trailer.
+        chunked: Chunked,
+        /// Cleanly finished stream; connection can be reused.
+        end,
+
+        pub const Chunked = union(enum) {
+            /// Index of the hex-encoded chunk length in the chunk header
+            /// within the buffer of `BodyWriter.http_protocol_output`.
+            offset: usize,
+            /// We are in the middle of a chunk and this is how many bytes are
+            /// left until the next header. This includes +2 for "\r"\n", and
+            /// is zero for the beginning of the stream.
+            chunk_len: usize,
+
+            pub const init: Chunked = .{ .chunk_len = 0 };
+        };
+    };
+
+    /// Sends all buffered data across `BodyWriter.http_protocol_output`.
+    ///
+    /// Some buffered data will remain if transfer-encoding is chunked and the
+    /// BodyWriter is mid-chunk.
+    pub fn flush(w: *BodyWriter) WriteError!void {
+        switch (w.state) {
+            .none, .content_length => return w.http_protocol_output.flush(),
+            .chunked => |*chunked| switch (chunked.*) {
+                .offset => |*offset| {
+                    try w.http_protocol_output.flushLimit(.limited(w.http_protocol_output.end - offset.*));
+                    offset.* = 0;
+                },
+                .chunk_len => return w.http_protocol_output.flush(),
+            },
+        }
+    }
+
+    /// When using content-length, asserts that the amount of data sent matches
+    /// the value sent in the header, then flushes.
+    ///
+    /// When using transfer-encoding: chunked, writes the end-of-stream message
+    /// with empty trailers, then flushes the stream to the system. Asserts any
+    /// started chunk has been completely finished.
+    ///
+    /// Respects the value of `elide` to omit all data after the headers.
+    ///
+    /// See also:
+    /// * `endUnflushed`
+    /// * `endChunked`
+    pub fn end(w: *BodyWriter) WriteError!void {
+        try endUnflushed(w);
+        try w.http_protocol_output.flush();
+    }
+
+    /// When using content-length, asserts that the amount of data sent matches
+    /// the value sent in the header.
+    ///
+    /// Otherwise, transfer-encoding: chunked is being used, and it writes the
+    /// end-of-stream message with empty trailers.
+    ///
+    /// Respects the value of `elide` to omit all data after the headers.
+    ///
+    /// See also:
+    /// * `end`
+    /// * `endChunked`
+    pub fn endUnflushed(w: *BodyWriter) WriteError!void {
+        switch (w.state) {
+            .content_length => |len| {
+                assert(len == 0); // Trips when end() called before all bytes written.
+                w.state = .end;
+            },
+            .none => {},
+            .chunked => return endChunked(w, .{}),
+        }
+    }
+
+    pub const EndChunkedOptions = struct {
+        trailers: []const Header = &.{},
+    };
+
+    /// Writes the end-of-stream message and any optional trailers.
+    ///
+    /// Does not flush.
+    ///
+    /// Asserts that the BodyWriter is using transfer-encoding: chunked.
+    ///
+    /// Respects the value of `elide` to omit all data after the headers.
+    ///
+    /// See also:
+    /// * `end`
+    /// * `endUnflushed`
+    pub fn endChunked(w: *BodyWriter, options: EndChunkedOptions) WriteError!void {
+        const chunked = &w.state.chunked;
+        if (w.elide) {
+            w.state = .end;
+            return;
+        }
+        const bw = w.http_protocol_output;
+        switch (chunked.*) {
+            .offset => |offset| {
+                const chunk_len = bw.end - offset - chunk_header_template.len;
+                writeHex(bw.buffer[offset..][0..chunk_len_digits], chunk_len);
+                try bw.writeAll("\r\n");
+            },
+            .chunk_len => |chunk_len| switch (chunk_len) {
+                0 => {},
+                1 => try bw.writeByte('\n'),
+                2 => try bw.writeAll("\r\n"),
+                else => unreachable, // An earlier write call indicated more data would follow.
+            },
+        }
+        if (options.trailers.len > 0) {
+            try bw.writeAll("0\r\n");
+            for (options.trailers) |trailer| {
+                try bw.writeAll(trailer.name);
+                try bw.writeAll(": ");
+                try bw.writeAll(trailer.value);
+                try bw.writeAll("\r\n");
+            }
+            try bw.writeAll("\r\n");
+        }
+        w.state = .end;
+    }
+
+    fn contentLengthWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        const n = if (w.elide) countSplat(data, splat) else try w.http_protocol_output.writeSplat(data, splat);
+        w.state.content_length -= n;
+        return n;
+    }
+
+    fn noneWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        if (w.elide) return countSplat(data, splat);
+        return w.http_protocol_output.writeSplat(data, splat);
+    }
+
+    fn countSplat(data: []const []const u8, splat: usize) usize {
+        if (data.len == 0) return 0;
+        var total: usize = 0;
+        for (data[0 .. data.len - 1]) |buf| total += buf.len;
+        total += data[data.len - 1].len * splat;
+        return total;
+    }
+
+    fn elideWriteFile(
+        w: *BodyWriter,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
+        headers_and_trailers: []const []const u8,
+    ) WriteError!usize {
+        if (offset != .none) {
+            if (countWriteFile(limit, headers_and_trailers)) |n| {
+                return n;
+            }
+        }
+        w.err = error.UnableToElideBody;
+        return error.WriteFailed;
+    }
+
+    /// Returns `null` if size cannot be computed without making any syscalls.
+    fn countWriteFile(limit: std.io.Writer.Limit, headers_and_trailers: []const []const u8) ?usize {
+        var total: usize = limit.toInt() orelse return null;
+        for (headers_and_trailers) |buf| total += buf.len;
+        return total;
+    }
+
+    fn noneWriteFile(
+        context: ?*anyopaque,
+        file: std.fs.File,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) std.io.Writer.FileError!usize {
+        if (limit == .nothing) return noneWriteSplat(context, headers_and_trailers, 1);
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
+        return w.http_protocol_output.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+    }
+
+    fn contentLengthWriteFile(
+        context: ?*anyopaque,
+        file: std.fs.File,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) std.io.Writer.FileError!usize {
+        if (limit == .nothing) return contentLengthWriteSplat(context, headers_and_trailers, 1);
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
+        const n = try w.http_protocol_output.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+        w.state.content_length -= n;
+        return n;
+    }
+
+    fn chunkedWriteFile(
+        context: ?*anyopaque,
+        file: std.fs.File,
+        offset: std.io.Writer.Offset,
+        limit: std.io.Writer.Limit,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) std.io.Writer.FileError!usize {
+        if (limit == .nothing) return chunkedWriteSplat(context, headers_and_trailers, 1);
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
+        const data_len = countWriteFile(limit, headers_and_trailers) orelse @panic("TODO");
+        const bw = w.http_protocol_output;
+        const chunked = &w.state.chunked;
+        state: switch (chunked.*) {
+            .offset => |off| {
+                // TODO: is it better perf to read small files into the buffer?
+                const buffered_len = bw.end - off - chunk_header_template.len;
+                const chunk_len = data_len + buffered_len;
+                writeHex(bw.buffer[off..][0..chunk_len_digits], chunk_len);
+                const n = try bw.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+                chunked.* = .{ .chunk_len = data_len + 2 - n };
+                return n;
+            },
+            .chunk_len => |chunk_len| l: switch (chunk_len) {
+                0 => {
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const off = bw.end;
+                    @memcpy(header_buf, chunk_header_template);
+                    chunked.* = .{ .offset = off };
+                    continue :state .{ .offset = off };
+                },
+                1 => {
+                    try bw.writeByte('\n');
+                    chunked.chunk_len = 0;
+                    continue :l 0;
+                },
+                2 => {
+                    try bw.writeByte('\r');
+                    chunked.chunk_len = 1;
+                    continue :l 1;
+                },
+                else => {
+                    const new_limit = limit.min(.limited(chunk_len - 2));
+                    const n = try bw.writeFile(file, offset, new_limit, headers_and_trailers, headers_len);
+                    chunked.chunk_len = chunk_len - n;
+                    return n;
+                },
+            },
+        }
+    }
+
+    fn chunkedWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
+        const w: *BodyWriter = @alignCast(@ptrCast(context));
+        const data_len = countSplat(data, splat);
+        if (w.elide) return data_len;
+
+        const bw = w.http_protocol_output;
+        const chunked = &w.state.chunked;
+
+        state: switch (chunked.*) {
+            .offset => |offset| {
+                if (bw.unusedCapacitySlice().len >= data_len) {
+                    assert(data_len == (bw.writeSplat(data, splat) catch unreachable));
+                    return data_len;
+                }
+                const buffered_len = bw.end - offset - chunk_header_template.len;
+                const chunk_len = data_len + buffered_len;
+                writeHex(bw.buffer[offset..][0..chunk_len_digits], chunk_len);
+                const n = try bw.writeSplat(data, splat);
+                chunked.* = .{ .chunk_len = data_len + 2 - n };
+                return n;
+            },
+            .chunk_len => |chunk_len| l: switch (chunk_len) {
+                0 => {
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const offset = bw.end;
+                    @memcpy(header_buf, chunk_header_template);
+                    chunked.* = .{ .offset = offset };
+                    continue :state .{ .offset = offset };
+                },
+                1 => {
+                    try bw.writeByte('\n');
+                    chunked.chunk_len = 0;
+                    continue :l 0;
+                },
+                2 => {
+                    try bw.writeByte('\r');
+                    chunked.chunk_len = 1;
+                    continue :l 1;
+                },
+                else => {
+                    const n = try bw.writeSplatLimit(data, splat, .limited(chunk_len - 2));
+                    chunked.chunk_len = chunk_len - n;
+                    return n;
+                },
+            },
+        }
+    }
+
+    /// Writes an integer as base 16 to `buf`, right-aligned, assuming the
+    /// buffer has already been filled with zeroes.
+    fn writeHex(buf: []u8, x: usize) void {
+        assert(std.mem.allEqual(u8, buf, '0'));
+        const base = 16;
+        var index: usize = buf.len;
+        var a = x;
+        while (a > 0) {
+            const digit = a % base;
+            index -= 1;
+            buf[index] = std.fmt.digitToChar(@intCast(digit), .lower);
+            a /= base;
+        }
+    }
+
+    pub fn interface(w: *BodyWriter) std.io.Writer {
+        return .{
+            .context = w,
+            .vtable = switch (w.state) {
+                .none => &.{
+                    .writeSplat = noneWriteSplat,
+                    .writeFile = noneWriteFile,
+                },
+                .content_length => &.{
+                    .writeSplat = contentLengthWriteSplat,
+                    .writeFile = contentLengthWriteFile,
+                },
+                .chunked => &.{
+                    .writeSplat = chunkedWriteSplat,
+                    .writeFile = chunkedWriteFile,
+                },
+            },
+        };
+    }
+};
 
 test {
+    _ = Server;
+    _ = Status;
+    _ = Method;
+    _ = ChunkParser;
+    _ = HeadParser;
+    _ = WebSocket;
+
     if (builtin.os.tag != .wasi) {
         _ = Client;
-        _ = Method;
-        _ = Server;
-        _ = Status;
-        _ = HeadParser;
-        _ = ChunkParser;
-        _ = WebSocket;
         _ = @import("http/test.zig");
     }
 }
