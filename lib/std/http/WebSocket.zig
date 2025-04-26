@@ -10,7 +10,7 @@ key: []const u8,
 request: *std.http.Server.Request,
 recv_fifo: std.fifo.LinearFifo(u8, .Slice),
 reader: std.io.BufferedReader,
-response: std.http.Server.Response,
+body_writer: std.http.BodyWriter,
 /// Number of bytes that have been peeked but not discarded yet.
 outstanding_len: usize,
 
@@ -58,7 +58,7 @@ pub fn init(
         .key = key,
         .recv_fifo = .init(recv_buffer),
         .reader = (try request.reader()).unbuffered(),
-        .response = try request.respondStreaming(.{
+        .body_writer = try request.respondStreaming(.{
             .respond_options = .{
                 .status = .switching_protocols,
                 .extra_headers = &.{
@@ -236,7 +236,7 @@ pub fn writeMessagev(ws: *WebSocket, message: []const std.posix.iovec_const, opc
         },
     };
 
-    var bw = ws.response.writer().unbuffered();
+    var bw = ws.body_writer.interface().unbuffered();
     try bw.writeAll(header);
     for (message) |iovec| try bw.writeAll(iovec.base[0..iovec.len]);
     try bw.flush();
