@@ -5677,7 +5677,7 @@ pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathE
     if (native_os == .windows) {
         var pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
 
-        const wide_slice = try realpathW(pathname_w.span(), &pathname_w.data);
+        const wide_slice = try realpathW2(pathname_w.span(), &pathname_w.data);
 
         const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
         return out_buffer[0..end_index];
@@ -5695,7 +5695,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
     if (native_os == .windows) {
         var pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
 
-        const wide_slice = try realpathW(pathname_w.span(), &pathname_w.data);
+        const wide_slice = try realpathW2(pathname_w.span(), &pathname_w.data);
 
         const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
         return out_buffer[0..end_index];
@@ -5742,13 +5742,24 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
     return mem.sliceTo(result_path, 0);
 }
 
+/// Deprecated: use `realpathW2`.
+///
+/// Same as `realpath` except `pathname` is WTF16LE-encoded.
+///
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+///
+/// Calling this function is usually a bug.
+pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
+    return fs.cwd().realpathW(pathname, out_buffer);
+}
+
 /// Same as `realpath` except `pathname` is WTF16LE-encoded.
 ///
 /// The result is encoded as WTF16LE.
 ///
 /// Calling this function is usually a bug.
-pub fn realpathW(pathname: []const u16, out_buffer: *[std.os.windows.PATH_MAX_WIDE]u16) RealPathError![]u16 {
-    return fs.cwd().realpathW(pathname, out_buffer);
+pub fn realpathW2(pathname: []const u16, out_buffer: *[std.os.windows.PATH_MAX_WIDE]u16) RealPathError![]u16 {
+    return fs.cwd().realpathW2(pathname, out_buffer);
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.

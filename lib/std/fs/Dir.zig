@@ -1371,7 +1371,7 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
     if (native_os == .windows) {
         var pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
 
-        const wide_slice = try self.realpathW(pathname_w.span(), &pathname_w.data);
+        const wide_slice = try self.realpathW2(pathname_w.span(), &pathname_w.data);
 
         const len = std.unicode.calcWtf8Len(wide_slice);
         if (len > out_buffer.len)
@@ -1390,7 +1390,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     if (native_os == .windows) {
         var pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
 
-        const wide_slice = try self.realpathW(pathname_w.span(), &pathname_w.data);
+        const wide_slice = try self.realpathW2(pathname_w.span(), &pathname_w.data);
 
         const len = std.unicode.calcWtf8Len(wide_slice);
         if (len > out_buffer.len)
@@ -1426,6 +1426,25 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     return result;
 }
 
+/// Deprecated: use `realpathW2`.
+///
+/// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// See also `Dir.realpath`, `realpathW`.
+pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
+    var wide_buf: [std.os.windows.PATH_MAX_WIDE]u16 = undefined;
+
+    const wide_slice = try self.realpathW2(pathname, &wide_buf);
+
+    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
+    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
+    if (end_index > out_buffer.len)
+        return error.NameTooLong;
+    const result = out_buffer[0..end_index];
+    @memcpy(result, big_out_buf[0..end_index]);
+    return result;
+}
+
 /// Windows-only. Same as `Dir.realpath` except
 /// * `pathname` and the result are WTF-16 LE encoded
 /// * `pathname` is relative or has the NT namespace prefix. See `windows.wToPrefixedFileW` for details.
@@ -1434,7 +1453,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
 /// is safe to reuse a single buffer for both.
 ///
 /// See also `Dir.realpath`, `realpathW`.
-pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u16) RealPathError![]u16 {
+pub fn realpathW2(self: Dir, pathname: []const u16, out_buffer: []u16) RealPathError![]u16 {
     const w = windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;

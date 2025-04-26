@@ -31,6 +31,7 @@ pub const wasi = @import("fs/wasi.zig");
 pub const realpath = posix.realpath;
 pub const realpathZ = posix.realpathZ;
 pub const realpathW = posix.realpathW;
+pub const realpathW2 = posix.realpathW2;
 
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
@@ -644,7 +645,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // that the symlink points to, though, so we need to get the realpath.
             var pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
 
-            const wide_slice = std.fs.cwd().realpathW(pathname_w.span(), &pathname_w.data) catch |err| switch (err) {
+            const wide_slice = std.fs.cwd().realpathW2(pathname_w.span(), &pathname_w.data) catch |err| switch (err) {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,
             };
