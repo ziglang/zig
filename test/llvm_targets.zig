@@ -312,7 +312,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .musl },
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .none },
 
-    .{ .cpu_arch = .x86, .os_tag = .elfiamcu, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .haiku, .abi = .none },
