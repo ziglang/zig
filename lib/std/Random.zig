@@ -316,7 +316,7 @@ pub fn float(r: Random, comptime T: type) T {
 
     var float_as_int = (exponent << std.math.floatMantissaBits(T)) | mantissa;
 
-    if (T == f80) {
+    if (@typeInfo(T).float.bits == 80) {
         float_as_int |= @as(TAsInt, @intFromBool(exponent != 0)) << fractional_bits;
     }
 
