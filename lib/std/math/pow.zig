@@ -3,7 +3,7 @@
 //
 // https://golang.org/src/math/pow.go
 
-const std = @import("../std.zig");
+const std = @import("../std");
 const math = std.math;
 const expect = std.testing.expect;
 
@@ -35,8 +35,12 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         return math.powi(T, x, y) catch unreachable;
     }
 
-    if (T != f32 and T != f64) {
-        @compileError("pow not implemented for " ++ @typeName(T));
+    if (@typeInfo(T) == .comptime_float) {
+        return @as(comptime_float, pow(f128, @as(f128, x), @as(f128, y)));
+    }
+
+    if (@typeInfo(T) != .float) {
+        @compileError("pow only supports floating point types not " ++ @typeName(T));
     }
 
     // pow(x, +-0) = 1      for all x
@@ -60,7 +64,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     if (x == 0) {
         if (y < 0) {
             // pow(+-0, y) = +-inf  for y an odd integer
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return math.copysign(math.inf(T), x);
             }
             // pow(+-0, y) = +inf   for y an even integer
@@ -68,7 +72,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
                 return math.inf(T);
             }
         } else {
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return x;
             } else {
                 return 0;
@@ -146,6 +150,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var x1 = r2.significand;
 
     var i = @as(std.meta.Int(.signed, @typeInfo(T).float.bits), @intFromFloat(yi));
+
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
@@ -178,8 +183,8 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     return math.scalbn(a1, ae);
 }
 
-fn isOddInteger(x: f64) bool {
-    if (@abs(x) >= 1 << 53) {
+fn isOddInteger(comptime T: type, x: T) bool {
+    if (@abs(x) >= @as(T, @floatFromInt(1 << 53))) {
         // From https://golang.org/src/math/pow.go
         // 1 << 53 is the largest exact integer in the float64 format.
         // Any number outside this range will be truncated before the decimal point and therefore will always be
@@ -188,15 +193,24 @@ fn isOddInteger(x: f64) bool {
         return false;
     }
     const r = math.modf(x);
-    return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
+    return r.fpart == 0.0 and @as(i128, @intFromFloat(r.ipart)) & 1 == 1;
 }
 
 test isOddInteger {
-    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
-    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
-    try expect(isOddInteger(1 << 53) == false);
-    try expect(isOddInteger(12.0) == false);
-    try expect(isOddInteger(15.0) == true);
+    try expect(isOddInteger(f64, math.maxInt(i64) * 2) == false);
+    try expect(isOddInteger(f64, math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(f64, 1 << 53) == false);
+    try expect(isOddInteger(f64, 12.0) == false);
+    try expect(isOddInteger(f64, 15.0) == true);
+
+    try expect(isOddInteger(f16, @as(f16, 7.0)) == true);
+    try expect(isOddInteger(f16, @as(f16, 8.0)) == false);
+    try expect(isOddInteger(f80, @as(f80, 13.0)) == true);
+    try expect(isOddInteger(f80, @as(f80, 14.0)) == false);
+    try expect(isOddInteger(f128, @as(f128, 101.0)) == true);
+    try expect(isOddInteger(f128, @as(f128, 100.0)) == false);
+    try expect(isOddInteger(c_longdouble, @as(c_longdouble, 15.0)) == true);
+    try expect(isOddInteger(c_longdouble, @as(c_longdouble, 16.0)) == false);
 }
 
 test pow {
@@ -215,6 +229,25 @@ test pow {
     try expect(math.approxEqAbs(f64, pow(f64, 1.5, 3.3), 3.811546, epsilon));
     try expect(math.approxEqAbs(f64, pow(f64, 37.45, 3.3), 155736.7160616, epsilon));
     try expect(math.approxEqAbs(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
+    try expect(math.approxEqAbs(f16, pow(f16, 2, 4), 16.0, 0.1));
+    try expect(math.approxEqAbs(f80, pow(f80, 2, 4), 16.0, 0.00001));
+    try expect(math.approxEqAbs(f128, pow(f128, 2, 4), 16.0, 0.0000001));
+    try expect(math.approxEqAbs(c_longdouble, pow(c_longdouble, 2, 4), 16.0, 0.0000001));
+}
+
+test "pow with extended float types (f16, f80, f128, c_longdouble)" {
+    try expect(math.approxEqAbs(f16, pow(f16, 3.0, 3.0), 27.0, 0.5));
+    try expect(math.approxEqAbs(f16, pow(f16, 2.0, -1.0), 0.5, 0.01));
+    try expect(math.approxEqAbs(f80, pow(f80, 5.0, 0.5), @sqrt(@as(f80, 5.0)), 0.00001));
+    try expect(math.approxEqAbs(f128, pow(f128, 1.1, 2.2), 1.23328630055, 0.0000001));
+    try expect(math.approxEqAbs(c_longdouble, pow(c_longdouble, 9.0, 0.5), 3.0, 0.00001));
+
+    try expect(math.approxEqAbs(f16, pow(f16, 1.0, 0.0), 1.0, 0.01));
+    try expect(math.approxEqAbs(f16, pow(f16, 1.0, 1.0), 1.0, 0.01));
+    try expect(math.approxEqAbs(f80, pow(f80, 1.0, 0.0), 1.0, 0.00001));
+    try expect(math.approxEqAbs(f80, pow(f80, 1.0, 1.0), 1.0, 0.00001));
+    try expect(math.approxEqAbs(f128, pow(f128, 1.0, 0.0), 1.0, 0.0000001));
+    try expect(math.approxEqAbs(c_longdouble, pow(c_longdouble, 1.0, 0.0), 1.0, 0.0000001));
 }
 
 test "special" {
@@ -259,10 +292,24 @@ test "special" {
     try expect(math.isNan(pow(f32, -12.4, 78.5)));
 }
 
+test "pow with extended float types: zero and negative base" {
+    try expect(math.isPositiveInf(pow(f80, 0.0, -3.0)));
+    try expect(pow(f80, 0.0, 3.0) == 0.0);
+    try expect(math.isNan(pow(f80, -2.0, 0.5)));
+    try expect(pow(f128, -2.0, 4.0) == 16.0);
+}
+
 test "overflow" {
     try expect(math.isPositiveInf(pow(f64, 2, 1 << 32)));
     try expect(pow(f64, 2, -(1 << 32)) == 0);
     try expect(math.isNegativeInf(pow(f64, -2, (1 << 32) + 1)));
     try expect(pow(f64, 0.5, 1 << 45) == 0);
     try expect(math.isPositiveInf(pow(f64, 0.5, -(1 << 45))));
+
+    try expect(math.isPositiveInf(pow(f128, 10.0, 1 << 32)));
+    try expect(pow(f128, 10.0, -(1 << 32)) == 0.0);
+    try expect(math.isPositiveInf(pow(f80, 2.0, 1 << 32)));
+    try expect(pow(f80, 2.0, -(1 << 32)) == 0.0);
+    try expect(math.isPositiveInf(pow(f16, 2.0, 1 << 32)));
+    try expect(pow(f16, 2.0, -(1 << 32)) == 0.0);
 }

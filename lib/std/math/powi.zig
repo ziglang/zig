@@ -3,7 +3,7 @@
 //
 // https://github.com/rust-lang/rust/blob/360432f1e8794de58cd94f34c9c17ad65871e5b5/src/libcore/num/mod.rs#L3423
 
-const std = @import("../std.zig");
+const std = @import("../std");
 const math = std.math;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -27,6 +27,41 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
 }!T) {
+    // Handle comptime_int separately
+    if (@typeInfo(T) == .comptime_int) {
+        if (y == 0) {
+            return 1;
+        }
+
+        if (x == 0) {
+            if (y > 0) {
+                return 0;
+            } else {
+                return error.Overflow;
+            }
+        }
+
+        if (y < 0) {
+            return error.Underflow;
+        }
+
+        var base = x;
+        var exp = y;
+        var acc: comptime_int = 1;
+
+        while (exp > 1) {
+            if (exp & 1 == 1) {
+                acc *= base;
+            }
+            exp >>= 1;
+            base *= base;
+        }
+        if (exp == 1) {
+            acc *= base;
+        }
+        return acc;
+    }
+
     const bit_size = @typeInfo(T).int.bits;
 
     // `y & 1 == 0` won't compile when `does_one_overflow`.
@@ -193,4 +228,27 @@ test "powi.narrow" {
     try testing.expectError(error.Overflow, powi(i1, -1, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, -1));
     try testing.expect((try powi(i1, -1, -1)) == -1);
+}
+
+test "powi.comptime" {
+    comptime {
+        try testing.expectEqual(1, try math.powi(comptime_int, 5, 0));
+        try testing.expectEqual(0, try math.powi(comptime_int, 0, 3));
+        try testing.expectError(error.Overflow, math.powi(comptime_int, 0, -2));
+
+        try testing.expectEqual(1, try math.powi(comptime_int, 1, 7));
+        try testing.expectEqual(-1, try math.powi(comptime_int, -1, 5));
+        try testing.expectEqual(1, try math.powi(comptime_int, -1, 4));
+
+        // Underflow check
+        try testing.expectError(error.Underflow, math.powi(comptime_int, 2, -1));
+
+        // Large value checks
+        const big_val = 12345678901234567890;
+        try testing.expectEqual(big_val, try math.powi(comptime_int, big_val, 1));
+
+        // Very large exponent (should succeed because comptime_int can grow)
+        const result = try math.powi(comptime_int, 2, 128);
+        try testing.expect(result > 0); // Just check it's positive
+    }
 }
