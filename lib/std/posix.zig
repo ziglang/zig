@@ -5747,7 +5747,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
 /// The result is encoded as WTF16LE.
 ///
 /// Calling this function is usually a bug.
-pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u16) RealPathError![]u16 {
+pub fn realpathW(pathname: []const u16, out_buffer: *[std.os.windows.PATH_MAX_WIDE]u16) RealPathError![]u16 {
     return fs.cwd().realpathW(pathname, out_buffer);
 }
 
