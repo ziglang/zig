@@ -3,7 +3,7 @@
 //
 // https://golang.org/src/math/pow.go
 
-const std = @import("../std");
+const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 

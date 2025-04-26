@@ -3,7 +3,7 @@
 //
 // https://github.com/rust-lang/rust/blob/360432f1e8794de58cd94f34c9c17ad65871e5b5/src/libcore/num/mod.rs#L3423
 
-const std = @import("../std");
+const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const testing = std.testing;
