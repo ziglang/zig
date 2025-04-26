@@ -643,10 +643,19 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // symlink, not the path that the symlink points to. We want the path
             // that the symlink points to, though, so we need to get the realpath.
             const pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
-            return std.fs.cwd().realpathW(pathname_w.span(), out_buffer) catch |err| switch (err) {
+
+            var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = std.fs.cwd().realpathW(pathname_w.span(), &wide_buf) catch |err| switch (err) {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,
             };
+
+            const len = std.unicode.calcWtf8Len(wide_slice);
+            if (len > out_buffer.len)
+                return error.NameTooLong;
+
+            const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+            return out_buffer[0..end_index];
         },
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }

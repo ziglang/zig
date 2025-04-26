@@ -1370,7 +1370,16 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
     }
     if (native_os == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
-        return self.realpathW(pathname_w.span(), out_buffer);
+
+        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const wide_slice = try self.realpathW(pathname_w.span(), &wide_buf);
+
+        const len = std.unicode.calcWtf8Len(wide_slice);
+        if (len > out_buffer.len)
+            return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     }
     const pathname_c = try posix.toPosixPath(pathname);
     return self.realpathZ(&pathname_c, out_buffer);
@@ -1381,7 +1390,16 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
 pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (native_os == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
-        return self.realpathW(pathname_w.span(), out_buffer);
+
+        var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const wide_slice = try self.realpathW(pathname_w.span(), &wide_buf);
+
+        const len = std.unicode.calcWtf8Len(wide_slice);
+        if (len > out_buffer.len)
+            return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     }
 
     var flags: posix.O = .{};
@@ -1411,9 +1429,9 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
 }
 
 /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as WTF16 LE.
 /// See also `Dir.realpath`, `realpathW`.
-pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
+pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u16) RealPathError![]u16 {
     const w = windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
@@ -1434,13 +1452,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
     };
     defer w.CloseHandle(h_file);
 
-    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    const len = std.unicode.calcWtf8Len(wide_slice);
-    if (len > out_buffer.len)
-        return error.NameTooLong;
-    const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
-    return out_buffer[0..end_index];
+    return w.GetFinalPathNameByHandle(h_file, .{}, out_buffer);
 }
 
 pub const RealPathAllocError = RealPathError || Allocator.Error;
