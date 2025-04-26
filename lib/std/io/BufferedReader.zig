@@ -919,6 +919,40 @@ fn takeMultipleOf7Leb128(br: *BufferedReader, comptime Result: type) TakeLeb128E
     }
 }
 
+/// Left-aligns data such that `br.seek` becomes zero.
+pub fn rebase(br: *BufferedReader) void {
+    const data = br.buffer[br.seek..br.end];
+    const dest = br.buffer[0..data.len];
+    std.mem.copyForwards(u8, dest, data);
+    br.seek = 0;
+    br.end = data.len;
+}
+
+/// Advances the stream and decreases the size of the storage buffer by `n`,
+/// returning the range of bytes no longer accessible by `br`.
+///
+/// This action can be undone by `restitute`.
+///
+/// Asserts there are at least `n` buffered bytes already.
+///
+/// Asserts that `br.seek` is zero, i.e. the buffer is in a rebased state.
+pub fn steal(br: *BufferedReader, n: usize) []u8 {
+    assert(br.seek == 0);
+    assert(n <= br.end);
+    const stolen = br.buffer[0..n];
+    br.buffer = br.buffer[n..];
+    br.end -= n;
+    return stolen;
+}
+
+/// Expands the storage buffer, undoing the effects of `steal`
+/// Assumes that `n` does not exceed the total number of stolen bytes.
+pub fn restitute(br: *BufferedReader, n: usize) void {
+    br.buffer = (br.buffer.ptr - n)[0 .. br.buffer.len + n];
+    br.end += n;
+    br.seek += n;
+}
+
 test initFixed {
     var br: BufferedReader = undefined;
     br.initFixed("a\x02");
