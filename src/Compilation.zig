@@ -5696,11 +5696,11 @@ pub fn addCCArgs(
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
             argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-m{s}{s}-version-min={d}.{d}.{d}", .{
+                @tagName(os),
                 switch (target.abi) {
                     .simulator => "-simulator",
                     else => "",
                 },
-                @tagName(os),
                 ver.major,
                 ver.minor,
                 ver.patch,
