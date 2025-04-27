@@ -126,17 +126,15 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        pub fn memcpyLenMismatch() noreturn {
+        /// Delete after next zig1.wasm update
+        pub const memcpyLenMismatch = copyLenMismatch;
+        pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
-            call("@memcpy arguments have non-equal lengths", @returnAddress());
+            call("source and destination arguments have non-equal lengths", @returnAddress());
         }
         pub fn memcpyAlias() noreturn {
             @branchHint(.cold);
             call("@memcpy arguments alias", @returnAddress());
-        }
-        pub fn memmoveLenMismatch() noreturn {
-            @branchHint(.cold);
-            call("@memmove arguments have non-equal lengths", @returnAddress());
         }
         pub fn noreturnReturned() noreturn {
             @branchHint(.cold);

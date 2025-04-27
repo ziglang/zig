@@ -300,9 +300,8 @@ pub const BuiltinDecl = enum {
     @"panic.shiftRhsTooBig",
     @"panic.invalidEnumValue",
     @"panic.forLenMismatch",
-    @"panic.memcpyLenMismatch",
+    @"panic.copyLenMismatch",
     @"panic.memcpyAlias",
-    @"panic.memmoveLenMismatch",
     @"panic.noreturnReturned",
 
     VaList,
@@ -378,9 +377,8 @@ pub const BuiltinDecl = enum {
             .@"panic.shiftRhsTooBig",
             .@"panic.invalidEnumValue",
             .@"panic.forLenMismatch",
-            .@"panic.memcpyLenMismatch",
+            .@"panic.copyLenMismatch",
             .@"panic.memcpyAlias",
-            .@"panic.memmoveLenMismatch",
             .@"panic.noreturnReturned",
             => .func,
         };
@@ -446,9 +444,8 @@ pub const SimplePanicId = enum {
     shift_rhs_too_big,
     invalid_enum_value,
     for_len_mismatch,
-    memcpy_len_mismatch,
+    copy_len_mismatch,
     memcpy_alias,
-    memmove_len_mismatch,
     noreturn_returned,
 
     pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
@@ -471,9 +468,8 @@ pub const SimplePanicId = enum {
             .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
             .invalid_enum_value         => .@"panic.invalidEnumValue",
             .for_len_mismatch           => .@"panic.forLenMismatch",
-            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .copy_len_mismatch          => .@"panic.copyLenMismatch",
             .memcpy_alias               => .@"panic.memcpyAlias",
-            .memmove_len_mismatch       => .@"panic.memmoveLenMismatch",
             .noreturn_returned          => .@"panic.noreturnReturned",
             // zig fmt: on
         };

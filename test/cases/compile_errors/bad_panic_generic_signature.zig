@@ -23,9 +23,10 @@ pub const panic = struct {
     pub const shiftRhsTooBig = simple_panic.shiftRhsTooBig;
     pub const invalidEnumValue = simple_panic.invalidEnumValue;
     pub const forLenMismatch = simple_panic.forLenMismatch;
-    pub const memcpyLenMismatch = simple_panic.memcpyLenMismatch;
+    /// Delete after next zig1.wasm update
+    pub const memcpyLenMismatch = copyLenMismatch;
+    pub const copyLenMismatch = simple_panic.copyLenMismatch;
     pub const memcpyAlias = simple_panic.memcpyAlias;
-    pub const memmoveLenMismatch = simple_panic.memmoveLenMismatch;
     pub const noreturnReturned = simple_panic.noreturnReturned;
 };
 

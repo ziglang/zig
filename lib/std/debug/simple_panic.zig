@@ -120,16 +120,15 @@ pub fn forLenMismatch() noreturn {
     call("for loop over objects with non-equal lengths", null);
 }
 
-pub fn memcpyLenMismatch() noreturn {
-    call("@memcpy arguments have non-equal lengths", null);
+/// Delete after next zig1.wasm update
+pub const memcpyLenMismatch = copyLenMismatch;
+
+pub fn copyLenMismatch() noreturn {
+    call("source and destination have non-equal lengths", null);
 }
 
 pub fn memcpyAlias() noreturn {
     call("@memcpy arguments alias", null);
-}
-
-pub fn memmoveLenMismatch() noreturn {
-    call("@memmove arguments have non-equal lengths", null);
 }
 
 pub fn noreturnReturned() noreturn {
