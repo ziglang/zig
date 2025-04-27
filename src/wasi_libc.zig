@@ -1255,6 +1255,6 @@ const emulated_signal_bottom_half_src_files = &[_][]const u8{
 };
 
 const emulated_signal_top_half_src_files = &[_][]const u8{
-    "wasi/libc-top-half/musl/src/signal/psignal.c",
-    "wasi/libc-top-half/musl/src/string/strsignal.c",
+    "musl/src/signal/psignal.c",
+    "musl/src/string/strsignal.c",
 };
