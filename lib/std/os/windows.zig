@@ -602,6 +602,9 @@ pub const ReadFileError = error{
     OperationAborted,
     /// Unable to read file due to lock.
     LockViolation,
+    /// Known to be possible when:
+    /// - Unable to read from disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -634,6 +637,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
+                .ACCESS_DENIED => return error.AccessDenied,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -651,6 +655,9 @@ pub const WriteFileError = error{
     LockViolation,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
+    /// Known to be possible when:
+    /// - Unable to write to disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -687,6 +694,7 @@ pub fn WriteFile(
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
