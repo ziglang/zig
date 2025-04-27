@@ -828,7 +828,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimEnd(u8, next_inner[3..], " \t");
         }
     };
 

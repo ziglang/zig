@@ -250,8 +250,8 @@ const Header = struct {
         const raw = header.bytes[start..][0..len];
         // Zero-filled octal number in ASCII. Each numeric field of width w
         // contains w minus 1 digits, and a null
-        const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
-        const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
+        const ltrimmed = std.mem.trimStart(u8, raw, "0 ");
+        const rtrimmed = std.mem.trimEnd(u8, ltrimmed, " \x00");
         if (rtrimmed.len == 0) return 0;
         return std.fmt.parseInt(u64, rtrimmed, 8) catch return error.TarHeader;
     }

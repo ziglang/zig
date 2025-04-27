@@ -364,7 +364,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         };
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, pv.server_handshake_key) catch
                             return error.TlsBadRecordMac;
-                        cleartext_fragment_end += std.mem.trimRight(u8, cleartext, "\x00").len;
+                        cleartext_fragment_end += std.mem.trimEnd(u8, cleartext, "\x00").len;
                     },
                 }
                 read_seq += 1;
@@ -1353,7 +1353,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     const cleartext = cleartext_buf[0..ciphertext.len];
                     P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_key) catch
                         return error.TlsBadRecordMac;
-                    const msg = mem.trimRight(u8, cleartext, "\x00");
+                    const msg = mem.trimEnd(u8, cleartext, "\x00");
                     break :cleartext .{ msg[0 .. msg.len - 1], @enumFromInt(msg[msg.len - 1]) };
                 },
                 .tls_1_2 => {

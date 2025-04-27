@@ -670,7 +670,7 @@ const Case = struct {
             if (std.mem.startsWith(u8, line, "#")) {
                 var line_it = std.mem.splitScalar(u8, line, '=');
                 const key = line_it.first()[1..];
-                const val = std.mem.trimRight(u8, line_it.rest(), "\r"); // windows moment
+                const val = std.mem.trimEnd(u8, line_it.rest(), "\r"); // windows moment
                 if (val.len == 0) {
                     fatal("line {d}: missing value", .{line_n});
                 } else if (std.mem.eql(u8, key, "target")) {
@@ -720,7 +720,7 @@ const Case = struct {
 
                     while (true) {
                         const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
-                        const next_line = std.mem.trimRight(u8, next_line_raw, "\r");
+                        const next_line = std.mem.trimEnd(u8, next_line_raw, "\r");
                         if (std.mem.startsWith(u8, next_line, "#")) break;
 
                         _ = it.next();
@@ -759,7 +759,7 @@ const Case = struct {
                         if (!std.mem.startsWith(u8, next_line, "#")) break;
                         var new_line_it = std.mem.splitScalar(u8, next_line, '=');
                         const new_key = new_line_it.first()[1..];
-                        const new_val = std.mem.trimRight(u8, new_line_it.rest(), "\r");
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
                         if (new_val.len == 0) break;
                         if (!std.mem.eql(u8, new_key, "expect_error")) break;
 
@@ -774,7 +774,7 @@ const Case = struct {
                         if (!std.mem.startsWith(u8, next_line, "#")) break;
                         var new_line_it = std.mem.splitScalar(u8, next_line, '=');
                         const new_key = new_line_it.first()[1..];
-                        const new_val = std.mem.trimRight(u8, new_line_it.rest(), "\r");
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
                         if (new_val.len == 0) break;
                         if (!std.mem.eql(u8, new_key, "expect_compile_log")) break;
 
