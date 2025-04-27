@@ -1398,11 +1398,22 @@ fn resolveCallingConventionValues(
         },
         .wasm_mvp => {
             for (fn_info.param_types.get(ip)) |ty| {
-                const ty_classes = abi.classifyType(Type.fromInterned(ty), zcu);
-                for (ty_classes) |class| {
-                    if (class == .none) continue;
-                    try args.append(.{ .local = .{ .value = result.local_index, .references = 1 } });
-                    result.local_index += 1;
+                if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(zcu)) {
+                    continue;
+                }
+                switch (abi.classifyType(.fromInterned(ty), zcu)) {
+                    .direct => |scalar_ty| if (!abi.lowerAsDoubleI64(scalar_ty, zcu)) {
+                        try args.append(.{ .local = .{ .value = result.local_index, .references = 1 } });
+                        result.local_index += 1;
+                    } else {
+                        try args.append(.{ .local = .{ .value = result.local_index, .references = 1 } });
+                        try args.append(.{ .local = .{ .value = result.local_index + 1, .references = 1 } });
+                        result.local_index += 2;
+                    },
+                    .indirect => {
+                        try args.append(.{ .local = .{ .value = result.local_index, .references = 1 } });
+                        result.local_index += 1;
+                    },
                 }
             }
         },
@@ -1418,14 +1429,13 @@ pub fn firstParamSRet(
     zcu: *const Zcu,
     target: *const std.Target,
 ) bool {
+    if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
     switch (cc) {
         .@"inline" => unreachable,
         .auto => return isByRef(return_type, zcu, target),
-        .wasm_mvp => {
-            const ty_classes = abi.classifyType(return_type, zcu);
-            if (ty_classes[0] == .indirect) return true;
-            if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
-            return false;
+        .wasm_mvp => switch (abi.classifyType(return_type, zcu)) {
+            .direct => |scalar_ty| return abi.lowerAsDoubleI64(scalar_ty, zcu),
+            .indirect => return true,
         },
         else => return false,
     }
@@ -1439,26 +1449,19 @@ fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WV
     }
 
     const zcu = cg.pt.zcu;
-    const ty_classes = abi.classifyType(ty, zcu);
-    assert(ty_classes[0] != .none);
-    switch (ty.zigTypeTag(zcu)) {
-        .@"struct", .@"union" => {
-            if (ty_classes[0] == .indirect) {
+
+    switch (abi.classifyType(ty, zcu)) {
+        .direct => |scalar_type| if (!abi.lowerAsDoubleI64(scalar_type, zcu)) {
+            if (!isByRef(ty, zcu, cg.target)) {
                 return cg.lowerToStack(value);
+            } else {
+                switch (value) {
+                    .nav_ref, .stack_offset => _ = try cg.load(value, scalar_type, 0),
+                    .dead => unreachable,
+                    else => try cg.emitWValue(value),
+                }
             }
-            assert(ty_classes[0] == .direct);
-            const scalar_type = abi.scalarType(ty, zcu);
-            switch (value) {
-                .nav_ref, .stack_offset => _ = try cg.load(value, scalar_type, 0),
-                .dead => unreachable,
-                else => try cg.emitWValue(value),
-            }
-        },
-        .int, .float => {
-            if (ty_classes[1] == .none) {
-                return cg.lowerToStack(value);
-            }
-            assert(ty_classes[0] == .direct and ty_classes[1] == .direct);
+        } else {
             assert(ty.abiSize(zcu) == 16);
             // in this case we have an integer or float that must be lowered as 2 i64's.
             try cg.emitWValue(value);
@@ -1466,7 +1469,7 @@ fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WV
             try cg.emitWValue(value);
             try cg.addMemArg(.i64_load, .{ .offset = value.offset() + 8, .alignment = 8 });
         },
-        else => return cg.lowerToStack(value),
+        .indirect => return cg.lowerToStack(value),
     }
 }
 
@@ -2125,23 +2128,16 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     if (cg.return_value != .none) {
         try cg.store(cg.return_value, operand, ret_ty, 0);
     } else if (fn_info.cc == .wasm_mvp and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-        switch (ret_ty.zigTypeTag(zcu)) {
-            // Aggregate types can be lowered as a singular value
-            .@"struct", .@"union" => {
-                const scalar_type = abi.scalarType(ret_ty, zcu);
-                try cg.emitWValue(operand);
-                const opcode = buildOpcode(.{
-                    .op = .load,
-                    .width = @as(u8, @intCast(scalar_type.abiSize(zcu) * 8)),
-                    .signedness = if (scalar_type.isSignedInt(zcu)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, zcu, cg.target),
-                });
-                try cg.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
-                    .offset = operand.offset(),
-                    .alignment = @intCast(scalar_type.abiAlignment(zcu).toByteUnits().?),
-                });
+        switch (abi.classifyType(ret_ty, zcu)) {
+            .direct => |scalar_type| {
+                assert(!abi.lowerAsDoubleI64(scalar_type, zcu));
+                if (!isByRef(ret_ty, zcu, cg.target)) {
+                    try cg.emitWValue(operand);
+                } else {
+                    _ = try cg.load(operand, scalar_type, 0);
+                }
             },
-            else => try cg.emitWValue(operand),
+            .indirect => unreachable,
         }
     } else {
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and ret_ty.isError(zcu)) {
@@ -2267,14 +2263,24 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
             break :result_value .none;
         } else if (first_param_sret) {
             break :result_value sret;
-            // TODO: Make this less fragile and optimize
-        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_mvp and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
-            const result_local = try cg.allocLocal(ret_ty);
-            try cg.addLocal(.local_set, result_local.local.value);
-            const scalar_type = abi.scalarType(ret_ty, zcu);
-            const result = try cg.allocStack(scalar_type);
-            try cg.store(result, result_local, scalar_type, 0);
-            break :result_value result;
+        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_mvp) {
+            switch (abi.classifyType(ret_ty, zcu)) {
+                .direct => |scalar_type| {
+                    assert(!abi.lowerAsDoubleI64(scalar_type, zcu));
+                    if (!isByRef(ret_ty, zcu, cg.target)) {
+                        const result_local = try cg.allocLocal(ret_ty);
+                        try cg.addLocal(.local_set, result_local.local.value);
+                        break :result_value result_local;
+                    } else {
+                        const result_local = try cg.allocLocal(ret_ty);
+                        try cg.addLocal(.local_set, result_local.local.value);
+                        const result = try cg.allocStack(ret_ty);
+                        try cg.store(result, result_local, scalar_type, 0);
+                        break :result_value result;
+                    }
+                },
+                .indirect => unreachable,
+            }
         } else {
             const result_local = try cg.allocLocal(ret_ty);
             try cg.addLocal(.local_set, result_local.local.value);
@@ -2547,26 +2553,17 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const cc = zcu.typeToFunc(zcu.navValue(cg.owner_nav).typeOf(zcu)).?.cc;
     const arg_ty = cg.typeOfIndex(inst);
     if (cc == .wasm_mvp) {
-        const arg_classes = abi.classifyType(arg_ty, zcu);
-        for (arg_classes) |class| {
-            if (class != .none) {
+        switch (abi.classifyType(arg_ty, zcu)) {
+            .direct => |scalar_ty| if (!abi.lowerAsDoubleI64(scalar_ty, zcu)) {
                 cg.arg_index += 1;
-            }
-        }
-
-        // When we have an argument that's passed using more than a single parameter,
-        // we combine them into a single stack value
-        if (arg_classes[0] == .direct and arg_classes[1] == .direct) {
-            if (arg_ty.zigTypeTag(zcu) != .int and arg_ty.zigTypeTag(zcu) != .float) {
-                return cg.fail(
-                    "TODO: Implement C-ABI argument for type '{}'",
-                    .{arg_ty.fmt(pt)},
-                );
-            }
-            const result = try cg.allocStack(arg_ty);
-            try cg.store(result, arg, Type.u64, 0);
-            try cg.store(result, cg.args[arg_index + 1], Type.u64, 8);
-            return cg.finishAir(inst, result, &.{});
+            } else {
+                cg.arg_index += 2;
+                const result = try cg.allocStack(arg_ty);
+                try cg.store(result, arg, Type.u64, 0);
+                try cg.store(result, cg.args[arg_index + 1], Type.u64, 8);
+                return cg.finishAir(inst, result, &.{});
+            },
+            .indirect => cg.arg_index += 1,
         }
     } else {
         cg.arg_index += 1;
