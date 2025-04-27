@@ -11,7 +11,6 @@ const Server = @This();
 
 /// Data from the HTTP server to the HTTP client.
 out: *std.io.BufferedWriter,
-/// Internal state managed by this abstraction.
 reader: http.Reader,
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
@@ -26,6 +25,7 @@ pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
         .reader = .{
             .in = in,
             .state = .ready,
+            .body_state = undefined,
         },
         .out = out,
     };
@@ -39,7 +39,7 @@ pub const ReceiveHeadError = http.Reader.HeadError || error{
     HttpHeadersInvalid,
 };
 
-pub fn receiveHead(s: *Server) http.Reader.HeadError!Request {
+pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     try s.reader.receiveHead();
     return .{
         .server = s,
@@ -490,13 +490,13 @@ pub const Request = struct {
 
         return .{
             .http_protocol_output = request.server.out,
-            .transfer_encoding = if (o.transfer_encoding) |te| switch (te) {
+            .state = if (o.transfer_encoding) |te| switch (te) {
                 .chunked => .{ .chunked = .init },
                 .none => .none,
             } else if (options.content_length) |len| .{
                 .content_length = len,
             } else .{ .chunked = .init },
-            .elide_body = elide_body,
+            .elide = elide_body,
         };
     }
 

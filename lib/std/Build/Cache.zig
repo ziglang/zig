@@ -335,7 +335,6 @@ pub const Manifest = struct {
         manifest_create: fs.File.OpenError,
         manifest_read: fs.File.ReadError,
         manifest_lock: fs.File.LockError,
-        manifest_seek: fs.File.SeekError,
         file_open: FileOp,
         file_stat: FileOp,
         file_read: FileOp,
@@ -609,12 +608,6 @@ pub const Manifest = struct {
                     var file = self.files.pop().?;
                     file.key.deinit(self.cache.gpa);
                 }
-                // Also, seek the file back to the start.
-                self.manifest_file.?.seekTo(0) catch |err| {
-                    self.diagnostic = .{ .manifest_seek = err };
-                    return error.CacheCheckFailed;
-                };
-
                 switch (try self.hitWithCurrentLock()) {
                     .hit => break :hit,
                     .miss => |m| break :digests m.file_digests_populated,
@@ -659,9 +652,8 @@ pub const Manifest = struct {
         return true;
     }
 
-    /// Assumes that `self.hash.hasher` has been updated only with the original digest, that
-    /// `self.files` contains only the original input files, and that `self.manifest_file.?` is
-    /// seeked to the start of the file.
+    /// Assumes that `self.hash.hasher` has been updated only with the original digest and that
+    /// `self.files` contains only the original input files.
     fn hitWithCurrentLock(self: *Manifest) HitError!union(enum) {
         hit,
         miss: struct {
@@ -670,12 +662,13 @@ pub const Manifest = struct {
     } {
         const gpa = self.cache.gpa;
         const input_file_count = self.files.entries.len;
-
-        const file_contents = self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max) catch |err| switch (err) {
+        var manifest_reader = self.manifest_file.?.reader(); // Reads positionally from zero.
+        const limit: std.io.Reader.Limit = .limited(manifest_file_size_max);
+        const file_contents = manifest_reader.interface().readRemainingAlloc(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.StreamTooLong => return error.OutOfMemory,
-            else => |e| {
-                self.diagnostic = .{ .manifest_read = e };
+            error.ReadFailed => {
+                self.diagnostic = .{ .manifest_read = manifest_reader.err.? };
                 return error.CacheCheckFailed;
             },
         };

@@ -109,7 +109,7 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     var server: std.http.Server = .init(&br, &bw);
     var web_socket: std.http.WebSocket = undefined;
     var ws_recv_buffer: [0x4000]u8 align(4) = undefined;
-    while (server.state == .ready) {
+    while (server.reader.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
             else => {
@@ -476,7 +476,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var response = try request.respondStreaming(.{
+    var body_writer = try request.respondStreaming(.{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },
@@ -517,7 +517,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
-    var response_writer = response.writer().unbuffered();
+    var response_writer = body_writer.interface().unbuffered();
     var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer };
 
     for (deduped_paths) |joined_path| {
@@ -531,9 +531,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         try archiver.writeFile(joined_path.sub_path, file, try file.stat());
     }
 
-    // intentionally omitting the pointless trailer
-    //try archiver.finish();
-    try response.end();
+    try body_writer.end();
 }
 
 fn memoizedCwd(arena: Allocator, opt_ptr: *?[]const u8) ![]const u8 {
