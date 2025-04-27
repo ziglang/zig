@@ -1740,10 +1740,7 @@ pub fn bitSizeInner(
             const len = array_type.lenIncludingSentinel();
             if (len == 0) return 0;
             const elem_ty = Type.fromInterned(array_type.child);
-            const elem_size = @max(
-                (try elem_ty.abiAlignmentInner(strat_lazy, zcu, tid)).scalar.toByteUnits() orelse 0,
-                (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar,
-            );
+            const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
             if (elem_size == 0) return 0;
             const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
             return (len - 1) * 8 * elem_size + elem_bit_size;
