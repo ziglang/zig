@@ -425,6 +425,115 @@ pub fn EnumSet(comptime E: type) type {
     };
 }
 
+test "pure EnumSet fns" {
+    const Suit = enum { spades, hearts, clubs, diamonds };
+
+    const empty = EnumSet(Suit).initEmpty();
+    const full = EnumSet(Suit).initFull();
+    const black = EnumSet(Suit).initMany(&[_]Suit{ .spades, .clubs });
+    const red = EnumSet(Suit).initMany(&[_]Suit{ .hearts, .diamonds });
+
+    try testing.expect(empty.eql(empty));
+    try testing.expect(full.eql(full));
+    try testing.expect(!empty.eql(full));
+    try testing.expect(!full.eql(empty));
+    try testing.expect(!empty.eql(black));
+    try testing.expect(!full.eql(red));
+    try testing.expect(!red.eql(empty));
+    try testing.expect(!black.eql(full));
+
+    try testing.expect(empty.subsetOf(empty));
+    try testing.expect(empty.subsetOf(full));
+    try testing.expect(full.subsetOf(full));
+    try testing.expect(!black.subsetOf(red));
+    try testing.expect(!red.subsetOf(black));
+
+    try testing.expect(full.supersetOf(full));
+    try testing.expect(full.supersetOf(empty));
+    try testing.expect(empty.supersetOf(empty));
+    try testing.expect(!black.supersetOf(red));
+    try testing.expect(!red.supersetOf(black));
+
+    try testing.expect(empty.complement().eql(full));
+    try testing.expect(full.complement().eql(empty));
+    try testing.expect(black.complement().eql(red));
+    try testing.expect(red.complement().eql(black));
+
+    try testing.expect(empty.unionWith(empty).eql(empty));
+    try testing.expect(empty.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(full).eql(full));
+    try testing.expect(full.unionWith(empty).eql(full));
+    try testing.expect(black.unionWith(red).eql(full));
+    try testing.expect(red.unionWith(black).eql(full));
+
+    try testing.expect(empty.intersectWith(empty).eql(empty));
+    try testing.expect(empty.intersectWith(full).eql(empty));
+    try testing.expect(full.intersectWith(full).eql(full));
+    try testing.expect(full.intersectWith(empty).eql(empty));
+    try testing.expect(black.intersectWith(red).eql(empty));
+    try testing.expect(red.intersectWith(black).eql(empty));
+
+    try testing.expect(empty.xorWith(empty).eql(empty));
+    try testing.expect(empty.xorWith(full).eql(full));
+    try testing.expect(full.xorWith(full).eql(empty));
+    try testing.expect(full.xorWith(empty).eql(full));
+    try testing.expect(black.xorWith(red).eql(full));
+    try testing.expect(red.xorWith(black).eql(full));
+
+    try testing.expect(empty.differenceWith(empty).eql(empty));
+    try testing.expect(empty.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(full).eql(empty));
+    try testing.expect(full.differenceWith(empty).eql(full));
+    try testing.expect(full.differenceWith(red).eql(black));
+    try testing.expect(full.differenceWith(black).eql(red));
+}
+
+test "EnumSet empty" {
+    const E = enum {};
+    const empty = EnumSet(E).initEmpty();
+    const full = EnumSet(E).initFull();
+
+    try testing.expect(empty.eql(full));
+    try testing.expect(empty.complement().eql(full));
+    try testing.expect(empty.complement().eql(full.complement()));
+    try testing.expect(empty.eql(full.complement()));
+}
+
+test "EnumSet const iterator" {
+    const Direction = enum { up, down, left, right };
+    const diag_move = init: {
+        var move = EnumSet(Direction).initEmpty();
+        move.insert(.right);
+        move.insert(.up);
+        break :init move;
+    };
+
+    var result = EnumSet(Direction).initEmpty();
+    var it = diag_move.iterator();
+    while (it.next()) |dir| {
+        result.insert(dir);
+    }
+
+    try testing.expect(result.eql(diag_move));
+}
+
+test "EnumSet non-exhaustive" {
+    const BitIndices = enum(u4) {
+        a = 0,
+        b = 1,
+        c = 4,
+        _,
+    };
+    const BitField = EnumSet(BitIndices);
+
+    var flags = BitField.init(.{ .a = true, .b = true });
+    flags.insert(.c);
+    flags.remove(.a);
+    try testing.expect(!flags.contains(.a));
+    try testing.expect(flags.contains(.b));
+    try testing.expect(flags.contains(.c));
+}
+
 /// A map keyed by an enum, backed by a bitfield and a dense array.
 /// If the enum is exhaustive but not dense, a mapping will be constructed from
 /// enum values to dense indices.  This type does no dynamic
@@ -1140,7 +1249,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
             key: Key,
 
             /// A pointer to the value in the array associated
-            /// with this key.  Modifications through this
+            /// with this key. Modifications through this
             /// pointer will modify the underlying data.
             value: *Value,
         };
@@ -1153,7 +1262,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
                 const index = self.index;
                 if (index < Indexer.count) {
                     self.index += 1;
-                    return Entry{
+                    return .{
                         .key = Indexer.keyForIndex(index),
                         .value = &self.values[index],
                     };
@@ -1164,113 +1273,17 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
     };
 }
 
-test "pure EnumSet fns" {
-    const Suit = enum { spades, hearts, clubs, diamonds };
+test "EnumArray iterator for one field" {
+    const Enum0 = std.meta.FieldEnum(struct { x: u32 });
+    const Enum1 = enum { x };
 
-    const empty = EnumSet(Suit).initEmpty();
-    const full = EnumSet(Suit).initFull();
-    const black = EnumSet(Suit).initMany(&[_]Suit{ .spades, .clubs });
-    const red = EnumSet(Suit).initMany(&[_]Suit{ .hearts, .diamonds });
+    var a = std.EnumArray(Enum0, u32).initFill(123);
+    var it0 = a.iterator();
+    try testing.expectEqual(it0.next().?.key, Enum0.x);
 
-    try testing.expect(empty.eql(empty));
-    try testing.expect(full.eql(full));
-    try testing.expect(!empty.eql(full));
-    try testing.expect(!full.eql(empty));
-    try testing.expect(!empty.eql(black));
-    try testing.expect(!full.eql(red));
-    try testing.expect(!red.eql(empty));
-    try testing.expect(!black.eql(full));
-
-    try testing.expect(empty.subsetOf(empty));
-    try testing.expect(empty.subsetOf(full));
-    try testing.expect(full.subsetOf(full));
-    try testing.expect(!black.subsetOf(red));
-    try testing.expect(!red.subsetOf(black));
-
-    try testing.expect(full.supersetOf(full));
-    try testing.expect(full.supersetOf(empty));
-    try testing.expect(empty.supersetOf(empty));
-    try testing.expect(!black.supersetOf(red));
-    try testing.expect(!red.supersetOf(black));
-
-    try testing.expect(empty.complement().eql(full));
-    try testing.expect(full.complement().eql(empty));
-    try testing.expect(black.complement().eql(red));
-    try testing.expect(red.complement().eql(black));
-
-    try testing.expect(empty.unionWith(empty).eql(empty));
-    try testing.expect(empty.unionWith(full).eql(full));
-    try testing.expect(full.unionWith(full).eql(full));
-    try testing.expect(full.unionWith(empty).eql(full));
-    try testing.expect(black.unionWith(red).eql(full));
-    try testing.expect(red.unionWith(black).eql(full));
-
-    try testing.expect(empty.intersectWith(empty).eql(empty));
-    try testing.expect(empty.intersectWith(full).eql(empty));
-    try testing.expect(full.intersectWith(full).eql(full));
-    try testing.expect(full.intersectWith(empty).eql(empty));
-    try testing.expect(black.intersectWith(red).eql(empty));
-    try testing.expect(red.intersectWith(black).eql(empty));
-
-    try testing.expect(empty.xorWith(empty).eql(empty));
-    try testing.expect(empty.xorWith(full).eql(full));
-    try testing.expect(full.xorWith(full).eql(empty));
-    try testing.expect(full.xorWith(empty).eql(full));
-    try testing.expect(black.xorWith(red).eql(full));
-    try testing.expect(red.xorWith(black).eql(full));
-
-    try testing.expect(empty.differenceWith(empty).eql(empty));
-    try testing.expect(empty.differenceWith(full).eql(empty));
-    try testing.expect(full.differenceWith(full).eql(empty));
-    try testing.expect(full.differenceWith(empty).eql(full));
-    try testing.expect(full.differenceWith(red).eql(black));
-    try testing.expect(full.differenceWith(black).eql(red));
-}
-
-test "EnumSet empty" {
-    const E = enum {};
-    const empty = EnumSet(E).initEmpty();
-    const full = EnumSet(E).initFull();
-
-    try std.testing.expect(empty.eql(full));
-    try std.testing.expect(empty.complement().eql(full));
-    try std.testing.expect(empty.complement().eql(full.complement()));
-    try std.testing.expect(empty.eql(full.complement()));
-}
-
-test "EnumSet const iterator" {
-    const Direction = enum { up, down, left, right };
-    const diag_move = init: {
-        var move = EnumSet(Direction).initEmpty();
-        move.insert(.right);
-        move.insert(.up);
-        break :init move;
-    };
-
-    var result = EnumSet(Direction).initEmpty();
-    var it = diag_move.iterator();
-    while (it.next()) |dir| {
-        result.insert(dir);
-    }
-
-    try testing.expect(result.eql(diag_move));
-}
-
-test "EnumSet non-exhaustive" {
-    const BitIndices = enum(u4) {
-        a = 0,
-        b = 1,
-        c = 4,
-        _,
-    };
-    const BitField = EnumSet(BitIndices);
-
-    var flags = BitField.init(.{ .a = true, .b = true });
-    flags.insert(.c);
-    flags.remove(.a);
-    try testing.expect(!flags.contains(.a));
-    try testing.expect(flags.contains(.b));
-    try testing.expect(flags.contains(.c));
+    var b = std.EnumArray(Enum1, u32).initFill(123);
+    var it1 = b.iterator();
+    try testing.expectEqual(it1.next().?.key, Enum1.x);
 }
 
 pub fn EnumIndexer(comptime E: type) type {
