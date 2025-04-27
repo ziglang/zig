@@ -772,6 +772,7 @@ pub const BodyWriter = struct {
     /// * `endChunked`
     pub fn endUnflushed(w: *BodyWriter) WriteError!void {
         switch (w.state) {
+            .end => unreachable,
             .content_length => |len| {
                 assert(len == 0); // Trips when end() called before all bytes written.
                 w.state = .end;
@@ -1033,6 +1034,7 @@ pub const BodyWriter = struct {
                     .writeSplat = chunkedWriteSplat,
                     .writeFile = chunkedWriteFile,
                 },
+                .end => unreachable,
             },
         };
     }

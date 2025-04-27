@@ -50,9 +50,14 @@ pub fn writeFile(
     try w.setPath(&header, sub_path);
     try header.setSize(stat.size);
     try header.setMtime(mtime);
-    try header.write(w.underlying_writer);
+    try header.updateChecksum();
 
-    try w.underlying_writer.writeFileAll(file, .{ .limit = .limited(stat.size) });
+    var vec: [1][]const u8 = .{@ptrCast((&header)[0..1])};
+    try w.underlying_writer.writeFileAll(file, .{
+        .limit = .limited(stat.size),
+        .headers_and_trailers = &vec,
+        .headers_len = 1,
+    });
     try w.writePadding(stat.size);
 }
 
