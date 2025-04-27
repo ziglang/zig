@@ -48,7 +48,7 @@ pub fn MemoryPoolAlignedWithAllocator(comptime Item: type, comptime alignment: A
 /// This type does not store an `Allocator` field - the `Allocator` must be passed in
 /// with each function call that requires it. See `MemoryPoolAlignedWithAllocator` for
 /// a type that stores an `Allocator` field for convenience.
-pub fn MemoryPoolAlignedUnmanaged(comptime Item: type, comptime alignment: u29) type {
+pub fn MemoryPoolAlignedUnmanaged(comptime Item: type, comptime alignment: Alignment) type {
     if (alignment.compare(.eq, .of(Item))) {
         return MemoryPoolExtraUnmanaged(Item, .{});
     } else {
