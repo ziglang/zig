@@ -39,6 +39,7 @@ pub const panic = struct {
     pub const forLenMismatch = no_panic.forLenMismatch;
     pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const memmoveLenMismatch = no_panic.memmoveLenMismatch;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
@@ -86,6 +87,7 @@ pub const panic = struct {
     pub const forLenMismatch = no_panic.forLenMismatch;
     pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const memmoveLenMismatch = no_panic.memmoveLenMismatch;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
@@ -133,6 +135,7 @@ pub const panic = struct {
     pub const forLenMismatch = no_panic.forLenMismatch;
     pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const memmoveLenMismatch = no_panic.memmoveLenMismatch;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanicNew(msg: []const u8, _: ?usize) noreturn {

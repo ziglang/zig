@@ -413,6 +413,7 @@ const Writer = struct {
             .min,
             .memcpy,
             .memset,
+            .memmove,
             .elem_ptr_node,
             .elem_val_node,
             .elem_ptr,

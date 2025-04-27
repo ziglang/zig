@@ -1583,6 +1583,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .memmove => {
+                try sema.zirMemmove(block, inst);
+                i += 1;
+                continue;
+            },
             .check_comptime_control_flow => {
                 if (!block.isComptime()) {
                     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
@@ -25610,6 +25615,19 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
 }
 
 fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    return sema.analyzeCopy(block, inst, .memcpy);
+}
+
+fn zirMemmove(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    return sema.analyzeCopy(block, inst, .memmove);
+}
+
+fn analyzeCopy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    op: enum { memcpy, memmove },
+) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = block.nodeOffset(inst_data.src_node);
@@ -25625,12 +25643,12 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const zcu = pt.zcu;
 
     if (dest_ty.isConstPtr(zcu)) {
-        return sema.fail(block, dest_src, "cannot memcpy to constant pointer", .{});
+        return sema.fail(block, dest_src, "cannot {s} to constant pointer", .{@tagName(op)});
     }
 
     if (dest_len == .none and src_len == .none) {
         const msg = msg: {
-            const msg = try sema.errMsg(src, "unknown @memcpy length", .{});
+            const msg = try sema.errMsg(src, "unknown @{s} length", .{@tagName(op)});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(dest_src, msg, "destination type '{}' provides no length", .{
                 dest_ty.fmt(pt),
@@ -25676,7 +25694,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
                 if (!(try sema.valuesEqual(dest_len_val, src_len_val, Type.usize))) {
                     const msg = msg: {
-                        const msg = try sema.errMsg(src, "non-matching @memcpy lengths", .{});
+                        const msg = try sema.errMsg(src, "non-matching @{s} lengths", .{@tagName(op)});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(dest_src, msg, "length {} here", .{
                             dest_len_val.fmtValueSema(pt, sema),
@@ -25696,7 +25714,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
+            const panic_id: Zcu.SimplePanicId = switch (op) {
+                .memcpy => .memcpy_len_mismatch,
+                .memmove => .memmove_len_mismatch,
+            };
+            try sema.addSafetyCheck(block, src, ok, panic_id);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25724,6 +25746,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         return;
     }
 
+    const check_aliasing = switch (op) {
+        .memcpy => true,
+        .memmove => false,
+    };
+
     const runtime_src = rs: {
         const dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr) orelse break :rs dest_src;
         const src_ptr_val = try sema.resolveDefinedValue(block, src_src, src_ptr) orelse break :rs src_src;
@@ -25733,12 +25760,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         const len_u64 = try len_val.?.toUnsignedIntSema(pt);
 
-        if (Value.doPointersOverlap(
-            raw_src_ptr,
-            raw_dest_ptr,
-            len_u64,
-            zcu,
-        )) return sema.fail(block, src, "'@memcpy' arguments alias", .{});
+        if (check_aliasing) {
+            if (Value.doPointersOverlap(
+                raw_src_ptr,
+                raw_dest_ptr,
+                len_u64,
+                zcu,
+            )) return sema.fail(block, src, "'@memcpy' arguments alias", .{});
+        }
 
         if (!sema.isComptimeMutablePtr(dest_ptr_val)) break :rs dest_src;
 
@@ -25810,7 +25839,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     try sema.validateRuntimeValue(block, src_src, src_ptr);
 
     // Aliasing safety check.
-    if (block.wantSafety()) {
+    if (check_aliasing and block.wantSafety()) {
         const len = if (len_val) |v|
             Air.internedToRef(v.toIntern())
         else if (dest_len != .none)
@@ -25853,7 +25882,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     }
 
     _ = try block.addInst(.{
-        .tag = .memcpy,
+        .tag = switch (op) {
+            .memcpy => .memcpy,
+            .memmove => .memmove,
+        },
         .data = .{ .bin_op = .{
             .lhs = new_dest_ptr,
             .rhs = new_src_ptr,
@@ -38078,6 +38110,7 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         .@"panic.forLenMismatch",
         .@"panic.memcpyLenMismatch",
         .@"panic.memcpyAlias",
+        .@"panic.memmoveLenMismatch",
         .@"panic.noreturnReturned",
         => try pt.funcType(.{
             .param_types = &.{},

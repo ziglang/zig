@@ -134,6 +134,10 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("@memcpy arguments alias", @returnAddress());
         }
+        pub fn memmoveLenMismatch() noreturn {
+            @branchHint(.cold);
+            call("@memmove arguments have non-equal lengths", @returnAddress());
+        }
         pub fn noreturnReturned() noreturn {
             @branchHint(.cold);
             call("'noreturn' function returned", @returnAddress());

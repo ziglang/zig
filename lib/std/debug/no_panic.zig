@@ -135,6 +135,11 @@ pub fn memcpyAlias() noreturn {
     @trap();
 }
 
+pub fn memmoveLenMismatch() noreturn {
+    @branchHint(.cold);
+    @trap();
+}
+
 pub fn noreturnReturned() noreturn {
     @branchHint(.cold);
     @trap();

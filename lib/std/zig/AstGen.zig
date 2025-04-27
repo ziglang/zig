@@ -2919,6 +2919,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .set_runtime_safety,
             .memcpy,
             .memset,
+            .memmove,
             .validate_deref,
             .validate_destructure,
             .save_err_ret_index,
@@ -9714,6 +9715,13 @@ fn builtinCall(
             _ = try gz.addPlNode(.memset, node, Zir.Inst.Bin{
                 .lhs = lhs,
                 .rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = elem_ty } }, params[1]),
+            });
+            return rvalue(gz, ri, .void_value, node);
+        },
+        .memmove => {
+            _ = try gz.addPlNode(.memmove, node, Zir.Inst.Bin{
+                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },

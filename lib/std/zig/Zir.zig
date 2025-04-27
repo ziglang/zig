@@ -986,6 +986,9 @@ pub const Inst = struct {
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memset,
+        /// Implements the `@memmove` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        memmove,
         /// Implements the `@min` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         min,
@@ -1272,6 +1275,7 @@ pub const Inst = struct {
                 .max,
                 .memcpy,
                 .memset,
+                .memmove,
                 .min,
                 .c_import,
                 .@"resume",
@@ -1355,6 +1359,7 @@ pub const Inst = struct {
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
+                .memmove,
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
@@ -1832,6 +1837,7 @@ pub const Inst = struct {
                 .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
+                .memmove = .pl_node,
                 .min = .pl_node,
                 .c_import = .pl_node,
 
@@ -4291,6 +4297,7 @@ fn findTrackableInner(
         .mul_add,
         .memcpy,
         .memset,
+        .memmove,
         .min,
         .max,
         .alloc,
