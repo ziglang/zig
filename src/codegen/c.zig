@@ -3348,8 +3348,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .atomic_load      => try airAtomicLoad(f, inst),
             .memset           => try airMemset(f, inst, false),
             .memset_safe      => try airMemset(f, inst, true),
-            .memcpy           => try airMemcpy(f, inst),
-            .memmove          => try airMemmove(f, inst),
+            .memcpy           => try airMemcpy(f, inst, "memcpy("),
+            .memmove          => try airMemcpy(f, inst, "memmove("),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
             .clz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "clz", .bits),
@@ -6976,15 +6976,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     return .none;
 }
 
-fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
-    return copyOp(f, inst, .memcpy);
-}
-
-fn airMemmove(f: *Function, inst: Air.Inst.Index) !CValue {
-    return copyOp(f, inst, .memmove);
-}
-
-fn copyOp(f: *Function, inst: Air.Inst.Index, op: enum { memcpy, memmove }) !CValue {
+fn airMemcpy(f: *Function, inst: Air.Inst.Index, function_paren: []const u8) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -6999,10 +6991,6 @@ fn copyOp(f: *Function, inst: Air.Inst.Index, op: enum { memcpy, memmove }) !CVa
         try writeArrayLen(f, writer, dest_ptr, dest_ty);
         try writer.writeAll(" != 0) ");
     }
-    const function_paren = switch (op) {
-        .memcpy => "memcpy(",
-        .memmove => "memmove(",
-    };
     try writer.writeAll(function_paren);
     try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
