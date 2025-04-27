@@ -419,10 +419,10 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
@@ -431,10 +431,10 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasNonEmptyEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         const value = getenvW(key_w) orelse return false;
         return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -451,10 +451,10 @@ pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariab
 ///
 /// Since the key is comptime-known, no allocation is needed.
 ///
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(key);
         const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -527,31 +527,33 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         @compileError("Windows-only");
     }
     const key_slice = mem.sliceTo(key, 0);
+    // '=' anywhere but the start makes this an invalid environment variable name
+    if (key_slice.len > 0 and std.mem.indexOfScalar(u16, key_slice[1..], '=') != null) {
+        return null;
+    }
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
     while (ptr[i] != 0) {
-        const key_start = i;
+        const key_value = mem.sliceTo(ptr[i..], 0);
 
         // There are some special environment variables that start with =,
         // so we need a special case to not treat = as a key/value separator
         // if it's the first character.
         // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
-        if (ptr[key_start] == '=') i += 1;
+        const equal_search_start: usize = if (key_value[0] == '=') 1 else 0;
+        const equal_index = std.mem.indexOfScalarPos(u16, key_value, equal_search_start, '=') orelse {
+            // This is enforced by CreateProcess.
+            // If violated, CreateProcess will fail with INVALID_PARAMETER.
+            unreachable; // must contain a =
+        };
 
-        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-        const this_key = ptr[key_start..i];
-
-        if (ptr[i] == '=') i += 1;
-
-        const value_start = i;
-        while (ptr[i] != 0) : (i += 1) {}
-        const this_value = ptr[value_start..i :0];
-
+        const this_key = key_value[0..equal_index];
         if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
-            return this_value;
+            return key_value[equal_index + 1 ..];
         }
 
-        i += 1; // skip over null byte
+        // skip past the NUL terminator
+        i += key_value.len + 1;
     }
     return null;
 }
@@ -1254,7 +1256,7 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     const slice_sizes = slice_list.items;
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
-    const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+    const buf = try allocator.alignedAlloc(u8, .of([]u8), total_bytes);
     errdefer allocator.free(buf);
 
     const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
@@ -1652,14 +1654,15 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 pub fn getBaseAddress() usize {
     switch (native_os) {
         .linux => {
-            const base = std.os.linux.getauxval(std.elf.AT_BASE);
+            const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
+            const base = getauxval(std.elf.AT_BASE);
             if (base != 0) {
                 return base;
             }
-            const phdr = std.os.linux.getauxval(std.elf.AT_PHDR);
+            const phdr = getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        .macos, .freebsd, .netbsd => {
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
@@ -1745,7 +1748,12 @@ pub const TotalSystemMemoryError = error{
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (native_os) {
         .linux => {
-            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+            var info: std.os.linux.Sysinfo = undefined;
+            const result: usize = std.os.linux.sysinfo(&info);
+            if (std.os.linux.E.init(result) != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            return info.totalram * info.mem_unit;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
@@ -1788,22 +1796,6 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         },
         else => return error.UnknownTotalSystemMemory,
     }
-}
-
-fn totalSystemMemoryLinux() !u64 {
-    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
-    defer file.close();
-    var buf: [50]u8 = undefined;
-    const amt = try file.read(&buf);
-    if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
-    const label = it.next().?;
-    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
-    const int_text = it.next() orelse return error.Unexpected;
-    const units = it.next() orelse return error.Unexpected;
-    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
-    const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
-    return kilobytes * 1024;
 }
 
 /// Indicate that we are now terminating with a successful exit code.
@@ -2036,7 +2028,8 @@ test createNullDelimitedEnvMap {
 pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        // Only need 2 trailing NUL code units for an empty environment
+        var max_chars_needed: usize = if (env_map.count() == 0) 2 else 1;
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -2060,12 +2053,14 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     }
     result[i] = 0;
     i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
+    // An empty environment is a special case that requires a redundant
+    // NUL terminator. CreateProcess will read the second code unit even
+    // though theoretically the first should be enough to recognize that the
+    // environment is empty (see https://nullprogram.com/blog/2023/08/23/)
+    if (env_map.count() == 0) {
+        result[i] = 0;
+        i += 1;
+    }
     return try allocator.realloc(result, i);
 }
 

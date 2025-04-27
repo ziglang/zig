@@ -2607,12 +2607,12 @@ insque:
 .globl ioctl
 .type ioctl, %function;
 ioctl:
-#if !defined(ARCH_aarch64) && !defined(ARCH_arm) && !defined(ARCH_loongarch64) && !defined(ARCH_mips64) && !defined(ARCH_mipsn32) && !defined(ARCH_riscv32) && !defined(ARCH_riscv64) && !defined(ARCH_s390x)
+#if !defined(ARCH_aarch64) && !defined(ARCH_arm) && !defined(ARCH_hexagon) && !defined(ARCH_loongarch64) && !defined(ARCH_mips64) && !defined(ARCH_mipsn32) && !defined(ARCH_riscv32) && !defined(ARCH_riscv64) && !defined(ARCH_s390x)
 .globl ioperm
 .type ioperm, %function;
 ioperm:
 #endif
-#if !defined(ARCH_aarch64) && !defined(ARCH_arm) && !defined(ARCH_loongarch64) && !defined(ARCH_mips64) && !defined(ARCH_mipsn32) && !defined(ARCH_riscv32) && !defined(ARCH_riscv64) && !defined(ARCH_s390x)
+#if !defined(ARCH_aarch64) && !defined(ARCH_arm) && !defined(ARCH_hexagon) && !defined(ARCH_loongarch64) && !defined(ARCH_mips64) && !defined(ARCH_mipsn32) && !defined(ARCH_riscv32) && !defined(ARCH_riscv64) && !defined(ARCH_s390x)
 .globl iopl
 .type iopl, %function;
 iopl:

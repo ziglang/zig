@@ -25,9 +25,7 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :2:16: error: use of undefined value here causes undefined behavior
-// :5:16: error: use of undefined value here causes undefined behavior
-// :17:16: error: use of undefined value here causes undefined behavior
+// :2:16: error: use of undefined value here causes illegal behavior
+// :5:16: error: use of undefined value here causes illegal behavior
+// :17:16: error: use of undefined value here causes illegal behavior

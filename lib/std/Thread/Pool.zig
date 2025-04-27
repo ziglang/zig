@@ -5,7 +5,7 @@ const WaitGroup = @import("WaitGroup.zig");
 
 mutex: std.Thread.Mutex = .{},
 cond: std.Thread.Condition = .{},
-run_queue: RunQueue = .{},
+run_queue: std.SinglyLinkedList = .{},
 is_running: bool = true,
 allocator: std.mem.Allocator,
 threads: if (builtin.single_threaded) [0]std.Thread else []std.Thread,
@@ -16,9 +16,9 @@ ids: if (builtin.single_threaded) struct {
     }
 } else std.AutoArrayHashMapUnmanaged(std.Thread.Id, void),
 
-const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: RunProto,
+    node: std.SinglyLinkedList.Node = .{},
 };
 
 const RunProto = *const fn (*Runnable, id: ?usize) void;
@@ -110,12 +110,11 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
     const Closure = struct {
         arguments: Args,
         pool: *Pool,
-        run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
+        runnable: Runnable = .{ .runFn = runFn },
         wait_group: *WaitGroup,
 
         fn runFn(runnable: *Runnable, _: ?usize) void {
-            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
-            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
+            const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
             @call(.auto, func, closure.arguments);
             closure.wait_group.finish();
 
@@ -143,7 +142,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
             .wait_group = wait_group,
         };
 
-        pool.run_queue.prepend(&closure.run_node);
+        pool.run_queue.prepend(&closure.runnable.node);
         pool.mutex.unlock();
     }
 
@@ -173,12 +172,11 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
     const Closure = struct {
         arguments: Args,
         pool: *Pool,
-        run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
+        runnable: Runnable = .{ .runFn = runFn },
         wait_group: *WaitGroup,
 
         fn runFn(runnable: *Runnable, id: ?usize) void {
-            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
-            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
+            const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
             @call(.auto, func, .{id.?} ++ closure.arguments);
             closure.wait_group.finish();
 
@@ -207,7 +205,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
             .wait_group = wait_group,
         };
 
-        pool.run_queue.prepend(&closure.run_node);
+        pool.run_queue.prepend(&closure.runnable.node);
         pool.mutex.unlock();
     }
 
@@ -225,11 +223,10 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     const Closure = struct {
         arguments: Args,
         pool: *Pool,
-        run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
+        runnable: Runnable = .{ .runFn = runFn },
 
         fn runFn(runnable: *Runnable, _: ?usize) void {
-            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
-            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
+            const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
             @call(.auto, func, closure.arguments);
 
             // The thread pool's allocator is protected by the mutex.
@@ -251,7 +248,7 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
             .pool = pool,
         };
 
-        pool.run_queue.prepend(&closure.run_node);
+        pool.run_queue.prepend(&closure.runnable.node);
     }
 
     // Notify waiting threads outside the lock to try and keep the critical section small.
@@ -292,7 +289,8 @@ fn worker(pool: *Pool) void {
             pool.mutex.unlock();
             defer pool.mutex.lock();
 
-            run_node.data.runFn(&run_node.data, id);
+            const runnable: *Runnable = @fieldParentPtr("node", run_node);
+            runnable.runFn(runnable, id);
         }
 
         // Stop executing instead of waiting if the thread pool is no longer running.
@@ -312,7 +310,8 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
         if (pool.run_queue.popFirst()) |run_node| {
             id = id orelse pool.ids.getIndex(std.Thread.getCurrentId());
             pool.mutex.unlock();
-            run_node.data.runFn(&run_node.data, id);
+            const runnable: *Runnable = @fieldParentPtr("node", run_node);
+            runnable.runFn(runnable, id);
             continue;
         }
 

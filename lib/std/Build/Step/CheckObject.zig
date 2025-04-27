@@ -563,7 +563,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         src_path.sub_path,
         check_object.max_bytes,
         null,
-        @alignOf(u64),
+        .of(u64),
         null,
     ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
 

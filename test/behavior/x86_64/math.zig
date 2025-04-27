@@ -153,6 +153,9 @@ pub noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comp
                 );
             },
         },
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
+            try checkExpected(@field(expected, field.name), @field(actual, field.name), compare);
+        } else return,
     };
     if (switch (@typeInfo(Expected)) {
         else => unexpected,

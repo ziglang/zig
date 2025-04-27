@@ -14,6 +14,7 @@
 #include <__concepts/derived_from.h>
 #include <__concepts/movable.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__fwd/istream.h>
 #include <__fwd/string.h>
 #include <__iterator/default_sentinel.h>
@@ -22,7 +23,6 @@
 #include <__ranges/view_interface.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -99,7 +99,7 @@ private:
 template <class _Val>
 using istream_view = basic_istream_view<_Val, char>;
 
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <class _Val>
 using wistream_view = basic_istream_view<_Val, wchar_t>;
 #  endif

@@ -12,7 +12,7 @@ namespace std {
 const char* bad_any_cast::what() const noexcept { return "bad any cast"; }
 } // namespace std
 
-#include <experimental/__config>
+#include <__config>
 
 //  Preserve std::experimental::any_bad_cast for ABI compatibility
 //  Even though it no longer exists in a header file

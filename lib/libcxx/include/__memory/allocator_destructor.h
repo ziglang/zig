@@ -20,11 +20,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Alloc>
 class __allocator_destructor {
-  typedef _LIBCPP_NODEBUG allocator_traits<_Alloc> __alloc_traits;
+  using __alloc_traits _LIBCPP_NODEBUG = allocator_traits<_Alloc>;
 
 public:
-  typedef _LIBCPP_NODEBUG typename __alloc_traits::pointer pointer;
-  typedef _LIBCPP_NODEBUG typename __alloc_traits::size_type size_type;
+  using pointer _LIBCPP_NODEBUG   = typename __alloc_traits::pointer;
+  using size_type _LIBCPP_NODEBUG = typename __alloc_traits::size_type;
 
 private:
   _Alloc& __alloc_;

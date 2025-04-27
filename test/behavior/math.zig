@@ -65,7 +65,6 @@ test "@clz" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -787,7 +786,6 @@ fn should_not_be_zero(x: f128) !void {
 
 test "umax wrapped squaring" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
@@ -1050,13 +1048,13 @@ test "@mulWithOverflow bitsize > 32" {
 }
 
 test "@mulWithOverflow bitsize 128 bits" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555555, 0xffffffffffffffff_ffffffffffffffff, 0);
     try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555556, 2, 1);
@@ -1070,13 +1068,19 @@ test "@mulWithOverflow bitsize 128 bits" {
     try testMulWithOverflow(i128, 3, -0x2aaaaaaaaaaaaaaa_aaaaaaaaaaaaaaab, 0x7fffffffffffffff_ffffffffffffffff, 1);
     try testMulWithOverflow(i128, -1, -1, 1, 0);
     try testMulWithOverflow(i128, minInt(i128), minInt(i128), 0, 1);
+
+    try testMulWithOverflow(i128, 1 << 126, 1 << 1, -1 << 127, 1);
+    try testMulWithOverflow(i128, -1 << 105, 1 << 22, -1 << 127, 0);
+    try testMulWithOverflow(i128, 1 << 84, -1 << 43, -1 << 127, 0);
+    try testMulWithOverflow(i128, -1 << 63, -1 << 64, -1 << 127, 1);
 }
 
-test "@mulWithOverflow u256" {
+test "@mulWithOverflow bitsize 256 bits" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     {
         const const_lhs: u256 = 8035709466408580321693645878924206181189;
@@ -1106,6 +1110,10 @@ test "@mulWithOverflow u256" {
         try std.testing.expect(var_result[0] == const_result[0]);
         try std.testing.expect(var_result[1] == const_result[1]);
     }
+    try testMulWithOverflow(i256, 1 << 254, 1 << 1, -1 << 255, 1);
+    try testMulWithOverflow(i256, -1 << 212, 1 << 43, -1 << 255, 0);
+    try testMulWithOverflow(i256, 1 << 170, -1 << 85, -1 << 255, 0);
+    try testMulWithOverflow(i256, -1 << 128, -1 << 127, -1 << 255, 1);
 }
 
 fn testSubWithOverflow(comptime T: type, a: T, b: T, sub: T, bit: u1) !void {
@@ -1899,6 +1907,7 @@ test "partially-runtime integer vector division would be illegal if vector eleme
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
 
     var lhs: @Vector(2, i8) = .{ -128, 5 };
     const rhs: @Vector(2, i8) = .{ 1, -1 };

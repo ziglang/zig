@@ -97,12 +97,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                             op_index -= 1;
                             const op = lowered_inst.encoding.data.ops[op_index];
                             if (op == .none) continue;
-                            const enc_length: u4 = @intCast(
-                                std.math.divCeil(u7, @intCast(op.immBitSize()), 8) catch unreachable,
-                            );
+                            const is_mem = op.isMemory();
+                            const enc_length: u4 = if (is_mem) switch (lowered_inst.ops[op_index].mem.sib.base) {
+                                .rip_inst => 4,
+                                else => unreachable,
+                            } else @intCast(std.math.divCeil(u7, @intCast(op.immBitSize()), 8) catch unreachable);
                             reloc_offset -= enc_length;
-                            if (op_index == lowered_relocs[0].op_index)
-                                break :reloc_offset_length .{ reloc_offset, enc_length };
+                            if (op_index == lowered_relocs[0].op_index) break :reloc_offset_length .{ reloc_offset, enc_length };
+                            std.debug.assert(!is_mem);
                         }
                     };
                     try relocs.append(emit.lower.allocator, .{
@@ -434,7 +436,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             loc_buf[0] = switch (mem.base()) {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
-                                                .frame, .table => unreachable,
+                                                .frame, .table, .rip_inst => unreachable,
                                                 .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
                                             };
                                             break :base &loc_buf[0];

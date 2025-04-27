@@ -14,7 +14,7 @@ const pwhash = crypto.pwhash;
 
 const Thread = std.Thread;
 const Blake2b512 = blake2.Blake2b512;
-const Blocks = std.ArrayListAligned([block_length]u64, 16);
+const Blocks = std.ArrayListAligned([block_length]u64, .@"16");
 const H0 = [Blake2b512.digest_length + 8]u8;
 
 const EncodingError = crypto.errors.EncodingError;

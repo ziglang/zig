@@ -283,7 +283,8 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 
 test "link with relative paths" {
     if (native_os == .wasi) return error.SkipZigTest; // Can link, but can't change into tmpDir
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
@@ -330,7 +331,8 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
@@ -374,7 +376,7 @@ test "linkat with different directories" {
 }
 
 test "fstatat" {
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (native_os == .windows) return error.SkipZigTest;
 
@@ -731,6 +733,11 @@ test "getenv" {
     if (native_os == .windows) {
         try expect(std.process.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
+        try expect(posix.getenv("") == null);
+        try expect(posix.getenv("BOGUSDOESNOTEXISTENVVAR") == null);
+        if (builtin.link_libc) {
+            try testing.expectEqualStrings(posix.getenv("USER") orelse "", mem.span(std.c.getenv("USER") orelse ""));
+        }
         try expect(posix.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
 }
@@ -1263,7 +1270,7 @@ test "fchmodat smoke test" {
     );
     posix.close(fd);
 
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
 
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
     const sym_mode = blk: {

@@ -1438,7 +1438,7 @@ pub const WipNav = struct {
     debug_info: std.ArrayListUnmanaged(u8),
     debug_line: std.ArrayListUnmanaged(u8),
     debug_loclists: std.ArrayListUnmanaged(u8),
-    pending_lazy: std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: PendingLazy,
 
     pub fn deinit(wip_nav: *WipNav) void {
         const gpa = wip_nav.dwarf.gpa;
@@ -1447,7 +1447,8 @@ pub const WipNav = struct {
         wip_nav.debug_info.deinit(gpa);
         wip_nav.debug_line.deinit(gpa);
         wip_nav.debug_loclists.deinit(gpa);
-        wip_nav.pending_lazy.deinit(gpa);
+        wip_nav.pending_lazy.types.deinit(gpa);
+        wip_nav.pending_lazy.values.deinit(gpa);
     }
 
     pub fn genDebugFrame(wip_nav: *WipNav, loc: u32, cfa: Cfa) UpdateError!void {
@@ -1834,7 +1835,7 @@ pub const WipNav = struct {
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        if (maybe_inst_index == null) try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, ty.toIntern());
+        if (maybe_inst_index == null) try wip_nav.pending_lazy.types.append(wip_nav.dwarf.gpa, ty.toIntern());
         return .{ unit, entry };
     }
 
@@ -1848,14 +1849,16 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
-        if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (!value.isUndef(zcu)) {
+            if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
+            if (ip.isFunctionType(ty.toIntern())) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        }
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, value.toIntern());
+        try wip_nav.pending_lazy.values.append(wip_nav.dwarf.gpa, value.toIntern());
         return .{ unit, entry };
     }
 
@@ -2051,12 +2054,20 @@ pub const WipNav = struct {
         try wip_nav.infoSectionOffset(.debug_info, wip_nav.unit, generic_decl_entry, 0);
     }
 
+    const PendingLazy = struct {
+        types: std.ArrayListUnmanaged(InternPool.Index),
+        values: std.ArrayListUnmanaged(InternPool.Index),
+
+        const empty: PendingLazy = .{ .types = .empty, .values = .empty };
+    };
+
     fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) UpdateError!void {
-        const ip = &wip_nav.pt.zcu.intern_pool;
-        while (wip_nav.pending_lazy.pop()) |val| switch (ip.typeOf(val)) {
-            .type_type => try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-            else => try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-        };
+        while (true) if (wip_nav.pending_lazy.types.pop()) |pending_ty|
+            try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, pending_ty, &wip_nav.pending_lazy)
+        else if (wip_nav.pending_lazy.values.pop()) |pending_val|
+            try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, pending_val, &wip_nav.pending_lazy)
+        else
+            break;
     }
 };
 
@@ -3133,7 +3144,7 @@ fn updateLazyType(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     type_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -3635,7 +3646,7 @@ fn updateLazyValue(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     value_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;

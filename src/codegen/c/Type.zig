@@ -78,7 +78,7 @@ pub fn isInteger(ctype: CType) bool {
 
 pub fn signedness(ctype: CType, mod: *Module) std.builtin.Signedness {
     return switch (ctype.index) {
-        .char => mod.resolved_target.result.charSignedness(),
+        .char => mod.resolved_target.result.cCharSignedness(),
         .@"signed char",
         .short,
         .int,
@@ -1319,10 +1319,9 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align = Type.intAbiAlignment(int_info.bits, target.*);
-                const abi_align_bytes = abi_align.toByteUnits().?;
+                const abi_align_bytes = std.zig.target.intAlignment(target.*, int_info.bits);
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*), abi_align_bytes),
+                    .len = @divExact(std.zig.target.intByteSize(target.*, int_info.bits), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1333,7 +1332,7 @@ pub const Pool = struct {
                     .{
                         .name = .{ .index = .array },
                         .ctype = array_ctype,
-                        .alignas = AlignAs.fromAbiAlignment(abi_align),
+                        .alignas = AlignAs.fromAbiAlignment(.fromByteUnits(abi_align_bytes)),
                     },
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1437,7 +1436,7 @@ pub const Pool = struct {
                         .name = .{ .index = .len },
                         .ctype = .usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            Type.intAbiAlignment(target.ptrBitWidth(), target.*),
+                            .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
                         ),
                     },
                 };
@@ -1937,7 +1936,7 @@ pub const Pool = struct {
                                 .name = .{ .index = .len },
                                 .ctype = .usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*),
+                                    .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
                                 ),
                             },
                         };
@@ -2057,7 +2056,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.intAbiAlignment(error_set_bits, target.*),
+                                .fromByteUnits(std.zig.target.intAlignment(target.*, error_set_bits)),
                             ),
                         },
                         .{

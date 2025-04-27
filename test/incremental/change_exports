@@ -1,0 +1,161 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+
+#update=initial version
+#file=main.zig
+export fn foo() void {}
+const bar: u32 = 123;
+const other: u32 = 456;
+comptime {
+    @export(&bar, .{ .name = "bar" });
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{}\n", .{S.bar});
+}
+const std = @import("std");
+#expect_stdout="123\n"
+
+#update=add conflict
+#file=main.zig
+export fn foo() void {}
+const bar: u32 = 123;
+const other: u32 = 456;
+comptime {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "foo" });
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+        extern const other: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+}
+const std = @import("std");
+#expect_error=main.zig:6:5: error: exported symbol collision: foo
+#expect_error=main.zig:1:1: note: other symbol here
+
+#update=resolve conflict
+#file=main.zig
+export fn foo() void {}
+const bar: u32 = 123;
+const other: u32 = 456;
+comptime {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "other" });
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+        extern const other: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+}
+const std = @import("std");
+#expect_stdout="123 456\n"
+
+#update=put exports in decl
+#file=main.zig
+export fn foo() void {}
+const bar: u32 = 123;
+const other: u32 = 456;
+const does_exports = {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "other" });
+};
+comptime {
+    _ = does_exports;
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+        extern const other: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+}
+const std = @import("std");
+#expect_stdout="123 456\n"
+
+#update=remove reference to exporting decl
+#file=main.zig
+export fn foo() void {}
+const bar: u32 = 123;
+const other: u32 = 456;
+const does_exports = {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "other" });
+};
+comptime {
+    //_ = does_exports;
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+    };
+    S.foo();
+}
+const std = @import("std");
+#expect_stdout=""
+
+#update=mark consts as export
+#file=main.zig
+export fn foo() void {}
+export const bar: u32 = 123;
+export const other: u32 = 456;
+const does_exports = {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "other" });
+};
+comptime {
+    //_ = does_exports;
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+        extern const other: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+}
+const std = @import("std");
+#expect_stdout="123 456\n"
+
+#update=reintroduce reference to exporting decl, introducing conflict
+#file=main.zig
+export fn foo() void {}
+export const bar: u32 = 123;
+export const other: u32 = 456;
+const does_exports = {
+    @export(&bar, .{ .name = "bar" });
+    @export(&other, .{ .name = "other" });
+};
+comptime {
+    _ = does_exports;
+}
+pub fn main() !void {
+    const S = struct {
+        extern fn foo() void;
+        extern const bar: u32;
+        extern const other: u32;
+    };
+    S.foo();
+    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+}
+const std = @import("std");
+#expect_error=main.zig:5:5: error: exported symbol collision: bar
+#expect_error=main.zig:2:1: note: other symbol here
+#expect_error=main.zig:6:5: error: exported symbol collision: other
+#expect_error=main.zig:3:1: note: other symbol here

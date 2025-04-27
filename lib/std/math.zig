@@ -4,6 +4,7 @@ const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Alignment = std.mem.Alignment;
 
 /// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
@@ -1084,19 +1085,16 @@ test cast {
 
 pub const AlignCastError = error{UnalignedMemory};
 
-fn AlignCastResult(comptime alignment: u29, comptime Ptr: type) type {
+fn AlignCastResult(comptime alignment: Alignment, comptime Ptr: type) type {
     var ptr_info = @typeInfo(Ptr);
-    ptr_info.pointer.alignment = alignment;
+    ptr_info.pointer.alignment = alignment.toByteUnits();
     return @Type(ptr_info);
 }
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
-    const addr = @intFromPtr(ptr);
-    if (addr % alignment != 0) {
-        return error.UnalignedMemory;
-    }
-    return @alignCast(ptr);
+pub fn alignCast(comptime alignment: Alignment, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
+    if (alignment.check(@intFromPtr(ptr))) return @alignCast(ptr);
+    return error.UnalignedMemory;
 }
 
 /// Asserts `int > 0`.

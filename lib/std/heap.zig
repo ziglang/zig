@@ -7,6 +7,7 @@ const mem = std.mem;
 const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
+const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
@@ -153,7 +154,7 @@ const CAllocator = struct {
         return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
     }
 
-    fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
+    fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
         const alignment_bytes = alignment.toByteUnits();
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
@@ -201,7 +202,7 @@ const CAllocator = struct {
     fn alloc(
         _: *anyopaque,
         len: usize,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) ?[*]u8 {
         _ = return_address;
@@ -212,7 +213,7 @@ const CAllocator = struct {
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) bool {
@@ -233,7 +234,7 @@ const CAllocator = struct {
     fn remap(
         context: *anyopaque,
         memory: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
@@ -245,7 +246,7 @@ const CAllocator = struct {
     fn free(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) void {
         _ = alignment;
@@ -281,7 +282,7 @@ const raw_c_allocator_vtable: Allocator.VTable = .{
 fn rawCAlloc(
     context: *anyopaque,
     len: usize,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) ?[*]u8 {
     _ = context;
@@ -299,7 +300,7 @@ fn rawCAlloc(
 fn rawCResize(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) bool {
@@ -314,7 +315,7 @@ fn rawCResize(
 fn rawCRemap(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) ?[*]u8 {
@@ -327,7 +328,7 @@ fn rawCRemap(
 fn rawCFree(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) void {
     _ = context;
@@ -425,7 +426,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn alloc(
             ctx: *anyopaque,
             len: usize,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -436,7 +437,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             ra: usize,
         ) bool {
@@ -451,7 +452,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn remap(
             context: *anyopaque,
             memory: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             return_address: usize,
         ) ?[*]u8 {
@@ -466,7 +467,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -512,7 +513,7 @@ test PageAllocator {
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, page_size_min, 128);
+        const slice = try allocator.alignedAlloc(u8, .fromByteUnits(page_size_min), 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -609,7 +610,7 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     // Test a few alignment values, smaller and bigger than the type's one
-    inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
+    inline for ([_]Alignment{ .@"1", .@"2", .@"4", .@"8", .@"16", .@"32", .@"64" }) |alignment| {
         // initial
         var slice = try allocator.alignedAlloc(u8, alignment, 10);
         try testing.expect(slice.len == 10);
@@ -640,7 +641,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
+    var slice = try allocator.alignedAlloc(u8, .fromByteUnits(large_align), 500);
     try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 100)) {
@@ -669,7 +670,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const debug_allocator = fib.allocator();
 
     const alloc_size = pageSize() * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
@@ -679,7 +680,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // fail, because of this high over-alignment we want to have.
     while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);

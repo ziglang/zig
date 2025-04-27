@@ -808,3 +808,10 @@ test "reify enum where fields refers to part of array" {
     try testing.expect(b == .bar);
     try testing.expect(a != b);
 }
+
+test "undefined type value" {
+    const S = struct {
+        const undef_type: type = undefined;
+    };
+    comptime assert(@TypeOf(S.undef_type) == type);
+}

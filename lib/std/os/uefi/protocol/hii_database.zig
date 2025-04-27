@@ -4,14 +4,15 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.hii;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Database manager for HII-related data structures.
 pub const HiiDatabase = extern struct {
     _new_package_list: Status, // TODO
-    _remove_package_list: *const fn (*const HiiDatabase, hii.Handle) callconv(cc) Status,
-    _update_package_list: *const fn (*const HiiDatabase, hii.Handle, *const hii.PackageList) callconv(cc) Status,
+    _remove_package_list: *const fn (*HiiDatabase, hii.Handle) callconv(cc) Status,
+    _update_package_list: *const fn (*HiiDatabase, hii.Handle, *const hii.PackageList) callconv(cc) Status,
     _list_package_lists: *const fn (*const HiiDatabase, u8, ?*const Guid, *usize, [*]hii.Handle) callconv(cc) Status,
-    _export_package_lists: *const fn (*const HiiDatabase, ?hii.Handle, *usize, *hii.PackageList) callconv(cc) Status,
+    _export_package_lists: *const fn (*const HiiDatabase, ?hii.Handle, *usize, [*]hii.PackageList) callconv(cc) Status,
     _register_package_notify: Status, // TODO
     _unregister_package_notify: Status, // TODO
     _find_keyboard_layouts: Status, // TODO
@@ -19,24 +20,84 @@ pub const HiiDatabase = extern struct {
     _set_keyboard_layout: Status, // TODO
     _get_package_list_handle: Status, // TODO
 
+    pub const RemovePackageListError = uefi.UnexpectedError || error{NotFound};
+    pub const UpdatePackageListError = uefi.UnexpectedError || error{
+        OutOfResources,
+        InvalidParameter,
+        NotFound,
+    };
+    pub const ListPackageListsError = uefi.UnexpectedError || error{
+        BufferTooSmall,
+        InvalidParameter,
+        NotFound,
+    };
+    pub const ExportPackageListError = uefi.UnexpectedError || error{
+        BufferTooSmall,
+        InvalidParameter,
+        NotFound,
+    };
+
     /// Removes a package list from the HII database.
-    pub fn removePackageList(self: *const HiiDatabase, handle: hii.Handle) Status {
-        return self._remove_package_list(self, handle);
+    pub fn removePackageList(self: *HiiDatabase, handle: hii.Handle) !void {
+        switch (self._remove_package_list(self, handle)) {
+            .success => {},
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Update a package list in the HII database.
-    pub fn updatePackageList(self: *const HiiDatabase, handle: hii.Handle, buffer: *const hii.PackageList) Status {
-        return self._update_package_list(self, handle, buffer);
+    pub fn updatePackageList(
+        self: *HiiDatabase,
+        handle: hii.Handle,
+        buffer: *const hii.PackageList,
+    ) UpdatePackageListError!void {
+        switch (self._update_package_list(self, handle, buffer)) {
+            .success => {},
+            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Determines the handles that are currently active in the database.
-    pub fn listPackageLists(self: *const HiiDatabase, package_type: u8, package_guid: ?*const Guid, buffer_length: *usize, handles: [*]hii.Handle) Status {
-        return self._list_package_lists(self, package_type, package_guid, buffer_length, handles);
+    pub fn listPackageLists(
+        self: *const HiiDatabase,
+        package_type: u8,
+        package_guid: ?*const Guid,
+        handles: []hii.Handle,
+    ) ListPackageListsError![]hii.Handle {
+        var len: usize = handles.len;
+        switch (self._list_package_lists(
+            self,
+            package_type,
+            package_guid,
+            &len,
+            handles.ptr,
+        )) {
+            .success => return handles[0..len],
+            .buffer_too_small => return Error.BufferTooSmall,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Exports the contents of one or all package lists in the HII database into a buffer.
-    pub fn exportPackageLists(self: *const HiiDatabase, handle: ?hii.Handle, buffer_size: *usize, buffer: *hii.PackageList) Status {
-        return self._export_package_lists(self, handle, buffer_size, buffer);
+    pub fn exportPackageLists(
+        self: *const HiiDatabase,
+        handle: ?hii.Handle,
+        buffer: []hii.PackageList,
+    ) ExportPackageListError![]hii.PackageList {
+        var len = buffer.len;
+        switch (self._export_package_lists(self, handle, &len, buffer.ptr)) {
+            .success => return buffer[0..len],
+            .buffer_too_small => return Error.BufferTooSmall,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

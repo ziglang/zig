@@ -60,6 +60,7 @@ const glibc_targets = [_]LibCTarget{
 const musl_targets = [_]LibCTarget{
     .{ .arch = .arm, .abi = .musl },
     .{ .arch = .aarch64, .abi = .musl },
+    .{ .arch = .hexagon, .abi = .musl },
     .{ .arch = .loongarch64, .abi = .musl },
     .{ .arch = .m68k, .abi = .musl },
     .{ .arch = .mips, .abi = .musl },

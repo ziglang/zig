@@ -455,7 +455,7 @@ pub const Os = struct {
                     .linux = .{
                         .range = .{
                             .min = blk: {
-                                const default_min: std.SemanticVersion = .{ .major = 4, .minor = 19, .patch = 0 };
+                                const default_min: std.SemanticVersion = .{ .major = 5, .minor = 10, .patch = 0 };
 
                                 for (std.zig.target.available_libcs) |libc| {
                                     if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
@@ -470,7 +470,28 @@ pub const Os = struct {
                             .max = .{ .major = 6, .minor = 13, .patch = 4 },
                         },
                         .glibc = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
+                            // For 32-bit targets that traditionally used 32-bit time, we require
+                            // glibc 2.34 for full 64-bit time support. For everything else, we only
+                            // require glibc 2.31.
+                            const default_min: std.SemanticVersion = switch (arch) {
+                                .arm,
+                                .armeb,
+                                .csky,
+                                .m68k,
+                                .mips,
+                                .mipsel,
+                                .powerpc,
+                                .sparc,
+                                .x86,
+                                => .{ .major = 2, .minor = 34, .patch = 0 },
+                                .mips64,
+                                .mips64el,
+                                => if (abi == .gnuabin32)
+                                    .{ .major = 2, .minor = 34, .patch = 0 }
+                                else
+                                    .{ .major = 2, .minor = 31, .patch = 0 },
+                                else => .{ .major = 2, .minor = 31, .patch = 0 },
+                            };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.os != tag or libc.arch != arch or libc.abi != abi) continue;
@@ -500,25 +521,25 @@ pub const Os = struct {
 
                 .dragonfly => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
                         .max = .{ .major = 6, .minor = 4, .patch = 0 },
                     },
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
                 .openbsd => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 7, .minor = 5, .patch = 0 },
                         .max = .{ .major = 7, .minor = 6, .patch = 0 },
                     },
                 },
@@ -763,7 +784,6 @@ pub const Abi = enum {
     gnuf32,
     gnusf,
     gnux32,
-    gnuilp32,
     code16,
     eabi,
     eabihf,
@@ -775,6 +795,8 @@ pub const Abi = enum {
     muslabi64,
     musleabi,
     musleabihf,
+    muslf32,
+    muslsf,
     muslx32,
     msvc,
     itanium,
@@ -936,7 +958,6 @@ pub const Abi = enum {
             .gnuf32,
             .gnusf,
             .gnux32,
-            .gnuilp32,
             => true,
             else => false,
         };
@@ -949,6 +970,8 @@ pub const Abi = enum {
             .muslabi64,
             .musleabi,
             .musleabihf,
+            .muslf32,
+            .muslsf,
             .muslx32,
             => true,
             else => abi.isOpenHarmony(),
@@ -1919,9 +1942,9 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
-                .bpfel, .bpfeb => &bpf.cpu.v1,
+                .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
-                .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.loongarch64,
                 .m68k => &m68k.cpu.M68000,
@@ -2201,14 +2224,7 @@ pub const DynamicLinker = struct {
             .hurd => switch (cpu.arch) {
                 .aarch64,
                 .aarch64_be,
-                => |arch| initFmt("/lib/ld-{s}{s}.so.1", .{
-                    @tagName(arch),
-                    switch (abi) {
-                        .gnu => "",
-                        .gnuilp32 => "_ilp32",
-                        else => return none,
-                    },
-                }),
+                => |arch| if (abi == .gnu) initFmt("/lib/ld-{s}.so.1", .{@tagName(arch)}) else none,
 
                 .x86 => if (abi == .gnu) init("/lib/ld.so.1") else none,
                 .x86_64 => initFmt("/lib/ld-{s}.so.1", .{switch (abi) {
@@ -2251,9 +2267,20 @@ pub const DynamicLinker = struct {
                         },
                     }),
 
+                    .loongarch32,
+                    .loongarch64,
+                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (abi) {
+                            .musl => "",
+                            .muslf32 => "-sp",
+                            .muslsf => "-sf",
+                            else => return none,
+                        },
+                    }),
+
                     .aarch64,
                     .aarch64_be,
-                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
                     .m68k,
                     .powerpc64,
                     .powerpc64le,
@@ -2329,14 +2356,7 @@ pub const DynamicLinker = struct {
 
                     .aarch64,
                     .aarch64_be,
-                    => |arch| initFmt("/lib/ld-linux-{s}{s}.so.1", .{
-                        @tagName(arch),
-                        switch (abi) {
-                            .gnu => "",
-                            .gnuilp32 => "_ilp32",
-                            else => return none,
-                        },
-                    }),
+                    => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{s}.so.1", .{@tagName(arch)}) else none,
 
                     // TODO: `-be` architecture support.
                     .csky => initFmt("/lib/ld-linux-cskyv2{s}.so.1", .{switch (abi) {
@@ -2570,7 +2590,7 @@ pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
     switch (abi) {
-        .gnux32, .muslx32, .gnuabin32, .muslabin32, .gnuilp32, .ilp32 => return 32,
+        .gnux32, .muslx32, .gnuabin32, .muslabin32, .ilp32 => return 32,
         .gnuabi64, .muslabi64 => return 64,
         else => {},
     }
@@ -2680,7 +2700,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-pub fn charSignedness(target: Target) std.builtin.Signedness {
+pub fn cCharSignedness(target: Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
@@ -2964,7 +2984,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .long, .ulong => return 32,
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .gnuilp32, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32, .cygnus => return 80,
                     else => return 64,
                 },
             },
@@ -2978,7 +2998,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .gnuilp32, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32, .cygnus => return 80,
                     else => return 64,
                 },
             },
@@ -3076,7 +3096,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
                 .longdouble => switch (target.abi) {
-                    .gnu, .gnuilp32, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32, .cygnus => return 4,
                     else => return 8,
                 },
                 else => {},
@@ -3177,7 +3197,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             },
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
-                    .gnu, .gnuilp32, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32, .cygnus => return 4,
                     else => return 8,
                 },
                 else => {},
@@ -3256,6 +3276,68 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             => unreachable, // Handled above.
         }),
     );
+}
+
+pub fn cMaxIntAlignment(target: std.Target) u16 {
+    return switch (target.cpu.arch) {
+        .avr => 1,
+
+        .msp430 => 2,
+
+        .xcore,
+        .propeller,
+        => 4,
+
+        .amdgcn,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .lanai,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .powerpc,
+        .powerpcle,
+        .riscv32,
+        .s390x,
+        => 8,
+
+        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+        .aarch64,
+        .aarch64_be,
+        .bpfel,
+        .bpfeb,
+        .mips64,
+        .mips64el,
+        .nvptx,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc,
+        .sparc64,
+        .wasm32,
+        .wasm64,
+        .x86,
+        .x86_64,
+        => 16,
+
+        // Below this comment are unverified but based on the fact that C requires
+        // int128_t to be 16 bytes aligned, it's a safe default.
+        .arc,
+        .csky,
+        .kalimba,
+        .loongarch32,
+        .loongarch64,
+        .m68k,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .xtensa,
+        => 16,
+    };
 }
 
 pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {

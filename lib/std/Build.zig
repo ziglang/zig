@@ -94,6 +94,8 @@ available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
 
+build_id: ?std.zig.BuildId = null,
+
 pub const ReleaseMode = enum {
     off,
     any,
@@ -1017,6 +1019,10 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    /// Emits an object file instead of a test binary.
+    /// The object must be linked separately.
+    /// Usually used in conjunction with a custom `test_runner`.
+    emit_object: bool = false,
 
     /// Prefer populating this field (using e.g. `createModule`) instead of populating
     /// the following fields (`root_source_file` etc). In a future release, those fields
@@ -1065,7 +1071,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     }
     return .create(b, .{
         .name = options.name,
-        .kind = .@"test",
+        .kind = if (options.emit_object) .test_obj else .@"test",
         .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file orelse @panic("`root_module` and `root_source_file` cannot both be null"),
             .target = options.target orelse b.graph.host,

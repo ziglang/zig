@@ -627,10 +627,16 @@ pub fn Serializer(Writer: type) type {
                     return self.writer.writeAll("inf");
                 } else if (std.math.isNegativeInf(val)) {
                     return self.writer.writeAll("-inf");
+                } else if (std.math.isNegativeZero(val)) {
+                    return self.writer.writeAll("-0.0");
                 } else {
                     try std.fmt.format(self.writer, "{d}", .{val});
                 },
-                .comptime_float => try std.fmt.format(self.writer, "{d}", .{val}),
+                .comptime_float => if (val == 0) {
+                    return self.writer.writeAll("0");
+                } else {
+                    try std.fmt.format(self.writer, "{d}", .{val});
+                },
                 else => comptime unreachable,
             }
         }
@@ -2103,10 +2109,11 @@ test "std.zon stringify primitives" {
         \\    .b = 0.3333333333333333333333333333333333,
         \\    .c = 3.1415926535897932384626433832795028,
         \\    .d = 0,
-        \\    .e = -0,
-        \\    .f = inf,
-        \\    .g = -inf,
-        \\    .h = nan,
+        \\    .e = 0,
+        \\    .f = -0.0,
+        \\    .g = inf,
+        \\    .h = -inf,
+        \\    .i = nan,
         \\}
     ,
         .{
@@ -2115,9 +2122,10 @@ test "std.zon stringify primitives" {
             .c = std.math.pi,
             .d = 0.0,
             .e = -0.0,
-            .f = std.math.inf(f32),
-            .g = -std.math.inf(f32),
-            .h = std.math.nan(f32),
+            .f = @as(f128, -0.0),
+            .g = std.math.inf(f32),
+            .h = -std.math.inf(f32),
+            .i = std.math.nan(f32),
         },
         .{},
     );

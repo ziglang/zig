@@ -4,7 +4,5 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :2:41: error: use of undefined value here causes undefined behavior
+// :2:41: error: use of undefined value here causes illegal behavior

@@ -56,7 +56,7 @@ const Os = switch (builtin.os.tag) {
                 const bytes = lfh.slice();
                 const new_ptr = try gpa.alignedAlloc(
                     u8,
-                    @alignOf(std.os.linux.file_handle),
+                    .of(std.os.linux.file_handle),
                     @sizeOf(std.os.linux.file_handle) + bytes.len,
                 );
                 const new_header: *std.os.linux.file_handle = @ptrCast(new_ptr);
