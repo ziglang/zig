@@ -116,7 +116,7 @@ pub const ConnectionPool = struct {
     /// `allocator` must be the same one used to create `connection`.
     ///
     /// Threadsafe.
-    pub fn release(pool: *ConnectionPool, allocator: Allocator, connection: *Connection) void {
+    pub fn release(pool: *ConnectionPool, connection: *Connection) void {
         if (connection.closing) return connection.destroy();
 
         pool.mutex.lock();
@@ -130,8 +130,7 @@ pub const ConnectionPool = struct {
             const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
             pool.free_len -= 1;
 
-            popped.close(allocator);
-            allocator.destroy(popped);
+            popped.destroy();
         }
 
         if (connection.proxied) {
@@ -434,20 +433,6 @@ pub const Connection = struct {
     }
 };
 
-/// The decompressor for response messages.
-pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.Decompressor;
-    pub const GzipDecompressor = std.compress.gzip.Decompressor;
-    // https://github.com/ziglang/zig/issues/18937
-    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(.{});
-
-    deflate: DeflateDecompressor,
-    gzip: GzipDecompressor,
-    // https://github.com/ziglang/zig/issues/18937
-    //zstd: ZstdDecompressor,
-    none: void,
-};
-
 pub const Response = struct {
     request: *Request,
     /// Pointers in this struct are invalidated with the next call to
@@ -469,9 +454,7 @@ pub const Response = struct {
         content_length: ?u64 = null,
 
         transfer_encoding: http.TransferEncoding = .none,
-        transfer_compression: http.ContentEncoding = .identity,
-
-        compression: Compression = .none,
+        content_encoding: http.ContentEncoding = .identity,
 
         pub const ParseError = error{
             HttpHeadersInvalid,
@@ -554,8 +537,8 @@ pub const Response = struct {
                         const trimmed_second = mem.trim(u8, second, " ");
 
                         if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
-                            if (res.transfer_compression != .identity) return error.HttpHeadersInvalid; // double compression is not supported
-                            res.transfer_compression = transfer;
+                            if (res.content_encoding != .identity) return error.HttpHeadersInvalid; // double compression is not supported
+                            res.content_encoding = transfer;
                         } else {
                             return error.HttpTransferEncodingUnsupported;
                         }
@@ -569,12 +552,12 @@ pub const Response = struct {
 
                     res.content_length = content_length;
                 } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                    if (res.transfer_compression != .identity) return error.HttpHeadersInvalid;
+                    if (res.content_encoding != .identity) return error.HttpHeadersInvalid;
 
                     const trimmed = mem.trim(u8, header_value, " ");
 
                     if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        res.transfer_compression = ce;
+                        res.content_encoding = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
                     }
@@ -592,7 +575,7 @@ pub const Response = struct {
                 "TRansfer-encoding:\tdeflate, chunked \r\n" ++
                 "connectioN:\t keep-alive \r\n\r\n";
 
-            const head = Head.parse(response_bytes);
+            const head = try Head.parse(response_bytes);
 
             try testing.expectEqual(.@"HTTP/1.1", head.version);
             try testing.expectEqualStrings("OK", head.reason);
@@ -605,7 +588,7 @@ pub const Response = struct {
             try testing.expectEqual(true, head.keep_alive);
             try testing.expectEqual(10, head.content_length.?);
             try testing.expectEqual(.chunked, head.transfer_encoding);
-            try testing.expectEqual(.deflate, head.transfer_compression);
+            try testing.expectEqual(.deflate, head.content_encoding);
         }
 
         pub fn iterateHeaders(h: Head) http.HeaderIterator {
@@ -621,19 +604,8 @@ pub const Response = struct {
                 "TRansfer-encoding:\tdeflate, chunked \r\n" ++
                 "connectioN:\t keep-alive \r\n\r\n";
 
-            var header_buffer: [1024]u8 = undefined;
-            var res = Response{
-                .status = undefined,
-                .reason = undefined,
-                .version = undefined,
-                .keep_alive = false,
-                .parser = .init(&header_buffer),
-            };
-
-            @memcpy(header_buffer[0..response_bytes.len], response_bytes);
-            res.parser.header_bytes_len = response_bytes.len;
-
-            var it = res.iterateHeaders();
+            const head = try Head.parse(response_bytes);
+            var it = head.iterateHeaders();
             {
                 const header = it.next().?;
                 try testing.expectEqualStrings("LOcation", header.name);
@@ -695,7 +667,7 @@ pub const Response = struct {
     /// Asserts that this function is only called once.
     pub fn reader(response: *Response) std.io.Reader {
         const head = &response.head;
-        return response.request.reader.interface(head.transfer_encoding, head.content_length);
+        return response.request.reader.interface(head.transfer_encoding, head.content_length, head.content_encoding);
     }
 };
 
@@ -778,16 +750,16 @@ pub const Request = struct {
         }
     };
 
-    /// Frees all resources associated with the request.
-    pub fn deinit(req: *Request) void {
-        if (req.connection) |connection| {
-            if (!req.response.parser.done) {
-                // If the response wasn't fully read, then we need to close the connection.
+    /// Returns the request's `Connection` back to the pool of the `Client`.
+    pub fn deinit(r: *Request) void {
+        if (r.connection) |connection| {
+            if (r.reader.state != .ready) {
+                // Connection cannot be reused.
                 connection.closing = true;
             }
-            req.client.connection_pool.release(req.client.allocator, connection);
+            r.client.connection_pool.release(connection);
         }
-        req.* = undefined;
+        r.* = undefined;
     }
 
     /// Sends and flushes a complete request as only HTTP head, no body.
@@ -810,12 +782,12 @@ pub const Request = struct {
         try sendHead(r);
         return .{
             .http_protocol_output = &r.connection.?.writer,
-            .transfer_encoding = if (r.transfer_encoding) |te| switch (te) {
+            .state = switch (r.transfer_encoding) {
                 .chunked => .{ .chunked = .init },
                 .content_length => |len| .{ .content_length = len },
                 .none => .none,
-            } else .{ .chunked = .init },
-            .elide_body = false,
+            },
+            .elide = false,
         };
     }
 
@@ -912,7 +884,7 @@ pub const Request = struct {
         try w.writeAll("\r\n");
     }
 
-    pub const ReceiveHeadError = http.Reader.HeadError || error{
+    pub const ReceiveHeadError = std.io.Writer.Error || http.Reader.HeadError || error{
         /// Server sent headers that did not conform to the HTTP protocol.
         ///
         /// To find out more detailed diagnostics, `http.Reader.head_buffer` can be
@@ -956,7 +928,7 @@ pub const Request = struct {
 
             if (head.status == .@"continue") {
                 if (r.handle_continue) continue;
-                return; // we're not handling the 100-continue
+                return response; // we're not handling the 100-continue
             }
 
             // This while loop is for handling redirects, which means the request's
@@ -987,25 +959,17 @@ pub const Request = struct {
                 if (r.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
                 const location = head.location orelse return error.HttpRedirectLocationMissing;
                 try r.redirect(location, &aux_buf);
-                try r.send();
+                try r.sendBodiless();
                 continue;
             }
 
-            switch (head.transfer_compression) {
-                .identity => response.compression = .none,
+            switch (head.content_encoding) {
+                .identity, .deflate, .gzip, .@"x-gzip" => {},
                 .compress, .@"x-compress" => return error.CompressionUnsupported,
-                .deflate => response.compression = .{
-                    .deflate = std.compress.zlib.decompressor(r.transferReader()),
-                },
-                .gzip, .@"x-gzip" => response.compression = .{
-                    .gzip = std.compress.gzip.decompressor(r.transferReader()),
-                },
                 // https://github.com/ziglang/zig/issues/18937
-                //.zstd => response.compression = .{
-                //    .zstd = std.compress.zstd.decompressStream(r.client.allocator, r.transferReader()),
-                //},
                 .zstd => return error.CompressionUnsupported,
             }
+
             return response;
         }
     }
@@ -1050,7 +1014,7 @@ pub const Request = struct {
             std.ascii.eqlIgnoreCase(r.uri.scheme, new_uri.scheme) and
             sameParentDomain(old_host, new_host);
 
-        r.client.connection_pool.release(r.client.allocator, old_connection);
+        r.client.connection_pool.release(old_connection);
         r.connection = null;
 
         if (!keep_privileged_headers) {
@@ -1327,7 +1291,7 @@ pub fn connectTunnel(
         const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
         errdefer {
             conn.closing = true;
-            client.connection_pool.release(client.allocator, conn);
+            client.connection_pool.release(conn);
         }
 
         var buffer: [8096]u8 = undefined;
