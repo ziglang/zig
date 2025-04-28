@@ -477,7 +477,7 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
     const end_symbol_prefix: []const u8 = if (ofmt == .macho)
         "\x01section$end$__DATA$__"
     else
-        "__end___";
+        "__stop___";
 
     const pc_counters_start_name = start_symbol_prefix ++ "sancov_cntrs";
     const pc_counters_start = @extern([*]u8, .{
