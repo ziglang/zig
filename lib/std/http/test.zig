@@ -24,10 +24,10 @@ test "trailers" {
                 var connection_bw = stream_writer.interface().buffered(&send_buffer);
                 var server = http.Server.init(&connection_br, &connection_bw);
 
-                try expectEqual(.ready, server.state);
+                try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
                 try serve(&request);
-                try expectEqual(.ready, server.state);
+                try expectEqual(.ready, server.reader.state);
             }
         }
 
@@ -72,7 +72,7 @@ test "trailers" {
 
         try expectEqualStrings("Hello, World!\n", body);
 
-        var it = response.iterateHeaders();
+        var it = response.head.iterateHeaders();
         {
             const header = it.next().?;
             try expect(!it.is_trailer);
@@ -174,7 +174,7 @@ test "echo content server" {
                 var connection_bw = stream_writer.interface().buffered(&send_buffer);
                 var http_server = http.Server.init(&connection_br, &connection_bw);
 
-                while (http_server.state == .ready) {
+                while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
                         error.HttpConnectionClosing => continue :accept,
                         else => |e| return e,
@@ -401,7 +401,7 @@ test "general client/server API coverage" {
                 var connection_bw = stream_writer.interface().buffered(&send_buffer);
                 var http_server = http.Server.init(&connection_br, &connection_bw);
 
-                while (http_server.state == .ready) {
+                while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
                         error.HttpConnectionClosing => continue :outer,
                         else => |e| return e,
@@ -618,7 +618,7 @@ test "general client/server API coverage" {
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
-        try expectEqualStrings("text/plain", response.content_type.?);
+        try expectEqualStrings("text/plain", response.head.content_type.?);
         try expectEqual(14, response.head.content_length.?);
     }
 
@@ -962,11 +962,10 @@ test "Server streams both reading and writing" {
     var body_writer = try req.sendBody();
     var response = try req.receiveHead(&redirect_buffer);
 
-    var w = body_writer.interface().unbuffered();
+    var w = body_writer.writer().unbuffered();
     try w.writeAll("one ");
     try w.writeAll("fish");
-
-    try req.finish();
+    try body_writer.end();
 
     const body = try response.reader().readRemainingAlloc(std.testing.allocator, .limited(8192));
     defer std.testing.allocator.free(body);
@@ -994,7 +993,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .{ .content_length = 14 };
 
         var body_writer = try req.sendBody();
-        var w = body_writer.interface().unbuffered();
+        var w = body_writer.writer().unbuffered();
         try w.writeAll("Hello, ");
         try w.writeAll("World!\n");
         try body_writer.end();
@@ -1028,7 +1027,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .chunked;
 
         var body_writer = try req.sendBody();
-        var w = body_writer.interface().unbuffered();
+        var w = body_writer.writer().unbuffered();
         try w.writeAll("Hello, ");
         try w.writeAll("World!\n");
         try body_writer.end();
@@ -1082,7 +1081,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .chunked;
 
         var body_writer = try req.sendBody();
-        var w = body_writer.interface().unbuffered();
+        var w = body_writer.writer().unbuffered();
         try w.writeAll("Hello, ");
         try w.writeAll("World!\n");
         try body_writer.end();

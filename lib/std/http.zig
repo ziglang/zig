@@ -331,8 +331,17 @@ pub const Reader = struct {
     body_err: ?BodyError = null,
     /// Stolen from `in`.
     head_buffer: []u8 = &.{},
+    compression: Compression,
 
     pub const max_chunk_header_len = 22;
+
+    pub const Compression = union(enum) {
+        deflate: std.compress.zlib.Decompressor,
+        gzip: std.compress.gzip.Decompressor,
+        // https://github.com/ziglang/zig/issues/18937
+        //zstd: std.compress.zstd.Decompressor,
+        none: void,
+    };
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -408,13 +417,18 @@ pub const Reader = struct {
     }
 
     /// Asserts only called once and after `receiveHead`.
-    pub fn interface(reader: *Reader, transfer_encoding: TransferEncoding, content_length: ?u64) std.io.Reader {
+    pub fn interface(
+        reader: *Reader,
+        transfer_encoding: TransferEncoding,
+        content_length: ?u64,
+        content_encoding: ContentEncoding,
+    ) std.io.Reader {
         assert(reader.state == .received_head);
         reader.state = .receiving_body;
-        switch (transfer_encoding) {
-            .chunked => {
+        reader.transfer_br.unbuffered_reader = switch (transfer_encoding) {
+            .chunked => r: {
                 reader.body_state = .{ .remaining_chunk_len = .head };
-                return .{
+                break :r .{
                     .context = reader,
                     .vtable = &.{
                         .read = &chunkedRead,
@@ -423,10 +437,10 @@ pub const Reader = struct {
                     },
                 };
             },
-            .none => {
+            .none => r: {
                 if (content_length) |len| {
                     reader.body_state = .{ .remaining_content_length = len };
-                    return .{
+                    break :r .{
                         .context = reader,
                         .vtable = &.{
                             .read = &contentLengthRead,
@@ -434,10 +448,39 @@ pub const Reader = struct {
                             .discard = &contentLengthDiscard,
                         },
                     };
-                } else {
-                    return reader.in.reader();
+                } else switch (content_encoding) {
+                    .identity => {
+                        reader.compression = .none;
+                        return reader.in.reader();
+                    },
+                    .deflate => {
+                        reader.compression = .{ .deflate = .init(reader.in) };
+                        return reader.compression.deflate.reader();
+                    },
+                    .gzip, .@"x-gzip" => {
+                        reader.compression = .{ .gzip = .init(reader.in) };
+                        return reader.compression.gzip.reader();
+                    },
+                    .compress, .@"x-compress" => unreachable,
+                    .zstd => unreachable, // https://github.com/ziglang/zig/issues/18937
                 }
             },
+        };
+        switch (content_encoding) {
+            .identity => {
+                reader.compression = .none;
+                return reader.transfer_br.unbuffered_reader;
+            },
+            .deflate => {
+                reader.compression = .{ .deflate = .init(&reader.transfer_br) };
+                return reader.compression.deflate.reader();
+            },
+            .gzip, .@"x-gzip" => {
+                reader.compression = .{ .gzip = .init(&reader.transfer_br) };
+                return reader.compression.gzip.reader();
+            },
+            .compress, .@"x-compress" => unreachable,
+            .zstd => unreachable, // https://github.com/ziglang/zig/issues/18937
         }
     }
 
@@ -731,7 +774,7 @@ pub const BodyWriter = struct {
     /// BodyWriter is mid-chunk.
     pub fn flush(w: *BodyWriter) WriteError!void {
         switch (w.state) {
-            .none, .content_length => return w.http_protocol_output.flush(),
+            .end, .none, .content_length => return w.http_protocol_output.flush(),
             .chunked => |*chunked| switch (chunked.*) {
                 .offset => |*offset| {
                     try w.http_protocol_output.flushLimit(.limited(w.http_protocol_output.end - offset.*));
@@ -1018,7 +1061,7 @@ pub const BodyWriter = struct {
         }
     }
 
-    pub fn interface(w: *BodyWriter) std.io.Writer {
+    pub fn writer(w: *BodyWriter) std.io.Writer {
         return .{
             .context = w,
             .vtable = switch (w.state) {
