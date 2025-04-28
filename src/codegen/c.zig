@@ -4980,11 +4980,6 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
         const operand_local = try f.allocLocal(null, operand_ty);
         try f.writeCValue(writer, operand_local, .Other);
         try writer.writeAll(" = ");
-        if (!operand_ty.isAbiInt(zcu)) {
-            try writer.writeByte('(');
-            try f.renderType(writer, operand_ty);
-            try writer.writeByte(')');
-        }
         try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
         break :blk operand_local;
