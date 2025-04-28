@@ -983,12 +983,12 @@ pub const Inst = struct {
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
-        /// Implements the `@memset` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        memset,
         /// Implements the `@memmove` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memmove,
+        /// Implements the `@memset` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        memset,
         /// Implements the `@min` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         min,

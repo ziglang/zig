@@ -1574,17 +1574,17 @@ fn analyzeBodyInner(
                 continue;
             },
             .memcpy => {
-                try sema.zirMemcpy(block, inst);
+                try sema.zirMemcpy(block, inst, .memcpy, true);
+                i += 1;
+                continue;
+            },
+            .memmove => {
+                try sema.zirMemcpy(block, inst, .memmove, false);
                 i += 1;
                 continue;
             },
             .memset => {
                 try sema.zirMemset(block, inst);
-                i += 1;
-                continue;
-            },
-            .memmove => {
-                try sema.zirMemmove(block, inst);
                 i += 1;
                 continue;
             },
@@ -25630,19 +25630,12 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
     return block.addBitCast(new_ty, non_slice_ptr);
 }
 
-fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    return sema.analyzeCopy(block, inst, .memcpy);
-}
-
-fn zirMemmove(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    return sema.analyzeCopy(block, inst, .memmove);
-}
-
-fn analyzeCopy(
+fn zirMemcpy(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    op: enum { memcpy, memmove },
+    air_tag: Air.Inst.Tag,
+    check_aliasing: bool,
 ) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -25659,12 +25652,12 @@ fn analyzeCopy(
     const zcu = pt.zcu;
 
     if (dest_ty.isConstPtr(zcu)) {
-        return sema.fail(block, dest_src, "cannot {s} to constant pointer", .{@tagName(op)});
+        return sema.fail(block, dest_src, "cannot copy to constant pointer", .{});
     }
 
     if (dest_len == .none and src_len == .none) {
         const msg = msg: {
-            const msg = try sema.errMsg(src, "unknown @{s} length", .{@tagName(op)});
+            const msg = try sema.errMsg(src, "unknown copy length", .{});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(dest_src, msg, "destination type '{}' provides no length", .{
                 dest_ty.fmt(pt),
@@ -25710,7 +25703,7 @@ fn analyzeCopy(
             if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
                 if (!(try sema.valuesEqual(dest_len_val, src_len_val, Type.usize))) {
                     const msg = msg: {
-                        const msg = try sema.errMsg(src, "non-matching @{s} lengths", .{@tagName(op)});
+                        const msg = try sema.errMsg(src, "non-matching copy lengths", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(dest_src, msg, "length {} here", .{
                             dest_len_val.fmtValueSema(pt, sema),
@@ -25730,11 +25723,7 @@ fn analyzeCopy(
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            const panic_id: Zcu.SimplePanicId = switch (op) {
-                .memcpy => .memcpy_len_mismatch,
-                .memmove => .memmove_len_mismatch,
-            };
-            try sema.addSafetyCheck(block, src, ok, panic_id);
+            try sema.addSafetyCheck(block, src, ok, .copy_len_mismatch);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25761,11 +25750,6 @@ fn analyzeCopy(
         // which we must skip) so we're done.
         return;
     }
-
-    const check_aliasing = switch (op) {
-        .memcpy => true,
-        .memmove => false,
-    };
 
     const runtime_src = rs: {
         const dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr) orelse break :rs dest_src;
@@ -25898,10 +25882,7 @@ fn analyzeCopy(
     }
 
     _ = try block.addInst(.{
-        .tag = switch (op) {
-            .memcpy => .memcpy,
-            .memmove => .memmove,
-        },
+        .tag = air_tag,
         .data = .{ .bin_op = .{
             .lhs = new_dest_ptr,
             .rhs = new_src_ptr,
@@ -38153,9 +38134,8 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         .@"panic.shiftRhsTooBig",
         .@"panic.invalidEnumValue",
         .@"panic.forLenMismatch",
-        .@"panic.memcpyLenMismatch",
+        .@"panic.copyLenMismatch",
         .@"panic.memcpyAlias",
-        .@"panic.memmoveLenMismatch",
         .@"panic.noreturnReturned",
         => try pt.funcType(.{
             .param_types = &.{},
