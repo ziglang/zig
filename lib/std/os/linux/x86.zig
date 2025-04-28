@@ -146,7 +146,7 @@ pub fn clone() callconv(.naked) usize {
         \\  movl 24(%%ebp),%%edx
         \\  movl 28(%%ebp),%%esi
         \\  movl 32(%%ebp),%%edi
-        \\  movl $120,%%eax // SYS_clone
+        \\  movl $120,%%eax
         \\  int $128
         \\  testl %%eax,%%eax
         \\  jz 1f
@@ -167,12 +167,42 @@ pub fn clone() callconv(.naked) usize {
         \\  popl %%eax
         \\  calll *%%eax
         \\  movl %%eax,%%ebx
-        \\  movl $1,%%eax // SYS_exit
+        \\  movl $1,%%eax
         \\  int $128
     );
 }
 
-pub fn restore() callconv(.naked) noreturn {
+pub fn clone3() callconv(.Naked) usize {
+    asm volatile (
+        \\  pushl %%ebx
+        \\  pushl %%esi
+        \\  movl 12(%%esp),%%ebx
+        \\  movl 16(%%esp),%%ecx
+        \\  movl 20(%%esp),%%edx
+        \\  movl 24(%%esp),%%esi
+        \\  movl $435,%%eax
+        \\  int $128
+        \\  testl %%eax,%%eax
+        \\  jz 1f
+        \\  popl %%esi
+        \\  popl %%ebx
+        \\  retl
+        \\
+        \\1:
+        \\  .cfi_undefined %%eip
+        \\  xorl %%ebp,%%ebp
+        \\
+        \\  andl $-16,%%esp
+        \\  subl $12,%%esp
+        \\  pushl %%esi
+        \\  calll *%%edx
+        \\  movl %%eax,%%ebx
+        \\  movl $1,%%eax
+        \\  int $128
+    );
+}
+
+pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax

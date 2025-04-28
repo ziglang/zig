@@ -15,6 +15,8 @@ const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
 
+const use_clone = native_os == .linux;
+
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
     .wasi => void,
@@ -26,6 +28,9 @@ pub const Id = switch (native_os) {
 /// On POSIX this is the pid.
 id: Id,
 thread_handle: if (native_os == .windows) windows.HANDLE else void,
+
+/// Linux only. May be unavailable on older kernel versions.
+pid_fd: ?if (use_clone) posix.fd_t else void,
 
 allocator: mem.Allocator,
 
@@ -73,7 +78,7 @@ cwd: ?[]const u8,
 /// Once that is done, `cwd` will be deprecated in favor of this field.
 cwd_dir: ?fs.Dir = null,
 
-err_pipe: if (native_os == .windows) void else ?posix.fd_t,
+err_pipe: ?if (native_os == .windows) void else posix.fd_t,
 
 expand_arg0: Arg0Expand,
 
@@ -215,7 +220,8 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .argv = argv,
         .id = undefined,
         .thread_handle = undefined,
-        .err_pipe = if (native_os == .windows) {} else null,
+        .pid_fd = null,
+        .err_pipe = null,
         .term = null,
         .env_map = null,
         .cwd = null,
@@ -293,10 +299,22 @@ pub fn killPosix(self: *ChildProcess) !Term {
         self.cleanupStreams();
         return term;
     }
-    posix.kill(self.id, posix.SIG.TERM) catch |err| switch (err) {
-        error.ProcessNotFound => return error.AlreadyTerminated,
-        else => return err,
-    };
+    if (self.pid_fd) |pid_fd| {
+        if (native_os == .linux) {
+            switch (linux.E.init(linux.pidfd_send_signal(pid_fd, posix.SIG.TERM, null, 0))) {
+                .SUCCESS => {},
+                .SRCH => return error.AlreadyTerminated,
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        } else {
+            unreachable;
+        }
+    } else {
+        posix.kill(self.id, posix.SIG.TERM) catch |err| switch (err) {
+            error.ProcessNotFound => return error.AlreadyTerminated,
+            else => return err,
+        };
+    }
     self.waitUnwrappedPosix();
     return self.term.?;
 }
@@ -339,6 +357,7 @@ pub fn wait(self: *ChildProcess) WaitError!Term {
         else => self.waitUnwrappedPosix(),
     }
     self.id = undefined;
+    self.pid_fd = null;
     return self.term.?;
 }
 
@@ -463,6 +482,34 @@ fn waitUnwrappedWindows(self: *ChildProcess) WaitError!void {
 
 fn waitUnwrappedPosix(self: *ChildProcess) void {
     const res: posix.WaitPidResult = res: {
+        if (self.pid_fd) |pid_fd| {
+            if (native_os == .linux) {
+                var info: linux.siginfo_t = undefined;
+                var ru: linux.rusage = undefined;
+                while (true) {
+                    switch (linux.E.init(linux.syscall5(.waitid, @intFromEnum(linux.P.PIDFD), @intCast(pid_fd), @intFromPtr(&info), linux.W.EXITED, @intFromPtr(&ru)))) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        else => unreachable,
+                    }
+                }
+                if (self.request_resource_usage_statistics) {
+                    self.resource_usage_statistics.rusage = ru;
+                }
+                const status: u32 = @bitCast(info.fields.common.second.sigchld.status);
+                break :res posix.WaitPidResult{
+                    .pid = info.fields.common.first.piduid.pid,
+                    .status = switch (info.code) {
+                        1 => (status & 0xff) << 8, // CLD_EXITED
+                        2, 3 => status & 0x7f, // CLD_KILLED, CLD_DUMPED
+                        else => unreachable,
+                    },
+                };
+            } else {
+                unreachable;
+            }
+        }
+
         if (self.request_resource_usage_statistics) {
             switch (native_os) {
                 .linux, .macos, .ios => {
@@ -510,6 +557,71 @@ fn statusToTerm(status: u32) Term {
         Term{ .Stopped = posix.W.STOPSIG(status) }
     else
         Term{ .Unknown = status };
+}
+
+const RetErr = if (use_clone) ?SpawnError else posix.fd_t;
+
+const ChildArg = struct {
+    self: *ChildProcess,
+    stdin_pipe_0: posix.fd_t,
+    stdout_pipe_1: posix.fd_t,
+    stderr_pipe_1: posix.fd_t,
+    prog_pipe_1: posix.fd_t,
+    dev_null_fd: posix.fd_t,
+    argv_buf: [:null]?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+    sigmask: ?*posix.sigset_t,
+    ret_err: RetErr,
+};
+
+fn spawnPosixChildHelper(arg: usize) callconv(.c) u8 {
+    const child_arg: *ChildArg = @ptrFromInt(arg);
+    const prog_fileno = 3;
+
+    setUpChildIo(child_arg.self.stdin_behavior, child_arg.stdin_pipe_0, posix.STDIN_FILENO, child_arg.dev_null_fd) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    setUpChildIo(child_arg.self.stdout_behavior, child_arg.stdout_pipe_1, posix.STDOUT_FILENO, child_arg.dev_null_fd) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    setUpChildIo(child_arg.self.stderr_behavior, child_arg.stderr_pipe_1, posix.STDERR_FILENO, child_arg.dev_null_fd) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+
+    if (child_arg.self.cwd_dir) |cwd| {
+        posix.fchdir(cwd.fd) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    } else if (child_arg.self.cwd) |cwd| {
+        posix.chdir(cwd) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    }
+
+    // Must happen after fchdir above, the cwd file descriptor might be
+    // equal to prog_fileno and be clobbered by this dup2 call.
+    if (child_arg.prog_pipe_1 != -1) posix.dup2(child_arg.prog_pipe_1, prog_fileno) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+
+    if (child_arg.self.gid) |gid| {
+        posix.setregid(gid, gid) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    }
+
+    if (child_arg.self.uid) |uid| {
+        posix.setreuid(uid, uid) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    }
+
+    if (child_arg.self.pgid) |pid| {
+        posix.setpgid(0, pid) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    }
+
+    if (native_os == .linux and child_arg.sigmask != null) {
+        std.debug.assert(linux.SIG.DFL == null);
+        for (1..linux.NSIG) |sig| {
+            var old_act: linux.Sigaction = undefined;
+            const new_act = mem.zeroes(posix.Sigaction);
+            _ = linux.sigaction(@intCast(sig), &new_act, &old_act);
+            if (old_act.handler.handler == linux.SIG.IGN) {
+                _ = linux.sigaction(@intCast(sig), &old_act, null);
+            }
+        }
+        std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, child_arg.sigmask, null) == 0);
+    }
+
+    const err = switch (child_arg.self.expand_arg0) {
+        .expand => posix.execvpeZ_expandArg0(.expand, child_arg.argv_buf.ptr[0].?, child_arg.argv_buf.ptr, child_arg.envp),
+        .no_expand => posix.execvpeZ_expandArg0(.no_expand, child_arg.argv_buf.ptr[0].?, child_arg.argv_buf.ptr, child_arg.envp),
+    };
+    return forkChildErrReport(&child_arg.ret_err, err);
 }
 
 fn spawnPosix(self: *ChildProcess) SpawnError!void {
@@ -610,52 +722,89 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         }
     };
 
-    // This pipe communicates to the parent errors in the child between `fork` and `execvpe`.
-    // It is closed by the child (via CLOEXEC) without writing if `execvpe` succeeds.
-    const err_pipe: [2]posix.fd_t = try posix.pipe2(.{ .CLOEXEC = true });
+    // This pipe is used to communicate errors between the time of fork
+    // and execve from the child process to the parent process.
+    const err_pipe = blk: {
+        if (!use_clone) {
+            break :blk try posix.pipe2(.{ .CLOEXEC = true });
+        } else {
+            break :blk [_]posix.fd_t{ -1, -1 };
+        }
+    };
     errdefer destroyPipe(err_pipe);
 
-    const pid_result = try posix.fork();
-    if (pid_result == 0) {
-        // we are the child
-        setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+    var child_arg = ChildArg{
+        .self = self,
+        .stdin_pipe_0 = stdin_pipe[0],
+        .stdout_pipe_1 = stdout_pipe[1],
+        .stderr_pipe_1 = stderr_pipe[1],
+        .prog_pipe_1 = prog_pipe[1],
+        .dev_null_fd = dev_null_fd,
+        .argv_buf = argv_buf,
+        .envp = envp,
+        .sigmask = null,
+        .ret_err = undefined,
+    };
 
-        if (self.cwd_dir) |cwd| {
-            posix.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        } else if (self.cwd) |cwd| {
-            posix.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
+    var pid_result: posix.pid_t = undefined;
+    if (!use_clone) {
+        child_arg.ret_err = err_pipe[1];
+        pid_result = try posix.fork();
+        if (pid_result == 0) {
+            immediateExit(spawnPosixChildHelper(@intFromPtr(&child_arg)));
         }
+    } else {
+        child_arg.ret_err = null;
+        // Although the stack is fixed sized, we alloc it here,
+        // because stack-smashing protection may have higher overhead than allocation.
+        const stack_size = 0x8000;
+        // On aarch64, stack address must be a multiple of 16.
+        const stack = try self.allocator.alignedAlloc(u8, 16, stack_size);
+        defer self.allocator.free(stack);
 
-        // Must happen after fchdir above, the cwd file descriptor might be
-        // equal to prog_fileno and be clobbered by this dup2 call.
-        if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
-
-        if (self.gid) |gid| {
-            posix.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
+        var clone_args = mem.zeroes(linux.clone_args);
+        var pid_fd: posix.fd_t = undefined;
+        clone_args.flags = linux.CLONE.VM | linux.CLONE.VFORK | linux.CLONE.CLEAR_SIGHAND | linux.CLONE.PIDFD;
+        clone_args.exit_signal = linux.SIG.CHLD;
+        clone_args.stack = @intFromPtr(stack.ptr);
+        clone_args.stack_size = stack_size;
+        clone_args.pidfd = @intFromPtr(&pid_fd);
+        var rc = linux.clone3(&clone_args, @sizeOf(linux.clone_args), spawnPosixChildHelper, @intFromPtr(&child_arg));
+        switch (linux.E.init(rc)) {
+            .SUCCESS => {
+                self.pid_fd = pid_fd;
+            },
+            .AGAIN, .NOMEM => return error.SystemResources,
+            .INVAL, .NOSYS => {
+                // Fallback to use clone().
+                // We need to block signals here because we share VM with child before exec.
+                // Signal handlers may mess up our memory.
+                var old_mask: posix.sigset_t = undefined;
+                std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, &linux.all_mask, &old_mask) == 0);
+                defer std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, &old_mask, null) == 0);
+                child_arg.sigmask = &old_mask;
+                rc = linux.clone(spawnPosixChildHelper, @intFromPtr(stack.ptr) + stack_size, linux.CLONE.VM | linux.CLONE.VFORK | linux.SIG.CHLD, @intFromPtr(&child_arg), null, 0, null);
+                switch (linux.E.init(rc)) {
+                    .SUCCESS => {},
+                    .AGAIN, .NOMEM => return error.SystemResources,
+                    else => |err| return posix.unexpectedErrno(err),
+                }
+            },
+            else => |err| return posix.unexpectedErrno(err),
         }
-
-        if (self.uid) |uid| {
-            posix.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
+        pid_result = @intCast(rc);
+        if (child_arg.ret_err) |err| {
+            return err;
         }
-
-        if (self.pgid) |pid| {
-            posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
-        }
-
-        const err = switch (self.expand_arg0) {
-            .expand => posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
-            .no_expand => posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
-        };
-        forkChildErrReport(err_pipe[1], err);
     }
 
     // we are the parent
     errdefer comptime unreachable; // The child is forked; we must not error from now on
 
-    posix.close(err_pipe[1]); // make sure only the child holds the write end open
-    self.err_pipe = err_pipe[0];
+    if (!use_clone) {
+        posix.close(err_pipe[1]); // make sure only the child holds the write end open
+        self.err_pipe = err_pipe[0];
+    }
 
     const pid: i32 = @intCast(pid_result);
     if (self.stdin_behavior == .Pipe) {
@@ -987,19 +1136,27 @@ fn destroyPipe(pipe: [2]posix.fd_t) void {
     if (pipe[0] != pipe[1]) posix.close(pipe[1]);
 }
 
-// Child of fork calls this to report an error to the fork parent.
-// Then the child exits.
-fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, @as(ErrInt, @intFromError(err))) catch {};
+fn immediateExit(exitcode: u8) noreturn {
     // If we're linking libc, some naughty applications may have registered atexit handlers
     // which we really do not want to run in the fork child. I caught LLVM doing this and
     // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,
     // "Why'd you have to go and make things so complicated?"
     if (builtin.link_libc) {
         // The _exit(2) function does nothing but make the exit syscall, unlike exit(3)
-        std.c._exit(1);
+        std.c._exit(exitcode);
     }
-    posix.exit(1);
+    posix.exit(exitcode);
+}
+
+// Child of fork calls this to report an error to the fork parent.
+// Returns exit code.
+fn forkChildErrReport(retErr: *RetErr, err: ChildProcess.SpawnError) u8 {
+    if (!use_clone) {
+        writeIntFd(retErr.*, @as(ErrInt, @intFromError(err))) catch {};
+    } else {
+        retErr.* = err;
+    }
+    return 1;
 }
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {

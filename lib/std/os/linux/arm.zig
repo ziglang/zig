@@ -106,7 +106,7 @@ pub fn clone() callconv(.naked) usize {
     //         r7         r0,    r1,    r2,   r3,  r4
     asm volatile (
         \\    stmfd sp!,{r4,r5,r6,r7}
-        \\    mov r7,#120 // SYS_clone
+        \\    mov r7,#120
         \\    mov r6,r3
         \\    mov r5,r0
         \\    mov r0,r2
@@ -127,14 +127,34 @@ pub fn clone() callconv(.naked) usize {
         \\
         \\    mov r0,r6
         \\    bl 3f
-        \\    mov r7,#1 // SYS_exit
+        \\    mov r7,#1
         \\    svc 0
         \\
         \\3:  bx r5
     );
 }
 
-pub fn restore() callconv(.naked) noreturn {
+pub fn clone3() callconv(.Naked) usize {
+    asm volatile (
+        \\    stmfd sp!,{r7}
+        \\    mov r7,#435
+        \\    svc 0
+        \\    tst r0,r0
+        \\    beq 1f
+        \\    ldmfd sp!,{r7}
+        \\    bx lr
+        \\
+        \\    // https://github.com/llvm/llvm-project/issues/115891
+        \\1:  mov r11, #0
+        \\    mov lr, #0
+        \\    mov r0,r3
+        \\    bx r2
+        \\    mov r7,#1
+        \\    svc 0
+    );
+}
+
+pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov r7, %[number]
