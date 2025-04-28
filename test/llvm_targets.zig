@@ -44,9 +44,9 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .amdgcn, .os_tag = .amdpal, .abi = .none },
     // .{ .cpu_arch = .amdgcn, .os_tag = .mesa3d, .abi = .none },
 
-    // .{ .cpu_arch = .arc, .os_tag = .freestanding, .abi = .none },
-    // .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .arc, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
 
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabihf },
@@ -101,7 +101,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .hexagon, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .hexagon, .os_tag = .linux, .abi = .none },
 
-    // .{ .cpu_arch = .lanai, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .lanai, .os_tag = .freestanding, .abi = .none },
 
     // .{ .cpu_arch = .loongarch32, .os_tag = .freestanding, .abi = .none },
     // .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .none },
@@ -117,13 +117,13 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .none },
     // .{ .cpu_arch = .loongarch64, .os_tag = .uefi, .abi = .none },
 
-    // .{ .cpu_arch = .m68k, .os_tag = .freestanding, .abi = .none },
-    // .{ .cpu_arch = .m68k, .os_tag = .haiku, .abi = .none },
-    // .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .musl },
-    // .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .none },
-    // .{ .cpu_arch = .m68k, .os_tag = .netbsd, .abi = .none },
-    // .{ .cpu_arch = .m68k, .os_tag = .rtems, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .haiku, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .musl },
+    .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .netbsd, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .rtems, .abi = .none },
 
     .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .eabihf },
@@ -171,10 +171,10 @@ const targets = [_]std.Target.Query{
 
     .{ .cpu_arch = .msp430, .os_tag = .freestanding, .abi = .none },
 
-    // .{ .cpu_arch = .nvptx, .os_tag = .cuda, .abi = .none },
-    // .{ .cpu_arch = .nvptx, .os_tag = .nvcl, .abi = .none },
-    // .{ .cpu_arch = .nvptx64, .os_tag = .cuda, .abi = .none },
-    // .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
+    .{ .cpu_arch = .nvptx, .os_tag = .cuda, .abi = .none },
+    .{ .cpu_arch = .nvptx, .os_tag = .nvcl, .abi = .none },
+    .{ .cpu_arch = .nvptx64, .os_tag = .cuda, .abi = .none },
+    .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
     // .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabi },
@@ -241,11 +241,11 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .none },
     // .{ .cpu_arch = .s390x, .os_tag = .zos, .abi = .none },
 
-    // .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none },
-    // .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .gnu },
-    // .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .none },
-    // .{ .cpu_arch = .sparc, .os_tag = .netbsd, .abi = .none },
-    // .{ .cpu_arch = .sparc, .os_tag = .rtems, .abi = .none },
+    .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .sparc, .os_tag = .netbsd, .abi = .none },
+    .{ .cpu_arch = .sparc, .os_tag = .rtems, .abi = .none },
 
     .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .haiku, .abi = .none },
@@ -279,8 +279,8 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .thumbeb, .os_tag = .rtems, .abi = .eabi },
     .{ .cpu_arch = .thumbeb, .os_tag = .rtems, .abi = .eabihf },
 
-    // .{ .cpu_arch = .ve, .os_tag = .freestanding, .abi = .none },
-    // .{ .cpu_arch = .ve, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .ve, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .ve, .os_tag = .linux, .abi = .none },
 
     .{ .cpu_arch = .wasm32, .os_tag = .emscripten, .abi = .none },
     .{ .cpu_arch = .wasm32, .os_tag = .freestanding, .abi = .none },
@@ -350,7 +350,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .itanium },
     .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .msvc },
 
-    // .{ .cpu_arch = .xcore, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .xcore, .os_tag = .freestanding, .abi = .none },
 
     // .{ .cpu_arch = .xtensa, .os_tag = .freestanding, .abi = .none },
     // .{ .cpu_arch = .xtensa, .os_tag = .linux, .abi = .none },

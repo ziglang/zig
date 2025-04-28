@@ -153,7 +153,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .avr,
         .bpfel,
         .bpfeb,
-        .csky,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -181,7 +180,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .x86,
         .x86_64,
         .xcore,
-        .xtensa,
         .nvptx,
         .nvptx64,
         .lanai,
@@ -189,6 +187,11 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .wasm64,
         .ve,
         => true,
+
+        // LLVM backend exists but can produce neither assembly nor object files.
+        .csky,
+        .xtensa,
+        => false,
 
         // No LLVM backend exists.
         .kalimba,
