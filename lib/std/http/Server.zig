@@ -242,9 +242,12 @@ pub const Request = struct {
         br.initFixed(&read_buffer);
 
         var server: Server = .{
-            .in = &br,
+            .reader = .{
+                .in = &br,
+                .state = .ready,
+                .body_state = undefined,
+            },
             .out = undefined,
-            .state = .ready,
         };
 
         var request: Request = .{
