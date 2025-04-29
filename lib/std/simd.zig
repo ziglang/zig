@@ -464,6 +464,7 @@ test "vector prefix scan" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
     if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21893
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
 
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
 

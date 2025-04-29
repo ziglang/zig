@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // to pin the underlying type in C++20.
 enum __legacy_memory_order { __mo_relaxed, __mo_consume, __mo_acquire, __mo_release, __mo_acq_rel, __mo_seq_cst };
 
-using __memory_order_underlying_t = underlying_type<__legacy_memory_order>::type;
+using __memory_order_underlying_t _LIBCPP_NODEBUG = underlying_type<__legacy_memory_order>::type;
 
 #if _LIBCPP_STD_VER >= 20
 

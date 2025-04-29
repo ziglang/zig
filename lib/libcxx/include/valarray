@@ -343,39 +343,41 @@ template <class T> unspecified2 end(const valarray<T>& v);
 
 */
 
-#include <__algorithm/copy.h>
-#include <__algorithm/count.h>
-#include <__algorithm/fill.h>
-#include <__algorithm/max_element.h>
-#include <__algorithm/min.h>
-#include <__algorithm/min_element.h>
-#include <__algorithm/unwrap_iter.h>
-#include <__assert>
-#include <__config>
-#include <__functional/operations.h>
-#include <__memory/addressof.h>
-#include <__memory/allocator.h>
-#include <__memory/uninitialized_algorithms.h>
-#include <__type_traits/decay.h>
-#include <__type_traits/remove_reference.h>
-#include <__utility/move.h>
-#include <__utility/swap.h>
-#include <cmath>
-#include <cstddef>
-#include <new>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/valarray>
+#else
+#  include <__algorithm/copy.h>
+#  include <__algorithm/count.h>
+#  include <__algorithm/fill.h>
+#  include <__algorithm/max_element.h>
+#  include <__algorithm/min.h>
+#  include <__algorithm/min_element.h>
+#  include <__algorithm/unwrap_iter.h>
+#  include <__assert>
+#  include <__config>
+#  include <__cstddef/ptrdiff_t.h>
+#  include <__functional/operations.h>
+#  include <__memory/addressof.h>
+#  include <__memory/allocator.h>
+#  include <__memory/uninitialized_algorithms.h>
+#  include <__type_traits/decay.h>
+#  include <__type_traits/remove_reference.h>
+#  include <__utility/move.h>
+#  include <__utility/swap.h>
+#  include <cmath>
+#  include <version>
 
 // standard-mandated includes
 
 // [valarray.syn]
-#include <initializer_list>
+#  include <initializer_list>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -397,13 +399,13 @@ public:
   _LIBCPP_HIDE_FROM_ABI size_t size() const { return __size_; }
   _LIBCPP_HIDE_FROM_ABI size_t stride() const { return __stride_; }
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
 
   _LIBCPP_HIDE_FROM_ABI friend bool operator==(const slice& __x, const slice& __y) {
     return __x.start() == __y.start() && __x.size() == __y.size() && __x.stride() == __y.stride();
   }
 
-#endif
+#  endif
 };
 
 template <class _Tp>
@@ -794,10 +796,10 @@ public:
   _LIBCPP_HIDE_FROM_ABI valarray(const value_type& __x, size_t __n);
   valarray(const value_type* __p, size_t __n);
   valarray(const valarray& __v);
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI valarray(valarray&& __v) _NOEXCEPT;
   valarray(initializer_list<value_type> __il);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
   valarray(const slice_array<value_type>& __sa);
   valarray(const gslice_array<value_type>& __ga);
   valarray(const mask_array<value_type>& __ma);
@@ -806,10 +808,10 @@ public:
 
   // assignment:
   valarray& operator=(const valarray& __v);
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(valarray&& __v) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(initializer_list<value_type>);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(const value_type& __x);
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(const slice_array<value_type>& __sa);
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(const gslice_array<value_type>& __ga);
@@ -819,31 +821,37 @@ public:
   _LIBCPP_HIDE_FROM_ABI valarray& operator=(const __val_expr<_ValExpr>& __v);
 
   // element access:
-  _LIBCPP_HIDE_FROM_ABI const value_type& operator[](size_t __i) const { return __begin_[__i]; }
+  _LIBCPP_HIDE_FROM_ABI const value_type& operator[](size_t __i) const {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__i < size(), "valarray::operator[] index out of bounds");
+    return __begin_[__i];
+  }
 
-  _LIBCPP_HIDE_FROM_ABI value_type& operator[](size_t __i) { return __begin_[__i]; }
+  _LIBCPP_HIDE_FROM_ABI value_type& operator[](size_t __i) {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__i < size(), "valarray::operator[] index out of bounds");
+    return __begin_[__i];
+  }
 
   // subset operations:
   _LIBCPP_HIDE_FROM_ABI __val_expr<__slice_expr<const valarray&> > operator[](slice __s) const;
   _LIBCPP_HIDE_FROM_ABI slice_array<value_type> operator[](slice __s);
   _LIBCPP_HIDE_FROM_ABI __val_expr<__indirect_expr<const valarray&> > operator[](const gslice& __gs) const;
   _LIBCPP_HIDE_FROM_ABI gslice_array<value_type> operator[](const gslice& __gs);
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __val_expr<__indirect_expr<const valarray&> > operator[](gslice&& __gs) const;
   _LIBCPP_HIDE_FROM_ABI gslice_array<value_type> operator[](gslice&& __gs);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __val_expr<__mask_expr<const valarray&> > operator[](const valarray<bool>& __vb) const;
   _LIBCPP_HIDE_FROM_ABI mask_array<value_type> operator[](const valarray<bool>& __vb);
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __val_expr<__mask_expr<const valarray&> > operator[](valarray<bool>&& __vb) const;
   _LIBCPP_HIDE_FROM_ABI mask_array<value_type> operator[](valarray<bool>&& __vb);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __val_expr<__indirect_expr<const valarray&> > operator[](const valarray<size_t>& __vs) const;
   _LIBCPP_HIDE_FROM_ABI indirect_array<value_type> operator[](const valarray<size_t>& __vs);
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __val_expr<__indirect_expr<const valarray&> > operator[](valarray<size_t>&& __vs) const;
   _LIBCPP_HIDE_FROM_ABI indirect_array<value_type> operator[](valarray<size_t>&& __vs);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   // unary operators:
   _LIBCPP_HIDE_FROM_ABI __val_expr<_UnaryOp<__unary_plus<_Tp>, const valarray&> > operator+() const;
@@ -942,10 +950,10 @@ private:
   valarray& __assign_range(const value_type* __f, const value_type* __l);
 };
 
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp, size_t _Size>
 valarray(const _Tp (&)[_Size], size_t) -> valarray<_Tp>;
-#endif
+#  endif
 
 template <class _Expr,
           __enable_if_t<__is_val_expr<_Expr>::value && __val_expr_use_member_functions<_Expr>::value, int> = 0>
@@ -1221,7 +1229,7 @@ public:
     __init(__start);
   }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI gslice(size_t __start, const valarray<size_t>& __size, valarray<size_t>&& __stride)
       : __size_(__size), __stride_(std::move(__stride)) {
@@ -1238,7 +1246,7 @@ public:
     __init(__start);
   }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI size_t start() const { return __1d_.size() ? __1d_[0] : 0; }
 
@@ -1318,10 +1326,10 @@ private:
   gslice_array(const gslice& __gs, const valarray<value_type>& __v)
       : __vp_(const_cast<value_type*>(__v.__begin_)), __1d_(__gs.__1d_) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   gslice_array(gslice&& __gs, const valarray<value_type>& __v)
       : __vp_(const_cast<value_type*>(__v.__begin_)), __1d_(std::move(__gs.__1d_)) {}
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   template <class>
   friend class valarray;
@@ -1708,12 +1716,12 @@ private:
   _LIBCPP_HIDE_FROM_ABI indirect_array(const valarray<size_t>& __ia, const valarray<value_type>& __v)
       : __vp_(const_cast<value_type*>(__v.__begin_)), __1d_(__ia) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI indirect_array(valarray<size_t>&& __ia, const valarray<value_type>& __v)
       : __vp_(const_cast<value_type*>(__v.__begin_)), __1d_(std::move(__ia)) {}
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   template <class>
   friend class valarray;
@@ -1837,12 +1845,12 @@ private:
 
   _LIBCPP_HIDE_FROM_ABI __indirect_expr(const valarray<size_t>& __ia, const _RmExpr& __e) : __expr_(__e), __1d_(__ia) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI __indirect_expr(valarray<size_t>&& __ia, const _RmExpr& __e)
       : __expr_(__e), __1d_(std::move(__ia)) {}
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 public:
   _LIBCPP_HIDE_FROM_ABI __result_type operator[](size_t __i) const { return __expr_[__1d_[__i]]; }
@@ -1984,17 +1992,17 @@ template <class _Tp>
 inline valarray<_Tp>::valarray(size_t __n) : __begin_(nullptr), __end_(nullptr) {
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       for (size_t __n_left = __n; __n_left; --__n_left, ++__end_)
         ::new ((void*)__end_) value_type();
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2007,17 +2015,17 @@ template <class _Tp>
 valarray<_Tp>::valarray(const value_type* __p, size_t __n) : __begin_(nullptr), __end_(nullptr) {
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       for (size_t __n_left = __n; __n_left; ++__end_, ++__p, --__n_left)
         ::new ((void*)__end_) value_type(*__p);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2025,21 +2033,21 @@ template <class _Tp>
 valarray<_Tp>::valarray(const valarray& __v) : __begin_(nullptr), __end_(nullptr) {
   if (__v.size()) {
     __begin_ = __end_ = allocator<value_type>().allocate(__v.size());
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       for (value_type* __p = __v.__begin_; __p != __v.__end_; ++__end_, ++__p)
         ::new ((void*)__end_) value_type(*__p);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__v.size());
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline valarray<_Tp>::valarray(valarray&& __v) _NOEXCEPT : __begin_(__v.__begin_), __end_(__v.__end_) {
@@ -2051,40 +2059,40 @@ valarray<_Tp>::valarray(initializer_list<value_type> __il) : __begin_(nullptr), 
   const size_t __n = __il.size();
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#  endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       size_t __n_left = __n;
       for (const value_type* __p = __il.begin(); __n_left; ++__end_, ++__p, --__n_left)
         ::new ((void*)__end_) value_type(*__p);
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#  endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 valarray<_Tp>::valarray(const slice_array<value_type>& __sa) : __begin_(nullptr), __end_(nullptr) {
   const size_t __n = __sa.__size_;
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       size_t __n_left = __n;
       for (const value_type* __p = __sa.__vp_; __n_left; ++__end_, __p += __sa.__stride_, --__n_left)
         ::new ((void*)__end_) value_type(*__p);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2093,19 +2101,19 @@ valarray<_Tp>::valarray(const gslice_array<value_type>& __ga) : __begin_(nullptr
   const size_t __n = __ga.__1d_.size();
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       typedef const size_t* _Ip;
       const value_type* __s = __ga.__vp_;
       for (_Ip __i = __ga.__1d_.__begin_, __e = __ga.__1d_.__end_; __i != __e; ++__i, ++__end_)
         ::new ((void*)__end_) value_type(__s[*__i]);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2114,19 +2122,19 @@ valarray<_Tp>::valarray(const mask_array<value_type>& __ma) : __begin_(nullptr),
   const size_t __n = __ma.__1d_.size();
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       typedef const size_t* _Ip;
       const value_type* __s = __ma.__vp_;
       for (_Ip __i = __ma.__1d_.__begin_, __e = __ma.__1d_.__end_; __i != __e; ++__i, ++__end_)
         ::new ((void*)__end_) value_type(__s[*__i]);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2135,19 +2143,19 @@ valarray<_Tp>::valarray(const indirect_array<value_type>& __ia) : __begin_(nullp
   const size_t __n = __ia.__1d_.size();
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       typedef const size_t* _Ip;
       const value_type* __s = __ia.__vp_;
       for (_Ip __i = __ia.__1d_.__begin_, __e = __ia.__1d_.__end_; __i != __e; ++__i, ++__end_)
         ::new ((void*)__end_) value_type(__s[*__i]);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -2177,7 +2185,7 @@ valarray<_Tp>& valarray<_Tp>::operator=(const valarray& __v) {
   return *this;
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline valarray<_Tp>& valarray<_Tp>::operator=(valarray&& __v) _NOEXCEPT {
@@ -2194,7 +2202,7 @@ inline valarray<_Tp>& valarray<_Tp>::operator=(initializer_list<value_type> __il
   return __assign_range(__il.begin(), __il.end());
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline valarray<_Tp>& valarray<_Tp>::operator=(const value_type& __x) {
@@ -2273,7 +2281,7 @@ inline gslice_array<_Tp> valarray<_Tp>::operator[](const gslice& __gs) {
   return gslice_array<value_type>(__gs, *this);
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<__indirect_expr<const valarray<_Tp>&> > valarray<_Tp>::operator[](gslice&& __gs) const {
@@ -2285,7 +2293,7 @@ inline gslice_array<_Tp> valarray<_Tp>::operator[](gslice&& __gs) {
   return gslice_array<value_type>(std::move(__gs), *this);
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<__mask_expr<const valarray<_Tp>&> > valarray<_Tp>::operator[](const valarray<bool>& __vb) const {
@@ -2297,7 +2305,7 @@ inline mask_array<_Tp> valarray<_Tp>::operator[](const valarray<bool>& __vb) {
   return mask_array<value_type>(__vb, *this);
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<__mask_expr<const valarray<_Tp>&> > valarray<_Tp>::operator[](valarray<bool>&& __vb) const {
@@ -2309,7 +2317,7 @@ inline mask_array<_Tp> valarray<_Tp>::operator[](valarray<bool>&& __vb) {
   return mask_array<value_type>(std::move(__vb), *this);
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<__indirect_expr<const valarray<_Tp>&> >
@@ -2322,7 +2330,7 @@ inline indirect_array<_Tp> valarray<_Tp>::operator[](const valarray<size_t>& __v
   return indirect_array<value_type>(__vs, *this);
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<__indirect_expr<const valarray<_Tp>&> > valarray<_Tp>::operator[](valarray<size_t>&& __vs) const {
@@ -2334,7 +2342,7 @@ inline indirect_array<_Tp> valarray<_Tp>::operator[](valarray<size_t>&& __vs) {
   return indirect_array<value_type>(std::move(__vs), *this);
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp>
 inline __val_expr<_UnaryOp<__unary_plus<_Tp>, const valarray<_Tp>&> > valarray<_Tp>::operator+() const {
@@ -2636,17 +2644,17 @@ void valarray<_Tp>::resize(size_t __n, value_type __x) {
   __clear(size());
   if (__n) {
     __begin_ = __end_ = allocator<value_type>().allocate(__n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
       for (size_t __n_left = __n; __n_left; --__n_left, ++__end_)
         ::new ((void*)__end_) value_type(__x);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __clear(__n);
       throw;
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 }
 
@@ -3351,14 +3359,15 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <algorithm>
-#  include <concepts>
-#  include <cstdlib>
-#  include <cstring>
-#  include <functional>
-#  include <stdexcept>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <algorithm>
+#    include <concepts>
+#    include <cstdlib>
+#    include <cstring>
+#    include <functional>
+#    include <stdexcept>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_VALARRAY

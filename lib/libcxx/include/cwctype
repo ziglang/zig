@@ -49,26 +49,29 @@ wctrans_t wctrans(const char* property);
 
 */
 
-#include <__config>
-#include <cctype>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cwctype>
+#else
+#  include <__config>
+#  include <cctype>
 
-#include <wctype.h>
+#  include <wctype.h>
 
-#ifndef _LIBCPP_WCTYPE_H
+#  ifndef _LIBCPP_WCTYPE_H
 #   error <cwctype> tried including <wctype.h> but didn't find libc++'s <wctype.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if defined(_LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H)
+#  if defined(_LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H)
 using ::wint_t _LIBCPP_USING_IF_EXISTS;
 using ::wctrans_t _LIBCPP_USING_IF_EXISTS;
 using ::wctype_t _LIBCPP_USING_IF_EXISTS;
@@ -90,8 +93,10 @@ using ::towlower _LIBCPP_USING_IF_EXISTS;
 using ::towupper _LIBCPP_USING_IF_EXISTS;
 using ::towctrans _LIBCPP_USING_IF_EXISTS;
 using ::wctrans _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H
+#  endif // _LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CWCTYPE

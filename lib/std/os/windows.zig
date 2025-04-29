@@ -591,6 +591,9 @@ pub const ReadFileError = error{
     OperationAborted,
     /// Unable to read file due to lock.
     LockViolation,
+    /// Known to be possible when:
+    /// - Unable to read from disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -623,6 +626,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
+                .ACCESS_DENIED => return error.AccessDenied,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -640,6 +644,9 @@ pub const WriteFileError = error{
     LockViolation,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
+    /// Known to be possible when:
+    /// - Unable to write to disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -676,6 +683,7 @@ pub fn WriteFile(
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1500,7 +1508,7 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
 
 pub const GetFileAttributesError = error{
     FileNotFound,
-    PermissionDenied,
+    AccessDenied,
     Unexpected,
 };
 
@@ -1515,7 +1523,7 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.PermissionDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1730,15 +1738,47 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
+pub const TerminateProcessError = error{ AccessDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (GetLastError()) {
-            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
+            Win32Error.ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub const NtAllocateVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    NoMemory,
+    Unexpected,
+};
+
+pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
+    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
+        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
+        else => |st| unexpectedStatus(st),
+    };
+}
+
+pub const NtFreeVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    Unexpected,
+};
+
+pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
+    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
+        else => NtFreeVirtualMemoryError.Unexpected,
+    };
 }
 
 pub const VirtualAllocError = error{Unexpected};
@@ -1870,13 +1910,48 @@ pub const CreateProcessError = error{
     BadPathName,
 };
 
+pub const CreateProcessFlags = packed struct(u32) {
+    debug_process: bool = false,
+    debug_only_this_process: bool = false,
+    create_suspended: bool = false,
+    detached_process: bool = false,
+    create_new_console: bool = false,
+    normal_priority_class: bool = false,
+    idle_priority_class: bool = false,
+    high_priority_class: bool = false,
+    realtime_priority_class: bool = false,
+    create_new_process_group: bool = false,
+    create_unicode_environment: bool = false,
+    create_separate_wow_vdm: bool = false,
+    create_shared_wow_vdm: bool = false,
+    create_forcedos: bool = false,
+    below_normal_priority_class: bool = false,
+    above_normal_priority_class: bool = false,
+    inherit_parent_affinity: bool = false,
+    inherit_caller_priority: bool = false,
+    create_protected_process: bool = false,
+    extended_startupinfo_present: bool = false,
+    process_mode_background_begin: bool = false,
+    process_mode_background_end: bool = false,
+    create_secure_process: bool = false,
+    _reserved: bool = false,
+    create_breakaway_from_job: bool = false,
+    create_preserve_code_authz_level: bool = false,
+    create_default_error_mode: bool = false,
+    create_no_window: bool = false,
+    profile_user: bool = false,
+    profile_kernel: bool = false,
+    profile_server: bool = false,
+    create_ignore_system_default: bool = false,
+};
+
 pub fn CreateProcessW(
     lpApplicationName: ?LPCWSTR,
     lpCommandLine: ?LPWSTR,
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
+    dwCreationFlags: CreateProcessFlags,
     lpEnvironment: ?*anyopaque,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
@@ -1897,6 +1972,7 @@ pub fn CreateProcessW(
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIRECTORY => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => return error.BadPathName,
             .INVALID_NAME => return error.InvalidName,
@@ -3523,6 +3599,8 @@ pub const MEM_LARGE_PAGES = 0x20000000;
 pub const MEM_PHYSICAL = 0x400000;
 pub const MEM_TOP_DOWN = 0x100000;
 pub const MEM_WRITE_WATCH = 0x200000;
+pub const MEM_RESERVE_PLACEHOLDER = 0x00040000;
+pub const MEM_PRESERVE_PLACEHOLDER = 0x00000400;
 
 // Protect values
 pub const PAGE_EXECUTE = 0x10;
@@ -4805,6 +4883,10 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
+    /// Points to a NUL-terminated sequence of NUL-terminated
+    /// WTF-16 LE encoded `name=value` sequences.
+    /// Example using string literal syntax:
+    /// `"NAME=value\x00foo=bar\x00\x00"`
     Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
@@ -5229,6 +5311,9 @@ pub const PF = enum(DWORD) {
 
     /// This ARM processor implements the ARM v8.3 JavaScript conversion (JSCVT) instructions.
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
+
+    /// This Arm processor implements the Arm v8.3 LRCPC instructions (for example, LDAPR). Note that certain Arm v8.2 CPUs may optionally support the LRCPC instructions.
+    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;

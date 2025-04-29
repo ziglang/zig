@@ -56,7 +56,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     const dest_dir: ?InstallDir = switch (options.dest_dir) {
         .disabled => null,
         .default => switch (artifact.kind) {
-            .obj => @panic("object files have no standard installation procedure"),
+            .obj, .test_obj => @panic("object files have no standard installation procedure"),
             .exe, .@"test" => .bin,
             .lib => if (artifact.isDll()) .bin else .lib,
         },
@@ -189,9 +189,9 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 const src_dir_path = dir.source.getPath3(b, step);
                 const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
-                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.sub_path, .{ .iterate = true }) catch |err| {
-                    return step.fail("unable to open source directory '{s}': {s}", .{
-                        src_dir_path.sub_path, @errorName(err),
+                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+                    return step.fail("unable to open source directory '{}': {s}", .{
+                        src_dir_path, @errorName(err),
                     });
                 };
                 defer src_dir.close();

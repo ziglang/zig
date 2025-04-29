@@ -86,7 +86,7 @@ test "statx" {
         else => unreachable,
     }
 
-    if (builtin.cpu.arch == .riscv32) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
+    if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
     switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
@@ -128,28 +128,50 @@ test "fadvise" {
 test "sigset_t" {
     var sigset = linux.empty_sigset;
 
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+    // See that none are set, then set each one, see that they're all set, then
+    // remove them all, and then see that none are set.
+    for (1..linux.NSIG) |i| {
+        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
+    }
+    for (1..linux.NSIG) |i| {
+        linux.sigaddset(&sigset, @truncate(i));
+    }
+    for (1..linux.NSIG) |i| {
+        try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
+        try expectEqual(linux.sigismember(&linux.empty_sigset, @truncate(i)), false);
+    }
+    for (1..linux.NSIG) |i| {
+        linux.sigdelset(&sigset, @truncate(i));
+    }
+    for (1..linux.NSIG) |i| {
+        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
+    }
 
-    linux.sigaddset(&sigset, linux.SIG.USR1);
+    linux.sigaddset(&sigset, 1);
+    try expectEqual(sigset[0], 1);
+    try expectEqual(sigset[1], 0);
 
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+    linux.sigaddset(&sigset, 31);
+    try expectEqual(sigset[0], 0x4000_0001);
+    try expectEqual(sigset[1], 0);
 
-    linux.sigaddset(&sigset, linux.SIG.USR2);
+    linux.sigaddset(&sigset, 36);
+    try expectEqual(sigset[0], 0x4000_0001);
+    try expectEqual(sigset[1], 0x8);
 
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+    linux.sigaddset(&sigset, 64);
+    try expectEqual(sigset[0], 0x4000_0001);
+    try expectEqual(sigset[1], 0x8000_0008);
+    try expectEqual(sigset[2], 0);
+}
 
-    linux.sigdelset(&sigset, linux.SIG.USR1);
+test "sysinfo" {
+    var info: linux.Sysinfo = undefined;
+    const result: usize = linux.sysinfo(&info);
+    try expect(std.os.linux.E.init(result) == .SUCCESS);
 
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
-
-    linux.sigdelset(&sigset, linux.SIG.USR2);
-
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
-    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+    try expect(info.mem_unit > 0);
+    try expect(info.mem_unit <= std.heap.page_size_max);
 }
 
 test {

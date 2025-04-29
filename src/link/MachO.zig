@@ -459,6 +459,17 @@ pub fn flushModule(
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
     }
 
+    const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
+        (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
+
+    if (comp.config.link_libc and is_exe_or_dyn_lib) {
+        if (comp.zigc_static_lib) |zigc| {
+            const path = zigc.full_object_path;
+            self.classifyInputFile(try link.openArchiveInput(diags, path, false, false)) catch |err|
+                diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
+        }
+    }
+
     // libc/libSystem dep
     self.resolveLibSystem(arena, comp, &system_libs) catch |err| switch (err) {
         error.MissingLibSystem => {}, // already reported
@@ -842,6 +853,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         try argv.append("-lSystem");
 
+        if (comp.zigc_static_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
         if (comp.ubsan_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));

@@ -10,18 +10,18 @@ pub const Feature = enum {
     v1_4,
     v1_5,
     v1_6,
-    int8,
-    int16,
     int64,
     float16,
     float64,
-    addresses,
     matrix,
     storage_push_constant16,
+    arbitrary_precision_integers,
     kernel,
+    addresses,
     generic_pointer,
     vector16,
     shader,
+    physical_storage_buffer,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -69,16 +69,6 @@ pub const all_features = blk: {
         .description = "Enable version 1.6",
         .dependencies = featureSet(&[_]Feature{.v1_5}),
     };
-    result[@intFromEnum(Feature.int8)] = .{
-        .llvm_name = null,
-        .description = "Enable Int8 capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
-    result[@intFromEnum(Feature.int16)] = .{
-        .llvm_name = null,
-        .description = "Enable Int16 capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
     result[@intFromEnum(Feature.int64)] = .{
         .llvm_name = null,
         .description = "Enable Int64 capability",
@@ -94,11 +84,6 @@ pub const all_features = blk: {
         .description = "Enable Float64 capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
-    result[@intFromEnum(Feature.addresses)] = .{
-        .llvm_name = null,
-        .description = "Enable either the Addresses capability or, SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
-        .dependencies = featureSet(&[_]Feature{.v1_0}),
-    };
     result[@intFromEnum(Feature.matrix)] = .{
         .llvm_name = null,
         .description = "Enable Matrix capability",
@@ -109,9 +94,19 @@ pub const all_features = blk: {
         .description = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
         .dependencies = featureSet(&[_]Feature{.v1_3}),
     };
+    result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
+        .dependencies = featureSet(&[_]Feature{.v1_5}),
+    };
     result[@intFromEnum(Feature.kernel)] = .{
         .llvm_name = null,
         .description = "Enable Kernel capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
+    result[@intFromEnum(Feature.addresses)] = .{
+        .llvm_name = null,
+        .description = "Enable Addresses capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     result[@intFromEnum(Feature.generic_pointer)] = .{
@@ -128,6 +123,11 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable Shader capability",
         .dependencies = featureSet(&[_]Feature{ .v1_0, .matrix }),
+    };
+    result[@intFromEnum(Feature.physical_storage_buffer)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
@@ -147,7 +147,7 @@ pub const cpu = struct {
     pub const vulkan_v1_2: CpuModel = .{
         .name = "vulkan_v1_2",
         .llvm_name = null,
-        .features = featureSet(&[_]Feature{ .v1_5, .shader, .addresses }),
+        .features = featureSet(&[_]Feature{ .v1_5, .shader, .physical_storage_buffer }),
     };
 
     pub const opencl_v2: CpuModel = .{

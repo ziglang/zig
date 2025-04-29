@@ -24,7 +24,7 @@ omit_frame_pointer: bool,
 stack_check: bool,
 stack_protector: u32,
 red_zone: bool,
-sanitize_c: bool,
+sanitize_c: std.zig.SanitizeC,
 sanitize_thread: bool,
 sanitize_address: bool,
 fuzz: bool,
@@ -93,7 +93,7 @@ pub const CreateOptions = struct {
         stack_protector: ?u32 = null,
         red_zone: ?bool = null,
         unwind_tables: ?std.builtin.UnwindTables = null,
-        sanitize_c: ?bool = null,
+        sanitize_c: ?std.zig.SanitizeC = null,
         sanitize_thread: ?bool = null,
         sanitize_address: ?bool = null,
         fuzz: ?bool = null,
@@ -116,6 +116,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
     if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables);
+    if (options.inherited.sanitize_c) |sc| if (sc != .off) assert(options.global.any_sanitize_c != .off);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
@@ -244,10 +245,14 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b false;
     };
 
-    const code_model = b: {
+    const code_model: std.builtin.CodeModel = b: {
         if (options.inherited.code_model) |x| break :b x;
         if (options.parent) |p| break :b p.code_model;
-        break :b .default;
+        break :b switch (target.cpu.arch) {
+            // Temporary workaround until LLVM 21: https://github.com/llvm/llvm-project/pull/132173
+            .loongarch64 => .medium,
+            else => .default,
+        };
     };
 
     const is_safe_mode = switch (optimize_mode) {
@@ -255,10 +260,18 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .ReleaseFast, .ReleaseSmall => false,
     };
 
-    const sanitize_c = b: {
+    const sanitize_c: std.zig.SanitizeC = b: {
         if (options.inherited.sanitize_c) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_c;
-        break :b is_safe_mode;
+        break :b switch (optimize_mode) {
+            .Debug => .full,
+            // It's recommended to use the minimal runtime in production
+            // environments due to the security implications of the full runtime.
+            // The minimal runtime doesn't provide much benefit over simply
+            // trapping, however, so we do that instead.
+            .ReleaseSafe => .trap,
+            .ReleaseFast, .ReleaseSmall => .off,
+        };
     };
 
     const stack_check = b: {
@@ -341,6 +354,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         // Append disabled features after enabled ones, so that their effects aren't overwritten.
         for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
+                // Ignore these until we figure out how to handle the concept of omitting features.
+                // See https://github.com/ziglang/zig/issues/23539
+                if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
                 const is_enabled = target.cpu.features.isEnabled(feature.index);
 
                 if (is_enabled) {

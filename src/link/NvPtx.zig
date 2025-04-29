@@ -1,7 +1,7 @@
 //! NVidia PTX (Parallel Thread Execution)
 //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html
 //! For this we rely on the nvptx backend of LLVM
-//! Kernel functions need to be marked both as "export" and "callconv(.Kernel)"
+//! Kernel functions need to be marked both as "export" and "callconv(.kernel)"
 
 const NvPtx = @This();
 
@@ -53,6 +53,7 @@ pub fn createEmpty(
             .tag = .nvptx,
             .comp = comp,
             .emit = emit,
+            .zcu_object_sub_path = emit.sub_path,
             .gc_sections = options.gc_sections orelse false,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 0,
@@ -116,11 +117,7 @@ pub fn flushModule(self: *NvPtx, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (build_options.skip_non_native)
         @panic("Attempted to compile for architecture that was disabled by build configuration");
 
-    // The code that was here before mutated the Compilation's file emission mechanism.
-    // That's not supposed to happen in flushModule, so I deleted the code.
-    _ = arena;
-    _ = self;
-    _ = prog_node;
     _ = tid;
-    @panic("TODO: rewrite the NvPtx.flushModule function");
+
+    try self.base.emitLlvmObject(arena, self.llvm_object, prog_node);
 }

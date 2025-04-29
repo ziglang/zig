@@ -10,7 +10,7 @@
 #define _LIBCPP___FWD_TUPLE_H
 
 #include <__config>
-#include <cstddef>
+#include <__cstddef/size_t.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

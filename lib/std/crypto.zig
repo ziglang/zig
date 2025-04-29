@@ -214,13 +214,15 @@ pub const ff = @import("crypto/ff.zig");
 /// This is a thread-local, cryptographically secure pseudo random number generator.
 pub const random = @import("crypto/tlcsprng.zig").interface;
 
+/// Encoding and decoding
+pub const codecs = @import("crypto/codecs.zig");
+
 const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
 pub const tls = @import("crypto/tls.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
-pub const asn1 = @import("crypto/asn1.zig");
 
 /// Side-channels mitigations.
 pub const SideChannelsMitigations = enum {
@@ -335,7 +337,7 @@ test {
     _ = errors;
     _ = tls;
     _ = Certificate;
-    _ = asn1;
+    _ = codecs;
 }
 
 test "CSPRNG" {

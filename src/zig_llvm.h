@@ -53,6 +53,16 @@ struct ZigLLVMCoverageOptions {
     bool CollectControlFlow;
 };
 
+// synchronize with llvm/include/Pass.h::ThinOrFullLTOPhase
+// synchronize with codegen/llvm/bindings.zig::EmitOptions::LtoPhase
+enum ZigLLVMThinOrFullLTOPhase {
+    ZigLLVMThinOrFullLTOPhase_None,
+    ZigLLVMThinOrFullLTOPhase_ThinPreLink,
+    ZigLLVMThinOrFullLTOPhase_ThinkPostLink,
+    ZigLLVMThinOrFullLTOPhase_FullPreLink,
+    ZigLLVMThinOrFullLTOPhase_FullPostLink,
+};
+
 struct ZigLLVMEmitOptions {
     bool is_debug;
     bool is_small;
@@ -60,7 +70,7 @@ struct ZigLLVMEmitOptions {
     bool tsan;
     bool asan;
     bool sancov;
-    bool lto;
+    ZigLLVMThinOrFullLTOPhase lto;
     bool allow_fast_isel;
     const char *asm_filename;
     const char *bin_filename;

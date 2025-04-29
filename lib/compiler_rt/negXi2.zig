@@ -18,15 +18,15 @@ comptime {
     @export(&__negti2, .{ .name = "__negti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __negsi2(a: i32) callconv(.C) i32 {
+pub fn __negsi2(a: i32) callconv(.c) i32 {
     return negXi2(i32, a);
 }
 
-pub fn __negdi2(a: i64) callconv(.C) i64 {
+pub fn __negdi2(a: i64) callconv(.c) i64 {
     return negXi2(i64, a);
 }
 
-pub fn __negti2(a: i128) callconv(.C) i128 {
+pub fn __negti2(a: i128) callconv(.c) i128 {
     return negXi2(i128, a);
 }
 

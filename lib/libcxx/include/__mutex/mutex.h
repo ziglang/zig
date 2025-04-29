@@ -17,7 +17,7 @@
 #  pragma GCC system_header
 #endif
 
-#ifndef _LIBCPP_HAS_NO_THREADS
+#if _LIBCPP_HAS_THREADS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -30,7 +30,7 @@ public:
   mutex(const mutex&)            = delete;
   mutex& operator=(const mutex&) = delete;
 
-#  if defined(_LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION)
+#  if _LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION
   _LIBCPP_HIDE_FROM_ABI ~mutex() = default;
 #  else
   ~mutex() _NOEXCEPT;
@@ -48,6 +48,6 @@ static_assert(is_nothrow_default_constructible<mutex>::value, "the default const
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_HAS_NO_THREADS
+#endif // _LIBCPP_HAS_THREADS
 
 #endif // _LIBCPP___MUTEX_MUTEX_H

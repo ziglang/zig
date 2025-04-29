@@ -64,7 +64,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
-            .sanitize_c = false,
+            .sanitize_c = .off,
             .sanitize_thread = false,
             .sanitize_address = false,
             // necessary so that libunwind can unwind through its own stack frames
@@ -120,7 +120,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         }
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
-        try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
+        try cflags.append("-D_LIBUNWIND_HIDE_SYMBOLS");
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");

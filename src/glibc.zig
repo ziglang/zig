@@ -1231,7 +1231,7 @@ fn buildSharedLib(
             .strip = strip,
             .stack_check = false,
             .stack_protector = 0,
-            .sanitize_c = false,
+            .sanitize_c = .off,
             .sanitize_thread = false,
             .sanitize_address = false,
             .red_zone = comp.root_mod.red_zone,

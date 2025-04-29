@@ -21,7 +21,7 @@ comptime {
     }
 }
 
-fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.c) ?[*]u8 {
     const dest = opt_dest.?;
     const src = opt_src.?;
 
@@ -38,7 +38,7 @@ fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C
     return dest;
 }
 
-fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.C) ?[*]u8 {
+fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(builtin.is_test);
     const small_limit = @max(2 * @sizeOf(Element), @sizeOf(Element));
 

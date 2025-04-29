@@ -50,7 +50,7 @@ pub fn findByMnemonic(
         else => {},
     } else false;
     const rex_extended = for (ops) |op| {
-        if (op.isBaseExtended() or op.isIndexExtended()) break true;
+        if (op.baseExtEnc() != 0b00 or op.indexExtEnc() != 0b00) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
@@ -592,6 +592,7 @@ pub const Op = enum {
                         else => unreachable,
                     },
                 },
+                .gphi => .r8,
                 .segment => .sreg,
                 .x87 => switch (reg) {
                     .st0 => .st0,
@@ -1029,8 +1030,8 @@ const mnemonic_to_encodings_map = init: {
         storage_i += value.len;
     }
     var mnemonic_i: [mnemonic_count]usize = @splat(0);
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
+    const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
+    const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
     for (encodings) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{

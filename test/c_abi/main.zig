@@ -5694,7 +5694,7 @@ test "Stdcall ABI big union" {
     stdcall_big_union(x);
 }
 
-extern fn c_explict_win64(ByRef) callconv(.Win64) ByRef;
+extern fn c_explict_win64(ByRef) callconv(.{ .x86_64_win = .{} }) ByRef;
 test "explicit SysV calling convention" {
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 
@@ -5702,7 +5702,7 @@ test "explicit SysV calling convention" {
     try expect(res.val == 42);
 }
 
-extern fn c_explict_sys_v(ByRef) callconv(.SysV) ByRef;
+extern fn c_explict_sys_v(ByRef) callconv(.{ .x86_64_sysv = .{} }) ByRef;
 test "explicit Win64 calling convention" {
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 

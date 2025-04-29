@@ -30,7 +30,7 @@
 arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
-hash_tok: std.zig.Ast.TokenIndex,
+hash_tok: std.zig.Ast.OptionalTokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
@@ -114,10 +114,18 @@ pub const JobQueue = struct {
     /// If this is true, `recursive` must be false.
     debug_hash: bool,
     work_around_btrfs_bug: bool,
+    mode: Mode,
     /// Set of hashes that will be additionally fetched even if they are marked
     /// as lazy.
     unlazy_set: UnlazySet = .{},
 
+    pub const Mode = enum {
+        /// Non-lazy dependencies are always fetched.
+        /// Lazy dependencies are fetched only when needed.
+        needed,
+        /// Both non-lazy and lazy dependencies are always fetched.
+        all,
+    };
     pub const Table = std.AutoArrayHashMapUnmanaged(Package.Hash, *Fetch);
     pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Package.Hash, void);
 
@@ -317,8 +325,8 @@ pub fn run(f: *Fetch) RunError!void {
                 f.location_tok,
                 try eb.addString("expected path relative to build root; found absolute path"),
             );
-            if (f.hash_tok != 0) return f.fail(
-                f.hash_tok,
+            if (f.hash_tok.unwrap()) |hash_tok| return f.fail(
+                hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
             // Packages fetched by URL may not use relative paths to escape outside the
@@ -555,17 +563,18 @@ fn runResource(
     // job is done.
 
     if (remote_hash) |declared_hash| {
+        const hash_tok = f.hash_tok.unwrap().?;
         if (declared_hash.isOld()) {
             const actual_hex = Package.multiHashHexDigest(f.computed_hash.digest);
             if (!std.mem.eql(u8, declared_hash.toSlice(), &actual_hex)) {
-                return f.fail(f.hash_tok, try eb.printString(
+                return f.fail(hash_tok, try eb.printString(
                     "hash mismatch: manifest declares {s} but the fetched package has {s}",
                     .{ declared_hash.toSlice(), actual_hex },
                 ));
             }
         } else {
             if (!computed_package_hash.eql(&declared_hash)) {
-                return f.fail(f.hash_tok, try eb.printString(
+                return f.fail(hash_tok, try eb.printString(
                     "hash mismatch: manifest declares {s} but the fetched package has {s}",
                     .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
                 ));
@@ -631,7 +640,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
         Manifest.max_bytes,
         null,
-        1,
+        .@"1",
         0,
     ) catch |err| switch (err) {
         error.FileNotFound => return,
@@ -753,7 +762,10 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .location_tok = dep.location_tok,
                 .hash_tok = dep.hash_tok,
                 .name_tok = dep.name_tok,
-                .lazy_status = if (dep.lazy) .available else .eager,
+                .lazy_status = switch (f.job_queue.mode) {
+                    .needed => if (dep.lazy) .available else .eager,
+                    .all => .eager,
+                },
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
@@ -813,15 +825,14 @@ fn srcLoc(
 ) Allocator.Error!ErrorBundle.SourceLocationIndex {
     const ast = f.parent_manifest_ast orelse return .none;
     const eb = &f.error_bundle;
-    const token_starts = ast.tokens.items(.start);
     const start_loc = ast.tokenLocation(0, tok);
     const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
     const msg_off = 0;
     return eb.addSourceLocation(.{
         .src_path = src_path,
-        .span_start = token_starts[tok],
-        .span_end = @intCast(token_starts[tok] + ast.tokenSlice(tok).len),
-        .span_main = token_starts[tok] + msg_off,
+        .span_start = ast.tokenStart(tok),
+        .span_end = @intCast(ast.tokenStart(tok) + ast.tokenSlice(tok).len),
+        .span_main = ast.tokenStart(tok) + msg_off,
         .line = @intCast(start_loc.line),
         .column = @intCast(start_loc.column),
         .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
@@ -1850,7 +1861,11 @@ const FileHeader = struct {
         return magic_number == std.macho.MH_MAGIC or
             magic_number == std.macho.MH_MAGIC_64 or
             magic_number == std.macho.FAT_MAGIC or
-            magic_number == std.macho.FAT_MAGIC_64;
+            magic_number == std.macho.FAT_MAGIC_64 or
+            magic_number == std.macho.MH_CIGAM or
+            magic_number == std.macho.MH_CIGAM_64 or
+            magic_number == std.macho.FAT_CIGAM or
+            magic_number == std.macho.FAT_CIGAM_64;
     }
 
     pub fn isExecutable(self: *FileHeader) bool {
@@ -1874,6 +1889,11 @@ test FileHeader {
     const macho64_magic_bytes = [_]u8{ 0xCF, 0xFA, 0xED, 0xFE };
     h.bytes_read = 0;
     h.update(&macho64_magic_bytes);
+    try std.testing.expect(h.isExecutable());
+
+    const macho64_cigam_bytes = [_]u8{ 0xFE, 0xED, 0xFA, 0xCF };
+    h.bytes_read = 0;
+    h.update(&macho64_cigam_bytes);
     try std.testing.expect(h.isExecutable());
 }
 
@@ -2316,13 +2336,14 @@ const TestFetchBuilder = struct {
             .read_only = false,
             .debug_hash = false,
             .work_around_btrfs_bug = false,
+            .mode = .needed,
         };
 
         self.fetch = .{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .location = .{ .path_or_url = path_or_url },
             .location_tok = 0,
-            .hash_tok = 0,
+            .hash_tok = .none,
             .name_tok = 0,
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },

@@ -1114,6 +1114,7 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
         .haiku,
         .solaris,
         .illumos,
+        .serenity,
         => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
@@ -1226,14 +1227,15 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 pub fn getBaseAddress() usize {
     switch (native_os) {
         .linux => {
-            const base = std.os.linux.getauxval(std.elf.AT_BASE);
+            const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
+            const base = getauxval(std.elf.AT_BASE);
             if (base != 0) {
                 return base;
             }
-            const phdr = std.os.linux.getauxval(std.elf.AT_PHDR);
+            const phdr = getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        .macos, .freebsd, .netbsd => {
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
@@ -1319,7 +1321,12 @@ pub const TotalSystemMemoryError = error{
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (native_os) {
         .linux => {
-            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+            var info: std.os.linux.Sysinfo = undefined;
+            const result: usize = std.os.linux.sysinfo(&info);
+            if (std.os.linux.E.init(result) != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            return info.totalram * info.mem_unit;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
@@ -1362,22 +1369,6 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         },
         else => return error.UnknownTotalSystemMemory,
     }
-}
-
-fn totalSystemMemoryLinux() !u64 {
-    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
-    defer file.close();
-    var buf: [50]u8 = undefined;
-    const amt = try file.read(&buf);
-    if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
-    const label = it.next().?;
-    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
-    const int_text = it.next() orelse return error.Unexpected;
-    const units = it.next() orelse return error.Unexpected;
-    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
-    const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
-    return kilobytes * 1024;
 }
 
 /// Indicate that we are now terminating with a successful exit code.
@@ -1610,7 +1601,8 @@ test createNullDelimitedEnvMap {
 pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        // Only need 2 trailing NUL code units for an empty environment
+        var max_chars_needed: usize = if (env_map.count() == 0) 2 else 1;
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -1634,12 +1626,14 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     }
     result[i] = 0;
     i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
+    // An empty environment is a special case that requires a redundant
+    // NUL terminator. CreateProcess will read the second code unit even
+    // though theoretically the first should be enough to recognize that the
+    // environment is empty (see https://nullprogram.com/blog/2023/08/23/)
+    if (env_map.count() == 0) {
+        result[i] = 0;
+        i += 1;
+    }
     return try allocator.realloc(result, i);
 }
 

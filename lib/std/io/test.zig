@@ -108,10 +108,7 @@ test "File seek ops" {
 
     const tmp_file_name = "temp_test_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});
-    defer {
-        file.close();
-        tmp.dir.deleteFile(tmp_file_name) catch {};
-    }
+    defer file.close();
 
     try file.writeAll(&([_]u8{0x55} ** 8192));
 
@@ -135,10 +132,7 @@ test "setEndPos" {
 
     const tmp_file_name = "temp_test_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});
-    defer {
-        file.close();
-        tmp.dir.deleteFile(tmp_file_name) catch {};
-    }
+    defer file.close();
 
     // Verify that the file size changes and the file offset is not moved
     try std.testing.expect((try file.getEndPos()) == 0);
@@ -161,10 +155,8 @@ test "updateTimes" {
 
     const tmp_file_name = "just_a_temporary_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{ .read = true });
-    defer {
-        file.close();
-        tmp.dir.deleteFile(tmp_file_name) catch {};
-    }
+    defer file.close();
+
     const stat_old = try file.stat();
     // Set atime and mtime to 5s before
     try file.updateTimes(

@@ -234,6 +234,7 @@ pub fn updateFile(
             error.FileTooBig => unreachable, // 0 is not too big
             else => |e| return e,
         };
+        try cache_file.seekTo(0);
 
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
@@ -598,6 +599,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         _ = zcu.outdated_ready.swapRemove(unit);
         // No need for `deleteUnitExports` because we never export anything.
         zcu.deleteUnitReferences(unit);
+        zcu.deleteUnitCompileLogs(unit);
         if (zcu.failed_analysis.fetchSwapRemove(unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -748,6 +750,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         if (dev.env.supports(.incremental)) {
             zcu.deleteUnitExports(anal_unit);
             zcu.deleteUnitReferences(anal_unit);
+            zcu.deleteUnitCompileLogs(anal_unit);
             if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
                 kv.value.destroy(gpa);
             }
@@ -841,7 +844,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
         .comptime_reason = .{ .reason = .{
             .src = .{
                 .base_node_inst = comptime_unit.zir_index,
-                .offset = .{ .token_offset = 0 },
+                .offset = .{ .token_offset = .zero },
             },
             .r = .{ .simple = .comptime_keyword },
         } },
@@ -920,6 +923,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1042,11 +1046,11 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
     assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
 
-    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
-    const init_src = block.src(.{ .node_offset_var_decl_init = 0 });
-    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
-    const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
-    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
+    const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
+    const init_src = block.src(.{ .node_offset_var_decl_init = .zero });
+    const align_src = block.src(.{ .node_offset_var_decl_align = .zero });
+    const section_src = block.src(.{ .node_offset_var_decl_section = .zero });
+    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = .zero });
 
     block.comptime_reason = .{ .reason = .{
         .src = init_src,
@@ -1135,7 +1139,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
                 break :l zir.nullTerminatedString(zir_decl.lib_name);
             } else null;
             if (lib_name) |l| {
-                const lib_name_src = block.src(.{ .node_offset_lib_name = 0 });
+                const lib_name_src = block.src(.{ .node_offset_lib_name = .zero });
                 try sema.handleExternLibName(&block, lib_name_src, l);
             }
             break :val .fromInterned(try pt.getExtern(.{
@@ -1233,7 +1237,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     }
 
     if (zir_decl.linkage == .@"export") {
-        const export_src = block.src(.{ .token_offset = @intFromBool(zir_decl.is_pub) });
+        const export_src = block.src(.{ .token_offset = @enumFromInt(@intFromBool(zir_decl.is_pub)) });
         const name_slice = zir.nullTerminatedString(zir_decl.name);
         const name_ip = try ip.getOrPutString(gpa, pt.tid, name_slice, .no_embedded_nulls);
         try sema.analyzeExport(&block, export_src, .{ .name = name_ip }, nav_id);
@@ -1292,6 +1296,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1414,7 +1419,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
     assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
 
-    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
+    const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
 
     block.comptime_reason = .{ .reason = .{
         .src = ty_src,
@@ -1443,6 +1448,8 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
         const type_ref = try sema.coerce(&block, .type, uncoerced_type_ref, ty_src);
         break :ty .fromInterned(type_ref.toInterned().?);
     };
+
+    try resolved_ty.resolveLayout(pt);
 
     // In the case where the type is specified, this function is also responsible for resolving
     // the pointer modifiers, i.e. alignment, linksection, addrspace.
@@ -1524,6 +1531,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1705,7 +1713,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow => {
+            error.Overflow, error.RelocationNotByteAligned => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
@@ -2743,7 +2751,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     if (sema.fn_ret_ty_ies) |ies| {
         sema.resolveInferredErrorSetPtr(&inner_block, .{
             .base_node_inst = inner_block.src_base_inst,
-            .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
+            .offset = Zcu.LazySrcLoc.Offset.nodeOffset(.zero),
         }, ies) catch |err| switch (err) {
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
@@ -2762,7 +2770,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     // result in circular dependency errors.
     // TODO: this can go away once we fix backends having to resolve `StackTrace`.
     // The codegen timing guarantees that the parameter types will be populated.
-    sema.resolveFnTypes(fn_ty, inner_block.nodeOffset(0)) catch |err| switch (err) {
+    sema.resolveFnTypes(fn_ty, inner_block.nodeOffset(.zero)) catch |err| switch (err) {
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
         else => |e| return e,
@@ -2834,6 +2842,11 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
+    if (zcu.single_exports.count() == 0 and zcu.multi_exports.count() == 0) {
+        // We can avoid a call to `resolveReferences` in this case.
+        return;
+    }
+
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
     var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
     var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
@@ -2854,8 +2867,18 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     // So, this ensureTotalCapacity serves as a reasonable (albeit very approximate) optimization.
     try nav_exports.ensureTotalCapacity(gpa, zcu.single_exports.count() + zcu.multi_exports.count());
 
-    for (zcu.single_exports.values()) |export_idx| {
+    const unit_references = try zcu.resolveReferences();
+
+    for (zcu.single_exports.keys(), zcu.single_exports.values()) |exporter, export_idx| {
         const exp = export_idx.ptr(zcu);
+        if (!unit_references.contains(exporter)) {
+            // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
+            // The linker export API should be modified to eliminate this call. #23616
+            if (zcu.comp.bin_file) |lf| {
+                lf.deleteExport(exp.exported, exp.opts.name);
+            }
+            continue;
+        }
         const value_ptr, const found_existing = switch (exp.exported) {
             .nav => |nav| gop: {
                 const gop = try nav_exports.getOrPut(gpa, nav);
@@ -2870,8 +2893,19 @@ pub fn processExports(pt: Zcu.PerThread) !void {
         try value_ptr.append(gpa, export_idx);
     }
 
-    for (zcu.multi_exports.values()) |info| {
-        for (zcu.all_exports.items[info.index..][0..info.len], info.index..) |exp, export_idx| {
+    for (zcu.multi_exports.keys(), zcu.multi_exports.values()) |exporter, info| {
+        const exports = zcu.all_exports.items[info.index..][0..info.len];
+        if (!unit_references.contains(exporter)) {
+            // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
+            // The linker export API should be modified to eliminate this loop. #23616
+            if (zcu.comp.bin_file) |lf| {
+                for (exports) |exp| {
+                    lf.deleteExport(exp.exported, exp.opts.name);
+                }
+            }
+            continue;
+        }
+        for (exports, info.index..) |exp, export_idx| {
             const value_ptr, const found_existing = switch (exp.exported) {
                 .nav => |nav| gop: {
                     const gop = try nav_exports.getOrPut(gpa, nav);
@@ -3131,7 +3165,7 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow => {
+            error.Overflow, error.RelocationNotByteAligned => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
@@ -3735,6 +3769,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     // reusing the memory which is currently being used to track this state.
     zcu.deleteUnitExports(anal_unit);
     zcu.deleteUnitReferences(anal_unit);
+    zcu.deleteUnitCompileLogs(anal_unit);
     if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
         kv.value.destroy(gpa);
     }

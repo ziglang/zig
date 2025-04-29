@@ -12,10 +12,10 @@
 
 #include <__assert>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__format/format_error.h>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h> // iter_value_t
-#include <cstddef>
 #include <cstdint>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -153,7 +153,7 @@ __parse_arg_id(_Iterator __begin, _Iterator __end, auto& __parse_ctx) {
 
 } // namespace __format
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 
