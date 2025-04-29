@@ -695,6 +695,7 @@ pub fn WriteFile(
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
             .ACCESS_DENIED => return error.AccessDenied,
+            .WORKING_SET_QUOTA => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
