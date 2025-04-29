@@ -85,7 +85,7 @@ pub const ConnectionPool = struct {
             if (connection.port != criteria.port) continue;
 
             // Domain names are case-insensitive (RFC 5890, Section 2.3.2.4)
-            if (!std.ascii.eqlIgnoreCase(connection.host, criteria.host)) continue;
+            if (!std.ascii.eqlIgnoreCase(connection.host(), criteria.host)) continue;
 
             pool.acquireUnsafe(connection);
             return connection;
@@ -227,7 +227,8 @@ pub const Protocol = enum {
 
 pub const Connection = struct {
     client: *Client,
-    stream: net.Stream,
+    stream_writer: net.Stream.Writer,
+    stream_reader: net.Stream.Reader,
     /// HTTP protocol from client to server.
     /// This either goes directly to `stream`, or to a TLS client.
     writer: std.io.BufferedWriter,
@@ -249,7 +250,7 @@ pub const Connection = struct {
             remote_host: []const u8,
             port: u16,
             stream: net.Stream,
-        ) error{OutOfMemory}!*Connection {
+        ) error{OutOfMemory}!*Plain {
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.len);
             const base = try gpa.alignedAlloc(u8, .of(Plain), alloc_len);
@@ -263,17 +264,19 @@ pub const Connection = struct {
             plain.* = .{
                 .connection = .{
                     .client = client,
-                    .stream = stream,
-                    .writer = stream.writer().buffered(socket_write_buffer),
+                    .stream_writer = stream.writer(),
+                    .stream_reader = stream.reader(),
+                    .writer = plain.connection.stream_writer.interface().buffered(socket_write_buffer),
                     .pool_node = .{},
                     .port = port,
+                    .host_len = @intCast(remote_host.len),
                     .proxied = false,
                     .closing = false,
                     .protocol = .plain,
                 },
-                .reader = undefined,
+                .reader = plain.connection.stream_reader.interface().buffered(socket_read_buffer),
             };
-            plain.reader.init(stream.reader(), socket_read_buffer);
+            return plain;
         }
 
         fn destroy(plain: *Plain) void {
@@ -321,19 +324,20 @@ pub const Connection = struct {
             tls.* = .{
                 .connection = .{
                     .client = client,
-                    .stream = stream,
+                    .stream_writer = stream.writer(),
+                    .stream_reader = stream.reader(),
                     .writer = tls.client.writer().buffered(socket_write_buffer),
                     .pool_node = .{},
                     .port = port,
+                    .host_len = @intCast(remote_host.len),
                     .proxied = false,
                     .closing = false,
                     .protocol = .tls,
                 },
-                .writer = stream.writer().buffered(tls_write_buffer),
-                .reader = undefined,
+                .writer = tls.connection.stream_writer.interface().buffered(tls_write_buffer),
+                .reader = tls.connection.stream_reader.interface().buffered(tls_read_buffer),
                 .client = undefined,
             };
-            tls.reader.init(stream.reader(), tls_read_buffer);
             // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
             tls.client.init(&tls.reader, &tls.writer, .{
                 .host = .{ .explicit = remote_host },
@@ -363,6 +367,10 @@ pub const Connection = struct {
             return base[@sizeOf(Tls)..][0..tls.connection.host_len];
         }
     };
+
+    fn getStream(c: *Connection) net.Stream {
+        return c.stream_reader.getStream();
+    }
 
     fn host(c: *Connection) []u8 {
         return switch (c.protocol) {
@@ -396,7 +404,7 @@ pub const Connection = struct {
     /// If this is called without calling `flush` or `end`, data will be
     /// dropped unsent.
     pub fn destroy(c: *Connection) void {
-        c.stream.close();
+        c.getStream().close();
         switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -457,12 +465,12 @@ pub const Response = struct {
         content_encoding: http.ContentEncoding = .identity,
 
         pub const ParseError = error{
-            HttpHeadersInvalid,
-            HttpHeaderContinuationsUnsupported,
-            HttpTransferEncodingUnsupported,
             HttpConnectionHeaderUnsupported,
+            HttpContentEncodingUnsupported,
+            HttpHeaderContinuationsUnsupported,
+            HttpHeadersInvalid,
+            HttpTransferEncodingUnsupported,
             InvalidContentLength,
-            CompressionUnsupported,
         };
 
         pub fn parse(bytes: []const u8) ParseError!Head {
@@ -536,7 +544,7 @@ pub const Response = struct {
                     if (next) |second| {
                         const trimmed_second = mem.trim(u8, second, " ");
 
-                        if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
+                        if (http.ContentEncoding.fromString(trimmed_second)) |transfer| {
                             if (res.content_encoding != .identity) return error.HttpHeadersInvalid; // double compression is not supported
                             res.content_encoding = transfer;
                         } else {
@@ -556,10 +564,10 @@ pub const Response = struct {
 
                     const trimmed = mem.trim(u8, header_value, " ");
 
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    if (http.ContentEncoding.fromString(trimmed)) |ce| {
                         res.content_encoding = ce;
                     } else {
-                        return error.HttpTransferEncodingUnsupported;
+                        return error.HttpContentEncodingUnsupported;
                     }
                 }
             }
@@ -664,10 +672,49 @@ pub const Response = struct {
         }
     };
 
+    /// If compressed body has been negotiated this will return compressed bytes.
+    ///
+    /// If the returned `std.io.Reader` returns `error.ReadFailed` the error is
+    /// available via `bodyErr`.
+    ///
     /// Asserts that this function is only called once.
+    ///
+    /// See also:
+    /// * `readerDecompressing`
     pub fn reader(response: *Response) std.io.Reader {
         const head = &response.head;
-        return response.request.reader.interface(head.transfer_encoding, head.content_length, head.content_encoding);
+        return response.request.reader.bodyReader(head.transfer_encoding, head.content_length);
+    }
+
+    /// If compressed body has been negotiated this will return decompressed bytes.
+    ///
+    /// If the returned `std.io.Reader` returns `error.ReadFailed` the error is
+    /// available via `bodyErr`.
+    ///
+    /// Asserts that this function is only called once.
+    ///
+    /// See also:
+    /// * `reader`
+    pub fn readerDecompressing(
+        response: *Response,
+        decompressor: *http.Decompressor,
+        decompression_buffer: []u8,
+    ) std.io.Reader {
+        const head = &response.head;
+        return response.request.reader.bodyReaderDecompressing(
+            head.transfer_encoding,
+            head.content_length,
+            head.content_encoding,
+            decompressor,
+            decompression_buffer,
+        );
+    }
+
+    /// After receiving `error.ReadFailed` from the `std.io.Reader` returned by
+    /// `reader` or `readerDecompressing`, this function accesses the
+    /// more specific error code.
+    pub fn bodyErr(response: *const Response) ?http.Reader.BodyError {
+        return response.request.reader.body_err;
     }
 };
 
@@ -688,6 +735,7 @@ pub const Request = struct {
     version: http.Version = .@"HTTP/1.1",
     transfer_encoding: TransferEncoding,
     redirect_behavior: RedirectBehavior,
+    accept_encoding: @TypeOf(default_accept_encoding) = default_accept_encoding,
 
     /// Whether the request should handle a 100-continue response before sending the request body.
     handle_continue: bool,
@@ -704,6 +752,14 @@ pub const Request = struct {
     /// domain.
     /// Externally-owned; must outlive the Request.
     privileged_headers: []const http.Header,
+
+    pub const default_accept_encoding: [@typeInfo(http.ContentEncoding).@"enum".fields.len]bool = b: {
+        var result: [@typeInfo(http.ContentEncoding).@"enum".fields.len]bool = @splat(false);
+        result[@intFromEnum(http.ContentEncoding.gzip)] = true;
+        result[@intFromEnum(http.ContentEncoding.deflate)] = true;
+        result[@intFromEnum(http.ContentEncoding.identity)] = true;
+        break :b result;
+    };
 
     pub const TransferEncoding = union(enum) {
         content_length: u64,
@@ -844,9 +900,18 @@ pub const Request = struct {
         }
 
         if (try emitOverridableHeader("accept-encoding: ", r.headers.accept_encoding, w)) {
-            // https://github.com/ziglang/zig/issues/18937
-            //try w.writeAll("accept-encoding: gzip, deflate, zstd\r\n");
-            try w.writeAll("accept-encoding: gzip, deflate\r\n");
+            try w.writeAll("accept-encoding: ");
+            for (r.accept_encoding, 0..) |enabled, i| {
+                if (!enabled) continue;
+                const tag: http.ContentEncoding = @enumFromInt(i);
+                if (tag == .identity) continue;
+                const tag_name = @tagName(tag);
+                try w.ensureUnusedCapacity(tag_name.len + 2);
+                try w.writeAll(tag_name);
+                try w.writeAll(", ");
+            }
+            w.undo(2);
+            try w.writeAll("\r\n");
         }
 
         switch (r.transfer_encoding) {
@@ -884,7 +949,7 @@ pub const Request = struct {
         try w.writeAll("\r\n");
     }
 
-    pub const ReceiveHeadError = std.io.Writer.Error || http.Reader.HeadError || error{
+    pub const ReceiveHeadError = http.Reader.HeadError || ConnectError || error{
         /// Server sent headers that did not conform to the HTTP protocol.
         ///
         /// To find out more detailed diagnostics, `http.Reader.head_buffer` can be
@@ -897,8 +962,14 @@ pub const Request = struct {
         HttpRedirectLocationMissing,
         HttpRedirectLocationOversize,
         HttpRedirectLocationInvalid,
-        CompressionInitializationFailed,
-        CompressionUnsupported,
+        HttpContentEncodingUnsupported,
+        HttpChunkInvalid,
+        HttpHeadersOversize,
+        UnsupportedUriScheme,
+
+        /// Sending the request failed. Error code can be found on the
+        /// `Connection` object.
+        WriteFailed,
     };
 
     /// If handling redirects and the request has no payload, then this
@@ -957,27 +1028,17 @@ pub const Request = struct {
 
             if (head.status.class() == .redirect and r.redirect_behavior != .unhandled) {
                 if (r.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
-                const location = head.location orelse return error.HttpRedirectLocationMissing;
-                try r.redirect(location, &aux_buf);
+                try r.redirect(head, &aux_buf);
                 try r.sendBodiless();
                 continue;
             }
 
-            switch (head.content_encoding) {
-                .identity, .deflate, .gzip, .@"x-gzip" => {},
-                .compress, .@"x-compress" => return error.CompressionUnsupported,
-                // https://github.com/ziglang/zig/issues/18937
-                .zstd => return error.CompressionUnsupported,
-            }
+            if (!r.accept_encoding[@intFromEnum(head.content_encoding)])
+                return error.HttpContentEncodingUnsupported;
 
             return response;
         }
     }
-
-    pub const RedirectError = error{
-        HttpRedirectLocationOversize,
-        HttpRedirectLocationInvalid,
-    };
 
     /// This function takes an auxiliary buffer to store the arbitrarily large
     /// URI which may need to be merged with the previous URI, and that data
@@ -985,16 +1046,17 @@ pub const Request = struct {
     /// buffer lives.
     ///
     /// `aux_buf` must outlive accesses to `Request.uri`.
-    fn redirect(r: *Request, new_location: []const u8, aux_buf: *[]u8) RedirectError!void {
+    fn redirect(r: *Request, head: *const Response.Head, aux_buf: *[]u8) !void {
+        const new_location = head.location orelse return error.HttpRedirectLocationMissing;
         if (new_location.len > aux_buf.*.len) return error.HttpRedirectLocationOversize;
         const location = aux_buf.*[0..new_location.len];
         @memcpy(location, new_location);
         {
             // Skip the body of the redirect response to leave the connection in
             // the correct state. This causes `new_location` to be invalidated.
-            var reader = r.reader.interface();
+            var reader = r.reader.bodyReader(head.transfer_encoding, head.content_length);
             _ = reader.discardRemaining() catch |err| switch (err) {
-                error.ReadFailed => return r.reader.err.?,
+                error.ReadFailed => return r.reader.body_err.?,
             };
         }
         const new_uri = r.uri.resolveInPlace(location.len, aux_buf) catch |err| switch (err) {
@@ -1003,7 +1065,6 @@ pub const Request = struct {
             error.InvalidPort => return error.HttpRedirectLocationInvalid,
             error.NoSpaceLeft => return error.HttpRedirectLocationOversize,
         };
-        const resolved_len = location.len + (aux_buf.*.ptr - location.ptr);
 
         const protocol = Protocol.fromUri(new_uri) orelse return error.UnsupportedUriScheme;
         const old_connection = r.connection.?;
@@ -1022,7 +1083,7 @@ pub const Request = struct {
             r.privileged_headers = &.{};
         }
 
-        if (switch (r.response.status) {
+        if (switch (head.status) {
             .see_other => true,
             .moved_permanently, .found => r.method == .POST,
             else => false,
@@ -1042,7 +1103,6 @@ pub const Request = struct {
 
         const new_connection = try r.client.connect(new_host, uriPort(new_uri, protocol), protocol);
         r.uri = new_uri;
-        r.stolen_bytes_len = resolved_len;
         r.connection = new_connection;
         r.redirect_behavior.subtractOne();
     }
@@ -1054,9 +1114,8 @@ pub const Request = struct {
             .default => return true,
             .omit => return false,
             .override => |x| {
-                try bw.writeAll(prefix);
-                try bw.writeAll(x);
-                try bw.writeAll("\r\n");
+                var vecs: [3][]const u8 = .{ prefix, x, "\r\n" };
+                try bw.writeVecAll(&vecs);
                 return false;
             },
         }
@@ -1198,9 +1257,29 @@ pub fn connectTcp(
     port: u16,
     protocol: Protocol,
 ) ConnectTcpError!*Connection {
+    return connectTcpOptions(client, .{ .host = host, .port = port, .protocol = protocol });
+}
+
+pub const ConnectTcpOptions = struct {
+    host: []const u8,
+    port: u16,
+    protocol: Protocol,
+
+    proxied_host: ?[]const u8 = null,
+    proxied_port: ?u16 = null,
+};
+
+pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcpError!*Connection {
+    const host = options.host;
+    const port = options.port;
+    const protocol = options.protocol;
+
+    const proxied_host = options.proxied_host orelse host;
+    const proxied_port = options.proxied_port orelse port;
+
     if (client.connection_pool.findConnection(.{
-        .host = host,
-        .port = port,
+        .host = proxied_host,
+        .port = proxied_port,
         .protocol = protocol,
     })) |conn| return conn;
 
@@ -1220,12 +1299,12 @@ pub fn connectTcp(
     switch (protocol) {
         .tls => {
             if (disable_tls) return error.TlsInitializationFailed;
-            const tc = try Connection.Tls.create(client, host, port, stream);
+            const tc = try Connection.Tls.create(client, proxied_host, proxied_port, stream);
             client.connection_pool.addUsed(&tc.connection);
             return &tc.connection;
         },
         .plain => {
-            const pc = try Connection.Plain.create(client, host, port, stream);
+            const pc = try Connection.Plain.create(client, proxied_host, proxied_port, stream);
             client.connection_pool.addUsed(&pc.connection);
             return &pc.connection;
         },
@@ -1267,69 +1346,67 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     return &conn.data;
 }
 
-/// Connect to `tunnel_host:tunnel_port` using the specified proxy with HTTP
+/// Connect to `proxied_host:proxied_port` using the specified proxy with HTTP
 /// CONNECT. This will reuse a connection if one is already open.
 ///
 /// This function is threadsafe.
-pub fn connectTunnel(
+pub fn connectProxied(
     client: *Client,
     proxy: *Proxy,
-    tunnel_host: []const u8,
-    tunnel_port: u16,
+    proxied_host: []const u8,
+    proxied_port: u16,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
     if (client.connection_pool.findConnection(.{
-        .host = tunnel_host,
-        .port = tunnel_port,
+        .host = proxied_host,
+        .port = proxied_port,
         .protocol = proxy.protocol,
-    })) |node|
-        return node;
+    })) |node| return node;
 
     var maybe_valid = false;
     (tunnel: {
-        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+        const connection = try client.connectTcpOptions(.{
+            .host = proxy.host,
+            .port = proxy.port,
+            .protocol = proxy.protocol,
+            .proxied_host = proxied_host,
+            .proxied_port = proxied_port,
+        });
         errdefer {
-            conn.closing = true;
-            client.connection_pool.release(conn);
+            connection.closing = true;
+            client.connection_pool.release(connection);
         }
 
-        var buffer: [8096]u8 = undefined;
-        var req = client.open(.CONNECT, .{
+        var req = client.request(.CONNECT, .{
             .scheme = "http",
-            .host = .{ .raw = tunnel_host },
-            .port = tunnel_port,
+            .host = .{ .raw = proxied_host },
+            .port = proxied_port,
         }, .{
             .redirect_behavior = .unhandled,
-            .connection = conn,
-            .server_header_buffer = &buffer,
+            .connection = connection,
         }) catch |err| {
-            std.log.debug("err {}", .{err});
             break :tunnel err;
         };
         defer req.deinit();
 
-        req.send() catch |err| break :tunnel err;
-        req.wait() catch |err| break :tunnel err;
+        req.sendBodiless() catch |err| break :tunnel err;
+        const response = req.receiveHead(&.{}) catch |err| break :tunnel err;
 
-        if (req.response.status.class() == .server_error) {
+        if (response.head.status.class() == .server_error) {
             maybe_valid = true;
             break :tunnel error.ServerError;
         }
 
-        if (req.response.status != .ok) break :tunnel error.ConnectionRefused;
+        if (response.head.status != .ok) break :tunnel error.ConnectionRefused;
 
-        // this connection is now a tunnel, so we can't use it for anything else, it will only be released when the client is de-initialized.
+        // this connection is now a tunnel, so we can't use it for anything
+        // else, it will only be released when the client is de-initialized.
         req.connection = null;
 
-        client.allocator.free(conn.host);
-        conn.host = try client.allocator.dupe(u8, tunnel_host);
-        errdefer client.allocator.free(conn.host);
+        connection.closing = false;
 
-        conn.port = tunnel_port;
-        conn.closing = false;
-
-        return conn;
+        return connection;
     }) catch {
         // something went wrong with the tunnel
         proxy.supports_connect = maybe_valid;
@@ -1337,12 +1414,11 @@ pub fn connectTunnel(
     };
 }
 
-// Prevents a dependency loop in open()
-const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUriScheme, ConnectionRefused };
-pub const ConnectError = ConnectErrorPartial || RequestError;
+pub const ConnectError = ConnectTcpError || RequestError;
 
 /// Connect to `host:port` using the specified protocol. This will reuse a
 /// connection if one is already open.
+///
 /// If a proxy is configured for the client, then the proxy will be used to
 /// connect to the host.
 ///
@@ -1366,31 +1442,24 @@ pub fn connect(
     }
 
     if (proxy.supports_connect) tunnel: {
-        return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+        return connectProxied(client, proxy, host, port) catch |err| switch (err) {
             error.TunnelNotSupported => break :tunnel,
             else => |e| return e,
         };
     }
 
     // fall back to using the proxy as a normal http proxy
-    const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
-    errdefer {
-        conn.closing = true;
-        client.connection_pool.release(conn);
-    }
-
-    conn.proxied = true;
-    return conn;
+    const connection = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+    connection.proxied = true;
+    return connection;
 }
 
-/// TODO collapse each error set into its own meta error code, and store
-/// the underlying error code as a field on Request
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || std.io.Writer.Error || std.fmt.ParseIntError ||
-    error{
-        UnsupportedUriScheme,
-        UriMissingHost,
-        CertificateBundleLoadFailure,
-    };
+pub const RequestError = ConnectTcpError || error{
+    UnsupportedUriScheme,
+    UriMissingHost,
+    UriHostTooLong,
+    CertificateBundleLoadFailure,
+};
 
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",
@@ -1440,7 +1509,7 @@ fn uriPort(uri: Uri, protocol: Protocol) u16 {
 /// This function is threadsafe.
 ///
 /// Asserts that "\r\n" does not occur in any header name or value.
-pub fn open(
+pub fn request(
     client: *Client,
     method: http.Method,
     uri: Uri,
@@ -1486,6 +1555,11 @@ pub fn open(
         .uri = uri,
         .client = client,
         .connection = connection,
+        .reader = .{
+            .in = connection.reader(),
+            .state = .ready,
+            .body_state = undefined,
+        },
         .keep_alive = options.keep_alive,
         .method = method,
         .version = options.version,
@@ -1499,13 +1573,13 @@ pub fn open(
 }
 
 pub const FetchOptions = struct {
-    server_header_buffer: ?[]u8 = null,
+    /// `null` means it will be heap-allocated.
+    redirect_buffer: ?[]u8 = null,
+    /// `null` means it will be heap-allocated.
+    decompress_buffer: ?[]u8 = null,
     redirect_behavior: ?Request.RedirectBehavior = null,
-
-    /// If the server sends a body, it will be appended to this ArrayList.
-    /// `max_append_size` provides an upper limit for how much they can grow.
-    response_storage: ResponseStorage = .ignore,
-    max_append_size: ?usize = null,
+    /// If the server sends a body, it will be stored here.
+    response_storage: ?ResponseStorage = null,
 
     location: Location,
     method: ?http.Method = null,
@@ -1529,11 +1603,11 @@ pub const FetchOptions = struct {
         uri: Uri,
     };
 
-    pub const ResponseStorage = union(enum) {
-        ignore,
-        /// Only the existing capacity will be used.
-        static: *std.ArrayListUnmanaged(u8),
-        dynamic: *std.ArrayList(u8),
+    pub const ResponseStorage = struct {
+        list: *std.ArrayListUnmanaged(u8),
+        /// If null then only the existing capacity will be used.
+        allocator: ?Allocator = null,
+        append_limit: std.io.Reader.Limit = .unlimited,
     };
 };
 
@@ -1541,23 +1615,28 @@ pub const FetchResult = struct {
     status: http.Status,
 };
 
+pub const FetchError = Uri.ParseError || RequestError || Request.ReceiveHeadError || error{
+    StreamTooLong,
+    /// TODO provide optional diagnostics when this occurs or break into more error codes
+    WriteFailed,
+};
+
 /// Perform a one-shot HTTP request with the provided options.
 ///
 /// This function is threadsafe.
-pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
+pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     const uri = switch (options.location) {
         .url => |u| try Uri.parse(u),
         .uri => |u| u,
     };
-    var server_header_buffer: [16 * 1024]u8 = undefined;
-
     const method: http.Method = options.method orelse
         if (options.payload != null) .POST else .GET;
 
-    var req = try open(client, method, uri, .{
-        .server_header_buffer = options.server_header_buffer orelse &server_header_buffer,
-        .redirect_behavior = options.redirect_behavior orelse
-            if (options.payload == null) @enumFromInt(3) else .unhandled,
+    const redirect_behavior: Request.RedirectBehavior = options.redirect_behavior orelse
+        if (options.payload == null) @enumFromInt(3) else .unhandled;
+
+    var req = try request(client, method, uri, .{
+        .redirect_behavior = redirect_behavior,
         .headers = options.headers,
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
@@ -1565,44 +1644,56 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
     });
     defer req.deinit();
 
-    if (options.payload) |payload| req.transfer_encoding = .{ .content_length = payload.len };
-
-    try req.send();
-
     if (options.payload) |payload| {
-        var w = req.writer().unbuffered();
-        try w.writeAll(payload);
+        req.transfer_encoding = .{ .content_length = payload.len };
+        var body = try req.sendBody();
+        var bw = body.writer().unbuffered();
+        try bw.writeAll(payload);
+        try body.end();
+    } else {
+        try req.sendBodiless();
     }
 
-    try req.finish();
-    try req.wait();
+    const redirect_buffer: []u8 = if (redirect_behavior == .unhandled) &.{} else options.redirect_buffer orelse
+        try client.allocator.alloc(u8, 8 * 1024);
+    defer if (options.redirect_buffer == null) client.allocator.free(redirect_buffer);
 
-    switch (options.response_storage) {
-        .ignore => {
-            // Take advantage of request internals to discard the response body
-            // and make the connection available for another request.
-            req.response.skip = true;
-            assert(try req.transferRead(&.{}) == 0); // No buffer is necessary when skipping.
-        },
-        .dynamic => |list| {
-            const max_append_size = options.max_append_size orelse 2 * 1024 * 1024;
-            try req.reader().readAllArrayList(list, max_append_size);
-        },
-        .static => |list| {
-            const buf = b: {
-                const buf = list.unusedCapacitySlice();
-                if (options.max_append_size) |len| {
-                    if (len < buf.len) break :b buf[0..len];
-                }
-                break :b buf;
-            };
-            list.items.len += try req.reader().readAll(buf);
-        },
-    }
+    var response = try req.receiveHead(redirect_buffer);
 
-    return .{
-        .status = req.response.status,
+    const storage = options.response_storage orelse {
+        var reader = response.reader();
+        _ = reader.discardRemaining() catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr().?,
+        };
+        return .{ .status = response.head.status };
     };
+
+    const decompress_buffer: []u8 = switch (response.head.content_encoding) {
+        .identity => &.{},
+        .zstd => options.decompress_buffer orelse
+            try client.allocator.alloc(u8, std.compress.zstd.Decompressor.Options.default_window_buffer_len * 2),
+        else => options.decompress_buffer orelse try client.allocator.alloc(u8, 8 * 1024),
+    };
+    defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
+
+    var decompressor: http.Decompressor = undefined;
+    var reader = response.readerDecompressing(&decompressor, decompress_buffer);
+    const list = storage.list;
+
+    if (storage.allocator) |allocator| {
+        reader.readRemainingArrayList(allocator, null, list, storage.append_limit) catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr().?,
+            else => |e| return e,
+        };
+    } else {
+        var br = reader.unbuffered();
+        const buf = storage.append_limit.slice(list.unusedCapacitySlice());
+        list.items.len += br.readSliceShort(buf) catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr().?,
+        };
+    }
+
+    return .{ .status = response.head.status };
 }
 
 pub fn sameParentDomain(parent_host: []const u8, child_host: []const u8) bool {

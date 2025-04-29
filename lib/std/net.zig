@@ -1898,6 +1898,10 @@ pub const Stream = struct {
 
             pub const Error = ReadError;
 
+            pub fn getStream(r: *const Reader) Stream {
+                return r.stream;
+            }
+
             pub fn interface(r: *Reader) std.io.Reader {
                 return .{
                     .context = r.stream.handle,
@@ -1968,6 +1972,10 @@ pub const Stream = struct {
             pub fn interface(r: *Reader) std.io.Reader {
                 return r.file_reader.interface();
             }
+
+            pub fn getStream(r: *const Reader) Stream {
+                return .{ .handle = r.file_reader.file.handle };
+            }
         },
     };
 
@@ -1985,6 +1993,10 @@ pub const Stream = struct {
                         .writeFile = writeFile,
                     },
                 };
+            }
+
+            pub fn getStream(w: *const Writer) Stream {
+                return w.stream;
             }
 
             fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
@@ -2129,6 +2141,10 @@ pub const Stream = struct {
                     w.err = err;
                     return error.WriteFailed;
                 };
+            }
+
+            pub fn getStream(w: *const Writer) Stream {
+                return .{ .handle = w.file_writer.file.handle };
             }
         },
     };
