@@ -1924,6 +1924,7 @@ pub const CreateProcessError = error{
     InvalidName,
     NameTooLong,
     InvalidExe,
+    SystemResources,
     Unexpected,
 };
 
@@ -2018,6 +2019,7 @@ pub fn CreateProcessW(
             // when calling CreateProcessW on a plain text file with a .exe extension
             .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
+            .COMMITMENT_LIMIT => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
