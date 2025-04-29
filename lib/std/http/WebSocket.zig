@@ -236,7 +236,7 @@ pub fn writeMessagev(ws: *WebSocket, message: []const std.posix.iovec_const, opc
         },
     };
 
-    var bw = ws.body_writer.interface().unbuffered();
+    var bw = ws.body_writer.writer().unbuffered();
     try bw.writeAll(header);
     for (message) |iovec| try bw.writeAll(iovec.base[0..iovec.len]);
     try bw.flush();
