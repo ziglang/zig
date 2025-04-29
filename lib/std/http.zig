@@ -295,13 +295,24 @@ pub const TransferEncoding = enum {
 };
 
 pub const ContentEncoding = enum {
-    identity,
-    compress,
-    @"x-compress",
-    deflate,
-    gzip,
-    @"x-gzip",
     zstd,
+    gzip,
+    deflate,
+    compress,
+    identity,
+
+    pub fn fromString(s: []const u8) ?ContentEncoding {
+        const map = std.StaticStringMap(ContentEncoding).initComptime(.{
+            .{ "zstd", .zstd },
+            .{ "gzip", .gzip },
+            .{ "x-gzip", .gzip },
+            .{ "deflate", .deflate },
+            .{ "compress", .compress },
+            .{ "x-compress", .compress },
+            .{ "identity", .identity },
+        });
+        return map.get(s);
+    }
 };
 
 pub const Connection = enum {
@@ -331,17 +342,8 @@ pub const Reader = struct {
     body_err: ?BodyError = null,
     /// Stolen from `in`.
     head_buffer: []u8 = &.{},
-    compression: Compression,
 
     pub const max_chunk_header_len = 22;
-
-    pub const Compression = union(enum) {
-        deflate: std.compress.zlib.Decompressor,
-        gzip: std.compress.gzip.Decompressor,
-        // https://github.com/ziglang/zig/issues/18937
-        //zstd: std.compress.zstd.Decompressor,
-        none: void,
-    };
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -416,19 +418,19 @@ pub const Reader = struct {
         }
     }
 
+    /// If compressed body has been negotiated this will return compressed bytes.
+    ///
     /// Asserts only called once and after `receiveHead`.
-    pub fn interface(
-        reader: *Reader,
-        transfer_encoding: TransferEncoding,
-        content_length: ?u64,
-        content_encoding: ContentEncoding,
-    ) std.io.Reader {
+    ///
+    /// See also:
+    /// * `interfaceDecompressing`
+    pub fn bodyReader(reader: *Reader, transfer_encoding: TransferEncoding, content_length: ?u64) std.io.Reader {
         assert(reader.state == .received_head);
         reader.state = .receiving_body;
-        reader.transfer_br.unbuffered_reader = switch (transfer_encoding) {
-            .chunked => r: {
+        return switch (transfer_encoding) {
+            .chunked => {
                 reader.body_state = .{ .remaining_chunk_len = .head };
-                break :r .{
+                return .{
                     .context = reader,
                     .vtable = &.{
                         .read = &chunkedRead,
@@ -437,10 +439,10 @@ pub const Reader = struct {
                     },
                 };
             },
-            .none => r: {
+            .none => {
                 if (content_length) |len| {
                     reader.body_state = .{ .remaining_content_length = len };
-                    break :r .{
+                    return .{
                         .context = reader,
                         .vtable = &.{
                             .read = &contentLengthRead,
@@ -448,40 +450,53 @@ pub const Reader = struct {
                             .discard = &contentLengthDiscard,
                         },
                     };
-                } else switch (content_encoding) {
-                    .identity => {
-                        reader.compression = .none;
-                        return reader.in.reader();
-                    },
-                    .deflate => {
-                        reader.compression = .{ .deflate = .init(reader.in) };
-                        return reader.compression.deflate.reader();
-                    },
-                    .gzip, .@"x-gzip" => {
-                        reader.compression = .{ .gzip = .init(reader.in) };
-                        return reader.compression.gzip.reader();
-                    },
-                    .compress, .@"x-compress" => unreachable,
-                    .zstd => unreachable, // https://github.com/ziglang/zig/issues/18937
+                } else {
+                    return reader.in.reader();
                 }
             },
         };
-        switch (content_encoding) {
-            .identity => {
-                reader.compression = .none;
-                return reader.transfer_br.unbuffered_reader;
-            },
-            .deflate => {
-                reader.compression = .{ .deflate = .init(&reader.transfer_br) };
-                return reader.compression.deflate.reader();
-            },
-            .gzip, .@"x-gzip" => {
-                reader.compression = .{ .gzip = .init(&reader.transfer_br) };
-                return reader.compression.gzip.reader();
-            },
-            .compress, .@"x-compress" => unreachable,
-            .zstd => unreachable, // https://github.com/ziglang/zig/issues/18937
+    }
+
+    /// If compressed body has been negotiated this will return decompressed bytes.
+    ///
+    /// Asserts only called once and after `receiveHead`.
+    ///
+    /// See also:
+    /// * `interface`
+    pub fn bodyReaderDecompressing(
+        reader: *Reader,
+        transfer_encoding: TransferEncoding,
+        content_length: ?u64,
+        content_encoding: ContentEncoding,
+        decompressor: *Decompressor,
+        decompression_buffer: []u8,
+    ) std.io.Reader {
+        if (transfer_encoding == .none and content_length == null) {
+            assert(reader.state == .received_head);
+            reader.state = .receiving_body;
+            switch (content_encoding) {
+                .identity => {
+                    return reader.in.reader();
+                },
+                .deflate => {
+                    decompressor.compression = .{ .deflate = .init(reader.in) };
+                    return decompressor.compression.deflate.reader();
+                },
+                .gzip => {
+                    decompressor.compression = .{ .gzip = .init(reader.in) };
+                    return decompressor.compression.gzip.reader();
+                },
+                .zstd => {
+                    decompressor.compression = .{ .zstd = .init(reader.in, .{
+                        .window_buffer = decompression_buffer,
+                    }) };
+                    return decompressor.compression.zstd.reader();
+                },
+                .compress => unreachable,
+            }
         }
+        const transfer_reader = bodyReader(reader, transfer_encoding, content_length);
+        return decompressor.reader(transfer_reader, decompression_buffer, content_encoding);
     }
 
     fn contentLengthRead(
@@ -717,6 +732,52 @@ pub const Reader = struct {
     fn failBody(r: *Reader, err: BodyError) error{ReadFailed} {
         r.body_err = err;
         return error.ReadFailed;
+    }
+};
+
+pub const Decompressor = struct {
+    compression: Compression,
+    buffered_reader: std.io.BufferedReader,
+
+    pub const Compression = union(enum) {
+        deflate: std.compress.zlib.Decompressor,
+        gzip: std.compress.gzip.Decompressor,
+        zstd: std.compress.zstd.Decompressor,
+        none: void,
+    };
+
+    pub fn reader(
+        decompressor: *Decompressor,
+        transfer_reader: std.io.Reader,
+        buffer: []u8,
+        content_encoding: ContentEncoding,
+    ) std.io.Reader {
+        switch (content_encoding) {
+            .identity => {
+                decompressor.compression = .none;
+                return transfer_reader;
+            },
+            .deflate => {
+                decompressor.buffered_reader = transfer_reader.buffered(buffer);
+                decompressor.compression = .{ .deflate = .init(&decompressor.buffered_reader) };
+                return decompressor.compression.deflate.reader();
+            },
+            .gzip => {
+                decompressor.buffered_reader = transfer_reader.buffered(buffer);
+                decompressor.compression = .{ .gzip = .init(&decompressor.buffered_reader) };
+                return decompressor.compression.gzip.reader();
+            },
+            .zstd => {
+                const first_half = buffer[0 .. buffer.len / 2];
+                const second_half = buffer[buffer.len / 2 ..];
+                decompressor.buffered_reader = transfer_reader.buffered(first_half);
+                decompressor.compression = .{ .zstd = .init(&decompressor.buffered_reader, .{
+                    .window_buffer = second_half,
+                }) };
+                return decompressor.compression.gzip.reader();
+            },
+            .compress => unreachable,
+        }
     }
 };
 

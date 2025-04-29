@@ -55,13 +55,6 @@ pub const Request = struct {
     /// `receiveHead`.
     head: Head,
 
-    pub const Compression = union(enum) {
-        deflate: std.compress.zlib.Decompressor,
-        gzip: std.compress.gzip.Decompressor,
-        zstd: std.compress.zstd.Decompressor,
-        none: void,
-    };
-
     pub const Head = struct {
         method: http.Method,
         target: []const u8,
@@ -72,7 +65,6 @@ pub const Request = struct {
         transfer_encoding: http.TransferEncoding,
         transfer_compression: http.ContentEncoding,
         keep_alive: bool,
-        compression: Compression,
 
         pub const ParseError = error{
             UnknownHttpMethod,
@@ -126,7 +118,6 @@ pub const Request = struct {
                     .@"HTTP/1.0" => false,
                     .@"HTTP/1.1" => true,
                 },
-                .compression = .none,
             };
 
             while (it.next()) |line| {
@@ -156,7 +147,7 @@ pub const Request = struct {
 
                     const trimmed = mem.trim(u8, header_value, " ");
 
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    if (http.ContentEncoding.fromString(trimmed)) |ce| {
                         head.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
@@ -181,7 +172,7 @@ pub const Request = struct {
                     if (next) |second| {
                         const trimmed_second = mem.trim(u8, second, " ");
 
-                        if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
+                        if (http.ContentEncoding.fromString(trimmed_second)) |transfer| {
                             if (head.transfer_compression != .identity)
                                 return error.HttpHeadersInvalid; // double compression is not supported
                             head.transfer_compression = transfer;
@@ -236,10 +227,8 @@ pub const Request = struct {
             "TRansfer-encoding:\tdeflate, chunked \r\n" ++
             "connectioN:\t keep-alive \r\n\r\n";
 
-        var read_buffer: [500]u8 = undefined;
-        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
         var br: std.io.BufferedReader = undefined;
-        br.initFixed(&read_buffer);
+        br.initFixed(@constCast(request_bytes));
 
         var server: Server = .{
             .reader = .{
@@ -252,7 +241,6 @@ pub const Request = struct {
 
         var request: Request = .{
             .server = &server,
-            .trailers_len = 0,
             .head = undefined,
         };
 
@@ -529,7 +517,7 @@ pub const Request = struct {
                 return error.HttpExpectationFailed;
             }
         }
-        return request.server.reader.interface(request.head.transfer_encoding, request.head.content_length);
+        return request.server.reader.bodyReader(request.head.transfer_encoding, request.head.content_length);
     }
 
     /// Returns whether the connection should remain persistent.
