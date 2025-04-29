@@ -476,7 +476,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var body_writer = try request.respondStreaming(.{
+    var body = try request.respondStreaming(.{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },
@@ -517,7 +517,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
-    var response_writer = body_writer.interface().unbuffered();
+    var response_writer = body.writer().unbuffered();
     var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer };
 
     for (deduped_paths) |joined_path| {
@@ -531,7 +531,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         try archiver.writeFile(joined_path.sub_path, file, try file.stat());
     }
 
-    try body_writer.end();
+    try body.end();
 }
 
 fn memoizedCwd(arena: Allocator, opt_ptr: *?[]const u8) ![]const u8 {

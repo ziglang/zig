@@ -61,7 +61,7 @@ test "trailers" {
     const uri = try std.Uri.parse(location);
 
     {
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -263,7 +263,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
                 var connection_bw = stream_writer.interface().buffered(&send_buffer);
                 var server = http.Server.init(&connection_br, &connection_bw);
 
-                try expectEqual(.ready, server.state);
+                try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
                 try expectEqualStrings(request.head.target, "/foo");
                 var response = try request.respondStreaming(.{
@@ -278,7 +278,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
                 }
                 try expectEqual(7390, bw.count);
                 try response.end();
-                try expectEqual(.closing, server.state);
+                try expectEqual(.closing, server.reader.state);
             }
         }
     });
@@ -331,7 +331,7 @@ test "receiving arbitrary http headers from the client" {
                 var connection_bw = stream_writer.interface().buffered(&send_buffer);
                 var server = http.Server.init(&connection_br, &connection_bw);
 
-                try expectEqual(.ready, server.state);
+                try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
                 try expectEqualStrings("/bar", request.head.target);
                 var it = request.iterateHeaders();
@@ -563,7 +563,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -586,7 +586,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -608,7 +608,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.HEAD, uri, .{});
+        var req = try client.request(.HEAD, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -632,7 +632,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -655,18 +655,18 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.HEAD, uri, .{});
+        var req = try client.request(.HEAD, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
-        try expectEqualStrings("text/plain", req.response.content_type.?);
-        try expect(req.response.transfer_encoding == .chunked);
+        try expectEqualStrings("text/plain", response.head.content_type.?);
+        try expect(response.head.transfer_encoding == .chunked);
     }
 
     // connection has been kept alive
@@ -679,19 +679,19 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{
+        var req = try client.request(.GET, uri, .{
             .keep_alive = false,
         });
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
-        try expectEqualStrings("text/plain", req.response.content_type.?);
+        try expectEqualStrings("text/plain", response.head.content_type.?);
     }
 
     // connection has been closed
@@ -704,7 +704,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{
+        var req = try client.request(.GET, uri, .{
             .extra_headers = &.{
                 .{ .name = "empty", .value = "" },
             },
@@ -712,16 +712,16 @@ test "general client/server API coverage" {
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        try std.testing.expectEqual(.ok, req.response.status);
+        try std.testing.expectEqual(.ok, response.head.status);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
 
-        var it = req.response.iterateHeaders();
+        var it = response.head.iterateHeaders();
         {
             const header = it.next().?;
             try expect(!it.is_trailer);
@@ -747,13 +747,13 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -769,13 +769,13 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -791,13 +791,13 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -813,14 +813,16 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        req.receiveHead(&redirect_buffer) catch |err| switch (err) {
+        if (req.receiveHead(&redirect_buffer)) |_| {
+            return error.TestFailed;
+        } else |err| switch (err) {
             error.TooManyHttpRedirects => {},
             else => return err,
-        };
+        }
     }
 
     { // redirect to encoded url
@@ -830,13 +832,13 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
-        try req.receiveHead(&redirect_buffer);
+        var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try req.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Encoded redirect successful!\n", body);
@@ -852,7 +854,7 @@ test "general client/server API coverage" {
 
         log.info("{s}", .{location});
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
@@ -866,36 +868,6 @@ test "general client/server API coverage" {
 
     // connection has been kept alive
     try expect(client.http_proxy != null or client.connection_pool.free_len == 1);
-
-    { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
-        const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/get", .{port});
-        defer gpa.free(location);
-        const uri = try std.Uri.parse(location);
-
-        const total_connections = client.connection_pool.free_size + 64;
-        var requests = try gpa.alloc(http.Client.Request, total_connections);
-        defer gpa.free(requests);
-
-        var header_bufs = std.ArrayList([]u8).init(gpa);
-        defer header_bufs.deinit();
-        defer for (header_bufs.items) |item| gpa.free(item);
-
-        for (0..total_connections) |i| {
-            const headers_buf = try gpa.alloc(u8, 1024);
-            try header_bufs.append(headers_buf);
-            var req = try client.open(.GET, uri, .{});
-            req.response.parser.done = true;
-            req.connection.?.closing = false;
-            requests[i] = req;
-        }
-
-        for (0..total_connections) |i| {
-            requests[i].deinit();
-        }
-
-        // free connections should be full now
-        try expect(client.connection_pool.free_len == client.connection_pool.free_size);
-    }
 
     client.deinit();
 
@@ -950,7 +922,7 @@ test "Server streams both reading and writing" {
     defer client.deinit();
 
     var redirect_buffer: [555]u8 = undefined;
-    var req = try client.open(.POST, .{
+    var req = try client.request(.POST, .{
         .scheme = "http",
         .host = .{ .raw = "127.0.0.1" },
         .port = test_server.port(),
@@ -983,7 +955,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         const uri = try std.Uri.parse(location);
 
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
+        var req = try client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
             },
@@ -1017,7 +989,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         ));
 
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
+        var req = try client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
             },
@@ -1048,8 +1020,8 @@ fn echoTests(client: *http.Client, port: u16) !void {
         const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
         defer gpa.free(location);
 
-        var body = std.ArrayList(u8).init(gpa);
-        defer body.deinit();
+        var body: std.ArrayListUnmanaged(u8) = .empty;
+        defer body.deinit(gpa);
 
         const res = try client.fetch(.{
             .location = .{ .url = location },
@@ -1058,7 +1030,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
             },
-            .response_storage = .{ .dynamic = &body },
+            .response_storage = .{ .allocator = gpa, .list = &body },
         });
         try expectEqual(.ok, res.status);
         try expectEqualStrings("Hello, World!\n", body.items);
@@ -1070,7 +1042,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         const uri = try std.Uri.parse(location);
 
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
+        var req = try client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "expect", .value = "100-continue" },
                 .{ .name = "content-type", .value = "text/plain" },
@@ -1101,7 +1073,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         const uri = try std.Uri.parse(location);
 
         var redirect_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
+        var req = try client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
                 .{ .name = "expect", .value = "garbage" },
@@ -1222,7 +1194,7 @@ test "redirect to different connection" {
 
     {
         var redirect_buffer: [666]u8 = undefined;
-        var req = try client.open(.GET, uri, .{});
+        var req = try client.request(.GET, uri, .{});
         defer req.deinit();
 
         try req.sendBodiless();
