@@ -10347,6 +10347,16 @@ pub const sigaction = switch (native_os) {
     else => private.sigaction,
 };
 
+/// Zig's version of SIGRTMIN.  Actually a function.
+pub fn sigrtmin() u8 {
+    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin())));
+}
+
+/// Zig's version of SIGRTMAX.  Actually a function.
+pub fn sigrtmax() u8 {
+    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax())));
+}
+
 pub const sigfillset = switch (native_os) {
     .netbsd => private.__sigfillset14,
     else => private.sigfillset,
@@ -11212,6 +11222,9 @@ const private = struct {
     extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
     extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
     extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+
+    extern "c" fn __libc_current_sigrtmin() c_int;
+    extern "c" fn __libc_current_sigrtmax() c_int;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!

@@ -859,6 +859,17 @@ test "shutdown socket" {
     std.net.Stream.close(.{ .handle = sock });
 }
 
+test "sigrtmin/max" {
+    if (native_os == .wasi or native_os == .windows or native_os == .macos) {
+        return error.SkipZigTest;
+    }
+
+    try std.testing.expect(posix.sigrtmin() >= 32);
+    try std.testing.expect(posix.sigrtmin() >= posix.system.sigrtmin());
+    try std.testing.expect(posix.sigrtmin() < posix.system.sigrtmax());
+    try std.testing.expect(posix.sigrtmax() < posix.NSIG);
+}
+
 test "sigset empty/full" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
@@ -875,10 +886,13 @@ test "sigset empty/full" {
     try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.INT)));
 }
 
-// Some signals (32 - 34 on glibc/musl) are not allowed to be added to a
+// Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
 // sigset by the C library, so avoid testing them.
 fn reserved_signo(i: usize) bool {
-    return builtin.link_libc and (i >= 32 and i <= 34);
+    if (native_os == .macos) {
+        return false;
+    }
+    return builtin.link_libc and (i >= 32 and i < posix.sigrtmin());
 }
 
 test "sigset add/del" {
