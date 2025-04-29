@@ -136,6 +136,15 @@ pub fn writableSliceGreedy(bw: *BufferedWriter, minimum_length: usize) Writer.Er
     return bw.buffer[bw.end..];
 }
 
+pub fn ensureUnusedCapacity(bw: *BufferedWriter, n: usize) Writer.Error!void {
+    _ = try writableSliceGreedy(bw, n);
+}
+
+pub fn undo(bw: *BufferedWriter, n: usize) void {
+    bw.end -= n;
+    bw.count -= n;
+}
+
 /// After calling `writableSliceGreedy`, this function tracks how many bytes
 /// were written to it.
 ///
@@ -797,18 +806,13 @@ pub fn printValue(
     max_depth: usize,
 ) Writer.Error!void {
     const T = @TypeOf(value);
-    const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
-        defaultFormatString(T)
-    else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
-        .optional, .error_union => fmt,
-        else => stripOptionalOrErrorUnionSpec(fmt),
-    } else fmt;
 
-    if (comptime std.mem.eql(u8, actual_fmt, "*")) {
+    if (comptime std.mem.eql(u8, fmt, "*")) {
         return bw.printAddress(value);
     }
 
-    if (std.meta.hasMethod(T, "format")) {
+    const is_any = comptime std.mem.eql(u8, fmt, ANY);
+    if (!is_any and std.meta.hasMethod(T, "format")) {
         if (fmt.len > 0 and fmt[0] == 'f') {
             return value.format(bw, fmt[1..]);
         } else if (fmt.len == 0) {
@@ -818,20 +822,23 @@ pub fn printValue(
     }
 
     switch (@typeInfo(T)) {
-        .float, .comptime_float => return bw.printFloat(actual_fmt, options, value),
-        .int, .comptime_int => return bw.printInt(actual_fmt, options, value),
+        .float, .comptime_float => return bw.printFloat(if (is_any) "d" else fmt, options, value),
+        .int, .comptime_int => return bw.printInt(if (is_any) "d" else fmt, options, value),
         .bool => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return bw.alignBufferOptions(if (value) "true" else "false", options);
         },
         .void => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return bw.alignBufferOptions("void", options);
         },
         .optional => {
-            if (actual_fmt.len == 0 or actual_fmt[0] != '?')
+            const remaining_fmt = comptime if (fmt.len > 0 and fmt[0] == '?')
+                stripOptionalOrErrorUnionSpec(fmt)
+            else if (is_any)
+                ANY
+            else
                 @compileError("cannot print optional without a specifier (i.e. {?} or {any})");
-            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
                 return bw.printValue(remaining_fmt, options, payload, max_depth);
             } else {
@@ -839,9 +846,12 @@ pub fn printValue(
             }
         },
         .error_union => {
-            if (actual_fmt.len == 0 or actual_fmt[0] != '!')
-                @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
-            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
+            const remaining_fmt = comptime if (fmt.len > 0 and fmt[0] == '!')
+                stripOptionalOrErrorUnionSpec(fmt)
+            else if (is_any)
+                ANY
+            else
+                @compileError("cannot print error union without a specifier (i.e. {!} or {any})");
             if (value) |payload| {
                 return bw.printValue(remaining_fmt, options, payload, max_depth);
             } else |err| {
@@ -849,40 +859,43 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (actual_fmt.len > 0 and actual_fmt[0] == 's') {
-                return bw.writeAll(@errorName(value));
-            } else if (actual_fmt.len != 0) {
-                invalidFmtError(fmt, value);
-            } else {
-                try bw.writeAll("error.");
-                try bw.writeAll(@errorName(value));
-            }
+            if (fmt.len == 1 and fmt[0] == 's') return bw.writeAll(@errorName(value));
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            try printErrorSet(bw, value);
         },
-        .@"enum" => |enum_info| {
-            try bw.writeAll(@typeName(T));
-            if (enum_info.is_exhaustive) {
-                if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-                try bw.writeAll(".");
+        .@"enum" => {
+            if (fmt.len == 1 and fmt[0] == 's') {
                 try bw.writeAll(@tagName(value));
                 return;
             }
-
-            // Use @tagName only if value is one of known fields
+            if (!is_any) {
+                if (fmt.len != 0) return printValue(bw, fmt, options, @intFromEnum(value), max_depth);
+                return printValue(bw, ANY, options, value, max_depth);
+            }
+            const enum_info = @typeInfo(T).@"enum";
+            if (enum_info.is_exhaustive) {
+                var vecs: [3][]const u8 = .{ @typeName(T), ".", @tagName(value) };
+                try bw.writeVecAll(&vecs);
+                return;
+            }
+            try bw.writeAll(@typeName(T));
             @setEvalBranchQuota(3 * enum_info.fields.len);
-            inline for (enum_info.fields) |enumField| {
-                if (@intFromEnum(value) == enumField.value) {
+            inline for (enum_info.fields) |field| {
+                if (@intFromEnum(value) == field.value) {
                     try bw.writeAll(".");
                     try bw.writeAll(@tagName(value));
                     return;
                 }
             }
-
             try bw.writeByte('(');
-            try bw.printValue(actual_fmt, options, @intFromEnum(value), max_depth);
+            try bw.printValue(ANY, options, @intFromEnum(value), max_depth);
             try bw.writeByte(')');
         },
         .@"union" => |info| {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any) {
+                if (fmt.len != 0) invalidFmtError(fmt, value);
+                return printValue(bw, ANY, options, value, max_depth);
+            }
             try bw.writeAll(@typeName(T));
             if (max_depth == 0) {
                 try bw.writeAll("{ ... }");
@@ -904,7 +917,10 @@ pub fn printValue(
             }
         },
         .@"struct" => |info| {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any) {
+                if (fmt.len != 0) invalidFmtError(fmt, value);
+                return printValue(bw, ANY, options, value, max_depth);
+            }
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -944,7 +960,7 @@ pub fn printValue(
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
                 .array, .@"enum", .@"union", .@"struct" => {
-                    return bw.printValue(actual_fmt, options, value.*, max_depth);
+                    return bw.printValue(fmt, options, value.*, max_depth);
                 },
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
@@ -954,37 +970,36 @@ pub fn printValue(
                 },
             },
             .many, .c => {
-                if (actual_fmt.len == 0)
-                    @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                if (ptr_info.sentinel() != null) {
-                    return bw.printValue(actual_fmt, options, std.mem.span(value), max_depth);
-                }
-                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                if (ptr_info.sentinel() != null)
+                    return bw.printValue(fmt, options, std.mem.span(value), max_depth);
+                if (fmt.len == 1 and fmt[0] == 's' and ptr_info.child == u8)
                     return bw.alignBufferOptions(std.mem.span(value), options);
-                }
-                invalidFmtError(fmt, value);
+                if (!is_any and fmt.len == 0)
+                    @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
+                if (!is_any and fmt.len != 0)
+                    invalidFmtError(fmt, value);
+                try bw.printAddress(value);
             },
             .slice => {
-                if (actual_fmt.len == 0)
+                if (!is_any and fmt.len == 0)
                     @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
-                if (max_depth == 0) {
+                if (max_depth == 0)
                     return bw.writeAll("{ ... }");
-                }
-                if (ptr_info.child == u8) switch (actual_fmt.len) {
-                    1 => switch (actual_fmt[0]) {
+                if (ptr_info.child == u8) switch (fmt.len) {
+                    1 => switch (fmt[0]) {
                         's' => return bw.alignBufferOptions(value, options),
                         'x' => return bw.printHex(value, .lower),
                         'X' => return bw.printHex(value, .upper),
                         else => {},
                     },
-                    3 => if (actual_fmt[0] == 'b' and actual_fmt[1] == '6' and actual_fmt[2] == '4') {
+                    3 => if (fmt[0] == 'b' and fmt[1] == '6' and fmt[2] == '4') {
                         return bw.printBase64(value);
                     },
                     else => {},
                 };
                 try bw.writeAll("{ ");
                 for (value, 0..) |elem, i| {
-                    try bw.printValue(actual_fmt, options, elem, max_depth - 1);
+                    try bw.printValue(fmt, options, elem, max_depth - 1);
                     if (i != value.len - 1) {
                         try bw.writeAll(", ");
                     }
@@ -993,23 +1008,23 @@ pub fn printValue(
             },
         },
         .array => |info| {
-            if (actual_fmt.len == 0)
+            if (fmt.len == 0)
                 @compileError("cannot format array without a specifier (i.e. {s} or {any})");
             if (max_depth == 0) {
                 return bw.writeAll("{ ... }");
             }
             if (info.child == u8) {
-                if (actual_fmt[0] == 's') {
+                if (fmt[0] == 's') {
                     return bw.alignBufferOptions(&value, options);
-                } else if (actual_fmt[0] == 'x') {
+                } else if (fmt[0] == 'x') {
                     return bw.printHex(&value, .lower);
-                } else if (actual_fmt[0] == 'X') {
+                } else if (fmt[0] == 'X') {
                     return bw.printHex(&value, .upper);
                 }
             }
             try bw.writeAll("{ ");
             for (value, 0..) |elem, i| {
-                try bw.printValue(actual_fmt, options, elem, max_depth - 1);
+                try bw.printValue(fmt, options, elem, max_depth - 1);
                 if (i < value.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -1023,7 +1038,7 @@ pub fn printValue(
             try bw.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try bw.printValue(actual_fmt, options, value[i], max_depth - 1);
+                try bw.printValue(fmt, options, value[i], max_depth - 1);
                 if (i < info.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -1032,20 +1047,25 @@ pub fn printValue(
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return bw.alignBufferOptions(@typeName(value), options);
         },
         .enum_literal => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return bw.alignBufferOptions(buffer, options);
         },
         .null => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return bw.alignBufferOptions("null", options);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
     }
+}
+
+fn printErrorSet(bw: *BufferedWriter, error_set: anyerror) Writer.Error!void {
+    var vecs: [2][]const u8 = .{ "error.", @errorName(error_set) };
+    try bw.writeVecAll(&vecs);
 }
 
 pub fn printInt(
@@ -1375,24 +1395,6 @@ pub fn printByteSize(
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
 const ANY = "any";
-
-fn defaultFormatString(comptime T: type) [:0]const u8 {
-    switch (@typeInfo(T)) {
-        .array, .vector => return ANY,
-        .pointer => |ptr_info| switch (ptr_info.size) {
-            .one => switch (@typeInfo(ptr_info.child)) {
-                .array => return ANY,
-                else => {},
-            },
-            .many, .c => return "*",
-            .slice => return ANY,
-        },
-        .optional => |info| return "?" ++ defaultFormatString(info.child),
-        .error_union => |info| return "!" ++ defaultFormatString(info.payload),
-        else => {},
-    }
-    return "";
-}
 
 fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
     return if (std.mem.eql(u8, fmt[1..], ANY))
