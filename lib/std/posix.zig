@@ -1621,10 +1621,6 @@ pub const OpenError = error{
     FileBusy,
 
     WouldBlock,
-
-    /// On Windows, RtlGenRandom called with not enough memory.
-    EndOfFile,
-
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
