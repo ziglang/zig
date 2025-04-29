@@ -5632,3 +5632,43 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
 }
+
+/// Get an environment variable with a null-terminated, WTF-16 encoded name.
+///
+/// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
+///
+/// See also:
+/// * `std.process.Init.Env.map`
+/// * `std.process.Init.Env.getOwned`
+/// * `std.process.Init.Env.hasConstant`
+/// * `std.process.Init.Env.has`
+pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
+    const key_slice = mem.sliceTo(key, 0);
+    const ptr = peb().ProcessParameters.Environment;
+    var i: usize = 0;
+    while (ptr[i] != 0) {
+        const key_start = i;
+
+        // There are some special environment variables that start with =,
+        // so we need a special case to not treat = as a key/value separator
+        // if it's the first character.
+        // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+        if (ptr[key_start] == '=') i += 1;
+
+        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
+        const this_key = ptr[key_start..i];
+
+        if (ptr[i] == '=') i += 1;
+
+        const value_start = i;
+        while (ptr[i] != 0) : (i += 1) {}
+        const this_value = ptr[value_start..i :0];
+
+        if (eqlIgnoreCaseWTF16(key_slice, this_key)) {
+            return this_value;
+        }
+
+        i += 1; // skip over null byte
+    }
+    return null;
+}
