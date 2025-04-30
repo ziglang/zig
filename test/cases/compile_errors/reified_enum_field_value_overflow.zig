@@ -1,17 +1,8 @@
 comptime {
-    const E = @Type(.{ .@"enum" = .{
-        .tag_type = u1,
-        .fields = &.{
-            .{ .name = "f0", .value = 0 },
-            .{ .name = "f1", .value = 1 },
-            .{ .name = "f2", .value = 2 },
-        },
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const E = @Enum(u1, .exhaustive, &.{ "f0", "f1", "f2" }, &.{ 0, 1, 2 });
     _ = E;
 }
 
 // error
 //
-// :2:15: error: field 'f2' with enumeration value '2' is too large for backing int type 'u1'
+// :2:72: error: type 'u1' cannot represent integer value '2'

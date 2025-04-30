@@ -36,34 +36,28 @@ pub fn ChangeScalar(comptime Type: type, comptime NewScalar: type) type {
 }
 pub fn AsSignedness(comptime Type: type, comptime signedness: std.builtin.Signedness) type {
     return switch (@typeInfo(Scalar(Type))) {
-        .int => |int| ChangeScalar(Type, @Type(.{ .int = .{
-            .signedness = signedness,
-            .bits = int.bits,
-        } })),
+        .int => |int| ChangeScalar(Type, @Int(signedness, int.bits)),
         .float => Type,
         else => @compileError(@typeName(Type)),
     };
 }
 pub fn AddOneBit(comptime Type: type) type {
     return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = 1 + int.bits } }),
+        .int => |int| @Int(int.signedness, 1 + int.bits),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     });
 }
 pub fn DoubleBits(comptime Type: type) type {
     return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = int.bits * 2 } }),
+        .int => |int| @Int(int.signedness, int.bits * 2),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     });
 }
 pub fn RoundBitsUp(comptime Type: type, comptime multiple: u16) type {
     return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{
-            .signedness = int.signedness,
-            .bits = std.mem.alignForward(u16, int.bits, multiple),
-        } }),
+        .int => |int| @Int(int.signedness, std.mem.alignForward(u16, int.bits, multiple)),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     });
@@ -83,10 +77,7 @@ pub fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
 pub fn sign(rhs: anytype) ChangeScalar(@TypeOf(rhs), bool) {
     const Int = ChangeScalar(@TypeOf(rhs), switch (@typeInfo(Scalar(@TypeOf(rhs)))) {
         .int, .comptime_int => Scalar(@TypeOf(rhs)),
-        .float => |float| @Type(.{ .int = .{
-            .signedness = .signed,
-            .bits = float.bits,
-        } }),
+        .float => |float| @Int(.signed, float.bits),
         else => @compileError(@typeName(@TypeOf(rhs))),
     });
     return @as(Int, @bitCast(rhs)) < splat(Int, 0);

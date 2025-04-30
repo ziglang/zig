@@ -1890,7 +1890,7 @@ pub fn writeUleb128(w: *Writer, value: anytype) Error!void {
     try w.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
         .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
         .int => |value_info| switch (value_info.signedness) {
-            .signed => @as(@Type(.{ .int = .{ .signedness = .unsigned, .bits = value_info.bits -| 1 } }), @intCast(value)),
+            .signed => @as(@Int(.unsigned, value_info.bits -| 1), @intCast(value)),
             .unsigned => value,
         },
         else => comptime unreachable,
@@ -1903,7 +1903,7 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
         .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
         .int => |value_info| switch (value_info.signedness) {
             .signed => value,
-            .unsigned => @as(@Type(.{ .int = .{ .signedness = .signed, .bits = value_info.bits + 1 } }), value),
+            .unsigned => @as(@Int(.signed, value_info.bits + 1), value),
         },
         else => comptime unreachable,
     });
@@ -1912,10 +1912,10 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
 /// Write a single integer as LEB128 to the given writer.
 pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
-        .signedness = value_info.signedness,
-        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
-    } }), value));
+    try w.writeMultipleOf7Leb128(@as(@Int(
+        value_info.signedness,
+        @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
+    ), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
@@ -1929,10 +1929,10 @@ fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
             .unsigned => remaining > std.math.maxInt(u7),
         };
         byte.* = .{
-            .bits = @bitCast(@as(@Type(.{ .int = .{
-                .signedness = value_info.signedness,
-                .bits = 7,
-            } }), @truncate(remaining))),
+            .bits = @bitCast(@as(
+                @Int(value_info.signedness, 7),
+                @truncate(remaining),
+            )),
             .more = more,
         };
         if (value_info.bits > 7) remaining >>= 7;

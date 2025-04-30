@@ -80,7 +80,7 @@ test sqrt_int {
 /// Returns the return type `sqrt` will return given an operand of type `T`.
 pub fn Sqrt(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .int => |int| @Type(.{ .int = .{ .signedness = .unsigned, .bits = (int.bits + 1) / 2 } }),
+        .int => |int| @Int(.unsigned, (int.bits + 1) / 2),
         else => T,
     };
 }

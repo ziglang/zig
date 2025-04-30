@@ -2198,14 +2198,8 @@ test "matching captures causes union equivalence" {
         fn SignedUnsigned(comptime I: type) type {
             const bits = @typeInfo(I).int.bits;
             return union {
-                u: @Type(.{ .int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                } }),
-                i: @Type(.{ .int = .{
-                    .signedness = .signed,
-                    .bits = bits,
-                } }),
+                u: @Int(.unsigned, bits),
+                i: @Int(.signed, bits),
             };
         }
     };

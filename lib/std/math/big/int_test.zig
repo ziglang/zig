@@ -2787,11 +2787,11 @@ test "bitNotWrap more than two limbs" {
     const bits = @bitSizeOf(Limb) * 4 + 2;
 
     try res.bitNotWrap(&a, .unsigned, bits);
-    const Unsigned = @Type(.{ .int = .{ .signedness = .unsigned, .bits = bits } });
+    const Unsigned = @Int(.unsigned, bits);
     try testing.expectEqual((try res.toInt(Unsigned)), ~@as(Unsigned, maxInt(Limb)));
 
     try res.bitNotWrap(&a, .signed, bits);
-    const Signed = @Type(.{ .int = .{ .signedness = .signed, .bits = bits } });
+    const Signed = @Int(.signed, bits);
     try testing.expectEqual((try res.toInt(Signed)), ~@as(Signed, maxInt(Limb)));
 }
 

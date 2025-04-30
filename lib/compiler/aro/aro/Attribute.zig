@@ -717,23 +717,13 @@ pub const Tag = std.meta.DeclEnum(attributes);
 
 pub const Arguments = blk: {
     const decls = @typeInfo(attributes).@"struct".decls;
-    var union_fields: [decls.len]ZigType.UnionField = undefined;
-    for (decls, &union_fields) |decl, *field| {
-        field.* = .{
-            .name = decl.name,
-            .type = @field(attributes, decl.name),
-            .alignment = @alignOf(@field(attributes, decl.name)),
-        };
+    var names: [decls.len][]const u8 = undefined;
+    var types: [decls.len]type = undefined;
+    for (decls, &names, &types) |decl, *name, *T| {
+        name.* = decl.name;
+        T.* = @field(attributes, decl.name);
     }
-
-    break :blk @Type(.{
-        .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = &union_fields,
-            .decls = &.{},
-        },
-    });
+    break :blk @Union(.auto, null, &names, &types, &@splat(.{}));
 };
 
 pub fn ArgumentsForTag(comptime tag: Tag) type {

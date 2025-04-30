@@ -528,23 +528,7 @@ pub fn Poller(comptime StreamEnum: type) type {
 /// Given an enum, returns a struct with fields of that enum, each field
 /// representing an I/O stream for polling.
 pub fn PollFiles(comptime StreamEnum: type) type {
-    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-    var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
-    for (&struct_fields, enum_fields) |*struct_field, enum_field| {
-        struct_field.* = .{
-            .name = enum_field.name,
-            .type = std.fs.File,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(std.fs.File),
-        };
-    }
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &struct_fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    return @Struct(.auto, null, std.meta.fieldNames(StreamEnum), &@splat(std.fs.File), &@splat(.{}));
 }
 
 test {
@@ -1625,22 +1609,14 @@ pub fn sleep(io: Io, duration: Duration, clock: Clock) SleepError!void {
 /// fields, each field type the future's result.
 pub fn SelectUnion(S: type) type {
     const struct_fields = @typeInfo(S).@"struct".fields;
-    var fields: [struct_fields.len]std.builtin.Type.UnionField = undefined;
-    for (&fields, struct_fields) |*union_field, struct_field| {
-        const F = @typeInfo(struct_field.type).pointer.child;
-        const Result = @TypeOf(@as(F, undefined).result);
-        union_field.* = .{
-            .name = struct_field.name,
-            .type = Result,
-            .alignment = struct_field.alignment,
-        };
+    var names: [struct_fields.len][]const u8 = undefined;
+    var types: [struct_fields.len]type = undefined;
+    for (struct_fields, &names, &types) |struct_field, *union_field_name, *UnionFieldType| {
+        const FieldFuture = @typeInfo(struct_field.type).pointer.child;
+        union_field_name.* = struct_field.name;
+        UnionFieldType.* = @FieldType(FieldFuture, "result");
     }
-    return @Type(.{ .@"union" = .{
-        .layout = .auto,
-        .tag_type = std.meta.FieldEnum(S),
-        .fields = &fields,
-        .decls = &.{},
-    } });
+    return @Union(.auto, std.meta.FieldEnum(S), &names, &types, &@splat(.{}));
 }
 
 /// `s` is a struct with every field a `*Future(T)`, where `T` can be any type,

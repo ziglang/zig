@@ -1153,23 +1153,17 @@ const Local = struct {
                 fn PtrArrayElem(comptime len: usize) type {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
-                    var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| {
-                        const T = *[len]elem_field.type;
-                        new_field.* = .{
-                            .name = elem_field.name,
-                            .type = T,
-                            .default_value_ptr = null,
-                            .is_comptime = false,
-                            .alignment = @alignOf(T),
-                        };
+                    var new_names: [elem_fields.len][]const u8 = undefined;
+                    var new_types: [elem_fields.len]type = undefined;
+                    for (elem_fields, &new_names, &new_types) |elem_field, *new_name, *NewType| {
+                        new_name.* = elem_field.name;
+                        NewType.* = *[len]elem_field.type;
                     }
-                    return @Type(.{ .@"struct" = .{
-                        .layout = .auto,
-                        .fields = &new_fields,
-                        .decls = &.{},
-                        .is_tuple = elem_info.is_tuple,
-                    } });
+                    if (elem_info.is_tuple) {
+                        return @Tuple(&new_types);
+                    } else {
+                        return @Struct(.auto, null, &new_names, &new_types, &@splat(.{}));
+                    }
                 }
                 fn PtrElem(comptime opts: struct {
                     size: std.builtin.Type.Pointer.Size,
@@ -1177,32 +1171,17 @@ const Local = struct {
                 }) type {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
-                    var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| {
-                        const T = @Type(.{ .pointer = .{
-                            .size = opts.size,
-                            .is_const = opts.is_const,
-                            .is_volatile = false,
-                            .alignment = @alignOf(elem_field.type),
-                            .address_space = .generic,
-                            .child = elem_field.type,
-                            .is_allowzero = false,
-                            .sentinel_ptr = null,
-                        } });
-                        new_field.* = .{
-                            .name = elem_field.name,
-                            .type = T,
-                            .default_value_ptr = null,
-                            .is_comptime = false,
-                            .alignment = @alignOf(T),
-                        };
+                    var new_names: [elem_fields.len][]const u8 = undefined;
+                    var new_types: [elem_fields.len]type = undefined;
+                    for (elem_fields, &new_names, &new_types) |elem_field, *new_name, *NewType| {
+                        new_name.* = elem_field.name;
+                        NewType.* = @Pointer(opts.size, .{ .@"const" = opts.is_const }, elem_field.type, null);
                     }
-                    return @Type(.{ .@"struct" = .{
-                        .layout = .auto,
-                        .fields = &new_fields,
-                        .decls = &.{},
-                        .is_tuple = elem_info.is_tuple,
-                    } });
+                    if (elem_info.is_tuple) {
+                        return @Tuple(&new_types);
+                    } else {
+                        return @Struct(.auto, null, &new_names, &new_types, &@splat(.{}));
+                    }
                 }
 
                 pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .one }) {
