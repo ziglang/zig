@@ -1,14 +1,12 @@
 export fn entry() void {
-    _ = @Type(.{
-        .@"enum" = .{
-            .tag_type = u32,
-            .fields = &.{
-                .{ .name = "A", .value = 0 },
-                .{ .name = "A", .value = 1 },
-            },
-            .decls = &.{},
-            .is_exhaustive = false,
+    _ = @Enum(.{
+        .tag_type = u32,
+        .fields = &.{
+            .{ .name = "A", .value = 0 },
+            .{ .name = "A", .value = 1 },
         },
+        .decls = &.{},
+        .is_exhaustive = false,
     });
 }
 

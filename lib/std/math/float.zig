@@ -11,7 +11,7 @@ inline fn mantissaOne(comptime T: type) comptime_int {
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
-    const TBits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const TBits = @Int(.unsigned, @bitSizeOf(T));
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
     return @as(T, @bitCast((biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa)));
 }
@@ -98,7 +98,7 @@ pub inline fn floatEps(comptime T: type) T {
 pub inline fn floatEpsAt(comptime T: type, x: T) T {
     switch (@typeInfo(T)) {
         .float => |F| {
-            const U: type = @Type(.{ .int = .{ .signedness = .unsigned, .bits = F.bits } });
+            const U: type = @Int(.unsigned, F.bits);
             const u: U = @bitCast(x);
             const y: T = @bitCast(u ^ 1);
             return @abs(x - y);

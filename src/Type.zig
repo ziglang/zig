@@ -310,7 +310,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             .undefined,
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
-            .enum_literal => try writer.writeAll("@Type(.enum_literal)"),
+            .enum_literal => try writer.writeAll("@TypeOf(.enum_literal)"),
 
             .generic_poison => unreachable,
         },

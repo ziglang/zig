@@ -113,7 +113,7 @@ export fn testMutablePointer() void {
 // tmp.zig:82:26: note: ZON does not allow nested optionals
 // tmp.zig:87:29: error: type '*i32' is not available in ZON
 // tmp.zig:87:29: note: ZON does not allow mutable pointers
-// neg_inf.zon:1:1: error: expected type '@Type(.enum_literal)'
+// neg_inf.zon:1:1: error: expected type '@TypeOf(.enum_literal)'
 // tmp.zig:37:38: note: imported here
 // neg_inf.zon:1:1: error: expected type '?u8'
 // tmp.zig:57:28: note: imported here

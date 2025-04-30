@@ -1,7 +1,7 @@
 export fn entry() void {
-    _ = @Type(.{ .@"struct" = .{ .layout = .@"packed", .fields = &.{
+    _ = @Struct(.{ .layout = .@"packed", .fields = &.{
         .{ .name = "one", .type = u4, .default_value_ptr = null, .is_comptime = false, .alignment = 2 },
-    }, .decls = &.{}, .is_tuple = false } });
+    }, .decls = &.{}, .is_tuple = false });
 }
 
 // error

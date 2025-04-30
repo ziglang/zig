@@ -11130,7 +11130,9 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
         .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
             const builtin_token = tree.nodeMainToken(node);
             const builtin_name = tree.tokenSlice(builtin_token);
-            return std.mem.eql(u8, builtin_name, "@Type");
+            return std.mem.eql(u8, builtin_name, "@Enum") or
+                std.mem.eql(u8, builtin_name, "@Struct") or
+                std.mem.eql(u8, builtin_name, "@Union");
         },
         else => return false,
     }
