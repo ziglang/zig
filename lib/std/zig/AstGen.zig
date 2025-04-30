@@ -2689,6 +2689,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_type,
             .indexable_ptr_elem_type,
             .vec_arr_elem_type,
+            .int_reify,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -9471,33 +9472,19 @@ fn builtinCall(
             return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime, node), node);
         },
 
-        .Type => {
-            const type_info_ty = try gz.addBuiltinValue(node, .type_info);
-            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, params[0]);
-
-            const gpa = gz.astgen.gpa;
-
-            try gz.instructions.ensureUnusedCapacity(gpa, 1);
-            try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-            const payload_index = try gz.astgen.addExtra(Zir.Inst.Reify{
-                .node = node, // Absolute node index -- see the definition of `Reify`.
-                .operand = operand,
-                .src_line = astgen.source_line,
+        .Int => {
+            const signedness_ty = try gz.addBuiltinValue(node, .signedness);
+            const result = try gz.addPlNode(.int_reify, node, Zir.Inst.Bin{
+                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = signedness_ty } }, params[0], .type),
+                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[1], .type),
             });
-            const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
-            gz.astgen.instructions.appendAssumeCapacity(.{
-                .tag = .extended,
-                .data = .{ .extended = .{
-                    .opcode = .reify,
-                    .small = @intFromEnum(gz.anon_name_strategy),
-                    .operand = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            const result = new_index.toRef();
             return rvalue(gz, ri, result, node);
         },
+        .Enum => return typeReify(gz, scope, ri, node, params[0], astgen.source_line, .enum_reify, .enum_info),
+        .Pointer => return typeReify(gz, scope, ri, node, params[0], astgen.source_line, .pointer_reify, .pointer_info),
+        .Struct => return typeReify(gz, scope, ri, node, params[0], astgen.source_line, .struct_reify, .struct_info),
+        .Union => return typeReify(gz, scope, ri, node, params[0], astgen.source_line, .union_reify, .union_info),
+
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0], .panic);
@@ -9870,6 +9857,43 @@ fn typeCast(
         .lhs = result_type,
         .rhs = operand,
     });
+    return rvalue(gz, ri, result, node);
+}
+
+fn typeReify(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    operand_node: Ast.Node.Index,
+    src_line: u32,
+    tag: Zir.Inst.Extended,
+    builtin_val: Zir.Inst.BuiltinValue,
+) InnerError!Zir.Inst.Ref {
+    const info_ty = try gz.addBuiltinValue(node, builtin_val);
+    const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = info_ty } }, operand_node);
+
+    const gpa = gz.astgen.gpa;
+
+    try gz.instructions.ensureUnusedCapacity(gpa, 1);
+    try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+    const payload_index = try gz.astgen.addExtra(Zir.Inst.Reify{
+        .node = node, // Absolute node index -- see the definition of `Reify`.
+        .operand = operand,
+        .src_line = src_line,
+    });
+    const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+    gz.astgen.instructions.appendAssumeCapacity(.{
+        .tag = .extended,
+        .data = .{ .extended = .{
+            .opcode = tag,
+            .small = @intFromEnum(gz.anon_name_strategy),
+            .operand = payload_index,
+        } },
+    });
+    gz.instructions.appendAssumeCapacity(new_index);
+    const result = new_index.toRef();
     return rvalue(gz, ri, result, node);
 }
 

@@ -112,12 +112,16 @@ pub const Tag = enum {
     This,
     trap,
     truncate,
-    Type,
+    Enum,
+    Int,
+    Pointer,
+    Struct,
+    Union,
+    Vector,
     type_info,
     type_name,
     TypeOf,
     union_init,
-    Vector,
     volatile_cast,
     work_item_id,
     work_group_size,
@@ -953,9 +957,37 @@ pub const list = list: {
             },
         },
         .{
-            "@Type",
+            "@Int",
             .{
-                .tag = .Type,
+                .tag = .Int,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@Pointer",
+            .{
+                .tag = .Pointer,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@Struct",
+            .{
+                .tag = .Struct,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@Enum",
+            .{
+                .tag = .Enum,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@Union",
+            .{
+                .tag = .Union,
                 .param_count = 1,
             },
         },
