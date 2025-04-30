@@ -1118,10 +1118,6 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `panic` namespace in the
 /// root source file.
