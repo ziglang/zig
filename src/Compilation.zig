@@ -1352,8 +1352,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const is_spirv = options.root_mod.resolved_target.result.cpu.arch.isSpirV();
-            const want_ubsan_rt = options.want_ubsan_rt orelse (!is_spirv and any_sanitize_c == .full and is_exe_or_dyn_lib);
+            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(options.root_mod.resolved_target.result);
+            const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
             if (have_zcu) break :s .zcu;
@@ -1768,8 +1768,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     errdefer comp.destroy();
 
     const target = comp.root_mod.resolved_target.result;
-
-    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.config.use_llvm);
+    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, comp.config.use_llvm, build_options.have_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1939,7 +1938,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-            if (capable_of_building_compiler_rt) {
+            if (can_build_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
@@ -6556,22 +6555,6 @@ pub fn dump_argv(argv: []const []const u8) void {
         nosuspend stderr.print("{s} ", .{arg}) catch return;
     }
     nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
-}
-
-fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
-    switch (target.os.tag) {
-        .plan9 => return false,
-        else => {},
-    }
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
-        else => {},
-    }
-    return switch (target_util.zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
-        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else build_options.have_llvm,
-        else => build_options.have_llvm,
-    };
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
