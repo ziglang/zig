@@ -821,7 +821,7 @@ pub fn BitReader(comptime T: type) type {
         /// Skip zero terminated string.
         pub fn skipStringZ(self: *Self) !void {
             while (true) {
-                if (try self.readF(u8, 0) == 0) break;
+                if (try self.readF(u8, .{}) == 0) break;
             }
         }
 

@@ -807,7 +807,8 @@ pub fn decodeBlockRingBuffer(
 /// contain enough bytes.
 pub fn decodeBlockReader(
     dest: *RingBuffer,
-    source: anytype,
+    in: *std.io.BufferedReader,
+    bytes_read: *usize,
     block_header: frame.Zstandard.Block.Header,
     decode_state: *DecodeState,
     block_size_max: usize,
@@ -815,26 +816,29 @@ pub fn decodeBlockReader(
     sequence_buffer: []u8,
 ) !void {
     const block_size = block_header.block_size;
-    var block_reader_limited = std.io.limitedReader(source, block_size);
-    const block_reader = block_reader_limited.reader();
     if (block_size_max < block_size) return error.BlockSizeOverMaximum;
     switch (block_header.block_type) {
         .raw => {
             if (block_size == 0) return;
             const slice = dest.sliceAt(dest.write_index, block_size);
-            try source.readNoEof(slice.first);
-            try source.readNoEof(slice.second);
+            var vecs: [2][]u8 = &.{slice.first, slice.second };
+            try in.readVecAll(&vecs);
+            assert(slice.first.len + slice.second.len == block_size);
+            bytes_read.* += block_size;
             dest.write_index = dest.mask2(dest.write_index + block_size);
             decode_state.written_count += block_size;
         },
         .rle => {
-            const byte = try source.readByte();
+            const byte = try in.takeByte();
+            bytes_read.* += 1;
             for (0..block_size) |_| {
                 dest.writeAssumeCapacity(byte);
             }
             decode_state.written_count += block_size;
         },
         .compressed => {
+            var block_reader_limited = std.io.limitedReader(source, block_size);
+            const block_reader = block_reader_limited.reader();
             const literals = try decodeLiteralsSection(block_reader, literals_buffer);
             const sequences_header = try decodeSequencesHeader(block_reader);
 
