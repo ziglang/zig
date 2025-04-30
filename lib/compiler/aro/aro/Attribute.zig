@@ -712,13 +712,11 @@ pub const Arguments = blk: {
         };
     }
 
-    break :blk @Type(.{
-        .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = &union_fields,
-            .decls = &.{},
-        },
+    break :blk @Union(.{
+        .layout = .auto,
+        .tag_type = null,
+        .fields = &union_fields,
+        .decls = &.{},
     });
 };
 

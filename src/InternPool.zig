@@ -1138,12 +1138,12 @@ const Local = struct {
                         .is_comptime = false,
                         .alignment = 0,
                     };
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
                 fn PtrElem(comptime opts: struct {
                     size: std.builtin.Type.Pointer.Size,
@@ -1154,7 +1154,7 @@ const Local = struct {
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
                     for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
                         .name = elem_field.name,
-                        .type = @Type(.{ .pointer = .{
+                        .type = @Pointer(.{
                             .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
@@ -1163,17 +1163,17 @@ const Local = struct {
                             .child = elem_field.type,
                             .is_allowzero = false,
                             .sentinel_ptr = null,
-                        } }),
+                        }),
                         .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = 0,
                     };
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
 
                 pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .one }) {

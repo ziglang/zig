@@ -4843,12 +4843,12 @@ fn DeclValEnum(comptime T: type) type {
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;
     }
-    return @Type(.{ .@"enum" = .{
+    return @Enum(.{
         .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
         .fields = fields[0..fields_len],
         .decls = &.{},
         .is_exhaustive = true,
-    } });
+    });
 }
 
 const AbbrevCode = enum {
@@ -5989,10 +5989,12 @@ fn freeCommonEntry(dwarf: *Dwarf, unit: Unit.Index, entry: Entry.Index) UpdateEr
 
 fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     switch (buf.len) {
-        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = len * 8,
-        } }), buf[0..len], @intCast(int), dwarf.endian),
+        inline 0...8 => |len| std.mem.writeInt(
+            @Int(.unsigned, len * 8),
+            buf[0..len],
+            @intCast(int),
+            dwarf.endian,
+        ),
         else => unreachable,
     }
 }

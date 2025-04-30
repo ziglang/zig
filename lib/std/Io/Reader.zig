@@ -1172,10 +1172,10 @@ pub const TakeLeb128Error = Error || error{Overflow};
 /// Read a single LEB128 value as type T, or `error.Overflow` if the value cannot fit.
 pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
-    return std.math.cast(Result, try r.takeMultipleOf7Leb128(@Type(.{ .int = .{
-        .signedness = result_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
-    } }))) orelse error.Overflow;
+    return std.math.cast(Result, try r.takeMultipleOf7Leb128(@Int(
+        result_info.signedness,
+        std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
+    ))) orelse error.Overflow;
 }
 
 pub fn expandTotalCapacity(r: *Reader, allocator: Allocator, n: usize) Allocator.Error!void {
@@ -1231,10 +1231,7 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
     const result_info = @typeInfo(Result).int;
     comptime assert(result_info.bits % 7 == 0);
     var remaining_bits: std.math.Log2IntCeil(Result) = result_info.bits;
-    const UnsignedResult = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = result_info.bits,
-    } });
+    const UnsignedResult = @Int(.unsigned, result_info.bits);
     var result: UnsignedResult = 0;
     var fits = true;
     while (true) {

@@ -1,10 +1,8 @@
-const Tag = @Type(.{
-    .@"enum" = .{
-        .tag_type = undefined,
-        .fields = &.{},
-        .decls = &.{},
-        .is_exhaustive = false,
-    },
+const Tag = @Enum(.{
+    .tag_type = undefined,
+    .fields = &.{},
+    .decls = &.{},
+    .is_exhaustive = false,
 });
 export fn entry() void {
     _ = @as(Tag, @enumFromInt(0));

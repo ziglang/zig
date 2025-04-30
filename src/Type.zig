@@ -295,7 +295,7 @@ pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.
             .undefined,
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
-            .enum_literal => try writer.writeAll("@Type(.enum_literal)"),
+            .enum_literal => try writer.writeAll("@TypeOf(.enum_literal)"),
 
             .generic_poison => unreachable,
         },
