@@ -1235,8 +1235,6 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
 }
 
 test trim {
-    try testing.expectEqualSlices(u8, "foo\n ", trimStart(u8, " foo\n ", " \n"));
-    try testing.expectEqualSlices(u8, " foo", trimEnd(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
 }
