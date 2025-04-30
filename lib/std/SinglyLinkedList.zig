@@ -174,7 +174,7 @@ test "basics" {
 pub fn Simple(T: type) type {
     return struct {
         const SimpleLinkedList = @This();
-        first: ?*Node = null,
+        wrapped: SinglyLinkedList = .{},
 
         pub const Payload = struct {
             data: T,
@@ -190,27 +190,17 @@ pub fn Simple(T: type) type {
         };
 
         pub fn prepend(list: *SimpleLinkedList, new_payload: *Payload) void {
-            new_payload.node.next = list.first;
-            list.first = &new_payload.node;
+            list.wrapped.prepend(&new_payload.node);
         }
 
         pub fn remove(list: *SimpleLinkedList, payload: *Payload) void {
-            if (list.first == &payload.node) {
-                list.first = payload.node.next;
-            } else {
-                var current_elm = list.first.?;
-                while (current_elm.next != &payload.node) {
-                    current_elm = current_elm.next.?;
-                }
-                current_elm.next = payload.node.next;
-            }
+            list.wrapped.remove(&payload.node);
         }
 
         /// Remove and return the first node in the list.
         pub fn popFirst(list: *SimpleLinkedList) ?*Payload {
-            const first = list.first orelse return null;
-            list.first = first.next;
-            return @fieldParentPtr("node", first);
+            const poppednode = (list.wrapped.popFirst()) orelse return null;
+            return @fieldParentPtr("node", poppednode);
         }
 
         /// Given a Simple list, returns the payload at position <index>.
@@ -219,7 +209,7 @@ pub fn Simple(T: type) type {
         /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
         pub fn at(list: *SimpleLinkedList, index: usize) ?*Payload {
-            var thisnode = list.first orelse return null;
+            var thisnode = list.wrapped.first orelse return null;
             var ctr: usize = index;
             while (ctr > 0) : (ctr -= 1) {
                 thisnode = thisnode.next orelse return null;
@@ -232,11 +222,7 @@ pub fn Simple(T: type) type {
         /// This operation is O(N). Consider tracking the length separately rather than
         /// computing it.
         pub fn len(list: SimpleLinkedList) usize {
-            if (list.first) |n| {
-                return 1 + n.countChildren();
-            } else {
-                return 0;
-            }
+            return list.wrapped.len();
         }
     };
 }
@@ -277,11 +263,10 @@ test "Simple singly linked list" {
 
     // Traverse forwards.
     {
-        var it = list.first;
+        var it = list.at(0);
         var index: u32 = 1;
-        while (it) |node| : (it = node.next) {
-            const l: *L = @fieldParentPtr("node", node);
-            try testing.expect(l.data == index);
+        while (it) |payload| : (it = payload.next()) {
+            try testing.expect(payload.data == index);
             index += 1;
         }
     }
@@ -290,13 +275,19 @@ test "Simple singly linked list" {
     _ = list.remove(&five); // {2, 3, 4}
     _ = two.node.removeNext(); // {2, 4}
 
-    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 2);
-    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?.next.?)).data == 4);
-    try testing.expect(list.first.?.next.?.next == null);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.wrapped.first.?)).data == 2);
+    try testing.expect(list.at(0).?.data == 2);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.wrapped.first.?.next.?)).data == 4);
+    try testing.expect(list.at(1).?.data == 4);
 
-    SinglyLinkedList.Node.reverse(&list.first);
+    try testing.expect(list.wrapped.first.?.next.?.next == null);
 
-    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 4);
-    try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?.next.?)).data == 2);
-    try testing.expect(list.first.?.next.?.next == null);
+    SinglyLinkedList.Node.reverse(&list.wrapped.first);
+
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.wrapped.first.?)).data == 4);
+    try testing.expect(list.at(0).?.data == 4);
+    try testing.expect(@as(*L, @fieldParentPtr("node", list.wrapped.first.?.next.?)).data == 2);
+    try testing.expect(list.at(1).?.data == 2);
+    try testing.expect(list.wrapped.first.?.next.?.next == null);
+    try testing.expect(list.at(2) == null);
 }
