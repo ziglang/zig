@@ -95,10 +95,12 @@ pub const Offset = enum(u64) {
 };
 
 pub fn writeVec(w: Writer, data: []const []const u8) Error!usize {
+    assert(data.len > 0);
     return w.vtable.writeSplat(w.context, data, 1);
 }
 
 pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) Error!usize {
+    assert(data.len > 0);
     return w.vtable.writeSplat(w.context, data, splat);
 }
 

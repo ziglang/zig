@@ -28,7 +28,7 @@ tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.cr
 /// If non-null, ssl secrets are logged to a stream. Creating such a stream
 /// allows other processes with access to that stream to decrypt all
 /// traffic over connections created with this `Client`.
-ssl_key_logger: ?*std.io.BufferedWriter = null,
+ssl_key_log: ?*std.io.BufferedWriter = null,
 
 /// When this is `true`, the next time this client performs an HTTPS request,
 /// it will first rescan the system for root certificates.
@@ -342,7 +342,7 @@ pub const Connection = struct {
             tls.client.init(&tls.reader, &tls.writer, .{
                 .host = .{ .explicit = remote_host },
                 .ca = .{ .bundle = client.ca_bundle },
-                .ssl_key_logger = client.ssl_key_logger,
+                .ssl_key_log = client.ssl_key_log,
             }) catch return error.TlsInitializationFailed;
             // This is appropriate for HTTPS because the HTTP headers contain
             // the content length which is used to detect truncation attacks.
@@ -1671,7 +1671,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     const decompress_buffer: []u8 = switch (response.head.content_encoding) {
         .identity => &.{},
         .zstd => options.decompress_buffer orelse
-            try client.allocator.alloc(u8, std.compress.zstd.Decompressor.Options.default_window_buffer_len * 2),
+            try client.allocator.alloc(u8, std.compress.zstd.default_window_len * 2),
         else => options.decompress_buffer orelse try client.allocator.alloc(u8, 8 * 1024),
     };
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);

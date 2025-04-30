@@ -6,6 +6,8 @@ const BufferedReader = std.io.BufferedReader;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
 
+pub const Limited = @import("Reader/Limited.zig");
+
 context: ?*anyopaque,
 vtable: *const VTable,
 
@@ -249,6 +251,13 @@ pub fn buffered(r: Reader, buffer: []u8) BufferedReader {
         .seek = 0,
         .buffer = buffer,
         .end = 0,
+    };
+}
+
+pub fn limited(r: Reader, limit: Limit) Limited {
+    return .{
+        .unlimited_reader = r,
+        .remaining = limit,
     };
 }
 

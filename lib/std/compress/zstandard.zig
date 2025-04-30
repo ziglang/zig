@@ -1,7 +1,12 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const RingBuffer = std.RingBuffer;
 
 const types = @import("zstandard/types.zig");
+
+/// Recommended amount by the standard. Lower than this may result in inability
+/// to decompress common streams.
+pub const default_window_len = 8 * 1024 * 1024;
+
 pub const frame = types.frame;
 pub const compressed_block = types.compressed_block;
 
@@ -10,7 +15,8 @@ pub const decompress = @import("zstandard/decompress.zig");
 pub const Decompressor = struct {
     const table_size_max = types.compressed_block.table_size_max;
 
-    source: *std.io.BufferedReader,
+    input: *std.io.BufferedReader,
+    bytes_read: usize,
     state: enum { NewFrame, InFrame, LastBlock },
     decode_state: decompress.block.DecodeState,
     frame_context: decompress.FrameContext,
@@ -23,14 +29,12 @@ pub const Decompressor = struct {
     verify_checksum: bool,
     checksum: ?u32,
     current_frame_decompressed_size: usize,
+    err: ?Error = null,
 
     pub const Options = struct {
         verify_checksum: bool = true,
+        /// See `default_window_len`.
         window_buffer: []u8,
-
-        /// Recommended amount by the standard. Lower than this may result
-        /// in inability to decompress common streams.
-        pub const default_window_buffer_len = 8 * 1024 * 1024;
     };
 
     const WindowBuffer = struct {
@@ -45,11 +49,13 @@ pub const Decompressor = struct {
         MalformedBlock,
         MalformedFrame,
         OutOfMemory,
+        EndOfStream,
     };
 
-    pub fn init(source: *std.io.BufferedReader, options: Options) Decompressor {
+    pub fn init(input: *std.io.BufferedReader, options: Options) Decompressor {
         return .{
-            .source = source,
+            .input = input,
+            .bytes_read = 0,
             .state = .NewFrame,
             .decode_state = undefined,
             .frame_context = undefined,
@@ -65,100 +71,128 @@ pub const Decompressor = struct {
         };
     }
 
-    fn frameInit(self: *Decompressor) !void {
-        const source_reader = self.source;
-        switch (try decompress.decodeFrameHeader(source_reader)) {
+    fn frameInit(d: *Decompressor) !void {
+        const in = d.input;
+        switch (try decompress.decodeFrameHeader(in, &d.bytes_read)) {
             .skippable => |header| {
-                try source_reader.skipBytes(header.frame_size, .{});
-                self.state = .NewFrame;
+                try in.discardAll(header.frame_size);
+                d.bytes_read += header.frame_size;
+                d.state = .NewFrame;
             },
             .zstandard => |header| {
                 const frame_context = try decompress.FrameContext.init(
                     header,
-                    self.buffer.data.len,
-                    self.verify_checksum,
+                    d.buffer.data.len,
+                    d.verify_checksum,
                 );
 
                 const decode_state = decompress.block.DecodeState.init(
-                    &self.literal_fse_buffer,
-                    &self.match_fse_buffer,
-                    &self.offset_fse_buffer,
+                    &d.literal_fse_buffer,
+                    &d.match_fse_buffer,
+                    &d.offset_fse_buffer,
                 );
 
-                self.decode_state = decode_state;
-                self.frame_context = frame_context;
+                d.decode_state = decode_state;
+                d.frame_context = frame_context;
 
-                self.checksum = null;
-                self.current_frame_decompressed_size = 0;
+                d.checksum = null;
+                d.current_frame_decompressed_size = 0;
 
-                self.state = .InFrame;
+                d.state = .InFrame;
             },
         }
     }
 
     pub fn reader(self: *Decompressor) std.io.Reader {
-        return .{ .context = self };
+        return .{
+            .context = self,
+            .vtable = &.{
+                .read = read,
+                .readVec = readVec,
+                .discard = discard,
+            },
+        };
     }
 
-    pub fn read(self: *Decompressor, buffer: []u8) Error!usize {
-        if (buffer.len == 0) return 0;
+    fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Reader.Limit) std.io.Reader.RwError!usize {
+        const buf = limit.slice(try bw.writableSliceGreedy(1));
+        const n = try readVec(context, &.{buf});
+        bw.advance(n);
+        return n;
+    }
 
-        var size: usize = 0;
-        while (size == 0) {
-            while (self.state == .NewFrame) {
-                const initial_count = self.source.bytes_read;
-                self.frameInit() catch |err| switch (err) {
-                    error.DictionaryIdFlagUnsupported => return error.DictionaryIdFlagUnsupported,
-                    error.EndOfStream => return if (self.source.bytes_read == initial_count)
-                        0
-                    else
-                        error.MalformedFrame,
-                    else => return error.MalformedFrame,
-                };
-            }
-            size = try self.readInner(buffer);
+    fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        var trash: [128]u8 = undefined;
+        const buf = limit.slice(&trash);
+        return readVec(context, &.{buf});
+    }
+
+    fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+        const d: *Decompressor = @ptrCast(@alignCast(context));
+        if (data.len == 0) return 0;
+        const buffer = data[0];
+        while (d.state == .NewFrame) {
+            const initial_count = d.bytes_read;
+            d.frameInit() catch |err| switch (err) {
+                error.DictionaryIdFlagUnsupported => {
+                    d.err = error.DictionaryIdFlagUnsupported;
+                    return error.ReadFailed;
+                },
+                error.EndOfStream => {
+                    if (d.bytes_read == initial_count) return error.EndOfStream;
+                    d.err = error.MalformedFrame;
+                    return error.ReadFailed;
+                },
+                else => {
+                    d.err = error.MalformedFrame;
+                    return error.ReadFailed;
+                },
+            };
         }
-        return size;
+        return d.readInner(buffer) catch |err| {
+            d.err = err;
+            return error.ReadFailed;
+        };
     }
 
-    fn readInner(self: *Decompressor, buffer: []u8) Error!usize {
-        std.debug.assert(self.state != .NewFrame);
+    fn readInner(d: *Decompressor, buffer: []u8) Error!usize {
+        std.debug.assert(d.state != .NewFrame);
 
         var ring_buffer = RingBuffer{
-            .data = self.buffer.data,
-            .read_index = self.buffer.read_index,
-            .write_index = self.buffer.write_index,
+            .data = d.buffer.data,
+            .read_index = d.buffer.read_index,
+            .write_index = d.buffer.write_index,
         };
         defer {
-            self.buffer.read_index = ring_buffer.read_index;
-            self.buffer.write_index = ring_buffer.write_index;
+            d.buffer.read_index = ring_buffer.read_index;
+            d.buffer.write_index = ring_buffer.write_index;
         }
 
-        const source_reader = self.source;
-        while (ring_buffer.isEmpty() and self.state != .LastBlock) {
-            const header_bytes = source_reader.readBytesNoEof(3) catch
-                return error.MalformedFrame;
-            const block_header = decompress.block.decodeBlockHeader(&header_bytes);
+        const in = d.input;
+        while (ring_buffer.isEmpty() and d.state != .LastBlock) {
+            const header_bytes = try in.takeArray(3);
+            d.bytes_read += header_bytes.len;
+            const block_header = decompress.block.decodeBlockHeader(header_bytes);
 
             decompress.block.decodeBlockReader(
                 &ring_buffer,
-                source_reader,
+                in,
+                &d.bytes_read,
                 block_header,
-                &self.decode_state,
-                self.frame_context.block_size_max,
-                &self.literals_buffer,
-                &self.sequence_buffer,
-            ) catch
-                return error.MalformedBlock;
+                &d.decode_state,
+                d.frame_context.block_size_max,
+                &d.literals_buffer,
+                &d.sequence_buffer,
+            ) catch return error.MalformedBlock;
 
-            if (self.frame_context.content_size) |size| {
-                if (self.current_frame_decompressed_size > size) return error.MalformedFrame;
+            if (d.frame_context.content_size) |size| {
+                if (d.current_frame_decompressed_size > size) return error.MalformedFrame;
             }
 
             const size = ring_buffer.len();
-            self.current_frame_decompressed_size += size;
+            d.current_frame_decompressed_size += size;
 
-            if (self.frame_context.hasher_opt) |*hasher| {
+            if (d.frame_context.hasher_opt) |*hasher| {
                 if (size > 0) {
                     const written_slice = ring_buffer.sliceLast(size);
                     hasher.update(written_slice.first);
@@ -166,19 +200,19 @@ pub const Decompressor = struct {
                 }
             }
             if (block_header.last_block) {
-                self.state = .LastBlock;
-                if (self.frame_context.has_checksum) {
-                    const checksum = source_reader.readInt(u32, .little) catch
-                        return error.MalformedFrame;
-                    if (self.verify_checksum) {
-                        if (self.frame_context.hasher_opt) |*hasher| {
+                d.state = .LastBlock;
+                if (d.frame_context.has_checksum) {
+                    const checksum = in.readInt(u32, .little) catch return error.MalformedFrame;
+                    d.bytes_read += 4;
+                    if (d.verify_checksum) {
+                        if (d.frame_context.hasher_opt) |*hasher| {
                             if (checksum != decompress.computeChecksum(hasher))
                                 return error.ChecksumFailure;
                         }
                     }
                 }
-                if (self.frame_context.content_size) |content_size| {
-                    if (content_size != self.current_frame_decompressed_size) {
+                if (d.frame_context.content_size) |content_size| {
+                    if (content_size != d.current_frame_decompressed_size) {
                         return error.MalformedFrame;
                     }
                 }
@@ -189,8 +223,8 @@ pub const Decompressor = struct {
         if (size > 0) {
             ring_buffer.readFirstAssumeLength(buffer, size);
         }
-        if (self.state == .LastBlock and ring_buffer.len() == 0) {
-            self.state = .NewFrame;
+        if (d.state == .LastBlock and ring_buffer.len() == 0) {
+            d.state = .NewFrame;
         }
         return size;
     }

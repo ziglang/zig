@@ -1919,9 +1919,9 @@ pub const Stream = struct {
                 limit: std.io.Reader.Limit,
             ) std.io.Reader.Error!usize {
                 const buf = limit.slice(try bw.writableSliceGreedy(1));
-                const status = try readVec(context, &.{buf});
-                bw.advance(status.len);
-                return status;
+                const n = try readVec(context, &.{buf});
+                bw.advance(n);
+                return n;
             }
 
             fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {

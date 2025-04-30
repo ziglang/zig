@@ -39,8 +39,9 @@ output: *std.io.BufferedWriter,
 ///
 /// Its buffer aliases the buffer of `input`.
 reader: std.io.BufferedReader,
-/// Populated under various error conditions.
-diagnostics: Diagnostics,
+/// Populated when `error.TlsAlert` is returned.
+alert: ?tls.Alert,
+read_err: ?ReadError,
 
 tls_version: tls.ProtocolVersion,
 read_seq: u64,
@@ -69,15 +70,16 @@ application_cipher: tls.ApplicationCipher,
 /// this connection.
 ssl_key_log: ?*SslKeyLog,
 
-pub const Diagnostics = union(enum) {
-    /// Any `ReadFailure` and `WriteFailure` was due to `input` or `output`
-    /// returning the error, respectively.
-    transitive,
-    /// Populated on `error.TlsAlert`.
-    ///
-    /// If this isn't a error alert, then it's a closure alert, which makes
-    /// no sense in a handshake.
-    alert: tls.AlertDescription,
+pub const ReadError = error{
+    /// The alert description will be stored in `alert`.
+    TlsAlert,
+    TlsBadLength,
+    TlsBadRecordMac,
+    TlsConnectionTruncated,
+    TlsDecodeError,
+    TlsRecordOverflow,
+    TlsUnexpectedMessage,
+    TlsIllegalParameter,
 };
 
 pub const SslKeyLog = struct {
@@ -128,14 +130,13 @@ pub const Options = struct {
 };
 
 const InitError = error{
-    //OutOfMemory,
-    WriteFailure,
-    ReadFailure,
+    WriteFailed,
+    ReadFailed,
     InsufficientEntropy,
     DiskQuota,
     LockViolation,
     NotOpenForWriting,
-    /// The alert description will be stored in `Options.Diagnostics.alert`.
+    /// The alert description will be stored in `alert`.
     TlsAlert,
     TlsUnexpectedMessage,
     TlsIllegalParameter,
@@ -192,7 +193,7 @@ pub fn init(
 ) InitError!void {
     assert(input.storage.buffer.len >= min_buffer_len);
     assert(output.buffer.len >= min_buffer_len);
-    client.diagnostics = .transient;
+    client.alert = null;
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -417,10 +418,10 @@ pub fn init(
         switch (ct) {
             .alert => {
                 ctd.ensure(2) catch continue :fragment;
-                const level = ctd.decode(tls.AlertLevel);
-                const desc = ctd.decode(tls.AlertDescription);
-                _ = level;
-                client.diagnostics = .{ .alert = desc };
+                client.alert = .{
+                    .level = ctd.decode(tls.Alert.Level),
+                    .description = ctd.decode(tls.Alert.Description),
+                };
                 return error.TlsAlert;
             },
             .change_cipher_spec => {
@@ -924,7 +925,7 @@ pub fn writer(c: *Client) std.io.Writer {
 fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
     const c: *Client = @alignCast(@ptrCast(context));
     const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
-    const output = &c.output;
+    const output = c.output;
     const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
     var total_clear: usize = 0;
     var ciphertext_end: usize = 0;
@@ -942,7 +943,7 @@ fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) std.i
 /// distinguish between a properly finished TLS session, or a truncation
 /// attack.
 pub fn end(c: *Client) std.io.Writer.Error!void {
-    const output = &c.output;
+    const output = c.output;
     const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, &tls.close_notify_alert, .alert);
     output.advance(prepared.cleartext_len);
@@ -1062,16 +1063,16 @@ fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
-) std.io.Reader.RwError!std.io.Reader.Status {
+) std.io.Reader.RwError!usize {
     const buf = limit.slice(try bw.writableSliceGreedy(1));
-    const status = try readVec(context, &.{buf});
-    bw.advance(status.len);
-    return status;
+    const n = try readVec(context, &.{buf});
+    bw.advance(n);
+    return n;
 }
 
 fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
     const c: *Client = @ptrCast(@alignCast(context));
-    if (c.eof()) return .{ .end = true };
+    if (c.eof()) return error.EndOfStream;
 
     var vp: VecPut = .{ .iovecs = data };
 
@@ -1093,11 +1094,11 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         if (c.received_close_notify) {
             c.partial_ciphertext_end = 0;
             assert(vp.total == amt);
-            return .{ .len = amt, .end = c.eof() };
+            return amt;
         } else if (amt > 0) {
             // We don't need more data, so don't call read.
             assert(vp.total == amt);
-            return .{ .len = amt, .end = c.eof() };
+            return amt;
         }
     }
 
@@ -1149,7 +1150,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         if (c.allow_truncation_attacks) {
             c.received_close_notify = true;
         } else {
-            return error.TlsConnectionTruncated;
+            return failRead(c, error.TlsConnectionTruncated);
         }
     }
 
@@ -1168,7 +1169,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
             // Perfect split.
             if (frag.ptr == frag1.ptr) {
                 c.partial_ciphertext_end = c.partial_ciphertext_idx;
-                return .{ .len = vp.total, .end = c.eof() };
+                return vp.total;
             }
             frag = frag1;
             in = 0;
@@ -1188,7 +1189,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
             const record_len_byte_0: u16 = straddleByte(frag, frag1, in + 3);
             const record_len_byte_1: u16 = straddleByte(frag, frag1, in + 4);
             const record_len = (record_len_byte_0 << 8) | record_len_byte_1;
-            if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
+            if (record_len > max_ciphertext_len) return failRead(c, error.TlsRecordOverflow);
 
             const full_record_len = record_len + tls.record_header_len;
             const second_len = full_record_len - first.len;
@@ -1208,7 +1209,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         in += 2;
         _ = legacy_version;
         const record_len = mem.readInt(u16, frag[in..][0..2], .big);
-        if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
+        if (record_len > max_ciphertext_len) return failRead(c, error.TlsRecordOverflow);
         in += 2;
         const the_end = in + record_len;
         if (the_end > frag.len) {
@@ -1255,7 +1256,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
                         &cleartext_stack_buffer;
                     const cleartext = cleartext_buf[0..ciphertext.len];
                     P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_key) catch
-                        return error.TlsBadRecordMac;
+                        return failRead(c, error.TlsBadRecordMac);
                     const msg = mem.trimEnd(u8, cleartext, "\x00");
                     break :cleartext .{ msg[0 .. msg.len - 1], @enumFromInt(msg[msg.len - 1]) };
                 },
@@ -1287,7 +1288,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
                         &cleartext_stack_buffer;
                     const cleartext = cleartext_buf[0..ciphertext.len];
                     P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_write_key) catch
-                        return error.TlsBadRecordMac;
+                        return failRead(c, error.TlsBadRecordMac);
                     break :cleartext .{ cleartext, ct };
                 },
                 else => unreachable,
@@ -1296,23 +1297,24 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         c.read_seq = try std.math.add(u64, c.read_seq, 1);
         switch (inner_ct) {
             .alert => {
-                if (cleartext.len != 2) return error.TlsDecodeError;
-                const level: tls.AlertLevel = @enumFromInt(cleartext[0]);
-                _ = level;
-                const desc: tls.AlertDescription = @enumFromInt(cleartext[1]);
-                switch (desc) {
+                if (cleartext.len != 2) return failRead(c, error.TlsDecodeError);
+                const alert: tls.Alert = .{
+                    .level = @enumFromInt(cleartext[0]),
+                    .description = @enumFromInt(cleartext[1]),
+                };
+                switch (alert.description) {
                     .close_notify => {
                         c.received_close_notify = true;
                         c.partial_ciphertext_end = c.partial_ciphertext_idx;
-                        return .{ .len = vp.total, .end = c.eof() };
+                        return vp.total;
                     },
                     .user_canceled => {
                         // TODO: handle server-side closures
-                        return error.TlsUnexpectedMessage;
+                        return failRead(c, error.TlsUnexpectedMessage);
                     },
                     else => {
-                        c.diagnostics = .{ .alert = desc };
-                        return error.TlsAlert;
+                        c.alert = alert;
+                        return failRead(c, error.TlsAlert);
                     },
                 }
             },
@@ -1324,8 +1326,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
                     const handshake_len = mem.readInt(u24, cleartext[ct_i..][0..3], .big);
                     ct_i += 3;
                     const next_handshake_i = ct_i + handshake_len;
-                    if (next_handshake_i > cleartext.len)
-                        return error.TlsBadLength;
+                    if (next_handshake_i > cleartext.len) return failRead(c, error.TlsBadLength);
                     const handshake = cleartext[ct_i..next_handshake_i];
                     switch (handshake_type) {
                         .new_session_ticket => {
@@ -1371,12 +1372,10 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
                                     c.write_seq = 0;
                                 },
                                 .update_not_requested => {},
-                                _ => return error.TlsIllegalParameter,
+                                _ => return failRead(c, error.TlsIllegalParameter),
                             }
                         },
-                        else => {
-                            return error.TlsUnexpectedMessage;
-                        },
+                        else => return failRead(c, error.TlsUnexpectedMessage),
                     }
                     ct_i = next_handshake_i;
                     if (ct_i >= cleartext.len) break;
@@ -1411,7 +1410,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
                     vp.next(cleartext.len);
                 }
             },
-            else => return error.TlsUnexpectedMessage,
+            else => return failRead(c, error.TlsUnexpectedMessage),
         }
         in = end;
     }
@@ -1421,6 +1420,11 @@ fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error
     _ = context;
     _ = limit;
     @panic("TODO");
+}
+
+fn failRead(c: *Client, err: ReadError) error{ReadFailed} {
+    c.read_err = err;
+    return error.ReadFailed;
 }
 
 fn logSecrets(key_log_file: std.fs.File, context: anytype, secrets: anytype) void {

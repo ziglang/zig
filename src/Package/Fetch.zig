@@ -1199,7 +1199,7 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
         .@"tar.zst" => {
-            const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+            const window_size = std.compress.zstd.default_window_len;
             const window_buffer = try f.arena.allocator().create([window_size]u8);
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
