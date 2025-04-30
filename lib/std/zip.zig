@@ -154,35 +154,30 @@ pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
 pub fn decompress(
     method: CompressionMethod,
     uncompressed_size: u64,
-    reader: anytype,
-    writer: anytype,
+    reader: *std.io.BufferedReader,
+    writer: *std.io.BufferedWriter,
+    compressed_remaining: *u64,
 ) !u32 {
     var hash = std.hash.Crc32.init();
-
     var total_uncompressed: u64 = 0;
     switch (method) {
         .store => {
-            var buf: [4096]u8 = undefined;
-            while (true) {
-                const len = try reader.read(&buf);
-                if (len == 0) break;
-                try writer.writeAll(buf[0..len]);
-                hash.update(buf[0..len]);
-                total_uncompressed += @intCast(len);
-            }
+            reader.writeAll(writer, .limited(compressed_remaining.*)) catch |err| switch (err) {
+                error.EndOfStream => return error.ZipDecompressTruncated,
+                else => |e| return e,
+            };
+            total_uncompressed += compressed_remaining.*;
         },
         .deflate => {
-            var br = std.io.bufferedReader(reader);
-            var decompressor = std.compress.flate.decompressor(br.reader());
+            var decompressor: std.compress.flate.Decompressor = .init(reader);
             while (try decompressor.next()) |chunk| {
                 try writer.writeAll(chunk);
                 hash.update(chunk);
                 total_uncompressed += @intCast(chunk.len);
                 if (total_uncompressed > uncompressed_size)
                     return error.ZipUncompressSizeTooSmall;
+                compressed_remaining.* -= chunk.len;
             }
-            if (br.end != br.start)
-                return error.ZipDeflateTruncated;
         },
         _ => return error.UnsupportedCompressionMethod,
     }
@@ -552,15 +547,15 @@ pub fn Iterator(comptime SeekableStream: type) type {
                     @as(u64, @sizeOf(LocalFileHeader)) +
                     local_data_header_offset;
                 try stream.seekTo(local_data_file_offset);
-                var limited_reader = std.io.limitedReader(stream.context.reader(), self.compressed_size);
+                var compressed_remaining: u64 = self.compressed_size;
                 const crc = try decompress(
                     self.compression_method,
                     self.uncompressed_size,
-                    limited_reader.reader(),
+                    stream.context.reader(),
                     out_file.writer(),
+                    &compressed_remaining,
                 );
-                if (limited_reader.bytes_left != 0)
-                    return error.ZipDecompressTruncated;
+                if (compressed_remaining != 0) return error.ZipDecompressTruncated;
                 return crc;
             }
         };

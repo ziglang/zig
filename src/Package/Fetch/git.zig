@@ -1490,7 +1490,7 @@ fn readObjectRaw(allocator: Allocator, reader: anytype, size: u64) ![]u8 {
 ///
 /// The format of the delta data is documented in
 /// [pack-format](https://git-scm.com/docs/pack-format).
-fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !void {
+fn expandDelta(base_object: anytype, delta_reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) !void {
     while (true) {
         const inst: packed struct { value: u7, copy: bool } = @bitCast(delta_reader.readByte() catch |e| switch (e) {
             error.EndOfStream => return,
@@ -1521,13 +1521,11 @@ fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !vo
             var size: u24 = @bitCast(size_parts);
             if (size == 0) size = 0x10000;
             try base_object.seekTo(offset);
-            var copy_reader = std.io.limitedReader(base_object.reader(), size);
-            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-            try fifo.pump(copy_reader.reader(), writer);
+
+            var base_object_br = base_object.reader();
+            try base_object_br.readAll(writer, .limited(size));
         } else if (inst.value != 0) {
-            var data_reader = std.io.limitedReader(delta_reader, inst.value);
-            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-            try fifo.pump(data_reader.reader(), writer);
+            try delta_reader.readAll(writer, .limited(inst.value));
         } else {
             return error.InvalidDeltaInstruction;
         }

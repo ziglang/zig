@@ -50,7 +50,7 @@ pub const FrameHeader = union(enum) {
     skippable: SkippableHeader,
 };
 
-pub const HeaderError = error{ BadMagic, EndOfStream, ReservedBitSet };
+pub const HeaderError = error{ ReadFailed, BadMagic, EndOfStream, ReservedBitSet };
 
 /// Returns the header of the frame at the beginning of `source`.
 ///
@@ -61,16 +61,21 @@ pub const HeaderError = error{ BadMagic, EndOfStream, ReservedBitSet };
 ///   - `error.EndOfStream` if `source` contains fewer than 4 bytes
 ///   - `error.ReservedBitSet` if the frame is a Zstandard frame and any of the
 ///     reserved bits are set
-pub fn decodeFrameHeader(source: anytype) (@TypeOf(source).Error || HeaderError)!FrameHeader {
-    const magic = try source.readInt(u32, .little);
+pub fn decodeFrameHeader(br: *std.io.BufferedReader, bytes_read: *usize) HeaderError!FrameHeader {
+    const magic = try br.readInt(u32, .little);
+    bytes_read.* += 4;
     const frame_type = try frameType(magic);
     switch (frame_type) {
-        .zstandard => return FrameHeader{ .zstandard = try decodeZstandardHeader(source) },
-        .skippable => return FrameHeader{
-            .skippable = .{
-                .magic_number = magic,
-                .frame_size = try source.readInt(u32, .little),
-            },
+        .zstandard => return .{ .zstandard = try decodeZstandardHeader(br, bytes_read) },
+        .skippable => {
+            const result: FrameHeader = .{
+                .skippable = .{
+                    .magic_number = magic,
+                    .frame_size = try br.readInt(u32, .little),
+                },
+            };
+            bytes_read.* += 4;
+            return result;
         },
     }
 }
