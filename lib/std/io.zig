@@ -1,16 +1,11 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
-const root = @import("root");
-const c = std.c;
 const is_windows = builtin.os.tag == .windows;
+
+const std = @import("std.zig");
 const windows = std.os.windows;
 const posix = std.posix;
 const math = std.math;
 const assert = std.debug.assert;
-const fs = std.fs;
-const mem = std.mem;
-const meta = std.meta;
-const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
@@ -20,12 +15,6 @@ pub const Writer = @import("io/Writer.zig");
 pub const BufferedReader = @import("io/BufferedReader.zig");
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
-
-pub const CWriter = @import("io/c_writer.zig").CWriter;
-pub const cWriter = @import("io/c_writer.zig").cWriter;
-
-pub const LimitedReader = @import("io/limited_reader.zig").LimitedReader;
-pub const limitedReader = @import("io/limited_reader.zig").limitedReader;
 
 pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
 pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
@@ -37,9 +26,6 @@ pub const bitWriter = @import("io/bit_writer.zig").bitWriter;
 
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
-
-pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
-pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
@@ -63,7 +49,7 @@ pub fn poll(
         .windows = if (is_windows) .{
             .first_read_done = false,
             .overlapped = [1]windows.OVERLAPPED{
-                mem.zeroes(windows.OVERLAPPED),
+                std.mem.zeroes(windows.OVERLAPPED),
             } ** enum_fields.len,
             .small_bufs = undefined,
             .active = .{
@@ -436,10 +422,10 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
             .name = enum_field.name,
-            .type = fs.File,
+            .type = std.fs.File,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = @alignOf(fs.File),
+            .alignment = @alignOf(std.fs.File),
         };
     }
     return @Type(.{ .@"struct" = .{
@@ -459,6 +445,5 @@ test {
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
-    _ = @import("io/c_writer.zig");
     _ = @import("io/test.zig");
 }
