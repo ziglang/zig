@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
 const RingBuffer = std.RingBuffer;
 
 const types = @import("types.zig");
@@ -117,41 +116,6 @@ pub fn decode(dest: []u8, src: []const u8, verify_checksum: bool) error{
     return write_count;
 }
 
-/// Decodes a stream of frames from `src`; returns the decoded bytes. The stream
-/// should not have extra trailing bytes - either all bytes in `src` will be
-/// decoded, or an error will be returned.
-///
-/// Errors returned:
-///   - `error.DictionaryIdFlagUnsupported` if a `src` contains a frame that
-///     uses a dictionary
-///   - `error.MalformedFrame` if a frame in `src` is invalid
-///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
-pub fn decodeAlloc(
-    allocator: Allocator,
-    src: []const u8,
-    verify_checksum: bool,
-    window_size_max: usize,
-) error{ DictionaryIdFlagUnsupported, MalformedFrame, OutOfMemory }![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
-
-    var read_count: usize = 0;
-    while (read_count < src.len) {
-        read_count += decodeFrameArrayList(
-            allocator,
-            &result,
-            src[read_count..],
-            verify_checksum,
-            window_size_max,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.DictionaryIdFlagUnsupported => return error.DictionaryIdFlagUnsupported,
-            else => return error.MalformedFrame,
-        };
-    }
-    return result.toOwnedSlice();
-}
-
 /// Decodes the frame at the start of `src` into `dest`. Returns the number of
 /// bytes read from `src` and written to `dest`. This function can only decode
 /// frames that declare the decompressed content size.
@@ -203,58 +167,6 @@ pub fn decodeFrame(
                 .read_count = read_count,
                 .write_count = 0,
             };
-        },
-    }
-}
-
-/// Decodes the frame at the start of `src` into `dest`. Returns the number of
-/// bytes read from `src`.
-///
-/// Errors returned:
-///   - `error.BadMagic` if the first 4 bytes of `src` is not a valid magic
-///     number for a Zstandard or skippable frame
-///   - `error.WindowSizeUnknown` if the frame does not have a valid window size
-///   - `error.WindowTooLarge` if the window size is larger than
-///     `window_size_max`
-///   - `error.ContentSizeTooLarge` if the frame header indicates a content size
-///     that is larger than `std.math.maxInt(usize)`
-///   - `error.DictionaryIdFlagUnsupported` if the frame uses a dictionary
-///   - `error.ChecksumFailure` if `verify_checksum` is true and the frame
-///     contains a checksum that does not match the checksum of the decompressed
-///     data
-///   - `error.ReservedBitSet` if any of the reserved bits of the frame header
-///     are set
-///   - `error.EndOfStream` if `src` does not contain a complete frame
-///   - `error.BadContentSize` if the content size declared by the frame does
-///     not equal the actual size of decompressed data
-///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
-///   - an error in `block.Error` if there are errors decoding a block
-///   - `error.SkippableSizeTooLarge` if the frame is skippable and reports a
-///     size greater than `src.len`
-pub fn decodeFrameArrayList(
-    allocator: Allocator,
-    dest: *std.ArrayList(u8),
-    src: []const u8,
-    verify_checksum: bool,
-    window_size_max: usize,
-) (error{ BadMagic, OutOfMemory, SkippableSizeTooLarge } || FrameContext.Error || FrameError)!usize {
-    var fbs: std.io.FixedBufferStream = .{ .buffer = src };
-    const reader = fbs.reader();
-    const magic = try reader.readInt(u32, .little);
-    switch (try frameType(magic)) {
-        .zstandard => return decodeZstandardFrameArrayList(
-            allocator,
-            dest,
-            src,
-            verify_checksum,
-            window_size_max,
-        ),
-        .skippable => {
-            const content_size = try fbs.reader().readInt(u32, .little);
-            if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
-            const read_count = @as(usize, content_size) + 8;
-            if (read_count > src.len) return error.SkippableSizeTooLarge;
-            return read_count;
         },
     }
 }
@@ -419,117 +331,6 @@ pub const FrameContext = struct {
         };
     }
 };
-
-/// Decode a Zstandard from from `src` and return number of bytes read; see
-/// `decodeZstandardFrame()`. The first four bytes of `src` must be the magic
-/// number for a Zstandard frame.
-///
-/// Errors returned:
-///   - `error.WindowSizeUnknown` if the frame does not have a valid window size
-///   - `error.WindowTooLarge` if the window size is larger than
-///     `window_size_max`
-///   - `error.DictionaryIdFlagUnsupported` if the frame uses a dictionary
-///   - `error.ContentSizeTooLarge` if the frame header indicates a content size
-///     that is larger than `std.math.maxInt(usize)`
-///   - `error.ChecksumFailure` if `verify_checksum` is true and the frame
-///     contains a checksum that does not match the checksum of the decompressed
-///     data
-///   - `error.ReservedBitSet` if the reserved bit of the frame header is set
-///   - `error.EndOfStream` if `src` does not contain a complete frame
-///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
-///   - an error in `block.Error` if there are errors decoding a block
-///   - `error.BadContentSize` if the content size declared by the frame does
-///     not equal the size of decompressed data
-pub fn decodeZstandardFrameArrayList(
-    allocator: Allocator,
-    dest: *std.ArrayList(u8),
-    src: []const u8,
-    verify_checksum: bool,
-    window_size_max: usize,
-) (error{OutOfMemory} || FrameContext.Error || FrameError)!usize {
-    assert(std.mem.readInt(u32, src[0..4], .little) == frame.Zstandard.magic_number);
-    var consumed_count: usize = 4;
-
-    var frame_context = context: {
-        var fbs: std.io.FixedBufferStream = .{ .buffer = src[consumed_count..] };
-        const source = fbs.reader();
-        const frame_header = try decodeZstandardHeader(source);
-        consumed_count += fbs.pos;
-        break :context try FrameContext.init(frame_header, window_size_max, verify_checksum);
-    };
-
-    consumed_count += try decodeZstandardFrameBlocksArrayList(
-        allocator,
-        dest,
-        src[consumed_count..],
-        &frame_context,
-    );
-    return consumed_count;
-}
-
-pub fn decodeZstandardFrameBlocksArrayList(
-    allocator: Allocator,
-    dest: *std.ArrayList(u8),
-    src: []const u8,
-    frame_context: *FrameContext,
-) (error{OutOfMemory} || FrameError)!usize {
-    const initial_len = dest.items.len;
-
-    var ring_buffer = try RingBuffer.init(allocator, frame_context.window_size);
-    defer ring_buffer.deinit(allocator);
-
-    // These tables take 7680 bytes
-    var literal_fse_data: [types.compressed_block.table_size_max.literal]Table.Fse = undefined;
-    var match_fse_data: [types.compressed_block.table_size_max.match]Table.Fse = undefined;
-    var offset_fse_data: [types.compressed_block.table_size_max.offset]Table.Fse = undefined;
-
-    var block_header = try block.decodeBlockHeaderSlice(src);
-    var consumed_count: usize = 3;
-    var decode_state = block.DecodeState.init(&literal_fse_data, &match_fse_data, &offset_fse_data);
-    while (true) : ({
-        block_header = try block.decodeBlockHeaderSlice(src[consumed_count..]);
-        consumed_count += 3;
-    }) {
-        const written_size = try block.decodeBlockRingBuffer(
-            &ring_buffer,
-            src[consumed_count..],
-            block_header,
-            &decode_state,
-            &consumed_count,
-            frame_context.block_size_max,
-        );
-        if (frame_context.content_size) |size| {
-            if (dest.items.len - initial_len > size) {
-                return error.BadContentSize;
-            }
-        }
-        if (written_size > 0) {
-            const written_slice = ring_buffer.sliceLast(written_size);
-            try dest.appendSlice(written_slice.first);
-            try dest.appendSlice(written_slice.second);
-            if (frame_context.hasher_opt) |*hasher| {
-                hasher.update(written_slice.first);
-                hasher.update(written_slice.second);
-            }
-        }
-        if (block_header.last_block) break;
-    }
-    if (frame_context.content_size) |size| {
-        if (dest.items.len - initial_len != size) {
-            return error.BadContentSize;
-        }
-    }
-
-    if (frame_context.has_checksum) {
-        if (src.len < consumed_count + 4) return error.EndOfStream;
-        const checksum = std.mem.readInt(u32, src[consumed_count..][0..4], .little);
-        consumed_count += 4;
-        if (frame_context.hasher_opt) |*hasher| {
-            if (checksum != computeChecksum(hasher)) return error.ChecksumFailure;
-        }
-    }
-    return consumed_count;
-}
 
 fn decodeFrameBlocksInner(
     dest: []u8,
