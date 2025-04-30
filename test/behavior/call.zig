@@ -355,7 +355,7 @@ test "inline call doesn't re-evaluate non generic struct" {
     try comptime @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
 
-test "Enum constructed by @Type passed as generic argument" {
+test "Enum constructed by @Enum passed as generic argument" {
     const S = struct {
         const E = std.meta.FieldEnum(struct {
             prev_pos: bool,

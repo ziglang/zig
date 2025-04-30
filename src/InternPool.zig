@@ -1164,12 +1164,12 @@ const Local = struct {
                             .alignment = @alignOf(T),
                         };
                     }
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
                 fn PtrElem(comptime opts: struct {
                     size: std.builtin.Type.Pointer.Size,
@@ -1179,7 +1179,7 @@ const Local = struct {
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
                     for (&new_fields, elem_fields) |*new_field, elem_field| {
-                        const T = @Type(.{ .pointer = .{
+                        const T = @Pointer(.{
                             .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
@@ -1188,7 +1188,7 @@ const Local = struct {
                             .child = elem_field.type,
                             .is_allowzero = false,
                             .sentinel_ptr = null,
-                        } });
+                        });
                         new_field.* = .{
                             .name = elem_field.name,
                             .type = T,
@@ -1197,12 +1197,12 @@ const Local = struct {
                             .alignment = @alignOf(T),
                         };
                     }
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
 
                 pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .one }) {

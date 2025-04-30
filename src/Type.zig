@@ -309,7 +309,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             .undefined,
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
-            .enum_literal => try writer.writeAll("@Type(.enum_literal)"),
+            .enum_literal => try writer.writeAll("@EnumLiteral()"),
 
             .generic_poison => unreachable,
         },

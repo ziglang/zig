@@ -33,10 +33,7 @@ pub fn log2(x: anytype) @TypeOf(x) {
             return result;
         },
         .int => |int_info| math.log2_int(switch (int_info.signedness) {
-            .signed => @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = int_info.bits -| 1,
-            } }),
+            .signed => @Int(.unsigned, int_info.bits -| 1),
             .unsigned => T,
         }, @intCast(x)),
         else => @compileError("log2 not implemented for " ++ @typeName(T)),

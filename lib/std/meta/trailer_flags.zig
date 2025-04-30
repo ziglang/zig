@@ -30,13 +30,11 @@ pub fn TrailerFlags(comptime Fields: type) type {
                     .alignment = @alignOf(?struct_field.type),
                 };
             }
-            break :blk @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &fields,
-                    .decls = &.{},
-                    .is_tuple = false,
-                },
+            break :blk @Struct(.{
+                .layout = .auto,
+                .fields = &fields,
+                .decls = &.{},
+                .is_tuple = false,
             });
         };
 

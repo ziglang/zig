@@ -413,7 +413,7 @@ fn createChildOnly(
 fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
     var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        if (field.type == @Type(.null)) continue;
+        if (field.type == @TypeOf(null)) continue;
         addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
     return map;
@@ -532,7 +532,7 @@ fn addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(slice_info),
                             maybe_value orelse null,
                         );
                         return;
@@ -557,7 +557,7 @@ fn addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(slice_info),
                             maybe_value orelse null,
                         );
                         return;

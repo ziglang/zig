@@ -41,7 +41,7 @@ pub fn panic(msg: []const u8, st: ?*std.builtin.StackTrace, addr: ?usize) noretu
 
 fn logFn(
     comptime message_level: log.Level,
-    comptime scope: @TypeOf(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {

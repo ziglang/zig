@@ -85,7 +85,7 @@ fn ToUnsigned(comptime T: type) type {
 pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) type {
     switch (@typeInfo(SelfType)) {
         .pointer => |ptr| {
-            return @Type(.{ .pointer = .{
+            return @Pointer(.{
                 .size = .c,
                 .is_const = ptr.is_const,
                 .is_volatile = ptr.is_volatile,
@@ -94,7 +94,7 @@ pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) ty
                 .child = ElementType,
                 .is_allowzero = true,
                 .sentinel_ptr = null,
-            } });
+            });
         },
         else => |info| @compileError("Invalid self type \"" ++ @tagName(info) ++ "\" for flexible array getter: " ++ @typeName(SelfType)),
     }
@@ -219,7 +219,7 @@ fn castInt(comptime DestType: type, target: anytype) DestType {
     const dest = @typeInfo(DestType).int;
     const source = @typeInfo(@TypeOf(target)).int;
 
-    const Int = @Type(.{ .int = .{ .bits = dest.bits, .signedness = source.signedness } });
+    const Int = @Int(source.signedness, dest.bits);
 
     if (dest.bits < source.bits)
         return @as(DestType, @bitCast(@as(Int, @truncate(target))))
