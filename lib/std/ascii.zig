@@ -177,7 +177,7 @@ pub fn isAscii(c: u8) bool {
     return c < 128;
 }
 
-/// /// Deprecated: use `isAscii`
+/// Deprecated: use `isAscii`
 pub const isASCII = isAscii;
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.

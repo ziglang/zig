@@ -599,6 +599,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         _ = zcu.outdated_ready.swapRemove(unit);
         // No need for `deleteUnitExports` because we never export anything.
         zcu.deleteUnitReferences(unit);
+        zcu.deleteUnitCompileLogs(unit);
         if (zcu.failed_analysis.fetchSwapRemove(unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -749,6 +750,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         if (dev.env.supports(.incremental)) {
             zcu.deleteUnitExports(anal_unit);
             zcu.deleteUnitReferences(anal_unit);
+            zcu.deleteUnitCompileLogs(anal_unit);
             if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
                 kv.value.destroy(gpa);
             }
@@ -921,6 +923,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1293,6 +1296,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -1527,6 +1531,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         _ = zcu.outdated_ready.swapRemove(anal_unit);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        zcu.deleteUnitCompileLogs(anal_unit);
         if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
             kv.value.destroy(gpa);
         }
@@ -2837,6 +2842,11 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
+    if (zcu.single_exports.count() == 0 and zcu.multi_exports.count() == 0) {
+        // We can avoid a call to `resolveReferences` in this case.
+        return;
+    }
+
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
     var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
     var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
@@ -2857,8 +2867,18 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     // So, this ensureTotalCapacity serves as a reasonable (albeit very approximate) optimization.
     try nav_exports.ensureTotalCapacity(gpa, zcu.single_exports.count() + zcu.multi_exports.count());
 
-    for (zcu.single_exports.values()) |export_idx| {
+    const unit_references = try zcu.resolveReferences();
+
+    for (zcu.single_exports.keys(), zcu.single_exports.values()) |exporter, export_idx| {
         const exp = export_idx.ptr(zcu);
+        if (!unit_references.contains(exporter)) {
+            // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
+            // The linker export API should be modified to eliminate this call. #23616
+            if (zcu.comp.bin_file) |lf| {
+                lf.deleteExport(exp.exported, exp.opts.name);
+            }
+            continue;
+        }
         const value_ptr, const found_existing = switch (exp.exported) {
             .nav => |nav| gop: {
                 const gop = try nav_exports.getOrPut(gpa, nav);
@@ -2873,8 +2893,19 @@ pub fn processExports(pt: Zcu.PerThread) !void {
         try value_ptr.append(gpa, export_idx);
     }
 
-    for (zcu.multi_exports.values()) |info| {
-        for (zcu.all_exports.items[info.index..][0..info.len], info.index..) |exp, export_idx| {
+    for (zcu.multi_exports.keys(), zcu.multi_exports.values()) |exporter, info| {
+        const exports = zcu.all_exports.items[info.index..][0..info.len];
+        if (!unit_references.contains(exporter)) {
+            // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
+            // The linker export API should be modified to eliminate this loop. #23616
+            if (zcu.comp.bin_file) |lf| {
+                for (exports) |exp| {
+                    lf.deleteExport(exp.exported, exp.opts.name);
+                }
+            }
+            continue;
+        }
+        for (exports, info.index..) |exp, export_idx| {
             const value_ptr, const found_existing = switch (exp.exported) {
                 .nav => |nav| gop: {
                     const gop = try nav_exports.getOrPut(gpa, nav);
@@ -3738,6 +3769,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     // reusing the memory which is currently being used to track this state.
     zcu.deleteUnitExports(anal_unit);
     zcu.deleteUnitReferences(anal_unit);
+    zcu.deleteUnitCompileLogs(anal_unit);
     if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
         kv.value.destroy(gpa);
     }

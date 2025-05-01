@@ -236,6 +236,12 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
     }
 }
 
+pub const SanitizeC = enum {
+    off,
+    trap,
+    full,
+};
+
 pub const BuildId = union(enum) {
     none,
     fast,

@@ -289,6 +289,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_sanitize",
     },
     .{
+        .name = "fsanitize-trap",
+        .ident = "sanitize_trap",
+    },
+    .{
+        .name = "fno-sanitize-trap",
+        .ident = "no_sanitize_trap",
+    },
+    .{
         .name = "T",
         .ident = "linker_script",
     },
@@ -571,6 +579,14 @@ const known_options = [_]KnownOpt{
     .{
         .name = "rtlib=",
         .ident = "rtlib",
+    },
+    .{
+        .name = "static",
+        .ident = "static",
+    },
+    .{
+        .name = "dynamic",
+        .ident = "dynamic",
     },
 };
 

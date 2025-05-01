@@ -1663,7 +1663,18 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     // copy when generating relocatables. Normally, we would expect `lld -r` to work.
     // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
     // before even generating the relocatable.
-    if (output_mode == .Obj and (comp.config.lto != .none or target.cpu.arch.isBpf())) {
+    //
+    // For m68k, we go through this path because LLD doesn't support it yet, but LLVM can
+    // produce usable object files.
+    if (output_mode == .Obj and
+        (comp.config.lto != .none or
+            target.cpu.arch.isBpf() or
+            target.cpu.arch == .lanai or
+            target.cpu.arch == .m68k or
+            target.cpu.arch.isSPARC() or
+            target.cpu.arch == .ve or
+            target.cpu.arch == .xcore))
+    {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -4174,7 +4185,6 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {
-            .elfiamcu => "elf_iamcu",
             .freebsd => "elf_i386_fbsd",
             else => "elf_i386",
         },

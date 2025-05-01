@@ -1287,7 +1287,14 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables != .none;
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
-        const any_sanitize_c = options.config.any_sanitize_c or options.root_mod.sanitize_c;
+        const any_sanitize_c: std.zig.SanitizeC = switch (options.config.any_sanitize_c) {
+            .off => options.root_mod.sanitize_c,
+            .trap => if (options.root_mod.sanitize_c == .full)
+                .full
+            else
+                .trap,
+            .full => .full,
+        };
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
@@ -1345,8 +1352,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const is_spirv = options.root_mod.resolved_target.result.cpu.arch.isSpirV();
-            const want_ubsan_rt = options.want_ubsan_rt orelse (!is_spirv and any_sanitize_c and is_exe_or_dyn_lib);
+            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(options.root_mod.resolved_target.result);
+            const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
             if (have_zcu) break :s .zcu;
@@ -1418,6 +1425,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.lto);
         cache.hash.add(options.config.link_mode);
         cache.hash.add(options.config.any_unwind_tables);
+        cache.hash.add(options.config.any_non_single_threaded);
+        cache.hash.add(options.config.any_sanitize_thread);
+        cache.hash.add(options.config.any_sanitize_c);
+        cache.hash.add(options.config.any_fuzz);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
         cache.hash.add(link_libc);
@@ -1757,8 +1768,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     errdefer comp.destroy();
 
     const target = comp.root_mod.resolved_target.result;
-
-    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.config.use_llvm);
+    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, comp.config.use_llvm, build_options.have_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1928,7 +1938,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-            if (capable_of_building_compiler_rt) {
+            if (can_build_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
@@ -2132,7 +2142,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             const is_hit = man.hit() catch |err| switch (err) {
                 error.CacheCheckFailed => switch (man.diagnostic) {
                     .none => unreachable,
-                    .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
+                    .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return comp.setMiscFailure(
                         .check_whole_cache,
                         "failed to check cache: {s} {s}",
                         .{ @tagName(man.diagnostic), @errorName(e) },
@@ -2261,8 +2271,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
-
-        zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
         zcu.skip_analysis_this_update = false;
 
@@ -3323,30 +3331,15 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 err: *?Error,
 
                 const Error = @typeInfo(
-                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).@"fn".return_type.?,
+                    @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
                 ).error_union.error_set;
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
-                    if (ctx.err.*) |_| return lhs_index < rhs_index;
-                    const lhs_src_loc = ctx.errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
-                        // LHS source location lost, so should never be referenced. Just sort it to the end.
-                        return false;
-                    };
-                    const rhs_src_loc = ctx.errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
-                        // RHS source location lost, so should never be referenced. Just sort it to the end.
-                        return true;
-                    };
-                    return if (lhs_src_loc.file_scope != rhs_src_loc.file_scope) std.mem.order(
-                        u8,
-                        lhs_src_loc.file_scope.sub_file_path,
-                        rhs_src_loc.file_scope.sub_file_path,
-                    ).compare(.lt) else (lhs_src_loc.span(ctx.zcu.gpa) catch |e| {
+                    if (ctx.err.* != null) return lhs_index < rhs_index;
+                    return ctx.errors[lhs_index].src_loc.lessThan(ctx.errors[rhs_index].src_loc, ctx.zcu) catch |e| {
                         ctx.err.* = e;
                         return lhs_index < rhs_index;
-                    }).main < (rhs_src_loc.span(ctx.zcu.gpa) catch |e| {
-                        ctx.err.* = e;
-                        return lhs_index < rhs_index;
-                    }).main;
+                    };
                 }
             };
 
@@ -3450,28 +3443,76 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
-    if (comp.zcu) |zcu| {
-        if (!zcu.skip_analysis_this_update and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
-            const values = zcu.compile_log_sources.values();
-            // First one will be the error; subsequent ones will be notes.
-            const src_loc = values[0].src();
-            const err_msg: Zcu.ErrorMsg = .{
-                .src_loc = src_loc,
-                .msg = "found compile log statement",
-                .notes = try gpa.alloc(Zcu.ErrorMsg, zcu.compile_log_sources.count() - 1),
-            };
-            defer gpa.free(err_msg.notes);
+    const compile_log_text: []const u8 = compile_log_text: {
+        const zcu = comp.zcu orelse break :compile_log_text "";
+        if (zcu.skip_analysis_this_update) break :compile_log_text "";
+        if (zcu.compile_logs.count() == 0) break :compile_log_text "";
 
-            for (values[1..], err_msg.notes) |src_info, *note| {
-                note.* = .{
-                    .src_loc = src_info.src(),
-                    .msg = "also here",
+        // If there are no other errors, we include a "found compile log statement" error.
+        // Otherwise, we just show the compile log output, with no error.
+        const include_compile_log_sources = bundle.root_list.items.len == 0;
+
+        const refs = try zcu.resolveReferences();
+
+        var messages: std.ArrayListUnmanaged(Zcu.ErrorMsg) = .empty;
+        defer messages.deinit(gpa);
+        for (zcu.compile_logs.keys(), zcu.compile_logs.values()) |logging_unit, compile_log| {
+            if (!refs.contains(logging_unit)) continue;
+            try messages.append(gpa, .{
+                .src_loc = compile_log.src(),
+                .msg = undefined, // populated later
+                .notes = &.{},
+                // We actually clear this later for most of these, but we populate
+                // this field for now to avoid having to allocate more data to track
+                // which compile log text this corresponds to.
+                .reference_trace_root = logging_unit.toOptional(),
+            });
+        }
+
+        if (messages.items.len == 0) break :compile_log_text "";
+
+        // Okay, there *are* referenced compile logs. Sort them into a consistent order.
+
+        const SortContext = struct {
+            err: *?Error,
+            zcu: *Zcu,
+            const Error = @typeInfo(
+                @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
+            ).error_union.error_set;
+            fn lessThan(ctx: @This(), lhs: Zcu.ErrorMsg, rhs: Zcu.ErrorMsg) bool {
+                if (ctx.err.* != null) return false;
+                return lhs.src_loc.lessThan(rhs.src_loc, ctx.zcu) catch |e| {
+                    ctx.err.* = e;
+                    return false;
                 };
             }
+        };
+        var sort_err: ?SortContext.Error = null;
+        std.mem.sort(Zcu.ErrorMsg, messages.items, @as(SortContext, .{ .err = &sort_err, .zcu = zcu }), SortContext.lessThan);
+        if (sort_err) |e| return e;
 
-            try addModuleErrorMsg(zcu, &bundle, err_msg);
+        var log_text: std.ArrayListUnmanaged(u8) = .empty;
+        defer log_text.deinit(gpa);
+
+        // Index 0 will be the root message; the rest will be notes.
+        // Only the actual message, i.e. index 0, will retain its reference trace.
+        try appendCompileLogLines(&log_text, zcu, messages.items[0].reference_trace_root.unwrap().?);
+        messages.items[0].notes = messages.items[1..];
+        messages.items[0].msg = "found compile log statement";
+        for (messages.items[1..]) |*note| {
+            try appendCompileLogLines(&log_text, zcu, note.reference_trace_root.unwrap().?);
+            note.reference_trace_root = .none; // notes don't have reference traces
+            note.msg = "also here";
         }
-    }
+
+        // We don't actually include the error here if `!include_compile_log_sources`.
+        // The sorting above was still necessary, though, to get `log_text` in the right order.
+        if (include_compile_log_sources) {
+            try addModuleErrorMsg(zcu, &bundle, messages.items[0]);
+        }
+
+        break :compile_log_text try log_text.toOwnedSlice(gpa);
+    };
 
     // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
     // very common way for incremental compilation bugs to manifest, so let's always check it.
@@ -3497,8 +3538,22 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     };
 
-    const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
+}
+
+/// Writes all compile log lines belonging to `logging_unit` into `log_text` using `zcu.gpa`.
+fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    var opt_line_idx = zcu.compile_logs.get(logging_unit).?.first_line.toOptional();
+    while (opt_line_idx.unwrap()) |line_idx| {
+        const line = line_idx.get(zcu).*;
+        opt_line_idx = line.next;
+        const line_slice = line.data.toSlice(ip);
+        try log_text.ensureUnusedCapacity(gpa, line_slice.len + 1);
+        log_text.appendSliceAssumeCapacity(line_slice);
+        log_text.appendAssumeCapacity('\n');
+    }
 }
 
 fn anyErrors(comp: *Compilation) bool {
@@ -5640,11 +5695,11 @@ pub fn addCCArgs(
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
             argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-m{s}{s}-version-min={d}.{d}.{d}", .{
+                @tagName(os),
                 switch (target.abi) {
                     .simulator => "-simulator",
                     else => "",
                 },
-                @tagName(os),
                 ver.major,
                 ver.minor,
                 ver.patch,
@@ -5989,6 +6044,10 @@ pub fn addCCArgs(
                         std.mem.startsWith(u8, llvm_name, "hard-float"))
                         continue;
 
+                    // Ignore these until we figure out how to handle the concept of omitting features.
+                    // See https://github.com/ziglang/zig/issues/23539
+                    if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
@@ -5999,7 +6058,7 @@ pub fn addCCArgs(
             {
                 var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
-                if (mod.sanitize_c) {
+                if (mod.sanitize_c != .off) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
                     try san_arg.appendSlice(arena, "undefined,");
                 }
@@ -6015,37 +6074,33 @@ pub fn addCCArgs(
                 if (san_arg.pop()) |_| {
                     try argv.append(san_arg.items);
 
-                    // These args have to be added after the `-fsanitize` arg or
-                    // they won't take effect.
-                    if (mod.sanitize_c) {
-                        // This check requires implementing the Itanium C++ ABI.
-                        // We would make it `-fsanitize-trap=vptr`, however this check requires
-                        // a full runtime due to the type hashing involved.
-                        try argv.append("-fno-sanitize=vptr");
-
-                        // It is very common, and well-defined, for a pointer on one side of a C ABI
-                        // to have a different but compatible element type. Examples include:
-                        // `char*` vs `uint8_t*` on a system with 8-bit bytes
-                        // `const char*` vs `char*`
-                        // `char*` vs `unsigned char*`
-                        // Without this flag, Clang would invoke UBSAN when such an extern
-                        // function was called.
-                        try argv.append("-fno-sanitize=function");
-
-                        if (mod.optimize_mode == .ReleaseSafe) {
-                            // It's recommended to use the minimal runtime in production
-                            // environments due to the security implications of the full runtime.
-                            // The minimal runtime doesn't provide much benefit over simply
-                            // trapping, however, so we do that instead.
+                    switch (mod.sanitize_c) {
+                        .off => {},
+                        .trap => {
                             try argv.append("-fsanitize-trap=undefined");
-                        } else {
+                        },
+                        .full => {
+                            // This check requires implementing the Itanium C++ ABI.
+                            // We would make it `-fsanitize-trap=vptr`, however this check requires
+                            // a full runtime due to the type hashing involved.
+                            try argv.append("-fno-sanitize=vptr");
+
+                            // It is very common, and well-defined, for a pointer on one side of a C ABI
+                            // to have a different but compatible element type. Examples include:
+                            // `char*` vs `uint8_t*` on a system with 8-bit bytes
+                            // `const char*` vs `char*`
+                            // `char*` vs `unsigned char*`
+                            // Without this flag, Clang would invoke UBSAN when such an extern
+                            // function was called.
+                            try argv.append("-fno-sanitize=function");
+
                             // This is necessary because, by default, Clang instructs LLVM to embed
                             // a COFF link dependency on `libclang_rt.ubsan_standalone.a` when the
                             // UBSan runtime is used.
                             if (target.os.tag == .windows) {
                                 try argv.append("-fno-rtlib-defaultlib");
                             }
-                        }
+                        },
                     }
                 }
 
@@ -6502,22 +6557,6 @@ pub fn dump_argv(argv: []const []const u8) void {
     nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
-fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
-    switch (target.os.tag) {
-        .plan9 => return false,
-        else => {},
-    }
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
-        else => {},
-    }
-    return switch (target_util.zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
-        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else build_options.have_llvm,
-        else => build_options.have_llvm,
-    };
-}
-
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     const target = comp.root_mod.resolved_target.result;
     return target_util.zigBackend(target, comp.config.use_llvm);
@@ -6748,7 +6787,7 @@ pub fn build_crt_file(
             .strip = comp.compilerRtStrip(),
             .stack_check = false,
             .stack_protector = 0,
-            .sanitize_c = false,
+            .sanitize_c = .off,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
             // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.

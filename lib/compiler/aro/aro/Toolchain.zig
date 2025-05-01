@@ -83,9 +83,7 @@ pub fn discover(tc: *Toolchain) !void {
 
     const target = tc.getTarget();
     tc.inner = switch (target.os.tag) {
-        .elfiamcu,
-        .linux,
-        => if (target.cpu.arch == .hexagon)
+        .linux => if (target.cpu.arch == .hexagon)
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch.isMIPS())
             .{ .unknown = {} } // TODO
@@ -418,7 +416,6 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     const unw = try tc.getUnwindLibKind();
     const target = tc.getTarget();
     if ((target.abi.isAndroid() and unw == .libgcc) or
-        target.os.tag == .elfiamcu or
         target.ofmt == .wasm or
         target_util.isWindowsMSVCEnvironment(target) or
         unw == .none) return;

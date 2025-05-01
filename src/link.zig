@@ -556,9 +556,9 @@ pub const File = struct {
         const comp = base.comp;
         const gpa = comp.gpa;
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9, .wasm => {
+            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -650,8 +650,8 @@ pub const File = struct {
                     }
                 }
             },
-            .coff, .macho, .plan9, .wasm => if (base.file) |f| {
-                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker });
+            .coff, .macho, .plan9, .wasm, .goff, .xcoff => if (base.file) |f| {
+                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 if (base.zcu_object_sub_path != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -767,6 +767,7 @@ pub const File = struct {
 
         switch (base.tag) {
             .spirv, .nvptx => {},
+            .goff, .xcoff => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
@@ -902,6 +903,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
@@ -921,6 +923,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
@@ -934,6 +937,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
@@ -950,6 +954,8 @@ pub const File = struct {
             .plan9,
             .spirv,
             .nvptx,
+            .goff,
+            .xcoff,
             => {},
 
             inline else => |tag| {
@@ -1246,6 +1252,8 @@ pub const File = struct {
         spirv,
         plan9,
         nvptx,
+        goff,
+        xcoff,
 
         pub fn Type(comptime tag: Tag) type {
             return switch (tag) {
@@ -1257,6 +1265,8 @@ pub const File = struct {
                 .spirv => SpirV,
                 .plan9 => Plan9,
                 .nvptx => NvPtx,
+                .goff => Goff,
+                .xcoff => Xcoff,
             };
         }
 
@@ -1270,8 +1280,8 @@ pub const File = struct {
                 .c => .c,
                 .spirv => .spirv,
                 .nvptx => .nvptx,
-                .goff => @panic("TODO implement goff object format"),
-                .xcoff => @panic("TODO implement xcoff object format"),
+                .goff => .goff,
+                .xcoff => .xcoff,
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
             };
@@ -1377,6 +1387,8 @@ pub const File = struct {
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Goff = @import("link/Goff.zig");
+    pub const Xcoff = @import("link/Xcoff.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
 

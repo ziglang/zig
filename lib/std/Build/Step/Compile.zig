@@ -293,6 +293,7 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+    test_obj,
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -370,7 +371,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     }
 
     // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if (options.kind == .@"test" and mem.eql(u8, name, "test"))
+    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
         ""
     else
         owner.fmt("{s} ", .{name});
@@ -385,6 +386,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .lib => "zig build-lib",
             .obj => "zig build-obj",
             .@"test" => "zig test",
+            .test_obj => "zig test-obj",
         },
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
@@ -396,7 +398,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .target = target,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
-            .obj => .Obj,
+            .obj, .test_obj => .Obj,
             .exe, .@"test" => .Exe,
         },
         .link_mode = options.linkage,
@@ -1053,6 +1055,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .exe => "build-exe",
         .obj => "build-obj",
         .@"test" => "test",
+        .test_obj => "test-obj",
     };
     try zig_args.append(cmd);
 
@@ -1222,9 +1225,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (other.kind) {
                                 .exe => return step.fail("cannot link with an executable build artifact", .{}),
                                 .@"test" => return step.fail("cannot link with a test", .{}),
-                                .obj => {
+                                .obj, .test_obj => {
                                     const included_in_lib_or_obj = !my_responsibility and
-                                        (dep_compile.kind == .lib or dep_compile.kind == .obj);
+                                        (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
                                     if (!already_linked and !included_in_lib_or_obj) {
                                         try zig_args.append(other.getEmittedBin().getPath2(b, step));
                                         total_linker_objects += 1;

@@ -208,7 +208,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps4 => "ps4",
         .ps5 => "ps5",
-        .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",
@@ -259,7 +258,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
@@ -400,39 +398,35 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
-            "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
+            "E-m:l-p1:32:32-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
         else
             "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
-        .x86 => switch (target.os.tag) {
-            .elfiamcu => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:32-f64:32-f128:32-n8:16:32-a:0:32-S32",
-            .windows => switch (target.abi) {
-                .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
-                .gnu => if (target.ofmt == .coff)
-                    "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-                else
-                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
-                else => blk: {
-                    const msvc = switch (target.abi) {
-                        .none, .msvc => true,
-                        else => false,
-                    };
-
-                    break :blk if (target.ofmt == .coff)
-                        if (msvc)
-                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                        else
-                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-                    else if (msvc)
-                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                    else
-                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
-                },
-            },
-            else => if (target.ofmt == .macho)
-                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+        .x86 => if (target.os.tag == .windows) switch (target.abi) {
+            .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+            .gnu => if (target.ofmt == .coff)
+                "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
             else
-                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
-        },
+                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+            else => blk: {
+                const msvc = switch (target.abi) {
+                    .none, .msvc => true,
+                    else => false,
+                };
+
+                break :blk if (target.ofmt == .coff)
+                    if (msvc)
+                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                    else
+                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                else if (msvc)
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                else
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
+            },
+        } else if (target.ofmt == .macho)
+            "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+        else
+            "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
         .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
             "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
         else switch (target.abi) {
@@ -4941,6 +4935,7 @@ pub const FuncGen = struct {
                 .memset         => try self.airMemset(inst, false),
                 .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
+                .memmove        => try self.airMemmove(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
                 .clz            => try self.airClzCtz(inst, .ctlz),
@@ -9923,6 +9918,32 @@ pub const FuncGen = struct {
             len,
             access_kind,
             self.disable_intrinsics,
+        );
+        return .none;
+    }
+
+    fn airMemmove(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const dest_ptr_ty = self.typeOf(bin_op.lhs);
+        const src_slice = try self.resolveInst(bin_op.rhs);
+        const src_ptr_ty = self.typeOf(bin_op.rhs);
+        const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ptr_ty);
+        const len = try self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
+        const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
+        const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
+            dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        _ = try self.wip.callMemMove(
+            dest_ptr,
+            dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            src_ptr,
+            src_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            len,
+            access_kind,
         );
         return .none;
     }

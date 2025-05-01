@@ -106,6 +106,14 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 try st.verify();
             }
 
+            /// Verify the signature against a pre-hashed message and public key.
+            /// The message must have already been hashed using the scheme's hash function.
+            /// Returns SignatureVerificationError if the signature is invalid for the given message and key.
+            pub fn verifyPrehashed(sig: Signature, msg_hash: [Hash.digest_length]u8, public_key: PublicKey) VerifyError!void {
+                var st = try sig.verifier(public_key);
+                return st.verifyPrehashed(msg_hash);
+            }
+
             /// Return the raw signature (r, s) in big-endian format.
             pub fn toBytes(sig: Signature) [encoded_length]u8 {
                 var bytes: [encoded_length]u8 = undefined;
@@ -203,18 +211,16 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 self.h.update(data);
             }
 
-            /// Compute a signature over the entire message.
-            pub fn finalize(self: *Signer) (IdentityElementError || NonCanonicalError)!Signature {
+            /// Compute a signature over a hash.
+            fn finalizePrehashed(self: *Signer, msg_hash: [Hash.digest_length]u8) (IdentityElementError || NonCanonicalError)!Signature {
                 const scalar_encoded_length = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, scalar_encoded_length);
-                var h: [h_len]u8 = [_]u8{0} ** h_len;
-                const h_slice = h[h_len - Hash.digest_length .. h_len];
-                self.h.final(h_slice);
+                var h: [h_len]u8 = [_]u8{0} ** (h_len - Hash.digest_length) ++ msg_hash;
 
                 std.debug.assert(h.len >= scalar_encoded_length);
                 const z = reduceToScalar(scalar_encoded_length, h[0..scalar_encoded_length].*);
 
-                const k = deterministicScalar(h_slice.*, self.secret_key.bytes, self.noise);
+                const k = deterministicScalar(msg_hash, self.secret_key.bytes, self.noise);
 
                 const p = try Curve.basePoint.mul(k.toBytes(.big), .big);
                 const xs = p.affineCoordinates().x.toBytes(.big);
@@ -227,6 +233,13 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 if (s.isZero()) return error.IdentityElement;
 
                 return Signature{ .r = r.toBytes(.big), .s = s.toBytes(.big) };
+            }
+
+            /// Compute a signature over the entire message.
+            pub fn finalize(self: *Signer) (IdentityElementError || NonCanonicalError)!Signature {
+                var h_slice: [Hash.digest_length]u8 = undefined;
+                self.h.final(&h_slice);
+                return self.finalizePrehashed(h_slice);
             }
         };
 
@@ -261,12 +274,11 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             pub const VerifyError = IdentityElementError || NonCanonicalError ||
                 SignatureVerificationError;
 
-            /// Verify that the signature is valid for the entire message.
-            pub fn verify(self: *Verifier) VerifyError!void {
+            /// Verify that the signature is valid for the hash.
+            fn verifyPrehashed(self: *Verifier, msg_hash: [Hash.digest_length]u8) VerifyError!void {
                 const ht = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, ht);
-                var h: [h_len]u8 = [_]u8{0} ** h_len;
-                self.h.final(h[h_len - Hash.digest_length .. h_len]);
+                var h: [h_len]u8 = [_]u8{0} ** (h_len - Hash.digest_length) ++ msg_hash;
 
                 const z = reduceToScalar(ht, h[0..ht].*);
                 if (z.isZero()) {
@@ -283,6 +295,13 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 if (!self.r.equivalent(vr)) {
                     return error.SignatureVerificationFailed;
                 }
+            }
+
+            /// Verify that the signature is valid for the entire message.
+            pub fn verify(self: *Verifier) VerifyError!void {
+                var h_slice: [Hash.digest_length]u8 = undefined;
+                self.h.final(&h_slice);
+                return self.verifyPrehashed(h_slice);
             }
         };
 
@@ -332,6 +351,14 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 var st = try key_pair.signer(noise);
                 st.update(msg);
                 return st.finalize();
+            }
+
+            /// Sign a pre-hashed message using the key pair.
+            /// The message must have already been hashed using the scheme's hash function.
+            /// The noise parameter can be null for deterministic signatures, or random bytes for enhanced security against fault attacks.
+            pub fn signPrehashed(key_pair: KeyPair, msg_hash: [Hash.digest_length]u8, noise: ?[noise_length]u8) (IdentityElementError || NonCanonicalError)!Signature {
+                var st = try key_pair.signer(noise);
+                return st.finalizePrehashed(msg_hash);
             }
 
             /// Create a Signer, that can be used for incremental signature verification.
@@ -473,6 +500,34 @@ test "Verifying a existing signature with EcdsaP384Sha256" {
 
     const sig = try kp.sign(&msg, null);
     try sig.verify(&msg, kp.public_key);
+}
+
+test "Prehashed message operations" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const Scheme = EcdsaP256Sha256;
+    const kp = Scheme.KeyPair.generate();
+    const msg = "test message for prehashed signing";
+
+    const Hash = crypto.hash.sha2.Sha256;
+    var msg_hash: [Hash.digest_length]u8 = undefined;
+    Hash.hash(msg, &msg_hash, .{});
+
+    const sig = try kp.signPrehashed(msg_hash, null);
+    try sig.verifyPrehashed(msg_hash, kp.public_key);
+
+    var bad_hash = msg_hash;
+    bad_hash[0] ^= 1;
+    try testing.expectError(error.SignatureVerificationFailed, sig.verifyPrehashed(bad_hash, kp.public_key));
+
+    var noise: [Scheme.noise_length]u8 = undefined;
+    crypto.random.bytes(&noise);
+    const sig_with_noise = try kp.signPrehashed(msg_hash, noise);
+    try sig_with_noise.verifyPrehashed(msg_hash, kp.public_key);
+
+    const regular_sig = try kp.sign(msg, null);
+    try regular_sig.verifyPrehashed(msg_hash, kp.public_key);
+    try sig.verify(msg, kp.public_key);
 }
 
 const TestVector = struct {

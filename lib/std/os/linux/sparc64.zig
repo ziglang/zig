@@ -304,6 +304,7 @@ pub const msghdr_const = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
+pub const time_t = isize;
 pub const mode_t = u32;
 pub const dev_t = usize;
 pub const nlink_t = u32;
