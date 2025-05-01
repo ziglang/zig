@@ -109,7 +109,7 @@ fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     in.initFixed(@constCast(compressed));
     var zstd_stream: Decompress = .init(&in, .{});
     try std.testing.expectError(error.ReadFailed, zstd_stream.reader().readRemainingArrayList(gpa, null, &out, .unlimited));
-    try std.testing.expectError(err, zstd_stream.err.?);
+    try std.testing.expectError(err, zstd_stream.err orelse {});
 
     return error.TestFailed;
 }
