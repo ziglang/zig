@@ -261,13 +261,19 @@ fn discard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
     var trash_buffer: [64]u8 = undefined;
     var null_writer: std.io.Writer.Null = undefined;
     var bw = null_writer.writer().buffered(&trash_buffer);
-    return @errorCast(read(context, &bw, limit));
+    return read(context, &bw, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        else => |e| return e,
+    };
 }
 
 fn readVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
     var bw: BufferedWriter = undefined;
     bw.initFixed(data[0]);
-    return @errorCast(read(context, &bw, .limited(data[0].len)));
+    return read(context, &bw, .limited(data[0].len)) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const Frame = struct {
