@@ -30,7 +30,6 @@ pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
-pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
