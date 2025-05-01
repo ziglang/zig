@@ -517,3 +517,20 @@ test isNumberFormattedLikeAnInteger {
     try std.testing.expect(!isNumberFormattedLikeAnInteger("1e10"));
     try std.testing.expect(!isNumberFormattedLikeAnInteger("1E10"));
 }
+
+test "fuzz" {
+    try std.testing.fuzz({}, fuzzTestOne, .{});
+}
+
+fn fuzzTestOne(_: void, input: []const u8) !void {
+    var buf: [16384]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buf);
+
+    var scanner = Scanner.initCompleteInput(fba.allocator(), input);
+    // Property: There are at most input.len tokens
+    var tokens: usize = 0;
+    while ((scanner.next() catch return) != .end_of_document) {
+        tokens += 1;
+        if (tokens > input.len) return error.Overflow;
+    }
+}
