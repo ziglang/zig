@@ -110,8 +110,6 @@ fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     var zstd_stream: Decompress = .init(&in, .{});
     try std.testing.expectError(error.ReadFailed, zstd_stream.reader().readRemainingArrayList(gpa, null, &out, .unlimited));
     try std.testing.expectError(err, zstd_stream.err orelse {});
-
-    return error.TestFailed;
 }
 
 test "decompression" {
@@ -150,5 +148,5 @@ test "declared raw literals size too large" {
 
     // Note that the regenerated_size in the above input is larger than block maximum size, so the
     // block can't be valid as it is a raw literals block.
-    try testExpectDecompressError(error.MalformedBlock, input_raw);
+    try testExpectDecompressError(error.MalformedLiteralsSection, input_raw);
 }
