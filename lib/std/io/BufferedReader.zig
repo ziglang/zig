@@ -730,7 +730,7 @@ pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
     }
     if (seek > 0) {
         const remainder = buffer[seek..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        @memmove(buffer[0..remainder.len], remainder);
         br.end = remainder.len;
         br.seek = 0;
     }
