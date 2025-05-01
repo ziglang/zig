@@ -3795,14 +3795,13 @@ pub fn flushModule(
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flushModule is too late to be writing to the
     // InternPool.
-    _ = tid;
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
 
     if (wasm.llvm_object) |llvm_object| {
-        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
+        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node, tid);
         if (use_lld) return;
     }
 
