@@ -123,19 +123,20 @@ test "decompression" {
     try testExpectDecompress(uncompressed, compressed19);
 }
 
-test "zero sized block" {
+test "zero sized raw block" {
     const input_raw =
         "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
         "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
         "\x01\x00\x00"; // block header with: last_block set, block_type raw, block_size zero
+    try testExpectDecompress("", input_raw);
+}
 
+test "zero sized rle block" {
     const input_rle =
         "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
         "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
         "\x03\x00\x00" ++ // block header with: last_block set, block_type rle, block_size zero
         "\xaa"; // block_content
-
-    try testExpectDecompress("", input_raw);
     try testExpectDecompress("", input_rle);
 }
 
