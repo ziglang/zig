@@ -666,7 +666,6 @@ fn lowerUavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
@@ -739,7 +738,6 @@ fn lowerNavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
