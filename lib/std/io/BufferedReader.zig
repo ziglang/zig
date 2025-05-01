@@ -825,15 +825,30 @@ pub inline fn peekStructEndian(br: *BufferedReader, comptime T: type, endian: st
     return res;
 }
 
+pub const TakeEnumError = Reader.Error || error{InvalidEnumTag};
+
 /// Reads an integer with the same size as the given enum's tag type. If the
 /// integer matches an enum tag, casts the integer to the enum tag and returns
 /// it. Otherwise, returns `error.InvalidEnumTag`.
 ///
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
-pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) (Reader.Error || std.meta.IntToEnumError)!Enum {
+pub fn takeEnum(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) TakeEnumError!Enum {
     const Tag = @typeInfo(Enum).@"enum".tag_type;
     const int = try br.takeInt(Tag, endian);
     return std.meta.intToEnum(Enum, int);
+}
+
+/// Reads an integer with the same size as the given nonexhaustive enum's tag type.
+///
+/// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
+pub fn takeEnumNonexhaustive(br: *BufferedReader, comptime Enum: type, endian: std.builtin.Endian) Reader.Error!Enum {
+    const info = @typeInfo(Enum).@"enum";
+    comptime assert(!info.is_exhaustive);
+    comptime assert(@bitSizeOf(info.tag_type) == @sizeOf(info.tag_type) * 8);
+    return takeEnum(br, Enum, endian) catch |err| switch (err) {
+        error.InvalidEnumTag => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const TakeLeb128Error = Reader.Error || error{Overflow};

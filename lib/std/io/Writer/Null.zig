@@ -5,7 +5,7 @@ const Writer = std.io.Writer;
 
 const NullWriter = @This();
 
-err: Error,
+err: ?Error = null,
 
 pub const Error = std.fs.File.StatError;
 
