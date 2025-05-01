@@ -37,7 +37,6 @@ pub const Error = error{
     EndOfStream,
     HuffmanTreeIncomplete,
     InvalidBitStream,
-    LiteralsBufferUndersize,
     MalformedAccuracyLog,
     MalformedBlock,
     MalformedCompressedBlock,
@@ -1224,7 +1223,6 @@ pub const LiteralsSection = struct {
         /// Not enough bytes to complete the section.
         EndOfStream,
         ReadFailed,
-        LiteralsBufferUndersize,
         MissingStartBit,
     };
 
@@ -1232,7 +1230,7 @@ pub const LiteralsSection = struct {
         const header = try Header.decode(in, remaining);
         switch (header.block_type) {
             .raw => {
-                if (buffer.len < header.regenerated_size) return error.LiteralsBufferUndersize;
+                if (buffer.len < header.regenerated_size) return error.MalformedLiteralsSection;
                 remaining.* = remaining.subtract(header.regenerated_size) orelse return error.EndOfStream;
                 try in.readSlice(buffer[0..header.regenerated_size]);
                 return .{
@@ -1259,7 +1257,7 @@ pub const LiteralsSection = struct {
                 const huffman_tree_size = @intFromEnum(before_remaining) - @intFromEnum(remaining.*);
                 const total_streams_size = std.math.sub(usize, header.compressed_size.?, huffman_tree_size) catch
                     return error.MalformedLiteralsSection;
-                if (total_streams_size > buffer.len) return error.LiteralsBufferUndersize;
+                if (total_streams_size > buffer.len) return error.MalformedLiteralsSection;
                 remaining.* = remaining.subtract(total_streams_size) orelse return error.EndOfStream;
                 try in.readSlice(buffer[0..total_streams_size]);
                 const stream_data = buffer[0..total_streams_size];
