@@ -1017,8 +1017,6 @@ pub const ObjectFormat = enum {
     hex,
     /// The Mach object format used by macOS and other Apple platforms.
     macho,
-    /// Nvidia's PTX (Parallel Thread Execution) assembly language.
-    nvptx,
     /// The a.out format used by Plan 9 from Bell Labs.
     plan9,
     /// Machine code with no metadata.
@@ -1039,7 +1037,6 @@ pub const ObjectFormat = enum {
             .coff => ".obj",
             .elf, .goff, .macho, .wasm, .xcoff => ".o",
             .hex => ".ihex",
-            .nvptx => ".ptx",
             .plan9 => arch.plan9Ext(),
             .raw => ".bin",
             .spirv => ".spv",
@@ -1054,7 +1051,6 @@ pub const ObjectFormat = enum {
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .nvptx, .nvptx64 => .nvptx,
                 .spirv, .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
                 else => .elf,

@@ -81,7 +81,6 @@ pub const Env = enum {
                 .wasm_linker,
                 .spirv_linker,
                 .plan9_linker,
-                .nvptx_linker,
                 .goff_linker,
                 .xcoff_linker,
                 => true,
@@ -229,7 +228,6 @@ pub const Feature = enum {
     wasm_linker,
     spirv_linker,
     plan9_linker,
-    nvptx_linker,
     goff_linker,
     xcoff_linker,
 };
