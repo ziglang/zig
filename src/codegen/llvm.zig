@@ -7453,6 +7453,10 @@ pub const FuncGen = struct {
                         name_start = i + 1;
                         state = .input;
                     },
+                    '=' => {
+                        try rendered_template.appendSlice("${:uid}");
+                        state = .start;
+                    },
                     else => {
                         try rendered_template.append('%');
                         try rendered_template.append(byte);
