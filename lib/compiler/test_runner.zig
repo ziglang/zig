@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
+const fuzz_abi = std.Build.abi.fuzz;
 
 pub const std_options: std.Options = .{
     .logFn = log,
@@ -57,7 +58,7 @@ pub fn main() void {
     fba.reset();
     if (builtin.fuzz) {
         const cache_dir = opt_cache_dir orelse @panic("missing --cache-dir=[path] argument");
-        fuzzer_init(FuzzerSlice.fromSlice(cache_dir));
+        fuzz_abi.fuzzer_init(.fromSlice(cache_dir));
     }
 
     if (listen) {
@@ -78,7 +79,7 @@ fn mainServer() !void {
     });
 
     if (builtin.fuzz) {
-        const coverage_id = fuzzer_coverage_id();
+        const coverage_id = fuzz_abi.fuzzer_coverage_id();
         try server.serveU64Message(.coverage_id, coverage_id);
     }
 
@@ -152,14 +153,19 @@ fn mainServer() !void {
                 });
             },
             .start_fuzzing => {
+                // This ensures that this code won't be analyzed and hence reference fuzzer symbols
+                // since they are not present.
                 if (!builtin.fuzz) unreachable;
+
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
+
                 try server.serveU64Message(.fuzz_start_addr, entry_addr);
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
-                fuzzer_set_name(test_fn.name.ptr, test_fn.name.len);
+                fuzz_test_index = index;
+
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
                     else => {
@@ -184,6 +190,8 @@ fn mainServer() !void {
 
 fn mainTerminal() void {
     @disableInstrumentation();
+    if (builtin.fuzz) @panic("fuzz test requires server");
+
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -333,28 +341,8 @@ pub fn mainSimple() anyerror!void {
     if (failed != 0) std.process.exit(1);
 }
 
-const FuzzerSlice = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-
-    /// Inline to avoid fuzzer instrumentation.
-    inline fn toSlice(s: FuzzerSlice) []const u8 {
-        return s.ptr[0..s.len];
-    }
-
-    /// Inline to avoid fuzzer instrumentation.
-    inline fn fromSlice(s: []const u8) FuzzerSlice {
-        return .{ .ptr = s.ptr, .len = s.len };
-    }
-};
-
 var is_fuzz_test: bool = undefined;
-
-extern fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void;
-extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
-extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void;
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.c) void) void;
-extern fn fuzzer_coverage_id() u64;
+var fuzz_test_index: u32 = undefined;
 
 pub fn fuzz(
     context: anytype,
@@ -385,12 +373,12 @@ pub fn fuzz(
     const global = struct {
         var ctx: @TypeOf(context) = undefined;
 
-        fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.c) void {
+        fn test_one(input: fuzz_abi.Slice) callconv(.c) void {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
             log_err_count = 0;
-            testOne(ctx, input_ptr[0..input_len]) catch |err| switch (err) {
+            testOne(ctx, input.toSlice()) catch |err| switch (err) {
                 error.SkipZigTest => return,
                 else => {
                     std.debug.lockStdErr();
@@ -411,10 +399,11 @@ pub fn fuzz(
         testing.allocator_instance = .{};
         defer testing.allocator_instance = prev_allocator_state;
 
-        for (options.corpus) |elem| fuzzer_init_corpus_elem(elem.ptr, elem.len);
-
         global.ctx = context;
-        fuzzer_start(&global.fuzzer_one);
+        fuzz_abi.fuzzer_init_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
+        for (options.corpus) |elem|
+            fuzz_abi.fuzzer_new_input(.fromSlice(elem));
+        fuzz_abi.fuzzer_main();
         return;
     }
 
