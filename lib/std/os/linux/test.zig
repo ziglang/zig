@@ -126,7 +126,9 @@ test "fadvise" {
 }
 
 test "sigset_t" {
-    var sigset = linux.empty_sigset;
+    std.debug.assert(@sizeOf(linux.sigset_t) == (linux.NSIG / 8));
+
+    var sigset = linux.sigemptyset();
 
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
@@ -138,7 +140,6 @@ test "sigset_t" {
     }
     for (1..linux.NSIG) |i| {
         try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
-        try expectEqual(linux.sigismember(&linux.empty_sigset, @truncate(i)), false);
     }
     for (1..linux.NSIG) |i| {
         linux.sigdelset(&sigset, @truncate(i));
@@ -147,22 +148,52 @@ test "sigset_t" {
         try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
     }
 
+    // Kernel sigset_t is either 2+ 32-bit values or 1+ 64-bit value(s).
+    const sigset_len = @typeInfo(linux.sigset_t).array.len;
+    const sigset_elemis64 = 64 == @bitSizeOf(@typeInfo(linux.sigset_t).array.child);
+
     linux.sigaddset(&sigset, 1);
     try expectEqual(sigset[0], 1);
-    try expectEqual(sigset[1], 0);
+    if (sigset_len > 1) {
+        try expectEqual(sigset[1], 0);
+    }
 
     linux.sigaddset(&sigset, 31);
     try expectEqual(sigset[0], 0x4000_0001);
-    try expectEqual(sigset[1], 0);
+    if (sigset_len > 1) {
+        try expectEqual(sigset[1], 0);
+    }
 
     linux.sigaddset(&sigset, 36);
-    try expectEqual(sigset[0], 0x4000_0001);
-    try expectEqual(sigset[1], 0x8);
+    if (sigset_elemis64) {
+        try expectEqual(sigset[0], 0x8_4000_0001);
+    } else {
+        try expectEqual(sigset[0], 0x4000_0001);
+        try expectEqual(sigset[1], 0x8);
+    }
 
     linux.sigaddset(&sigset, 64);
-    try expectEqual(sigset[0], 0x4000_0001);
-    try expectEqual(sigset[1], 0x8000_0008);
-    try expectEqual(sigset[2], 0);
+    if (sigset_elemis64) {
+        try expectEqual(sigset[0], 0x8000_0008_4000_0001);
+    } else {
+        try expectEqual(sigset[0], 0x4000_0001);
+        try expectEqual(sigset[1], 0x8000_0008);
+    }
+}
+
+test "sigfillset" {
+    // unlike the C library, all the signals are set in the kernel-level fillset
+    const sigset = linux.sigfillset();
+    for (1..linux.NSIG) |i| {
+        try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
+    }
+}
+
+test "sigemptyset" {
+    const sigset = linux.sigemptyset();
+    for (1..linux.NSIG) |i| {
+        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
+    }
 }
 
 test "sysinfo" {

@@ -1387,12 +1387,11 @@ pub fn attachSegfaultHandler() void {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     updateSegfaultHandler(&act);
 }
 
@@ -1404,9 +1403,9 @@ fn resetSegfaultHandler() void {
         }
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = 0,
     };
     updateSegfaultHandler(&act);

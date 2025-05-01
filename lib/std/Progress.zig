@@ -410,9 +410,9 @@ pub fn start(options: Options) Node {
             }
 
             if (have_sigwinch) {
-                var act: posix.Sigaction = .{
+                const act: posix.Sigaction = .{
                     .handler = .{ .sigaction = handleSigWinch },
-                    .mask = posix.empty_sigset,
+                    .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
                 posix.sigaction(posix.SIG.WINCH, &act, null);
