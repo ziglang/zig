@@ -98,6 +98,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -454,6 +455,7 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -11563,6 +11565,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
+        .or1k_sysv,
         .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
@@ -12762,6 +12765,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable,
     }

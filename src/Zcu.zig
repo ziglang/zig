@@ -3687,6 +3687,7 @@ pub fn atomicPtrAlignment(
         .mips,
         .mipsel,
         .nvptx,
+        .or1k,
         .powerpc,
         .powerpcle,
         .riscv32,

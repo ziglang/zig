@@ -195,6 +195,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
 
         // No LLVM backend exists.
         .kalimba,
+        .or1k,
         .propeller,
         => false,
     };
