@@ -638,7 +638,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 4, .patch = 309 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 313 },
                     },
                 },
             };
