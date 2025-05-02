@@ -186,7 +186,7 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Reader.Limit) LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
-    try readRemainingArrayList(r, gpa, null, &buffer, limit);
+    try readRemainingArrayList(r, gpa, null, &buffer, limit, 1);
     return buffer.toOwnedSlice(gpa);
 }
 
@@ -209,10 +209,11 @@ pub fn readRemainingArrayList(
     comptime alignment: ?std.mem.Alignment,
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
+    minimum_buffer_size: usize,
 ) LimitedAllocError!void {
     var remaining = limit;
     while (true) {
-        try list.ensureUnusedCapacity(gpa, 1);
+        try list.ensureUnusedCapacity(gpa, minimum_buffer_size);
         const buffer = remaining.slice1(list.unusedCapacitySlice());
         const n = r.vtable.readVec(r.context, &.{buffer}) catch |err| switch (err) {
             error.EndOfStream => return,
