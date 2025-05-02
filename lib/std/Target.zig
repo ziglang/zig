@@ -534,8 +534,8 @@ pub const Os = struct {
                 },
                 .openbsd => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 5, .patch = 0 },
-                        .max = .{ .major = 7, .minor = 6, .patch = 0 },
+                        .min = .{ .major = 7, .minor = 6, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 7, .patch = 0 },
                     },
                 },
 
