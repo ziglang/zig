@@ -131,8 +131,10 @@ pub const Limit = enum(usize) {
 };
 
 pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) RwError!usize {
+    const before = bw.count;
     const n = try r.vtable.read(r.context, bw, limit);
     assert(n <= @intFromEnum(limit));
+    assert(bw.count == before + n);
     return n;
 }
 
