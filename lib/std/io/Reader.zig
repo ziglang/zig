@@ -66,15 +66,13 @@ pub const Error = error{
     EndOfStream,
 };
 
-/// For functions that handle end of stream as a success case.
-pub const RwAllError = error{
+pub const RwRemainingError = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
 };
 
-/// For functions that cannot fail with `error.EndOfStream`.
 pub const ShortError = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
@@ -149,7 +147,7 @@ pub fn discard(r: Reader, limit: Limit) Error!usize {
 }
 
 /// Returns total number of bytes written to `bw`.
-pub fn readAll(r: Reader, bw: *BufferedWriter) RwAllError!usize {
+pub fn readRemaining(r: Reader, bw: *BufferedWriter) RwRemainingError!usize {
     const readFn = r.vtable.read;
     var offset: usize = 0;
     while (true) {
