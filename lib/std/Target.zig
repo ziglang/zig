@@ -434,7 +434,7 @@ pub const Os = struct {
                 .aix => .{
                     .semver = .{
                         .min = .{ .major = 7, .minor = 2, .patch = 5 },
-                        .max = .{ .major = 7, .minor = 3, .patch = 2 },
+                        .max = .{ .major = 7, .minor = 3, .patch = 3 },
                     },
                 },
                 .hurd => .{
