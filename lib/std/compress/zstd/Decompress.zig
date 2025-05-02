@@ -578,8 +578,10 @@ pub const Frame = struct {
                         @field(self, field_name).table = .{ .rle = try in.takeByte() };
                     },
                     .fse => {
-                        if (in.buffer.len < @intFromEnum(remaining.*)) return error.InputBufferUndersize;
-                        const limited_buffer = try in.peek(@intFromEnum(remaining.*));
+                        const max_table_size = 2048;
+                        const peek_len: usize = remaining.minInt(max_table_size);
+                        if (in.buffer.len < peek_len) return error.InputBufferUndersize;
+                        const limited_buffer = try in.peek(peek_len);
                         var bit_reader: BitReader = .{ .bytes = limited_buffer };
                         const table_size = try Table.decode(
                             &bit_reader,
