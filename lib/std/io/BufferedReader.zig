@@ -90,6 +90,20 @@ pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Re
     }
 }
 
+/// "Pump" data from the reader to the writer, handling `error.EndOfStream` as
+/// a success case.
+///
+/// Returns total number of bytes written to `bw`.
+pub fn readRemaining(br: *BufferedReader, bw: *BufferedWriter) Reader.RwRemainingError!usize {
+    var offset: usize = 0;
+    while (true) {
+        offset += br.read(bw, .unlimited) catch |err| switch (err) {
+            error.EndOfStream => return offset,
+            else => |e| return e,
+        };
+    }
+}
+
 /// Equivalent to `readVec` but reads at most `limit` bytes.
 pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit) Reader.Error!usize {
     _ = br;
