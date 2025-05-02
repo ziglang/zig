@@ -2045,7 +2045,7 @@ pub fn readFileIntoArrayList(
         else => |e| return e,
     }
 
-    file_reader.interface().readRemainingArrayList(gpa, alignment, list, limit) catch |err| switch (err) {
+    file_reader.interface().readRemainingArrayList(gpa, alignment, list, limit, 128) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.StreamTooLong => return error.StreamTooLong,
         error.ReadFailed => return file_reader.err.?,

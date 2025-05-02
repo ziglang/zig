@@ -463,9 +463,9 @@ pub const Frame = struct {
                 InputBufferUndersize,
             };
 
-            /// Prepare the decoder to decode a compressed block. Loads the literals
-            /// stream and Huffman tree from `literals` and reads the FSE tables from
-            /// `source`.
+            /// Prepare the decoder to decode a compressed block. Loads the
+            /// literals stream and Huffman tree from `literals` and reads the
+            /// FSE tables from `in`.
             pub fn prepare(
                 self: *Decode,
                 in: *BufferedReader,
