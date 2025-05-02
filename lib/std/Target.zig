@@ -542,37 +542,37 @@ pub const Os = struct {
                 .driverkit => .{
                     .semver = .{
                         .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 4, .patch = 0 },
                     },
                 },
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 3, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 4, .patch = 1 },
                     },
                 },
                 .ios => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 1 },
+                        .min = .{ .major = 15, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
-                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 15, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 3, .patch = 1 },
+                        .max = .{ .major = 2, .minor = 4, .patch = 1 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
-                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 3, .patch = 1 },
+                        .min = .{ .major = 7, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
 
