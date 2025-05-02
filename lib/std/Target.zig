@@ -1079,6 +1079,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .m68k => .@"68K",
         .mips, .mips64, .mipsel, .mips64el => .MIPS,
         .msp430 => .MSP430,
+        .or1k => .OR1K,
         .powerpc, .powerpcle => .PPC,
         .powerpc64, .powerpc64le => .PPC64,
         .propeller => .PROPELLER,
@@ -1133,6 +1134,7 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .mips64,
         .mips64el,
         .msp430,
+        .or1k,
         .nvptx,
         .nvptx64,
         .powerpc,
@@ -1357,6 +1359,7 @@ pub const Cpu = struct {
         mips64,
         mips64el,
         msp430,
+        or1k,
         nvptx,
         nvptx64,
         powerpc,
@@ -1565,6 +1568,7 @@ pub const Cpu = struct {
                 .m68k,
                 .mips,
                 .mips64,
+                .or1k,
                 .powerpc,
                 .powerpc64,
                 .thumbeb,
@@ -1815,6 +1819,9 @@ pub const Cpu = struct {
                 .msp430_eabi,
                 => &.{.msp430},
 
+                .or1k_sysv,
+                => &.{.or1k},
+
                 .propeller_sysv,
                 => &.{.propeller},
 
@@ -1911,6 +1918,7 @@ pub const Cpu = struct {
                 .xtensa => &xtensa.cpu.generic,
 
                 .kalimba,
+                .or1k,
                 => &S.generic_model,
             };
         }
@@ -2598,6 +2606,7 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .m68k,
         .mips,
         .mipsel,
+        .or1k,
         .powerpc,
         .powerpcle,
         .riscv32,
@@ -3114,6 +3123,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .csky,
             .x86,
             .xcore,
+            .or1k,
             .kalimba,
             .xtensa,
             .propeller,
@@ -3204,6 +3214,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .csky,
             .xcore,
+            .or1k,
             .kalimba,
             .xtensa,
             .propeller,
@@ -3276,6 +3287,7 @@ pub fn cMaxIntAlignment(target: std.Target) u16 {
         .hexagon,
         .mips,
         .mipsel,
+        .or1k,
         .powerpc,
         .powerpcle,
         .riscv32,
@@ -3372,6 +3384,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         else
             .{ .m68k_sysv = .{} },
         .msp430 => .{ .msp430_eabi = .{} },
+        .or1k => .{ .or1k_sysv = .{} },
         .propeller => .{ .propeller_sysv = .{} },
         .s390x => .{ .s390x_sysv = .{} },
         .ve => .{ .ve_sysv = .{} },

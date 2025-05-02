@@ -370,6 +370,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
+
     /// The standard `propeller` calling convention.
     propeller_sysv: CommonOptions,
 
