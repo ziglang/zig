@@ -426,8 +426,8 @@ pub const Os = struct {
                 },
                 .hermit => .{
                     .semver = .{
-                        .min = .{ .major = 0, .minor = 4, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 10, .patch = 0 },
+                        .min = .{ .major = 0, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 11, .patch = 0 },
                     },
                 },
 
