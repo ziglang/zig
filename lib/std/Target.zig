@@ -420,8 +420,8 @@ pub const Os = struct {
                 },
                 .fuchsia => .{
                     .semver = .{
-                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 21, .minor = 1, .patch = 0 },
+                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 26, .minor = 0, .patch = 0 },
                     },
                 },
                 .hermit => .{
