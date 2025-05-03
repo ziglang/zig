@@ -511,7 +511,7 @@ pub fn takeSentinel(br: *BufferedReader, comptime sentinel: u8) DelimiterError![
 }
 
 pub fn peekSentinel(br: *BufferedReader, comptime sentinel: u8) DelimiterError![:sentinel]u8 {
-    const result = try br.takeDelimiterInclusive(sentinel);
+    const result = try br.peekDelimiterInclusive(sentinel);
     return result[0 .. result.len - 1 :sentinel];
 }
 
