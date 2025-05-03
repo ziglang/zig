@@ -655,7 +655,7 @@ pub const Decoder = struct {
     }
 
     /// Use this function to increase `their_end`.
-    pub fn readAtLeast(d: *Decoder, stream: anytype, their_amt: usize) !void {
+    pub fn readAtLeast(d: *Decoder, stream: *std.io.BufferedReader, their_amt: usize) !void {
         assert(!d.disable_reads);
         const existing_amt = d.cap - d.idx;
         d.their_end = d.idx + their_amt;
@@ -663,14 +663,16 @@ pub const Decoder = struct {
         const request_amt = their_amt - existing_amt;
         const dest = d.buf[d.cap..];
         if (request_amt > dest.len) return error.TlsRecordOverflow;
-        const actual_amt = try stream.readAtLeast(dest, request_amt);
-        if (actual_amt < request_amt) return error.TlsConnectionTruncated;
-        d.cap += actual_amt;
+        stream.readSlice(dest[0..request_amt]) catch |err| switch (err) {
+            error.EndOfStream => return error.TlsConnectionTruncated,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        d.cap += request_amt;
     }
 
     /// Same as `readAtLeast` but also increases `our_end` by exactly `our_amt`.
     /// Use when `our_amt` is calculated by us, not by them.
-    pub fn readAtLeastOurAmt(d: *Decoder, stream: anytype, our_amt: usize) !void {
+    pub fn readAtLeastOurAmt(d: *Decoder, stream: *std.io.BufferedReader, our_amt: usize) !void {
         assert(!d.disable_reads);
         try readAtLeast(d, stream, our_amt);
         d.our_end = d.idx + our_amt;
