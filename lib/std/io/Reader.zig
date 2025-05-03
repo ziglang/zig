@@ -100,6 +100,10 @@ pub const Limit = enum(usize) {
         return s[0..l.minInt(s.len)];
     }
 
+    pub fn sliceConst(l: Limit, s: []const u8) []const u8 {
+        return s[0..l.minInt(s.len)];
+    }
+
     pub fn toInt(l: Limit) ?usize {
         return switch (l) {
             else => @intFromEnum(l),

@@ -140,7 +140,7 @@ pub fn failingWriteFile(
     limit: std.io.Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Error!usize {
+) FileError!usize {
     _ = context;
     _ = file;
     _ = offset;
@@ -165,7 +165,7 @@ pub fn unimplementedWriteFile(
     limit: std.io.Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Error!usize {
+) FileError!usize {
     _ = context;
     _ = file;
     _ = offset;

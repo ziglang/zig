@@ -252,6 +252,12 @@ pub fn toss(br: *BufferedReader, n: usize) void {
     assert(br.seek <= br.end);
 }
 
+pub fn unread(noalias br: *BufferedReader, noalias data: []const u8) void {
+    _ = br;
+    _ = data;
+    @panic("TODO");
+}
+
 /// Equivalent to `peek` followed by `toss`.
 ///
 /// The data returned is invalidated by the next call to `take`, `peek`,
@@ -736,22 +742,23 @@ pub fn discardDelimiterExclusive(br: *BufferedReader, delimiter: u8) Reader.Shor
 /// Asserts buffer capacity is at least `n`.
 pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
     assert(n <= br.buffer.len);
-    const buffer = br.buffer[0..br.end];
-    const seek = br.seek;
-    if (seek + n <= buffer.len) {
+    if (br.seek + n <= br.end) {
         @branchHint(.likely);
         return;
     }
-    if (seek > 0) {
-        const remainder = buffer[seek..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        br.end = remainder.len;
-        br.seek = 0;
-    }
-    while (true) {
+    rebaseCapacity(br, n);
+    while (br.end < br.seek + n) {
         br.end += try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
-        if (n <= br.end) return;
     }
+}
+
+/// Fills the buffer with at least one more byte of data, without advancing the
+/// seek position, doing exactly one underlying read.
+///
+/// Asserts buffer capacity is at least 1.
+pub fn fillMore(br: *BufferedReader) Reader.Error!void {
+    rebaseCapacity(br, 1);
+    br.end += try br.unbuffered_reader.readVec(&.{br.buffer[br.end..]});
 }
 
 /// Returns the next byte from the stream or returns `error.EndOfStream`.
@@ -783,7 +790,7 @@ pub fn takeByteSigned(br: *BufferedReader) Reader.Error!i8 {
     return @bitCast(try br.takeByte());
 }
 
-/// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
+/// Asserts the buffer was initialized with a capacity at least `@bitSizeOf(T) / 8`.
 pub inline fn takeInt(br: *BufferedReader, comptime T: type, endian: std.builtin.Endian) Reader.Error!T {
     const n = @divExact(@typeInfo(T).int.bits, 8);
     return std.mem.readInt(T, try br.takeArray(n), endian);
@@ -955,6 +962,14 @@ pub fn rebase(br: *BufferedReader) void {
     std.mem.copyForwards(u8, dest, data);
     br.seek = 0;
     br.end = data.len;
+}
+
+/// Ensures `capacity` more data can be buffered without rebasing, by rebasing
+/// if necessary.
+///
+/// Asserts `capacity` is within the buffer capacity.
+pub fn rebaseCapacity(br: *BufferedReader, capacity: usize) void {
+    if (br.end > br.buffer.len - capacity) rebase(br);
 }
 
 /// Advances the stream and decreases the size of the storage buffer by `n`,
