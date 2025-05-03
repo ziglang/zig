@@ -283,7 +283,7 @@ pub const Connection = struct {
         fn destroy(plain: *Plain) void {
             const c = &plain.connection;
             const gpa = c.client.allocator;
-            const base: [*]u8 = @ptrCast(plain);
+            const base: [*]align(@alignOf(Plain)) u8 = @ptrCast(plain);
             gpa.free(base[0..allocLen(c.client, c.host_len)]);
         }
 
@@ -356,7 +356,7 @@ pub const Connection = struct {
         fn destroy(tls: *Tls) void {
             const c = &tls.connection;
             const gpa = c.client.allocator;
-            const base: [*]u8 = @ptrCast(tls);
+            const base: [*]align(@alignOf(Tls)) u8 = @ptrCast(tls);
             gpa.free(base[0..allocLen(c.client, c.host_len)]);
         }
 
