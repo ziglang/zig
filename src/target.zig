@@ -23,7 +23,7 @@ pub fn osRequiresLibC(target: std.Target) bool {
     return target.os.requiresLibC();
 }
 
-pub fn libcNeedsLibUnwind(target: std.Target) bool {
+pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
         .macos,
         .ios,

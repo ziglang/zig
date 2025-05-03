@@ -313,7 +313,7 @@ pub fn resolve(options: Options) ResolveError!Config {
     };
 
     const link_libunwind = b: {
-        if (link_libcpp and target_util.libcNeedsLibUnwind(target)) {
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
             if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
             break :b true;
         }
