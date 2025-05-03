@@ -129,6 +129,7 @@ pub const ResolveError = error{
     LldCannotIncrementallyLink,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
+    LibCRequiresLibUnwind,
     LibCppRequiresLibUnwind,
     OsRequiresLibC,
     LibCppRequiresLibC,
@@ -312,8 +313,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const link_libunwind = b: {
-        if (link_libcpp and target_util.libcNeedsLibUnwind(target)) {
+    var link_libunwind = b: {
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
             if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
             break :b true;
         }
@@ -352,7 +353,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target.isGnuLibC() or target_util.osRequiresLibC(target)))
+            (target_util.osRequiresLibC(target) or (target.isGnuLibC() and !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -367,17 +368,24 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.link_mode) |link_mode| break :b link_mode;
 
-        if (explicitly_exe_or_dyn_lib and link_libc and
-            options.resolved_target.is_native_abi and target.abi.isMusl())
+        if (explicitly_exe_or_dyn_lib and link_libc and options.resolved_target.is_native_abi and
+            (target.isGnuLibC() or target.isMuslLibC()))
         {
             // If targeting the system's native ABI and the system's libc is
-            // musl, link dynamically by default.
+            // glibc or musl, link dynamically by default.
             break :b .dynamic;
         }
 
         // Static is generally a better default. Fight me.
         break :b .static;
     };
+
+    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
+    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+
+        link_libunwind = true;
+    }
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
