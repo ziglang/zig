@@ -252,12 +252,6 @@ pub fn toss(br: *BufferedReader, n: usize) void {
     assert(br.seek <= br.end);
 }
 
-pub fn unread(noalias br: *BufferedReader, noalias data: []const u8) void {
-    _ = br;
-    _ = data;
-    @panic("TODO");
-}
-
 /// Equivalent to `peek` followed by `toss`.
 ///
 /// The data returned is invalidated by the next call to `take`, `peek`,

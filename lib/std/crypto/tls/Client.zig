@@ -21,12 +21,7 @@ const array = tls.array;
 /// here via `reader`.
 ///
 /// The buffer is asserted to have capacity at least `min_buffer_len`.
-///
-/// `remaining_cleartext_len` tells how many bytes inside this buffer have
-/// already been decrypted.
 input: *std.io.BufferedReader,
-/// Tells how many bytes inside `input` have already been decrypted.
-remaining_cleartext_len: u15,
 
 /// The encrypted stream from the client to the server. Bytes are pushed here
 /// via `writer`.
@@ -68,6 +63,9 @@ pub const ReadError = error{
     TlsUnexpectedMessage,
     TlsIllegalParameter,
     TlsSequenceOverflow,
+    /// The buffer provided to the read function was not at least
+    /// `min_buffer_len`.
+    OutputBufferUndersize,
 };
 
 pub const SslKeyLog = struct {
@@ -868,7 +866,6 @@ pub fn init(
                                 .tls_1_2 => write_seq,
                                 else => unreachable,
                             },
-                            .remaining_cleartext_len = 0,
                             .received_close_notify = false,
                             .allow_truncation_attacks = false,
                             .application_cipher = app_cipher,
@@ -1047,18 +1044,13 @@ fn prepareCiphertextRecord(
 }
 
 pub fn eof(c: Client) bool {
-    return c.received_close_notify and c.remaining_cleartext_len == 0;
+    return c.received_close_notify;
 }
 
 fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
     const c: *Client = @ptrCast(@alignCast(context));
     if (c.eof()) return error.EndOfStream;
     const input = c.input;
-    if (c.remaining_cleartext_len > 0) {
-        const n = try bw.write(input.bufferContents()[0..c.remaining_cleartext_len]);
-        c.remaining_cleartext_len = @intCast(c.remaining_cleartext_len - n);
-        return n;
-    }
     // If at least one full encrypted record is not buffered, read once.
     const record_header = input.peek(tls.record_header_len) catch |err| switch (err) {
         error.EndOfStream => {
@@ -1225,13 +1217,9 @@ fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) R
             return 0;
         },
         .application_data => {
-            const n = try bw.write(limit.sliceConst(cleartext));
-            if (n < cleartext.len) {
-                const remainder = cleartext[n..];
-                input.unread(remainder);
-                c.remaining_cleartext_len = @intCast(remainder.len);
-            }
-            return n;
+            if (@intFromEnum(limit) < cleartext.len) return failRead(c, error.OutputBufferUndersize);
+            try bw.writeAll(cleartext);
+            return cleartext.len;
         },
         else => return failRead(c, error.TlsUnexpectedMessage),
     }
