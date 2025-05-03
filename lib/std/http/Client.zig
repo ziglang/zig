@@ -28,7 +28,7 @@ tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.cr
 /// If non-null, ssl secrets are logged to a stream. Creating such a stream
 /// allows other processes with access to that stream to decrypt all
 /// traffic over connections created with this `Client`.
-ssl_key_log: ?*std.io.BufferedWriter = null,
+ssl_key_log: ?*std.crypto.tls.Client.SslKeyLog = null,
 
 /// When this is `true`, the next time this client performs an HTTPS request,
 /// it will first rescan the system for root certificates.
@@ -230,8 +230,11 @@ pub const Connection = struct {
     stream_writer: net.Stream.Writer,
     stream_reader: net.Stream.Reader,
     /// HTTP protocol from client to server.
-    /// This either goes directly to `stream`, or to a TLS client.
+    /// This either goes directly to `stream_writer`, or to a TLS client.
     writer: std.io.BufferedWriter,
+    /// HTTP protocol from server to client.
+    /// This either comes directly from `stream_reader`, or from a TLS client.
+    reader: std.io.BufferedReader,
     /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
     pool_node: std.DoublyLinkedList.Node,
     port: u16,
@@ -241,8 +244,6 @@ pub const Connection = struct {
     protocol: Protocol,
 
     const Plain = struct {
-        /// Data from `Connection.stream`.
-        reader: std.io.BufferedReader,
         connection: Connection,
 
         fn create(
@@ -267,6 +268,7 @@ pub const Connection = struct {
                     .stream_writer = stream.writer(),
                     .stream_reader = stream.reader(),
                     .writer = plain.connection.stream_writer.interface().buffered(socket_write_buffer),
+                    .reader = plain.connection.stream_reader.interface().buffered(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -274,7 +276,6 @@ pub const Connection = struct {
                     .closing = false,
                     .protocol = .plain,
                 },
-                .reader = plain.connection.stream_reader.interface().buffered(socket_read_buffer),
             };
             return plain;
         }
@@ -327,6 +328,7 @@ pub const Connection = struct {
                     .stream_writer = stream.writer(),
                     .stream_reader = stream.reader(),
                     .writer = tls.client.writer().buffered(socket_write_buffer),
+                    .reader = tls.client.reader().unbuffered(),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -382,21 +384,6 @@ pub const Connection = struct {
             .plain => {
                 const plain: *Plain = @fieldParentPtr("connection", c);
                 return plain.host();
-            },
-        };
-    }
-
-    /// This is either data from `stream`, or `Tls.client`.
-    fn reader(c: *Connection) *std.io.BufferedReader {
-        return switch (c.protocol) {
-            .tls => {
-                if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
-                return &tls.client.reader;
-            },
-            .plain => {
-                const plain: *Plain = @fieldParentPtr("connection", c);
-                return &plain.reader;
             },
         };
     }
@@ -1556,7 +1543,7 @@ pub fn request(
         .client = client,
         .connection = connection,
         .reader = .{
-            .in = connection.reader(),
+            .in = &connection.reader,
             .state = .ready,
             .body_state = undefined,
         },
@@ -1670,8 +1657,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     const decompress_buffer: []u8 = switch (response.head.content_encoding) {
         .identity => &.{},
-        .zstd => options.decompress_buffer orelse
-            try client.allocator.alloc(u8, std.compress.zstd.default_window_len * 2),
+        .zstd => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.zstd.default_window_len),
         else => options.decompress_buffer orelse try client.allocator.alloc(u8, 8 * 1024),
     };
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
@@ -1681,7 +1667,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     const list = storage.list;
 
     if (storage.allocator) |allocator| {
-        reader.readRemainingArrayList(allocator, null, list, storage.append_limit) catch |err| switch (err) {
+        reader.readRemainingArrayList(allocator, null, list, storage.append_limit, 128) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };
