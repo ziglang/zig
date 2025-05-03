@@ -98,7 +98,7 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
     var connection_bw = stream_writer.interface().buffered(&send_buffer);
     var server = std.http.Server.init(&connection_br, &connection_bw);
 
-    while (server.state == .ready) {
+    while (server.reader.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
             else => {
