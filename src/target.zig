@@ -23,6 +23,10 @@ pub fn osRequiresLibC(target: std.Target) bool {
     return target.os.requiresLibC();
 }
 
+pub fn libCNeedsLibUnwind(target: std.Target, link_mode: std.builtin.LinkMode) bool {
+    return target.isGnuLibC() and link_mode == .static;
+}
+
 pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
         .macos,

@@ -129,6 +129,7 @@ pub const ResolveError = error{
     LldCannotIncrementallyLink,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
+    LibCRequiresLibUnwind,
     LibCppRequiresLibUnwind,
     OsRequiresLibC,
     LibCppRequiresLibC,
@@ -312,7 +313,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const link_libunwind = b: {
+    var link_libunwind = b: {
         if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
             if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
             break :b true;
@@ -378,6 +379,13 @@ pub fn resolve(options: Options) ResolveError!Config {
         // Static is generally a better default. Fight me.
         break :b .static;
     };
+
+    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
+    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+
+        link_libunwind = true;
+    }
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
