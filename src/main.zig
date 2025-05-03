@@ -428,7 +428,7 @@ const usage_build_generic =
     \\  -j<N>                     Limit concurrent jobs (default is to use all CPU cores)
     \\  -fincremental             Enable incremental compilation
     \\  -fno-incremental          Disable incremental compilation
-    \\  -femit-bin[=path]         (default) Output machine code
+    \\  -femit-bin[=path]         (default) Produce and output a binary to an optional path. Defaults to the current working directory.
     \\  -fno-emit-bin             Do not output machine code
     \\  -femit-asm[=path]         Output .s (assembly code)
     \\  -fno-emit-asm             (default) Do not output .s (assembly code)
