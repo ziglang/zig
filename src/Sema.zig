@@ -27997,12 +27997,17 @@ fn structFieldPtrByIndex(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
-        const val = try struct_ptr_val.ptrField(field_index, pt);
-        return Air.internedToRef(val.toIntern());
+    const struct_type = zcu.typeToStruct(struct_ty).?;
+    const field_is_comptime = struct_type.fieldIsComptime(ip, field_index);
+
+    // Comptime fields are handled later
+    if (!field_is_comptime) {
+        if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
+            const val = try struct_ptr_val.ptrField(field_index, pt);
+            return Air.internedToRef(val.toIntern());
+        }
     }
 
-    const struct_type = zcu.typeToStruct(struct_ty).?;
     const field_ty = struct_type.field_types.get(ip)[field_index];
     const struct_ptr_ty = sema.typeOf(struct_ptr);
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(zcu);
@@ -28022,6 +28027,7 @@ fn structFieldPtrByIndex(
         try Type.fromInterned(struct_ptr_ty_info.child).abiAlignmentSema(pt);
 
     if (struct_type.layout == .@"packed") {
+        assert(!field_is_comptime);
         switch (struct_ty.packedStructFieldPtrInfo(struct_ptr_ty, field_index, pt)) {
             .bit_ptr => |packed_offset| {
                 ptr_ty_data.flags.alignment = parent_align;
@@ -28032,6 +28038,7 @@ fn structFieldPtrByIndex(
             },
         }
     } else if (struct_type.layout == .@"extern") {
+        assert(!field_is_comptime);
         // For extern structs, field alignment might be bigger than type's
         // natural alignment. Eg, in `extern struct { x: u32, y: u16 }` the
         // second field is aligned as u32.
@@ -28055,7 +28062,7 @@ fn structFieldPtrByIndex(
 
     const ptr_field_ty = try pt.ptrTypeSema(ptr_ty_data);
 
-    if (struct_type.fieldIsComptime(ip, field_index)) {
+    if (field_is_comptime) {
         try struct_ty.resolveStructFieldInits(pt);
         const val = try pt.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
@@ -28602,7 +28609,8 @@ fn tupleFieldPtr(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
-    const tuple_ty = tuple_ptr_ty.childType(zcu);
+    const tuple_ptr_info = tuple_ptr_ty.ptrInfo(zcu);
+    const tuple_ty: Type = .fromInterned(tuple_ptr_info.child);
     try tuple_ty.resolveFields(pt);
     const field_count = tuple_ty.structFieldCount(zcu);
 
@@ -28620,9 +28628,16 @@ fn tupleFieldPtr(
     const ptr_field_ty = try pt.ptrTypeSema(.{
         .child = field_ty.toIntern(),
         .flags = .{
-            .is_const = !tuple_ptr_ty.ptrIsMutable(zcu),
-            .is_volatile = tuple_ptr_ty.isVolatilePtr(zcu),
-            .address_space = tuple_ptr_ty.ptrAddressSpace(zcu),
+            .is_const = tuple_ptr_info.flags.is_const,
+            .is_volatile = tuple_ptr_info.flags.is_volatile,
+            .address_space = tuple_ptr_info.flags.address_space,
+            .alignment = a: {
+                if (tuple_ptr_info.flags.alignment == .none) break :a .none;
+                // The tuple pointer isn't naturally aligned, so the field pointer might be underaligned.
+                const tuple_align = tuple_ptr_info.flags.alignment;
+                const field_align = try field_ty.abiAlignmentSema(pt);
+                break :a tuple_align.min(field_align);
+            },
         },
     });
 
