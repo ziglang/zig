@@ -334,11 +334,6 @@ pub const Reader = struct {
     /// Number of bytes of HTTP trailers. These are at the end of a
     /// transfer-encoding: chunked message.
     trailers_len: usize = 0,
-    body_state: union {
-        none: void,
-        remaining_content_length: u64,
-        remaining_chunk_len: RemainingChunkLen,
-    },
     body_err: ?BodyError = null,
     /// Stolen from `in`.
     head_buffer: []u8 = &.{},
@@ -361,12 +356,13 @@ pub const Reader = struct {
         }
     };
 
-    pub const State = enum {
+    pub const State = union(enum) {
         /// The stream is available to be used for the first time, or reused.
         ready,
-        receiving_head,
         received_head,
-        receiving_body,
+        body_none: void,
+        body_remaining_content_length: u64,
+        body_remaining_chunk_len: RemainingChunkLen,
         /// The stream would be eligible for another HTTP request, however the
         /// client and server did not negotiate a persistent connection.
         closing,
@@ -413,6 +409,7 @@ pub const Reader = struct {
             head_end += hp.feed(buf[head_end..]);
             if (hp.state == .finished) {
                 reader.head_buffer = in.steal(head_end);
+                reader.state = .received_head;
                 return;
             }
         }
@@ -426,10 +423,9 @@ pub const Reader = struct {
     /// * `interfaceDecompressing`
     pub fn bodyReader(reader: *Reader, transfer_encoding: TransferEncoding, content_length: ?u64) std.io.Reader {
         assert(reader.state == .received_head);
-        reader.state = .receiving_body;
         return switch (transfer_encoding) {
             .chunked => {
-                reader.body_state = .{ .remaining_chunk_len = .head };
+                reader.state = .{ .body_remaining_chunk_len = .head };
                 return .{
                     .context = reader,
                     .vtable = &.{
@@ -441,7 +437,7 @@ pub const Reader = struct {
             },
             .none => {
                 if (content_length) |len| {
-                    reader.body_state = .{ .remaining_content_length = len };
+                    reader.state = .{ .body_remaining_content_length = len };
                     return .{
                         .context = reader,
                         .vtable = &.{
@@ -451,6 +447,7 @@ pub const Reader = struct {
                         },
                     };
                 } else {
+                    reader.state = .body_none;
                     return reader.in.reader();
                 }
             },
@@ -473,7 +470,7 @@ pub const Reader = struct {
     ) std.io.Reader {
         if (transfer_encoding == .none and content_length == null) {
             assert(reader.state == .received_head);
-            reader.state = .receiving_body;
+            reader.state = .body_none;
             switch (content_encoding) {
                 .identity => {
                     return reader.in.reader();
@@ -503,7 +500,7 @@ pub const Reader = struct {
         limit: std.io.Reader.Limit,
     ) std.io.Reader.RwError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
@@ -516,7 +513,7 @@ pub const Reader = struct {
 
     fn contentLengthReadVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(context));
-        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
@@ -529,7 +526,7 @@ pub const Reader = struct {
 
     fn contentLengthDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const remaining_content_length = &reader.body_state.remaining_content_length;
+        const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
@@ -546,7 +543,7 @@ pub const Reader = struct {
         limit: std.io.Reader.Limit,
     ) std.io.Reader.RwError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const chunk_len_ptr = &reader.state.body_remaining_chunk_len;
         const in = reader.in;
         len: switch (chunk_len_ptr.*) {
             .head => {
@@ -594,7 +591,7 @@ pub const Reader = struct {
 
     fn chunkedReadVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const chunk_len_ptr = &reader.state.body_remaining_chunk_len;
         const in = reader.in;
         var already_requested_more = false;
         var amt_read: usize = 0;
@@ -662,7 +659,7 @@ pub const Reader = struct {
 
     fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const chunk_len_ptr = &reader.body_state.remaining_chunk_len;
+        const chunk_len_ptr = &reader.state.body_remaining_chunk_len;
         const in = reader.in;
         len: switch (chunk_len_ptr.*) {
             .head => {
@@ -719,7 +716,7 @@ pub const Reader = struct {
             try in.fill(trailers_len + 1);
             trailers_len += hp.feed(in.bufferContents()[trailers_len..]);
             if (hp.state == .finished) {
-                reader.body_state.remaining_chunk_len = .done;
+                reader.state.body_remaining_chunk_len = .done;
                 reader.state = .ready;
                 reader.trailers_len = trailers_len;
                 return amt_read;

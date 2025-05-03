@@ -259,7 +259,7 @@ pub const Connection = struct {
             const host_buffer = base[@sizeOf(Plain)..][0..remote_host.len];
             const socket_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.read_buffer_size];
             const socket_write_buffer = socket_read_buffer.ptr[socket_read_buffer.len..][0..client.write_buffer_size];
-            assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
+            assert(base.ptr + alloc_len == socket_write_buffer.ptr + socket_write_buffer.len);
             @memcpy(host_buffer, remote_host);
             const plain: *Plain = @ptrCast(base);
             plain.* = .{
@@ -1545,7 +1545,6 @@ pub fn request(
         .reader = .{
             .in = &connection.reader,
             .state = .ready,
-            .body_state = undefined,
         },
         .keep_alive = options.keep_alive,
         .method = method,

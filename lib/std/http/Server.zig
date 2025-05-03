@@ -25,7 +25,6 @@ pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
         .reader = .{
             .in = in,
             .state = .ready,
-            .body_state = undefined,
         },
         .out = out,
     };
@@ -234,7 +233,6 @@ pub const Request = struct {
             .reader = .{
                 .in = &br,
                 .state = .ready,
-                .body_state = undefined,
             },
             .out = undefined,
         };
@@ -522,7 +520,7 @@ pub const Request = struct {
 
     /// Returns whether the connection should remain persistent.
     ///
-    /// If it would fail, it instead sets the Server state to `receiving_body`
+    /// If it would fail, it instead sets the Server state to receiving body
     /// and returns false.
     fn discardBody(request: *Request, keep_alive: bool) bool {
         // Prepare to receive another request on the same connection.
@@ -541,7 +539,7 @@ pub const Request = struct {
                 assert(r.state == .ready);
                 return true;
             },
-            .receiving_body, .ready => return true,
+            .body_remaining_content_length, .body_remaining_chunk_len, .body_none, .ready => return true,
             else => unreachable,
         };
 
