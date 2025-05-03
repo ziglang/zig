@@ -352,7 +352,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target.isGnuLibC() or target_util.osRequiresLibC(target)))
+            (target_util.osRequiresLibC(target) or (target.isGnuLibC() and !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -367,11 +367,11 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.link_mode) |link_mode| break :b link_mode;
 
-        if (explicitly_exe_or_dyn_lib and link_libc and
-            options.resolved_target.is_native_abi and target.abi.isMusl())
+        if (explicitly_exe_or_dyn_lib and link_libc and options.resolved_target.is_native_abi and
+            (target.isGnuLibC() or target.isMuslLibC()))
         {
             // If targeting the system's native ABI and the system's libc is
-            // musl, link dynamically by default.
+            // glibc or musl, link dynamically by default.
             break :b .dynamic;
         }
 
