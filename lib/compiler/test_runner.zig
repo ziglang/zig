@@ -152,7 +152,8 @@ fn mainServer() !void {
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
-                try server.serveU64Message(.fuzz_start_addr, entry_addr);
+                const offset = std.c._dyld_get_image_vmaddr_slide(0);
+                try server.serveU64Message(.fuzz_start_addr, entry_addr - offset);
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzzer_set_name(test_fn.name.ptr, test_fn.name.len);

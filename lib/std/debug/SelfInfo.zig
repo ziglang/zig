@@ -860,7 +860,7 @@ pub const WindowsModule = struct {
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
+pub fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
     const mapped_mem = try mapWholeFile(macho_file);
 
     const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));

@@ -208,7 +208,12 @@ const Fuzzer = struct {
             };
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
             f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
-            f.seen_pcs.appendSliceAssumeCapacity(std.mem.sliceAsBytes(pcs));
+
+            const offset = std.c._dyld_get_image_vmaddr_slide(0);
+            for (pcs) |pc| {
+                const value = pc - offset;
+                f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&value));
+            }
         }
     }
 
@@ -310,19 +315,21 @@ const Fuzzer = struct {
         f.input.clearRetainingCapacity();
         const old_input = f.corpus.items[corpus_index].bytes;
         f.input.ensureTotalCapacity(old_input.len + 1) catch @panic("mmap file resize failed");
-        switch (mutation) {
+        mut: switch (mutation) {
             .remove_byte => {
+                if (old_input.len == 0) continue :mut .add_byte;
                 const omitted_index = rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input[0..omitted_index]);
                 f.input.appendSliceAssumeCapacity(old_input[omitted_index + 1 ..]);
             },
             .modify_byte => {
+                if (old_input.len == 0) continue :mut .add_byte;
                 const modified_index = rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input);
                 f.input.items[modified_index] = rng.int(u8);
             },
             .add_byte => {
-                const modified_index = rng.uintLessThanBiased(usize, old_input.len);
+                const modified_index = if (old_input.len == 0) 0 else rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input[0..modified_index]);
                 f.input.appendAssumeCapacity(rng.int(u8));
                 f.input.appendSliceAssumeCapacity(old_input[modified_index..]);
