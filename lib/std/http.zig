@@ -809,8 +809,9 @@ pub const BodyWriter = struct {
         end,
 
         pub const Chunked = union(enum) {
-            /// Index of the hex-encoded chunk length in the chunk header
-            /// within the buffer of `BodyWriter.http_protocol_output`.
+            /// Index to the start of the hex-encoded chunk length in the chunk
+            /// header within the buffer of `BodyWriter.http_protocol_output`.
+            /// Buffered chunk data starts here plus length of `chunk_header_template`.
             offset: usize,
             /// We are in the middle of a chunk and this is how many bytes are
             /// left until the next header. This includes +2 for "\r"\n", and
@@ -830,7 +831,7 @@ pub const BodyWriter = struct {
             .end, .none, .content_length => return w.http_protocol_output.flush(),
             .chunked => |*chunked| switch (chunked.*) {
                 .offset => |*offset| {
-                    try w.http_protocol_output.flushLimit(.limited(w.http_protocol_output.end - offset.*));
+                    try w.http_protocol_output.flushLimit(.limited(offset.*));
                     offset.* = 0;
                 },
                 .chunk_len => return w.http_protocol_output.flush(),
@@ -1025,8 +1026,8 @@ pub const BodyWriter = struct {
             },
             .chunk_len => |chunk_len| l: switch (chunk_len) {
                 0 => {
-                    const header_buf = try bw.writableArray(chunk_header_template.len);
                     const off = bw.end;
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
                     @memcpy(header_buf, chunk_header_template);
                     chunked.* = .{ .offset = off };
                     continue :state .{ .offset = off };
@@ -1074,8 +1075,8 @@ pub const BodyWriter = struct {
             },
             .chunk_len => |chunk_len| l: switch (chunk_len) {
                 0 => {
-                    const header_buf = try bw.writableArray(chunk_header_template.len);
                     const offset = bw.end;
+                    const header_buf = try bw.writableArray(chunk_header_template.len);
                     @memcpy(header_buf, chunk_header_template);
                     chunked.* = .{ .offset = offset };
                     continue :state .{ .offset = offset };
