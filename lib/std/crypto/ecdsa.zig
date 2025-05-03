@@ -168,7 +168,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                     has_top_bit = true;
                 }
                 const out_slice = out[out.len - expected_len ..];
-                br.read(out_slice) catch return error.InvalidEncoding;
+                br.readSlice(out_slice) catch return error.InvalidEncoding;
                 if (@intFromBool(has_top_bit) != out[0] >> 7) return error.InvalidEncoding;
             }
 
@@ -177,7 +177,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             pub fn fromDer(der: []const u8) EncodingError!Signature {
                 if (der.len < 2) return error.InvalidEncoding;
                 var br: std.io.BufferedReader = undefined;
-                br.initFixed(der);
+                br.initFixed(@constCast(der));
                 const buf = br.take(2) catch return error.InvalidEncoding;
                 if (buf[0] != 0x30 or @as(usize, buf[1]) + 2 != der.len) return error.InvalidEncoding;
                 var sig: Signature = mem.zeroInit(Signature, .{});

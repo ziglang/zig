@@ -487,9 +487,7 @@ pub const Reader = struct {
                     return decompressor.compression.gzip.reader();
                 },
                 .zstd => {
-                    decompressor.compression = .{ .zstd = .init(reader.in, .{
-                        .window_buffer = decompression_buffer,
-                    }) };
+                    decompressor.compression = .{ .zstd = .init(reader.in, .{ .verify_checksum = false }) };
                     return decompressor.compression.zstd.reader();
                 },
                 .compress => unreachable,
@@ -742,7 +740,7 @@ pub const Decompressor = struct {
     pub const Compression = union(enum) {
         deflate: std.compress.zlib.Decompressor,
         gzip: std.compress.gzip.Decompressor,
-        zstd: std.compress.zstd.Decompressor,
+        zstd: std.compress.zstd.Decompress,
         none: void,
     };
 
@@ -768,12 +766,8 @@ pub const Decompressor = struct {
                 return decompressor.compression.gzip.reader();
             },
             .zstd => {
-                const first_half = buffer[0 .. buffer.len / 2];
-                const second_half = buffer[buffer.len / 2 ..];
-                decompressor.buffered_reader = transfer_reader.buffered(first_half);
-                decompressor.compression = .{ .zstd = .init(&decompressor.buffered_reader, .{
-                    .window_buffer = second_half,
-                }) };
+                decompressor.buffered_reader = transfer_reader.buffered(buffer);
+                decompressor.compression = .{ .zstd = .init(&decompressor.buffered_reader, .{}) };
                 return decompressor.compression.gzip.reader();
             },
             .compress => unreachable,
