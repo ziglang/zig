@@ -1158,20 +1158,21 @@ pub const Reader = struct {
                 // end.
                 fallback: {
                     if (r.size_err == null and r.seek_err == null) break :fallback;
-                    var trash_buffer: [std.atomic.cache_line]u8 = undefined;
+                    var trash_buffer: [128]u8 = undefined;
                     const trash = &trash_buffer;
                     if (is_windows) {
                         const n = windows.ReadFile(file.handle, trash, null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
+                        if (n == 0) return error.EndOfStream;
                         r.pos = pos + n;
                         return n;
                     }
                     var iovecs: [max_buffers_len]std.posix.iovec = undefined;
                     var iovecs_i: usize = 0;
                     var remaining = @intFromEnum(limit);
-                    while (remaining > 0 and iovecs_i >= iovecs.len) {
+                    while (remaining > 0 and iovecs_i < iovecs.len) {
                         iovecs[iovecs_i] = .{ .base = trash, .len = @min(trash.len, remaining) };
                         remaining -= iovecs[iovecs_i].len;
                         iovecs_i += 1;
@@ -1180,6 +1181,7 @@ pub const Reader = struct {
                         r.err = err;
                         return error.ReadFailed;
                     };
+                    if (n == 0) return error.EndOfStream;
                     r.pos = pos + n;
                     return n;
                 }
