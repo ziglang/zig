@@ -534,9 +534,14 @@ pub const Request = struct {
         const r = &request.server.reader;
         if (keep_alive and request.head.keep_alive) switch (r.state) {
             .received_head => {
-                const reader_interface = request.reader() catch return false;
-                _ = reader_interface.discardRemaining() catch return false;
-                assert(r.state == .ready);
+                if (request.head.method.requestHasBody()) {
+                    assert(request.head.transfer_encoding != .none or request.head.content_length != null);
+                    const reader_interface = request.reader() catch return false;
+                    _ = reader_interface.discardRemaining() catch return false;
+                    assert(r.state == .ready);
+                } else {
+                    r.state = .ready;
+                }
                 return true;
             },
             .body_remaining_content_length, .body_remaining_chunk_len, .body_none, .ready => return true,

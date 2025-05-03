@@ -360,7 +360,8 @@ pub const Reader = struct {
         /// The stream is available to be used for the first time, or reused.
         ready,
         received_head,
-        body_none: void,
+        /// The stream goes until the connection is closed.
+        body_none,
         body_remaining_content_length: u64,
         body_remaining_chunk_len: RemainingChunkLen,
         /// The stream would be eligible for another HTTP request, however the
