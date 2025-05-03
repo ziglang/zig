@@ -686,7 +686,21 @@ pub const Module = switch (native_os) {
                 };
 
                 // Check if its debug infos are already in the cache
-                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
+                const o_file_path = path: {
+                    const raw_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
+
+                    if (!std.mem.endsWith(u8, raw_path, ")")) break :path raw_path;
+
+                    const last_paren_index = std.mem.lastIndexOfScalar(u8, raw_path, '(') orelse break :path raw_path;
+
+                    const basename = raw_path[last_paren_index + 1 .. raw_path.len - 1];
+
+                    const path = raw_path[0..last_paren_index];
+                    const dirname = std.fs.path.dirname(path) orelse break :path basename;
+
+                    break :path try std.fs.path.resolve(allocator, &.{ dirname, basename });
+                };
+
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                         error.FileNotFound,
