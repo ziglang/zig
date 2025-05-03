@@ -298,16 +298,13 @@ pub const Request = struct {
     /// no error is surfaced.
     ///
     /// Asserts status is not `continue`.
-    /// Asserts there are at most 25 extra_headers.
     /// Asserts that "\r\n" does not occur in any header name or value.
     pub fn respond(
         request: *Request,
         content: []const u8,
         options: RespondOptions,
     ) std.io.Writer.Error!void {
-        const max_extra_headers = 25;
         assert(options.status != .@"continue");
-        assert(options.extra_headers.len <= max_extra_headers);
         if (std.debug.runtime_safety) {
             for (options.extra_headers) |header| {
                 assert(header.name.len != 0);
@@ -323,88 +320,50 @@ pub const Request = struct {
 
         const phrase = options.reason orelse options.status.phrase() orelse "";
 
-        var first_buffer: [500]u8 = undefined;
-        var h = std.ArrayListUnmanaged(u8).initBuffer(&first_buffer);
+        const out = request.server.out;
         if (request.head.expect != null) {
             // reader() and hence discardBody() above sets expect to null if it
             // is handled. So the fact that it is not null here means unhandled.
-            h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
-            if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
-            h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            try request.server.out.writeAll(h.items);
+            var vecs: [3][]const u8 = .{
+                "HTTP/1.1 417 Expectation Failed\r\n",
+                if (keep_alive) "" else "connection: close\r\n",
+                "content-length: 0\r\n\r\n",
+            };
+            try out.writeVecAll(&vecs);
             return;
         }
-        h.printAssumeCapacity("{s} {d} {s}\r\n", .{
+        try out.print("{s} {d} {s}\r\n", .{
             @tagName(options.version), @intFromEnum(options.status), phrase,
         });
 
         switch (options.version) {
-            .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
-            .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+            .@"HTTP/1.0" => if (keep_alive) try out.writeAll("connection: keep-alive\r\n"),
+            .@"HTTP/1.1" => if (!keep_alive) try out.writeAll("connection: close\r\n"),
         }
 
         if (options.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
             .none => {},
-            .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
+            .chunked => try out.writeAll("transfer-encoding: chunked\r\n"),
         } else {
-            h.printAssumeCapacity("content-length: {d}\r\n", .{content.len});
+            try out.print("content-length: {d}\r\n", .{content.len});
         }
-
-        var chunk_header_buffer: [18]u8 = undefined;
-        var iovecs: [max_extra_headers * 4 + 3][]const u8 = undefined;
-        var iovecs_len: usize = 0;
-
-        iovecs[iovecs_len] = h.items;
-        iovecs_len += 1;
 
         for (options.extra_headers) |header| {
-            iovecs[iovecs_len] = header.name;
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = ": ";
-            iovecs_len += 1;
-
-            if (header.value.len != 0) {
-                iovecs[iovecs_len] = header.value;
-                iovecs_len += 1;
-            }
-
-            iovecs[iovecs_len] = "\r\n";
-            iovecs_len += 1;
+            var vecs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&vecs);
         }
 
-        iovecs[iovecs_len] = "\r\n";
-        iovecs_len += 1;
+        try out.writeAll("\r\n");
 
         if (request.head.method != .HEAD) {
             const is_chunked = (options.transfer_encoding orelse .none) == .chunked;
             if (is_chunked) {
-                if (content.len > 0) {
-                    const chunk_header = std.fmt.bufPrint(
-                        &chunk_header_buffer,
-                        "{x}\r\n",
-                        .{content.len},
-                    ) catch unreachable;
-
-                    iovecs[iovecs_len] = chunk_header;
-                    iovecs_len += 1;
-
-                    iovecs[iovecs_len] = content;
-                    iovecs_len += 1;
-
-                    iovecs[iovecs_len] = "\r\n";
-                    iovecs_len += 1;
-                }
-
-                iovecs[iovecs_len] = "0\r\n\r\n";
-                iovecs_len += 1;
+                if (content.len > 0) try out.print("{x}\r\n{s}\r\n", .{ content.len, content });
+                try out.writeAll("0\r\n\r\n");
             } else if (content.len > 0) {
-                iovecs[iovecs_len] = content;
-                iovecs_len += 1;
+                try out.writeAll(content);
             }
         }
-
-        try request.server.out.writeVecAll(iovecs[0..iovecs_len]);
     }
 
     pub const RespondStreamingOptions = struct {
