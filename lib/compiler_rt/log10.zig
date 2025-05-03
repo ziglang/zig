@@ -7,7 +7,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
-const testing = std.testing;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
@@ -187,38 +188,74 @@ pub fn log10l(x: c_longdouble) callconv(.c) c_longdouble {
     }
 }
 
-test "log10_32" {
-    const epsilon = 0.000001;
-
-    try testing.expect(math.approxEqAbs(f32, log10f(0.2), -0.698970, epsilon));
-    try testing.expect(math.approxEqAbs(f32, log10f(0.8923), -0.049489, epsilon));
-    try testing.expect(math.approxEqAbs(f32, log10f(1.5), 0.176091, epsilon));
-    try testing.expect(math.approxEqAbs(f32, log10f(37.45), 1.573452, epsilon));
-    try testing.expect(math.approxEqAbs(f32, log10f(89.123), 1.94999, epsilon));
-    try testing.expect(math.approxEqAbs(f32, log10f(123123.234375), 5.09034, epsilon));
+test "log10f() special" {
+    try expectEqual(log10f(0.0), -math.inf(f32));
+    try expectEqual(log10f(-0.0), -math.inf(f32));
+    try expect(math.isPositiveZero(log10f(1.0)));
+    try expectEqual(log10f(10.0), 1.0);
+    try expectEqual(log10f(0.1), -1.0);
+    try expectEqual(log10f(math.inf(f32)), math.inf(f32));
+    try expect(math.isNan(log10f(-1.0)));
+    try expect(math.isNan(log10f(-math.inf(f32))));
+    try expect(math.isNan(log10f(math.nan(f32))));
+    try expect(math.isNan(log10f(math.snan(f32))));
 }
 
-test "log10_64" {
-    const epsilon = 0.000001;
-
-    try testing.expect(math.approxEqAbs(f64, log10(0.2), -0.698970, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log10(0.8923), -0.049489, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log10(1.5), 0.176091, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log10(37.45), 1.573452, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log10(89.123), 1.94999, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log10(123123.234375), 5.09034, epsilon));
+test "log10f() sanity" {
+    try expect(math.isNan(log10f(-0x1.0223a0p+3)));
+    try expectEqual(log10f(0x1.161868p+2), 0x1.46a9bcp-1);
+    try expect(math.isNan(log10f(-0x1.0c34b4p+3)));
+    try expect(math.isNan(log10f(-0x1.a206f0p+2)));
+    try expectEqual(log10f(0x1.288bbcp+3), 0x1.ef1300p-1);
+    try expectEqual(log10f(0x1.52efd0p-1), -0x1.6ee6dcp-3); // Disagrees with GCC in last bit
+    try expect(math.isNan(log10f(-0x1.a05cc8p-2)));
+    try expectEqual(log10f(0x1.1f9efap-1), -0x1.0075ccp-2);
+    try expectEqual(log10f(0x1.8c5db0p-1), -0x1.c75df8p-4);
+    try expect(math.isNan(log10f(-0x1.5b86eap-1)));
 }
 
-test "log10_32.special" {
-    try testing.expect(math.isPositiveInf(log10f(math.inf(f32))));
-    try testing.expect(math.isNegativeInf(log10f(0.0)));
-    try testing.expect(math.isNan(log10f(-1.0)));
-    try testing.expect(math.isNan(log10f(math.nan(f32))));
+test "log10f() boundary" {
+    try expectEqual(log10f(0x1.fffffep+127), 0x1.344136p+5); // Max input value
+    try expectEqual(log10f(0x1p-149), -0x1.66d3e8p+5); // Min positive input value
+    try expect(math.isNan(log10f(-0x1p-149))); // Min negative input value
+    try expectEqual(log10f(0x1.000002p+0), 0x1.bcb7b0p-25); // Last value before result reaches +0
+    try expectEqual(log10f(0x1.fffffep-1), -0x1.bcb7b2p-26); // Last value before result reaches -0
+    try expectEqual(log10f(0x1p-126), -0x1.2f7030p+5); // First subnormal
+    try expect(math.isNan(log10f(-0x1p-126))); // First negative subnormal
 }
 
-test "log10_64.special" {
-    try testing.expect(math.isPositiveInf(log10(math.inf(f64))));
-    try testing.expect(math.isNegativeInf(log10(0.0)));
-    try testing.expect(math.isNan(log10(-1.0)));
-    try testing.expect(math.isNan(log10(math.nan(f64))));
+test "log10() special" {
+    try expectEqual(log10(0.0), -math.inf(f64));
+    try expectEqual(log10(-0.0), -math.inf(f64));
+    try expect(math.isPositiveZero(log10(1.0)));
+    try expectEqual(log10(10.0), 1.0);
+    try expectEqual(log10(0.1), -1.0);
+    try expectEqual(log10(math.inf(f64)), math.inf(f64));
+    try expect(math.isNan(log10(-1.0)));
+    try expect(math.isNan(log10(-math.inf(f64))));
+    try expect(math.isNan(log10(math.nan(f64))));
+    try expect(math.isNan(log10(math.snan(f64))));
+}
+
+test "log10() sanity" {
+    try expect(math.isNan(log10(-0x1.02239f3c6a8f1p+3)));
+    try expectEqual(log10(0x1.161868e18bc67p+2), 0x1.46a9bd1d2eb87p-1);
+    try expect(math.isNan(log10(-0x1.0c34b3e01e6e7p+3)));
+    try expect(math.isNan(log10(-0x1.a206f0a19dcc4p+2)));
+    try expectEqual(log10(0x1.288bbb0d6a1e6p+3), 0x1.ef12fff994862p-1);
+    try expectEqual(log10(0x1.52efd0cd80497p-1), -0x1.6ee6db5a155cbp-3);
+    try expect(math.isNan(log10(-0x1.a05cc754481d1p-2)));
+    try expectEqual(log10(0x1.1f9ef934745cbp-1), -0x1.0075cda79d321p-2);
+    try expectEqual(log10(0x1.8c5db097f7442p-1), -0x1.c75df6442465ap-4);
+    try expect(math.isNan(log10(-0x1.5b86ea8118a0ep-1)));
+}
+
+test "log10() boundary" {
+    try expectEqual(log10(0x1.fffffffffffffp+1023), 0x1.34413509f79ffp+8); // Max input value
+    try expectEqual(log10(0x1p-1074), -0x1.434e6420f4374p+8); // Min positive input value
+    try expect(math.isNan(log10(-0x1p-1074))); // Min negative input value
+    try expectEqual(log10(0x1.0000000000001p+0), 0x1.bcb7b1526e50dp-54); // Last value before result reaches +0
+    try expectEqual(log10(0x1.fffffffffffffp-1), -0x1.bcb7b1526e50fp-55); // Last value before result reaches -0
+    try expectEqual(log10(0x1p-1022), -0x1.33a7146f72a42p+8); // First subnormal
+    try expect(math.isNan(log10(-0x1p-1022))); // First negative subnormal
 }
