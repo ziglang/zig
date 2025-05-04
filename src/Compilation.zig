@@ -259,8 +259,6 @@ crt_files: std.StringHashMapUnmanaged(CrtFile) = .empty,
 /// Null means only show snippet on first error.
 reference_trace: ?u32 = null,
 
-libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
-
 /// This mutex guards all `Compilation` mutable state.
 /// Disabled in single-threaded mode because the thread pool spawns in the same thread.
 mutex: if (builtin.single_threaded) struct {
@@ -1171,7 +1169,6 @@ pub const CreateOptions = struct {
     force_load_objc: bool = false,
     /// Whether local symbols should be discarded from the symbol table.
     discard_local_symbols: bool = false,
-    libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
     /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
     /// paths when consolidating CodeView streams into a single PDB file.
     pdb_source_path: ?[]const u8 = null,
@@ -1555,7 +1552,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .incremental = options.incremental,
-            .libcxx_abi_version = options.libcxx_abi_version,
             .root_name = root_name,
             .sysroot = sysroot,
             .windows_libs = windows_libs,
