@@ -106,7 +106,6 @@ pub fn main() !void {
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
             "build-exe",
-            case.root_source_file,
             "-fincremental",
             "-fno-ubsan-rt",
             "-target",
@@ -134,6 +133,13 @@ pub fn main() !void {
         }
         if (debug_link) {
             try child_args.appendSlice(arena, &.{ "--debug-log", "link", "--debug-log", "link_state", "--debug-log", "link_relocs" });
+        }
+        for (case.modules) |mod| {
+            try child_args.appendSlice(arena, &.{ "--dep", mod.name });
+        }
+        try child_args.append(arena, try std.fmt.allocPrint(arena, "-Mroot={s}", .{case.root_source_file}));
+        for (case.modules) |mod| {
+            try child_args.append(arena, try std.fmt.allocPrint(arena, "-M{s}={s}", .{ mod.name, mod.file }));
         }
 
         const zig_prog_node = target_prog_node.start("zig build-exe", 0);
@@ -308,9 +314,8 @@ const Eval = struct {
                     const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
                     const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
 
-                    const name = std.fs.path.stem(std.fs.path.basename(eval.case.root_source_file));
                     const bin_name = try std.zig.binNameAlloc(arena, .{
-                        .root_name = name,
+                        .root_name = "root", // corresponds to the module name "root"
                         .target = eval.target.resolved,
                         .output_mode = .Exe,
                     });
@@ -605,6 +610,7 @@ const Case = struct {
     updates: []Update,
     root_source_file: []const u8,
     targets: []const Target,
+    modules: []const Module,
 
     const Target = struct {
         query: []const u8,
@@ -624,6 +630,11 @@ const Case = struct {
             /// Corresponds to `-ofmt=c`.
             cbe,
         };
+    };
+
+    const Module = struct {
+        name: []const u8,
+        file: []const u8,
     };
 
     const Update = struct {
@@ -660,6 +671,7 @@ const Case = struct {
         const fatal = std.process.fatal;
 
         var targets: std.ArrayListUnmanaged(Target) = .empty;
+        var modules: std.ArrayListUnmanaged(Module) = .empty;
         var updates: std.ArrayListUnmanaged(Update) = .empty;
         var changes: std.ArrayListUnmanaged(FullContents) = .empty;
         var deletes: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -697,6 +709,15 @@ const Case = struct {
                         .query = query,
                         .resolved = resolved,
                         .backend = backend,
+                    });
+                } else if (std.mem.eql(u8, key, "module")) {
+                    const split_idx = std.mem.indexOfScalar(u8, val, '=') orelse
+                        fatal("line {d}: module does not include file", .{line_n});
+                    const name = val[0..split_idx];
+                    const file = val[split_idx + 1 ..];
+                    try modules.append(arena, .{
+                        .name = name,
+                        .file = file,
                     });
                 } else if (std.mem.eql(u8, key, "update")) {
                     if (updates.items.len > 0) {
@@ -811,6 +832,7 @@ const Case = struct {
             .updates = updates.items,
             .root_source_file = root_source_file orelse fatal("missing root source file", .{}),
             .targets = targets.items, // arena so no need for toOwnedSlice
+            .modules = modules.items,
         };
     }
 };
