@@ -6138,6 +6138,16 @@ test "zig fmt: seperate errors in error sets with comments" {
     );
 }
 
+test "zig fmt: proper escape checks" {
+    try testTransform(
+        \\@"\x41\x42\!"
+        \\
+    ,
+        \\@"AB\!"
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
