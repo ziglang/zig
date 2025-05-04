@@ -767,7 +767,7 @@ pub fn generate(
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
     const fn_type = Type.fromInterned(func.ty);
-    const mod = zcu.navFileScope(func.owner_nav).mod;
+    const mod = zcu.navFileScope(func.owner_nav).mod.?;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {

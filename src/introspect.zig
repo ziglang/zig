@@ -144,3 +144,12 @@ pub fn resolvePath(
 pub fn isUpDir(p: []const u8) bool {
     return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == fs.path.sep);
 }
+
+/// Asserts that `path` is absolute, on targets where absolute paths make sense.
+/// On other target, such as WASI, does nothing.
+pub fn assertAbsolute(path: []const u8) void {
+    switch (builtin.target.os.tag) {
+        .wasi => {},
+        else => std.debug.assert(fs.path.isAbsolute(path)),
+    }
+}

@@ -3,7 +3,6 @@ const bogus = @import(
 );
 
 // error
-// backend=stage2
-// target=native
 //
-// bogus-does-not-exist.zig': FileNotFound
+// bogus-does-not-exist.zig:1:1: error: unable to load 'bogus-does-not-exist.zig': FileNotFound
+// :2:5: note: file imported here

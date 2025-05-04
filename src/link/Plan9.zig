@@ -348,8 +348,8 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         // TODO don't call getcwd here, that is inappropriate
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const full_path = try std.fs.path.join(arena, &.{
-            file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
-            file.mod.root.sub_path,
+            file.mod.?.root.root_dir.path orelse try std.posix.getcwd(&buf),
+            file.mod.?.root.sub_path,
             file.sub_file_path,
         });
         try self.addPathComponents(full_path, &a);

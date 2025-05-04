@@ -8,11 +8,23 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
-const DevEnv = @import("src/dev.zig").Env;
 const ValueInterpretMode = enum { direct, by_name };
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
+
+/// Keep in sync with `Env` in `src/dev.zig`.
+const DevEnv = enum {
+    bootstrap,
+    core,
+    full,
+    c_source,
+    ast_gen,
+    sema,
+    @"x86_64-linux",
+    @"riscv64-linux",
+    wasm,
+};
 
 pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;

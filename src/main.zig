@@ -3092,9 +3092,7 @@ fn buildOutputType(
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .empty;
-    // `builtin_modules` allocated into `arena`, so no deinit
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules, color);
+    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, color);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
@@ -3126,7 +3124,6 @@ fn buildOutputType(
         .zig_test, .zig_test_obj => root_mod: {
             const test_mod = if (test_runner_path) |test_runner| test_mod: {
                 const test_mod = try Package.Module.create(arena, .{
-                    .global_cache_directory = global_cache_directory,
                     .paths = .{
                         .root = .{
                             .root_dir = Cache.Directory.cwd(),
@@ -3139,13 +3136,10 @@ fn buildOutputType(
                     .inherited = .{},
                     .global = create_module.resolved_options,
                     .parent = main_mod,
-                    .builtin_mod = main_mod.getBuiltinDependency(),
-                    .builtin_modules = null, // `builtin_mod` is specified
                 });
                 test_mod.deps = try main_mod.deps.clone(arena);
                 break :test_mod test_mod;
             } else try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
                     .root = .{
                         .root_dir = zig_lib_directory,
@@ -3158,8 +3152,6 @@ fn buildOutputType(
                 .inherited = .{},
                 .global = create_module.resolved_options,
                 .parent = main_mod,
-                .builtin_mod = main_mod.getBuiltinDependency(),
-                .builtin_modules = null, // `builtin_mod` is specified
             });
 
             break :root_mod test_mod;
@@ -3763,8 +3755,8 @@ fn buildOutputType(
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        const builtin_mod = comp.root_mod.getBuiltinDependency();
-        const source = builtin_mod.builtin_file.?.source.?;
+        const builtin_opts = comp.root_mod.getBuiltinOptions(comp.config);
+        const source = try builtin_opts.generate(arena);
         return std.io.getStdOut().writeAll(source);
     }
     switch (listen) {
@@ -3938,7 +3930,6 @@ fn createModule(
     index: usize,
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
-    builtin_modules: *std.StringHashMapUnmanaged(*Package.Module),
     color: std.zig.Color,
 ) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
@@ -4226,7 +4217,6 @@ fn createModule(
     }
 
     const mod = Package.Module.create(arena, .{
-        .global_cache_directory = create_module.global_cache_directory,
         .paths = cli_mod.paths,
         .fully_qualified_name = name,
 
@@ -4234,8 +4224,6 @@ fn createModule(
         .inherited = cli_mod.inherited,
         .global = create_module.resolved_options,
         .parent = parent,
-        .builtin_mod = null,
-        .builtin_modules = builtin_modules,
     }) catch |err| switch (err) {
         error.ValgrindUnsupportedOnTarget => fatal("unable to create module '{s}': valgrind does not support the selected target CPU architecture", .{name}),
         error.TargetRequiresSingleThreaded => fatal("unable to create module '{s}': the selected target does not support multithreading", .{name}),
@@ -4258,7 +4246,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules, color);
+        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, color);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -5272,7 +5260,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             });
 
             const root_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = main_mod_paths,
                 .fully_qualified_name = "root",
                 .cc_argv = &.{},
@@ -5281,14 +5268,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 },
                 .global = config,
                 .parent = null,
-                .builtin_mod = null,
-                .builtin_modules = null, // all modules will inherit this one's builtin
             });
 
-            const builtin_mod = root_mod.getBuiltinDependency();
-
             const build_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
                     .root = .{ .root_dir = build_root.directory },
                     .root_src_path = build_root.build_zig_basename,
@@ -5298,8 +5280,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .inherited = .{},
                 .global = config,
                 .parent = root_mod,
-                .builtin_mod = builtin_mod,
-                .builtin_modules = null, // `builtin_mod` is specified
             });
 
             var cleanup_build_dir: ?fs.Dir = null;
@@ -5397,9 +5377,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     arena,
                     source_buf.items,
                     root_mod,
-                    global_cache_directory,
                     local_cache_directory,
-                    builtin_mod,
                     config,
                 );
 
@@ -5417,7 +5395,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             continue;
                         const hash_slice = hash.toSlice();
                         const m = try Package.Module.create(arena, .{
-                            .global_cache_directory = global_cache_directory,
                             .paths = .{
                                 .root = try f.package_root.clone(arena),
                                 .root_src_path = Package.build_zig_basename,
@@ -5431,8 +5408,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .inherited = .{},
                             .global = config,
                             .parent = root_mod,
-                            .builtin_mod = builtin_mod,
-                            .builtin_modules = null, // `builtin_mod` is specified
                         });
                         const hash_cloned = try arena.dupe(u8, hash_slice);
                         deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
@@ -5461,9 +5436,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             } else try createEmptyDependenciesModule(
                 arena,
                 root_mod,
-                global_cache_directory,
                 local_cache_directory,
-                builtin_mod,
                 config,
             );
 
@@ -5698,7 +5671,6 @@ fn jitCmd(
         });
 
         const root_mod = try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
             .paths = main_mod_paths,
             .fully_qualified_name = "root",
             .cc_argv = &.{},
@@ -5709,13 +5681,10 @@ fn jitCmd(
             },
             .global = config,
             .parent = null,
-            .builtin_mod = null,
-            .builtin_modules = null, // all modules will inherit this one's builtin
         });
 
         if (options.depend_on_aro) {
             const aro_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
                     .root = .{
                         .root_dir = zig_lib_directory,
@@ -5732,8 +5701,6 @@ fn jitCmd(
                 },
                 .global = config,
                 .parent = null,
-                .builtin_mod = root_mod.getBuiltinDependency(),
-                .builtin_modules = null, // `builtin_mod` is specified
             });
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
@@ -6316,12 +6283,17 @@ fn cmdAstCheck(
     var file: Zcu.File = .{
         .status = .never_loaded,
         .sub_file_path = undefined,
+        .abs_path = undefined,
         .stat = undefined,
+        .is_builtin = false,
         .source = null,
         .tree = null,
         .zir = null,
         .zoir = null,
         .mod = undefined,
+        .module_changed = false,
+        .prev_zir = null,
+        .zoir_invalidated = false,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6340,6 +6312,7 @@ fn cmdAstCheck(
             return error.UnexpectedEndOfFile;
 
         file.sub_file_path = file_name;
+        file.abs_path = file_name;
         file.source = source;
         file.stat = .{
             .size = stat.size,
@@ -6352,6 +6325,7 @@ fn cmdAstCheck(
             fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
+        file.abs_path = "<stdin>";
         file.source = source;
         file.stat.size = source.len;
     }
@@ -6384,7 +6358,7 @@ fn cmdAstCheck(
                 var wip_errors: std.zig.ErrorBundle.Wip = undefined;
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
-                try Compilation.addZirErrorMessages(&wip_errors, &file);
+                try wip_errors.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, file.abs_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
                 defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(color.renderOptions());
@@ -6462,11 +6436,7 @@ fn cmdAstCheck(
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
 
-                {
-                    const src_path = try file.fullPath(gpa);
-                    defer gpa.free(src_path);
-                    try wip_errors.addZoirErrorMessages(zoir, file.tree.?, file.source.?, src_path);
-                }
+                try wip_errors.addZoirErrorMessages(zoir, file.tree.?, file.source.?, file.abs_path);
 
                 var error_bundle = try wip_errors.toOwnedBundle("");
                 defer error_bundle.deinit(gpa);
@@ -6695,12 +6665,17 @@ fn cmdDumpZir(
     var file: Zcu.File = .{
         .status = .never_loaded,
         .sub_file_path = undefined,
+        .abs_path = undefined,
         .stat = undefined,
+        .is_builtin = false,
         .source = null,
         .tree = null,
         .zir = try Zcu.loadZirCache(gpa, f),
         .zoir = null,
         .mod = undefined,
+        .module_changed = false,
+        .prev_zir = null,
+        .zoir_invalidated = false,
     };
     defer file.zir.?.deinit(gpa);
 
@@ -6760,16 +6735,21 @@ fn cmdChangelist(
     var file: Zcu.File = .{
         .status = .never_loaded,
         .sub_file_path = old_source_file,
+        .abs_path = old_source_file,
         .stat = .{
             .size = stat.size,
             .inode = stat.inode,
             .mtime = stat.mtime,
         },
+        .is_builtin = false,
         .source = null,
         .tree = null,
         .zir = null,
         .zoir = null,
         .mod = undefined,
+        .module_changed = false,
+        .prev_zir = null,
+        .zoir_invalidated = false,
     };
 
     file.mod = try Package.Module.createLimited(arena, .{
@@ -6794,7 +6774,7 @@ fn cmdChangelist(
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
+        try wip_errors.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, file.abs_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
@@ -6828,7 +6808,7 @@ fn cmdChangelist(
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
+        try wip_errors.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, file.abs_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
@@ -7447,9 +7427,7 @@ fn cmdFetch(
 fn createEmptyDependenciesModule(
     arena: Allocator,
     main_mod: *Package.Module,
-    global_cache_directory: Cache.Directory,
     local_cache_directory: Cache.Directory,
-    builtin_mod: *Package.Module,
     global_options: Compilation.Config,
 ) !void {
     var source = std.ArrayList(u8).init(arena);
@@ -7458,9 +7436,7 @@ fn createEmptyDependenciesModule(
         arena,
         source.items,
         main_mod,
-        global_cache_directory,
         local_cache_directory,
-        builtin_mod,
         global_options,
     );
 }
@@ -7471,9 +7447,7 @@ fn createDependenciesModule(
     arena: Allocator,
     source: []const u8,
     main_mod: *Package.Module,
-    global_cache_directory: Cache.Directory,
     local_cache_directory: Cache.Directory,
-    builtin_mod: *Package.Module,
     global_options: Compilation.Config,
 ) !*Package.Module {
     // Atomically create the file in a directory named after the hash of its contents.
@@ -7499,7 +7473,6 @@ fn createDependenciesModule(
     );
 
     const deps_mod = try Package.Module.create(arena, .{
-        .global_cache_directory = global_cache_directory,
         .paths = .{
             .root = .{
                 .root_dir = local_cache_directory,
@@ -7512,8 +7485,6 @@ fn createDependenciesModule(
         .cc_argv = &.{},
         .inherited = .{},
         .global = global_options,
-        .builtin_mod = builtin_mod,
-        .builtin_modules = null, // `builtin_mod` is specified
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;
