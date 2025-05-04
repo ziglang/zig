@@ -8,13 +8,6 @@ const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Module = @import("Package/Module.zig");
 
-pub const AbiVersion = enum(u2) {
-    @"1" = 1,
-    @"2" = 2,
-
-    pub const default: AbiVersion = .@"1";
-};
-
 const libcxxabi_files = [_][]const u8{
     "src/abort_message.cpp",
     "src/cxa_aux_runtime.cpp",
@@ -535,11 +528,12 @@ pub fn addCxxArgs(
     const target = comp.getTarget();
     const optimize_mode = comp.compilerRtOptMode();
 
+    const abi_version: u2 = if (target.os.tag == .emscripten) 2 else 1;
     try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
+        abi_version,
     }));
     try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
+        abi_version,
     }));
     try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}THREADS", .{
         if (!comp.config.any_non_single_threaded) "NO_" else "",
