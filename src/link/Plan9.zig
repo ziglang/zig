@@ -315,8 +315,9 @@ pub fn createEmpty(
 }
 
 fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void {
-    const gpa = self.base.comp.gpa;
-    const zcu = self.base.comp.zcu.?;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const zcu = comp.zcu.?;
     const file_scope = zcu.navFileScopeIndex(nav_index);
     const fn_map_res = try self.fn_nav_table.getOrPut(gpa, file_scope);
     if (fn_map_res.found_existing) {
@@ -345,14 +346,11 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
-        // TODO don't call getcwd here, that is inappropriate
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const full_path = try std.fs.path.join(arena, &.{
-            file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
-            file.mod.root.sub_path,
-            file.sub_file_path,
-        });
-        try self.addPathComponents(full_path, &a);
+        {
+            const full_path = try file.path.toAbsolute(comp.dirs, gpa);
+            defer gpa.free(full_path);
+            try self.addPathComponents(full_path, &a);
+        }
 
         // null terminate
         try a.append(0);
@@ -437,9 +435,7 @@ pub fn updateFunc(
         .start_line = dbg_info_output.start_line.?,
         .end_line = dbg_info_output.end_line,
     };
-    // The awkward error handling here is due to putFn calling `std.posix.getcwd` which it should not do.
-    self.putFn(func.owner_nav, out) catch |err|
-        return zcu.codegenFail(func.owner_nav, "failed to put fn: {s}", .{@errorName(err)});
+    try self.putFn(func.owner_nav, out);
     return self.updateFinish(pt, func.owner_nav);
 }
 

@@ -201,7 +201,7 @@ pub const Object = struct {
     ) !void {
         const zcu = pt.zcu;
         const gpa = zcu.gpa;
-        const structured_cfg = zcu.navFileScope(nav_index).mod.structured_cfg;
+        const structured_cfg = zcu.navFileScope(nav_index).mod.?.structured_cfg;
 
         var nav_gen = NavGen{
             .gpa = gpa,

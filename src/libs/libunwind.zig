@@ -50,9 +50,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         return error.SubCompilationFailed;
     };
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -76,8 +75,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,
@@ -118,7 +115,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             else => unreachable, // See `unwind_src_list`.
         }
         try cflags.append("-I");
-        try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
+        try cflags.append(try comp.dirs.zig_lib.join(arena, &.{ "libunwind", "include" }));
         try cflags.append("-D_LIBUNWIND_HIDE_SYMBOLS");
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
@@ -148,16 +145,14 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         }
 
         c_source_files[i] = .{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{unwind_src}),
             .extra_flags = cflags.items,
             .owner = root_mod,
         };
     }
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
+        .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
         .config = config,
         .root_mod = root_mod,
         .cache_mode = .whole,
