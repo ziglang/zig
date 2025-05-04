@@ -3,13 +3,13 @@ const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
+const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const target = @import("target.zig");
 const assert = std.debug.assert;
 const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
-const fatal = @import("main.zig").fatal;
 
 pub fn cmdTargets(
     allocator: Allocator,

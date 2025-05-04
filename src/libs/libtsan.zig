@@ -84,9 +84,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     };
 
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -110,8 +109,6 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .global = config,
         .cc_argv = &common_flags,
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -124,7 +121,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
-    const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"libtsan"});
+    const tsan_include_path = try comp.dirs.zig_lib.join(arena, &.{"libtsan"});
     for (tsan_sources) |tsan_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -134,7 +131,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &.{ "libtsan", tsan_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -155,7 +152,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", tsan_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -179,14 +176,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-DNDEBUG");
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", asm_source }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", asm_source }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
     }
 
     try c_source_files.ensureUnusedCapacity(sanitizer_common_sources.len);
-    const sanitizer_common_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+    const sanitizer_common_include_path = try comp.dirs.zig_lib.join(arena, &.{
         "libtsan", "sanitizer_common",
     });
     for (sanitizer_common_sources) |common_src| {
@@ -200,7 +197,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", common_src,
             }),
             .extra_flags = cflags.items,
@@ -224,7 +221,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
@@ -242,7 +239,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
@@ -250,10 +247,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         });
     }
 
-    const interception_include_path = try comp.zig_lib_directory.join(
-        arena,
-        &[_][]const u8{"interception"},
-    );
+    const interception_include_path = try comp.dirs.zig_lib.join(arena, &.{"interception"});
 
     try c_source_files.ensureUnusedCapacity(interception_sources.len);
     for (interception_sources) |c_src| {
@@ -268,7 +262,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "interception", c_src,
             }),
             .extra_flags = cflags.items,
@@ -285,9 +279,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     // Workaround for https://github.com/llvm/llvm-project/issues/97627
     const headerpad_size: ?u32 = if (target.os.tag.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+        .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,

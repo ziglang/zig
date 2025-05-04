@@ -1675,8 +1675,8 @@ pub fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.local_cache_directory.handle.createFileZ(rsp_path, .{});
-                defer comp.local_cache_directory.handle.deleteFileZ(rsp_path) catch |err|
+                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
@@ -1700,7 +1700,7 @@ pub fn spawnLld(
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(
                     arena,
                     "@{s}",
-                    .{try comp.local_cache_directory.join(arena, &.{rsp_path})},
+                    .{try comp.dirs.local_cache.join(arena, &.{rsp_path})},
                 ) }, arena);
                 if (comp.clang_passthrough_mode) {
                     rsp_child.stdin_behavior = .Inherit;

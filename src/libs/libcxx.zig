@@ -134,10 +134,10 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .basename = basename,
     };
 
-    const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
-    const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
-    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
-    const cxx_libc_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "libc" });
+    const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
+    const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "src" });
+    const cxx_libc_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "libc" });
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
@@ -164,9 +164,8 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     };
 
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -188,8 +187,6 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libcxx,
@@ -258,7 +255,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         try cache_exempt_flags.append(cxx_libc_include_path);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", cxx_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", cxx_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
             .owner = root_mod,
@@ -266,9 +263,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     }
 
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+        .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
         .config = config,
@@ -344,9 +339,9 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .basename = basename,
     };
 
-    const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
-    const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
-    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
+    const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
+    const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "src" });
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
@@ -378,9 +373,8 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -403,8 +397,6 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libcxxabi,
@@ -459,7 +451,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try cache_exempt_flags.append(cxx_src_include_path);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", cxxabi_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", cxxabi_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
             .owner = root_mod,
@@ -467,9 +459,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     }
 
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+        .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
         .config = config,

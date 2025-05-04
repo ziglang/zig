@@ -1268,7 +1268,7 @@ pub fn function(
     const gpa = zcu.gpa;
     const cg = zcu.funcInfo(func_index);
     const file_scope = zcu.navFileScope(cg.owner_nav);
-    const target = &file_scope.mod.resolved_target.result;
+    const target = &file_scope.mod.?.resolved_target.result;
     const fn_ty = zcu.navValue(cg.owner_nav).typeOf(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
     const ip = &zcu.intern_pool;

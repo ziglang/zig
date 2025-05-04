@@ -829,7 +829,7 @@ pub const Block = struct {
 
     pub fn ownerModule(block: Block) *Package.Module {
         const zcu = block.sema.pt.zcu;
-        return zcu.namespacePtr(block.namespace).fileScope(zcu).mod;
+        return zcu.namespacePtr(block.namespace).fileScope(zcu).mod.?;
     }
 
     fn trackZir(block: *Block, inst: Zir.Inst.Index) Allocator.Error!InternPool.TrackedInst.Index {
@@ -1127,10 +1127,10 @@ fn analyzeBodyInner(
 
         // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
         if (build_options.enable_logging) {
-            std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
+            std.log.scoped(.sema_zir).debug("sema ZIR {} %{d}", .{ path: {
                 const file_index = block.src_base_inst.resolveFile(&zcu.intern_pool);
                 const file = zcu.fileByIndex(file_index);
-                break :sub_file_path file.sub_file_path;
+                break :path file.path.fmt(zcu.comp);
             }, inst });
         }
 
@@ -6162,50 +6162,67 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     }
     const parent_mod = parent_block.ownerModule();
     const digest = Cache.binToHex(c_import_res.digest);
-    const c_import_zig_path = try comp.arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ digest);
-    const c_import_mod = Package.Module.create(comp.arena, .{
-        .global_cache_directory = comp.global_cache_directory,
-        .paths = .{
-            .root = .{
-                .root_dir = comp.local_cache_directory,
-                .sub_path = c_import_zig_path,
+
+    const new_file_index = file: {
+        const c_import_zig_path = try comp.arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ digest);
+        const c_import_mod = Package.Module.create(comp.arena, .{
+            .paths = .{
+                .root = try .fromRoot(comp.arena, comp.dirs, .local_cache, c_import_zig_path),
+                .root_src_path = "cimport.zig",
             },
-            .root_src_path = "cimport.zig",
-        },
-        .fully_qualified_name = c_import_zig_path,
-        .cc_argv = parent_mod.cc_argv,
-        .inherited = .{},
-        .global = comp.config,
-        .parent = parent_mod,
-        .builtin_mod = parent_mod.getBuiltinDependency(),
-        .builtin_modules = null, // `builtin_mod` is set
-    }) catch |err| switch (err) {
-        // None of these are possible because we are creating a package with
-        // the exact same configuration as the parent package, which already
-        // passed these checks.
-        error.ValgrindUnsupportedOnTarget => unreachable,
-        error.TargetRequiresSingleThreaded => unreachable,
-        error.BackendRequiresSingleThreaded => unreachable,
-        error.TargetRequiresPic => unreachable,
-        error.PieRequiresPic => unreachable,
-        error.DynamicLinkingRequiresPic => unreachable,
-        error.TargetHasNoRedZone => unreachable,
-        error.StackCheckUnsupportedByTarget => unreachable,
-        error.StackProtectorUnsupportedByTarget => unreachable,
-        error.StackProtectorUnavailableWithoutLibC => unreachable,
+            .fully_qualified_name = c_import_zig_path,
+            .cc_argv = parent_mod.cc_argv,
+            .inherited = .{},
+            .global = comp.config,
+            .parent = parent_mod,
+        }) catch |err| switch (err) {
+            // None of these are possible because we are creating a package with
+            // the exact same configuration as the parent package, which already
+            // passed these checks.
+            error.ValgrindUnsupportedOnTarget => unreachable,
+            error.TargetRequiresSingleThreaded => unreachable,
+            error.BackendRequiresSingleThreaded => unreachable,
+            error.TargetRequiresPic => unreachable,
+            error.PieRequiresPic => unreachable,
+            error.DynamicLinkingRequiresPic => unreachable,
+            error.TargetHasNoRedZone => unreachable,
+            error.StackCheckUnsupportedByTarget => unreachable,
+            error.StackProtectorUnsupportedByTarget => unreachable,
+            error.StackProtectorUnavailableWithoutLibC => unreachable,
 
-        else => |e| return e,
+            else => |e| return e,
+        };
+        const c_import_file_path: Compilation.Path = try c_import_mod.root.join(gpa, comp.dirs, "cimport.zig");
+        errdefer c_import_file_path.deinit(gpa);
+        const c_import_file = try gpa.create(Zcu.File);
+        errdefer gpa.destroy(c_import_file);
+        const c_import_file_index = try zcu.intern_pool.createFile(gpa, pt.tid, .{
+            .bin_digest = c_import_file_path.digest(),
+            .file = c_import_file,
+            .root_type = .none,
+        });
+        c_import_file.* = .{
+            .status = .never_loaded,
+            .stat = undefined,
+            .is_builtin = false,
+            .path = c_import_file_path,
+            .source = null,
+            .tree = null,
+            .zir = null,
+            .zoir = null,
+            .mod = c_import_mod,
+            .sub_file_path = "cimport.zig",
+            .module_changed = false,
+            .prev_zir = null,
+            .zoir_invalidated = false,
+        };
+        break :file c_import_file_index;
     };
-
-    const result = pt.importPkg(c_import_mod) catch |err|
+    pt.updateFile(new_file_index, zcu.fileByIndex(new_file_index)) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    const path_digest = zcu.filePathDigest(result.file_index);
-    pt.updateFile(result.file, path_digest) catch |err|
-        return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-
-    try pt.ensureFileAnalyzed(result.file_index);
-    const ty = zcu.fileRootType(result.file_index);
+    try pt.ensureFileAnalyzed(new_file_index);
+    const ty = zcu.fileRootType(new_file_index);
     try sema.declareDependency(.{ .interned = ty });
     try sema.addTypeReferenceEntry(src, ty);
     return Air.internedToRef(ty);
@@ -14097,25 +14114,19 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand_src = block.tokenOffset(inst_data.src_tok);
     const operand = sema.code.nullTerminatedString(extra.path);
 
-    const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
-        error.ImportOutsideModulePath => {
-            return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
-        },
-        error.ModuleNotFound => {
-            return sema.fail(block, operand_src, "no module named '{s}' available within module {s}", .{
-                operand, block.getFileScope(zcu).mod.fully_qualified_name,
-            });
-        },
-        else => {
-            // TODO: these errors are file system errors; make sure an update() will
-            // retry this and not cache the file system error, which may be transient.
-            return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
-        },
+    const result = pt.doImport(block.getFileScope(zcu), operand) catch |err| switch (err) {
+        error.ModuleNotFound => return sema.fail(block, operand_src, "no module named '{s}' available within module '{s}'", .{
+            operand, block.getFileScope(zcu).mod.?.fully_qualified_name,
+        }),
+        error.IllegalZigImport => unreachable, // caught before semantic analysis
+        error.OutOfMemory => |e| return e,
     };
-    switch (result.file.getMode()) {
+    const file_index = result.file;
+    const file = zcu.fileByIndex(file_index);
+    switch (file.getMode()) {
         .zig => {
-            try pt.ensureFileAnalyzed(result.file_index);
-            const ty = zcu.fileRootType(result.file_index);
+            try pt.ensureFileAnalyzed(file_index);
+            const ty = zcu.fileRootType(file_index);
             try sema.declareDependency(.{ .interned = ty });
             try sema.addTypeReferenceEntry(operand_src, ty);
             return Air.internedToRef(ty);
@@ -14129,11 +14140,11 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 break :b res_ty.toIntern();
             };
 
-            try sema.declareDependency(.{ .zon_file = result.file_index });
+            try sema.declareDependency(.{ .zon_file = file_index });
             const interned = try LowerZon.run(
                 sema,
-                result.file,
-                result.file_index,
+                file,
+                file_index,
                 res_ty,
                 operand_src,
                 block,
@@ -17290,10 +17301,10 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
             const name = name: {
                 // TODO: we should probably store this name in the ZIR to avoid this complexity.
                 const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu).?;
-                const tree = file.getTree(sema.gpa) catch |err| {
+                const tree = file.getTree(zcu) catch |err| {
                     // In this case we emit a warning + a less precise source location.
-                    log.warn("unable to load {s}: {s}", .{
-                        file.sub_file_path, @errorName(err),
+                    log.warn("unable to load {}: {s}", .{
+                        file.path.fmt(zcu.comp), @errorName(err),
                     });
                     break :name null;
                 };
@@ -17318,10 +17329,10 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         const msg = msg: {
             const name = name: {
                 const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu).?;
-                const tree = file.getTree(sema.gpa) catch |err| {
+                const tree = file.getTree(zcu) catch |err| {
                     // In this case we emit a warning + a less precise source location.
-                    log.warn("unable to load {s}: {s}", .{
-                        file.sub_file_path, @errorName(err),
+                    log.warn("unable to load {}: {s}", .{
+                        file.path.fmt(zcu.comp), @errorName(err),
                     });
                     break :name null;
                 };
@@ -17415,7 +17426,7 @@ fn zirBuiltinSrc(
     };
 
     const module_name_val = v: {
-        const module_name = file_scope.mod.fully_qualified_name;
+        const module_name = file_scope.mod.?.fully_qualified_name;
         const array_ty = try pt.intern(.{ .array_type = .{
             .len = module_name.len,
             .sentinel = .zero_u8,
