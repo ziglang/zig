@@ -427,97 +427,158 @@ test "sort fuzz testing" {
     }
 }
 
-/// Returns the index of an element in `items` returning `.eq` when given to `compareFn`.
-/// - If there are multiple such elements, returns the index of any one of them.
-/// - If there are no such elements, returns `null`.
+/// Searches a sorted slice (`items`) for some target element, using `trisectFn`.
 ///
-/// `items` must be sorted in ascending order with respect to `compareFn`:
-/// ```
+/// The returned value is a pair of an *index*, and a *was-found* boolean.
+/// - If an element in `items` exists, which returns `.eq` when given to `trisectFn`,
+/// its index is returned, the was-found boolean is set to `true`. If multiple such
+/// elements exist, the index of (an arbitrary but deterministic) one of them is returned.
+/// - If no such element exists, the returned index is where such element *could be
+/// inserted* while maintaining the slice's order, the was-found boolean is set to `false`.
+///
+/// `trisectFn` returns whether the probed value (first argument) is less than (`.lt`),
+/// equal to (`.eq`), or greater than (`.gt`) some target.
+///
+/// Running `trisectFn` over a sorted slice will split it into three sections (i.e. trisect):
+/// ```txt
 /// [0]                                                   [len]
 /// ┌───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┐
 /// │.lt│.lt│ \ \ │.lt│.eq│.eq│ \ \ │.eq│.gt│.gt│ \ \ │.gt│
 /// └───┴───┴─/ /─┴───┴───┴───┴─/ /─┴───┴───┴───┴─/ /─┴───┘
 /// ├─────────────────┼─────────────────┼─────────────────┤
 ///  ↳ zero or more    ↳ zero or more    ↳ zero or more
-///                   ├─────────────────┤
-///                    ↳ if not null, returned
-///                      index is in this range
+///                   ├─────────────────┼───┤
+///                    ↳ if an item      ↳ if no item is found
+///                      is found,         this index is returned
+///                      an index in
+///                      this range is returned
+///
+/// ```
+///
+/// The returned value (`res`) is guaranteed to uphold the following:
+/// ```zig
+/// std.debug.assert(if (res[1]) res[0] < items.len else res[0] <= items.len);
 /// ```
 ///
 /// `O(log n)` time complexity.
 ///
-/// See also: `lowerBound, `upperBound`, `partitionPoint`, `equalRange`.
+/// See also: `lowerBound`, `upperBound`, `partitionPoint`, `equalRange`.
 pub fn binarySearch(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
-) ?usize {
+    comptime trisectFn: fn (probed: T, @TypeOf(context)) std.math.Order,
+) struct { usize, bool } {
     var low: usize = 0;
     var high: usize = items.len;
 
     while (low < high) {
-        // Avoid overflowing in the midpoint calculation
+        // avoid overflowing in the midpoint calculation
         const mid = low + (high - low) / 2;
-        switch (compareFn(context, items[mid])) {
-            .eq => return mid,
-            .gt => low = mid + 1,
-            .lt => high = mid,
+        switch (trisectFn(items[mid], context)) {
+            .eq => return .{ mid, true },
+            .lt => low = mid + 1, // item too small
+            .gt => high = mid, // item too big
         }
     }
-    return null;
+    return .{ low, false };
 }
 
 test binarySearch {
     const S = struct {
-        fn orderU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderU32(probed: u32, context: u32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn orderI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderI32(probed: i32, context: i32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn orderLength(context: usize, item: []const u8) std.math.Order {
-            return std.math.order(context, item.len);
+        fn orderLength(probed: []const u8, context: usize) std.math.Order {
+            return std.math.order(probed.len, context);
         }
     };
-    const R = struct {
-        b: i32,
-        e: i32,
+    const Range = struct {
+        /// inclusive
+        low: i32,
+        /// exclusive
+        high: i32,
 
-        fn r(b: i32, e: i32) @This() {
-            return .{ .b = b, .e = e };
-        }
-
-        fn order(context: i32, item: @This()) std.math.Order {
-            if (context < item.b) {
-                return .lt;
-            } else if (context > item.e) {
-                return .gt;
-            } else {
-                return .eq;
-            }
+        fn order(probed: @This(), context: i32) std.math.Order {
+            return if (probed.low > context) // start of range too great
+                .gt
+            else if (probed.high > context) // target within range
+                .eq
+            else // end of range too little
+                .lt;
         }
     };
 
-    try std.testing.expectEqual(null, binarySearch(u32, &[_]u32{}, @as(u32, 1), S.orderU32));
-    try std.testing.expectEqual(0, binarySearch(u32, &[_]u32{1}, @as(u32, 1), S.orderU32));
-    try std.testing.expectEqual(null, binarySearch(u32, &[_]u32{0}, @as(u32, 1), S.orderU32));
-    try std.testing.expectEqual(null, binarySearch(u32, &[_]u32{1}, @as(u32, 0), S.orderU32));
-    try std.testing.expectEqual(4, binarySearch(u32, &[_]u32{ 1, 2, 3, 4, 5 }, @as(u32, 5), S.orderU32));
-    try std.testing.expectEqual(0, binarySearch(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.orderU32));
-    try std.testing.expectEqual(1, binarySearch(i32, &[_]i32{ -7, -4, 0, 9, 10 }, @as(i32, -4), S.orderI32));
-    try std.testing.expectEqual(3, binarySearch(i32, &[_]i32{ -100, -25, 2, 98, 99, 100 }, @as(i32, 98), S.orderI32));
-    try std.testing.expectEqual(null, binarySearch(R, &[_]R{ R.r(-100, -50), R.r(-40, -20), R.r(-10, 20), R.r(30, 40) }, @as(i32, -45), R.order));
-    try std.testing.expectEqual(2, binarySearch(R, &[_]R{ R.r(-100, -50), R.r(-40, -20), R.r(-10, 20), R.r(30, 40) }, @as(i32, 10), R.order));
-    try std.testing.expectEqual(1, binarySearch(R, &[_]R{ R.r(-100, -50), R.r(-40, -20), R.r(-10, 20), R.r(30, 40) }, @as(i32, -20), R.order));
-    try std.testing.expectEqual(2, binarySearch([]const u8, &[_][]const u8{ "", "abc", "1234", "vwxyz" }, @as(usize, 4), S.orderLength));
+    try std.testing.expectEqual(.{ 0, false }, binarySearch(u32, &.{}, @as(u32, 1), S.orderU32));
+    try std.testing.expectEqual(.{ 0, true }, binarySearch(u32, &.{1}, @as(u32, 1), S.orderU32));
+    try std.testing.expectEqual(.{ 1, false }, binarySearch(u32, &.{0}, @as(u32, 1), S.orderU32));
+    try std.testing.expectEqual(.{ 0, false }, binarySearch(u32, &.{1}, @as(u32, 0), S.orderU32));
+    try std.testing.expectEqual(.{ 4, true }, binarySearch(u32, &.{ 1, 2, 3, 4, 5 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(.{ 0, true }, binarySearch(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.orderU32));
+    try std.testing.expectEqual(.{ 1, true }, binarySearch(i32, &.{ -7, -4, 0, 9, 10 }, @as(i32, -4), S.orderI32));
+    try std.testing.expectEqual(.{ 3, true }, binarySearch(i32, &.{ -100, -25, 2, 98, 99, 100 }, @as(i32, 98), S.orderI32));
+    try std.testing.expectEqual(
+        .{ 6, false },
+        binarySearch(i32, &.{
+            -100,
+            -25,
+            2,
+            98,
+            99,
+            100,
+            // element would be inserted here (index 6)
+            120,
+            140,
+        }, @as(i32, 105), S.orderI32),
+    );
+    try std.testing.expectEqual(
+        .{ 1, false },
+        binarySearch(Range, &.{
+            .{ .low = -100, .high = -50 },
+            // element would be inserted here (index 1)
+            .{ .low = -40, .high = -20 },
+            .{ .low = -10, .high = 20 },
+            .{ .low = 30, .high = 40 },
+        }, @as(i32, -45), Range.order),
+    );
+    try std.testing.expectEqual(
+        .{ 2, false },
+        binarySearch(Range, &.{
+            .{ .low = -100, .high = -50 },
+            .{ .low = -40, .high = -20 },
+            // element would be inserted here (index 2)
+            .{ .low = -10, .high = 20 },
+            .{ .low = 30, .high = 40 },
+        }, @as(i32, -20), Range.order),
+    );
+    try std.testing.expectEqual(
+        .{ 2, true },
+        binarySearch(Range, &.{
+            .{ .low = -100, .high = -50 },
+            .{ .low = -40, .high = -20 },
+            .{ .low = -10, .high = 20 },
+            .{ .low = 30, .high = 40 },
+        }, @as(i32, 10), Range.order),
+    );
+    try std.testing.expectEqual(
+        .{ 2, true },
+        binarySearch([]const u8, &.{ "", "abc", "1234", "vwxyz" }, @as(usize, 4), S.orderLength),
+    );
 }
 
-/// Returns the index of the first element in `items` that is greater than or equal to `context`,
-/// as determined by `compareFn`. If no such element exists, returns `items.len`.
+/// Searches a sorted slice (`items`) for the first element not less than some target,
+/// using `trisectFn`.
+/// - If such element is found, its index is returned.
+/// - Otherwise, `items.len` is returned.
 ///
-/// `items` must be sorted in ascending order with respect to `compareFn`:
-/// ```
+/// `trisectFn` returns whether the probed value (first argument) is less than (`.lt`),
+/// equal to (`.eq`), or greater than (`.gt`) some target.
+///
+/// Running `trisectFn` over a sorted slice will split it into three sections (i.e. trisect):
+/// ```txt
 /// [0]                                                   [len]
 /// ┌───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┐
 /// │.lt│.lt│ \ \ │.lt│.eq│.eq│ \ \ │.eq│.gt│.gt│ \ \ │.gt│
@@ -528,6 +589,11 @@ test binarySearch {
 ///                    ↳ returned index
 /// ```
 ///
+/// The returned value (`res`) is guaranteed to uphold the following:
+/// ```zig
+/// std.debug.assert(res <= items.len);
+/// ```
+///
 /// `O(log n)` time complexity.
 ///
 /// See also: `binarySearch`, `upperBound`, `partitionPoint`, `equalRange`.
@@ -535,11 +601,11 @@ pub fn lowerBound(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
+    comptime trisectFn: fn (probed: T, @TypeOf(context)) std.math.Order,
 ) usize {
     const S = struct {
-        fn predicate(ctx: @TypeOf(context), item: T) bool {
-            return compareFn(ctx, item).invert() == .lt;
+        fn predicate(probed: T, ctx: @TypeOf(context)) bool {
+            return trisectFn(probed, ctx) == .lt;
         }
     };
     return partitionPoint(T, items, context, S.predicate);
@@ -547,47 +613,44 @@ pub fn lowerBound(
 
 test lowerBound {
     const S = struct {
-        fn compareU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderU32(probed: u32, context: u32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn compareI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderI32(probed: i32, context: i32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn compareF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderF32(probed: f32, context: f32) std.math.Order {
+            return std.math.order(probed, context);
         }
-    };
-    const R = struct {
-        val: i32,
-
-        fn r(val: i32) @This() {
-            return .{ .val = val };
-        }
-
-        fn compareFn(context: i32, item: @This()) std.math.Order {
-            return std.math.order(context, item.val);
+        fn orderTuple(probed: struct { i32 }, context: i32) std.math.Order {
+            return std.math.order(probed[0], context);
         }
     };
 
-    try std.testing.expectEqual(0, lowerBound(u32, &[_]u32{}, @as(u32, 0), S.compareU32));
-    try std.testing.expectEqual(0, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.compareU32));
-    try std.testing.expectEqual(0, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.compareU32));
-    try std.testing.expectEqual(2, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.compareU32));
-    try std.testing.expectEqual(2, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(6, lowerBound(u32, &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(2, lowerBound(u32, &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(5, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.compareU32));
-    try std.testing.expectEqual(6, lowerBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.compareU32));
-    try std.testing.expectEqual(2, lowerBound(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.compareI32));
-    try std.testing.expectEqual(1, lowerBound(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.compareF32));
-    try std.testing.expectEqual(2, lowerBound(R, &[_]R{ R.r(-100), R.r(-40), R.r(-10), R.r(30) }, @as(i32, -20), R.compareFn));
+    try std.testing.expectEqual(0, lowerBound(u32, &.{}, @as(u32, 0), S.orderU32));
+    try std.testing.expectEqual(0, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.orderU32));
+    try std.testing.expectEqual(0, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.orderU32));
+    try std.testing.expectEqual(2, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(2, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(6, lowerBound(u32, &.{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(2, lowerBound(u32, &.{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(5, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.orderU32));
+    try std.testing.expectEqual(6, lowerBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.orderU32));
+    try std.testing.expectEqual(2, lowerBound(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.orderI32));
+    try std.testing.expectEqual(1, lowerBound(f32, &.{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
+    try std.testing.expectEqual(2, lowerBound(struct { i32 }, &.{ .{-100}, .{-40}, .{-10}, .{30} }, @as(i32, -20), S.orderTuple));
 }
 
-/// Returns the index of the first element in `items` that is greater than `context`, as determined
-/// by `compareFn`. If no such element exists, returns `items.len`.
+/// Searches a sorted slice (`items`) for the first element greater than some target,
+/// using `trisectFn`.
+/// - If such element is found, its index is returned.
+/// - Otherwise, `items.len` is returned.
 ///
-/// `items` must be sorted in ascending order with respect to `compareFn`:
-/// ```
+/// `trisectFn` returns whether the probed value (first argument) is less than (`.lt`),
+/// equal to (`.eq`), or greater than (`.gt`) some target.
+///
+/// Running `trisectFn` over a sorted slice will split it into three sections (i.e. trisect):
+/// ```txt
 /// [0]                                                   [len]
 /// ┌───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┐
 /// │.lt│.lt│ \ \ │.lt│.eq│.eq│ \ \ │.eq│.gt│.gt│ \ \ │.gt│
@@ -598,6 +661,11 @@ test lowerBound {
 ///                                      ↳ returned index
 /// ```
 ///
+/// The returned value (`res`) is guaranteed to uphold the following:
+/// ```zig
+/// std.debug.assert(res <= items.len);
+/// ```
+///
 /// `O(log n)` time complexity.
 ///
 /// See also: `binarySearch`, `lowerBound`, `partitionPoint`, `equalRange`.
@@ -605,11 +673,11 @@ pub fn upperBound(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
+    comptime trisectFn: fn (probed: T, @TypeOf(context)) std.math.Order,
 ) usize {
     const S = struct {
-        fn predicate(ctx: @TypeOf(context), item: T) bool {
-            return compareFn(ctx, item).invert() != .gt;
+        fn predicate(probed: T, ctx: @TypeOf(context)) bool {
+            return trisectFn(probed, ctx) != .gt;
         }
     };
     return partitionPoint(T, items, context, S.predicate);
@@ -617,48 +685,40 @@ pub fn upperBound(
 
 test upperBound {
     const S = struct {
-        fn compareU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderU32(probed: u32, context: u32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn compareI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderI32(probed: i32, context: i32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn compareF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderF32(probed: f32, context: f32) std.math.Order {
+            return std.math.order(probed, context);
         }
-    };
-    const R = struct {
-        val: i32,
-
-        fn r(val: i32) @This() {
-            return .{ .val = val };
-        }
-
-        fn compareFn(context: i32, item: @This()) std.math.Order {
-            return std.math.order(context, item.val);
+        fn orderTuple(probed: struct { i32 }, context: i32) std.math.Order {
+            return std.math.order(probed[0], context);
         }
     };
 
-    try std.testing.expectEqual(0, upperBound(u32, &[_]u32{}, @as(u32, 0), S.compareU32));
-    try std.testing.expectEqual(0, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.compareU32));
-    try std.testing.expectEqual(1, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.compareU32));
-    try std.testing.expectEqual(2, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.compareU32));
-    try std.testing.expectEqual(6, upperBound(u32, &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(6, upperBound(u32, &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(3, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.compareU32));
-    try std.testing.expectEqual(6, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.compareU32));
-    try std.testing.expectEqual(6, upperBound(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.compareU32));
-    try std.testing.expectEqual(2, upperBound(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.compareI32));
-    try std.testing.expectEqual(1, upperBound(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.compareF32));
-    try std.testing.expectEqual(2, upperBound(R, &[_]R{ R.r(-100), R.r(-40), R.r(-10), R.r(30) }, @as(i32, -20), R.compareFn));
+    try std.testing.expectEqual(0, upperBound(u32, &.{}, @as(u32, 0), S.orderU32));
+    try std.testing.expectEqual(0, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.orderU32));
+    try std.testing.expectEqual(1, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.orderU32));
+    try std.testing.expectEqual(2, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(6, upperBound(u32, &.{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(6, upperBound(u32, &.{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(3, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.orderU32));
+    try std.testing.expectEqual(6, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.orderU32));
+    try std.testing.expectEqual(6, upperBound(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.orderU32));
+    try std.testing.expectEqual(2, upperBound(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.orderI32));
+    try std.testing.expectEqual(1, upperBound(f32, &.{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
+    try std.testing.expectEqual(2, upperBound(struct { i32 }, &.{ .{-100}, .{-40}, .{-10}, .{30} }, @as(i32, -20), S.orderTuple));
 }
 
-/// Returns the index of the partition point of `items` in relation to the given predicate.
+/// Returns the partition point of `items` as given by `predicate`.
 /// - If all elements of `items` satisfy the predicate the returned value is `items.len`.
 ///
 /// `items` must contain a prefix for which all elements satisfy the predicate,
 /// and beyond which none of the elements satisfy the predicate:
-/// ```
+/// ```txt
 /// [0]                                          [len]
 /// ┌────┬────┬─/ /─┬────┬─────┬─────┬─/ /─┬─────┐
 /// │true│true│ \ \ │true│false│false│ \ \ │false│
@@ -669,24 +729,29 @@ test upperBound {
 ///                       ↳ returned index
 /// ```
 ///
+/// The returned value (`res`) is guaranteed to uphold the following:
+/// ```zig
+/// std.debug.assert(res <= items.len);
+/// ```
+///
 /// `O(log n)` time complexity.
 ///
-/// See also: `binarySearch`, `lowerBound, `upperBound`, `equalRange`.
+/// See also: `binarySearch`, `lowerBound`, `upperBound`, `equalRange`.
 pub fn partitionPoint(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime predicate: fn (@TypeOf(context), T) bool,
+    comptime predicate: fn (probed: T, @TypeOf(context)) bool,
 ) usize {
     var low: usize = 0;
     var high: usize = items.len;
 
     while (low < high) {
+        // avoid overflowing in the midpoint calculation
         const mid = low + (high - low) / 2;
-        if (predicate(context, items[mid])) {
-            low = mid + 1;
-        } else {
-            high = mid;
+        switch (predicate(items[mid], context)) {
+            true => low = mid + 1,
+            false => high = mid,
         }
     }
     return low;
@@ -694,62 +759,67 @@ pub fn partitionPoint(
 
 test partitionPoint {
     const S = struct {
-        fn lowerU32(context: u32, item: u32) bool {
-            return item < context;
+        fn lowerU32(probed: u32, context: u32) bool {
+            return probed < context;
         }
-        fn lowerI32(context: i32, item: i32) bool {
-            return item < context;
+        fn lowerI32(probed: i32, context: i32) bool {
+            return probed < context;
         }
-        fn lowerF32(context: f32, item: f32) bool {
-            return item < context;
+        fn lowerF32(probed: f32, context: f32) bool {
+            return probed < context;
         }
-        fn lowerEqU32(context: u32, item: u32) bool {
-            return item <= context;
+        fn lowerEqU32(probed: u32, context: u32) bool {
+            return probed <= context;
         }
-        fn lowerEqI32(context: i32, item: i32) bool {
-            return item <= context;
+        fn lowerEqI32(probed: i32, context: i32) bool {
+            return probed <= context;
         }
-        fn lowerEqF32(context: f32, item: f32) bool {
-            return item <= context;
+        fn lowerEqF32(probed: f32, context: f32) bool {
+            return probed <= context;
         }
-        fn isEven(_: void, item: u8) bool {
-            return item % 2 == 0;
+        fn isEven(probed: u8, _: void) bool {
+            return probed % 2 == 0;
         }
     };
 
-    try std.testing.expectEqual(0, partitionPoint(u32, &[_]u32{}, @as(u32, 0), S.lowerU32));
-    try std.testing.expectEqual(0, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.lowerU32));
-    try std.testing.expectEqual(0, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.lowerU32));
-    try std.testing.expectEqual(2, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.lowerU32));
-    try std.testing.expectEqual(2, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
-    try std.testing.expectEqual(2, partitionPoint(u32, &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
-    try std.testing.expectEqual(5, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.lowerU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.lowerU32));
-    try std.testing.expectEqual(2, partitionPoint(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.lowerI32));
-    try std.testing.expectEqual(1, partitionPoint(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.lowerF32));
-    try std.testing.expectEqual(0, partitionPoint(u32, &[_]u32{}, @as(u32, 0), S.lowerEqU32));
-    try std.testing.expectEqual(0, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.lowerEqU32));
-    try std.testing.expectEqual(1, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.lowerEqU32));
-    try std.testing.expectEqual(2, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.lowerEqU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
-    try std.testing.expectEqual(3, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.lowerEqU32));
-    try std.testing.expectEqual(6, partitionPoint(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.lowerEqU32));
-    try std.testing.expectEqual(2, partitionPoint(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.lowerEqI32));
-    try std.testing.expectEqual(1, partitionPoint(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.lowerEqF32));
-    try std.testing.expectEqual(4, partitionPoint(u8, &[_]u8{ 0, 50, 14, 2, 5, 71 }, {}, S.isEven));
+    try std.testing.expectEqual(0, partitionPoint(u32, &.{}, @as(u32, 0), S.lowerU32));
+    try std.testing.expectEqual(0, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.lowerU32));
+    try std.testing.expectEqual(0, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.lowerU32));
+    try std.testing.expectEqual(2, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.lowerU32));
+    try std.testing.expectEqual(2, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
+    try std.testing.expectEqual(2, partitionPoint(u32, &.{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.lowerU32));
+    try std.testing.expectEqual(5, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.lowerU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.lowerU32));
+    try std.testing.expectEqual(2, partitionPoint(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.lowerI32));
+    try std.testing.expectEqual(1, partitionPoint(f32, &.{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.lowerF32));
+    try std.testing.expectEqual(0, partitionPoint(u32, &.{}, @as(u32, 0), S.lowerEqU32));
+    try std.testing.expectEqual(0, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 0), S.lowerEqU32));
+    try std.testing.expectEqual(1, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 2), S.lowerEqU32));
+    try std.testing.expectEqual(2, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.lowerEqU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
+    try std.testing.expectEqual(3, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 8), S.lowerEqU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 64), S.lowerEqU32));
+    try std.testing.expectEqual(6, partitionPoint(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 100), S.lowerEqU32));
+    try std.testing.expectEqual(2, partitionPoint(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.lowerEqI32));
+    try std.testing.expectEqual(1, partitionPoint(f32, &.{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.lowerEqF32));
+    try std.testing.expectEqual(4, partitionPoint(u8, &.{ 0, 50, 14, 2, 5, 71 }, {}, S.isEven));
 }
 
-/// Returns a tuple of the lower and upper indices in `items` between which all
-/// elements return `.eq` when given to `compareFn`.
-/// - If no element in `items` returns `.eq`, both indices are the
-/// index of the first element in `items` returning `.gt`.
-/// - If no element in `items` returns `.gt`, both indices equal `items.len`.
+/// Searches a sorted slice (`items`) for the maximal index range satisfying some target,
+/// using `trisectFn`.
+/// - Returns a tuple of the *lower* (inclusive) and *upper* (exclusive) indices in `items` between
+/// which all elements return `.eq` when given to `trisectFn`.
+/// - If no element in `items` returns `.eq`, both indices equal the index of the first
+/// element in `items` returning `.gt`.
+/// - If no element in `items` returns `.eq` *and* `.gt`, both indices equal `items.len`.
 ///
-/// `items` must be sorted in ascending order with respect to `compareFn`:
-/// ```
+/// `trisectFn` returns whether the probed value (first argument) is less than (`.lt`),
+/// equal to (`.eq`), or greater than (`.gt`) some target.
+///
+/// Running `trisectFn` over a sorted slice will split it into three sections (i.e. trisect):
+/// ```txt
 /// [0]                                                   [len]
 /// ┌───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┬───┬───┬─/ /─┬───┐
 /// │.lt│.lt│ \ \ │.lt│.eq│.eq│ \ \ │.eq│.gt│.gt│ \ \ │.gt│
@@ -760,79 +830,68 @@ test partitionPoint {
 ///                    ↳ returned range
 /// ```
 ///
+/// The returned value (`res`) is guaranteed to uphold the following:
+/// ```zig
+/// std.debug.assert(res[0] <= res[1] and res[1] <= items.len);
+/// ```
+///
 /// `O(log n)` time complexity.
 ///
-/// See also: `binarySearch`, `lowerBound, `upperBound`, `partitionPoint`.
+/// See also: `binarySearch`, `lowerBound`, `upperBound`, `partitionPoint`.
 pub fn equalRange(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
+    comptime trisectFn: fn (probed: T, @TypeOf(context)) std.math.Order,
 ) struct { usize, usize } {
     var low: usize = 0;
     var high: usize = items.len;
 
     while (low < high) {
+        // avoid overflowing in the midpoint calculation
         const mid = low + (high - low) / 2;
-        switch (compareFn(context, items[mid])) {
-            .gt => {
-                low = mid + 1;
+        switch (trisectFn(items[mid], context)) {
+            .eq => return .{
+                low + std.sort.lowerBound(T, items[low..mid], context, trisectFn),
+                mid + std.sort.upperBound(T, items[mid..high], context, trisectFn),
             },
-            .lt => {
-                high = mid;
-            },
-            .eq => {
-                return .{
-                    low + std.sort.lowerBound(
-                        T,
-                        items[low..mid],
-                        context,
-                        compareFn,
-                    ),
-                    mid + std.sort.upperBound(
-                        T,
-                        items[mid..high],
-                        context,
-                        compareFn,
-                    ),
-                };
-            },
+            .lt => low = mid + 1, // item too small
+            .gt => high = mid, // item too big
         }
     }
-
     return .{ low, low };
 }
 
 test equalRange {
     const S = struct {
-        fn orderU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderU32(probed: u32, context: u32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn orderI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderI32(probed: i32, context: i32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn orderF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(context, item);
+        fn orderF32(probed: f32, context: f32) std.math.Order {
+            return std.math.order(probed, context);
         }
-        fn orderLength(context: usize, item: []const u8) std.math.Order {
-            return std.math.order(context, item.len);
+        fn orderLength(probed: []const u8, context: usize) std.math.Order {
+            return std.math.order(probed.len, context);
         }
     };
 
-    try std.testing.expectEqual(.{ 0, 0 }, equalRange(i32, &[_]i32{}, @as(i32, 0), S.orderI32));
-    try std.testing.expectEqual(.{ 0, 0 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 0), S.orderI32));
-    try std.testing.expectEqual(.{ 0, 1 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 2), S.orderI32));
-    try std.testing.expectEqual(.{ 2, 2 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.orderI32));
-    try std.testing.expectEqual(.{ 2, 3 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 8), S.orderI32));
-    try std.testing.expectEqual(.{ 5, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 64), S.orderI32));
-    try std.testing.expectEqual(.{ 6, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 100), S.orderI32));
-    try std.testing.expectEqual(.{ 2, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 8, 8, 8, 15, 22 }, @as(i32, 8), S.orderI32));
-    try std.testing.expectEqual(.{ 2, 2 }, equalRange(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
-    try std.testing.expectEqual(.{ 3, 5 }, equalRange(u32, &[_]u32{ 2, 3, 4, 5, 5 }, @as(u32, 5), S.orderU32));
-    try std.testing.expectEqual(.{ 1, 1 }, equalRange(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
+    try std.testing.expectEqual(.{ 0, 0 }, equalRange(i32, &.{}, @as(i32, 0), S.orderI32));
+    try std.testing.expectEqual(.{ 0, 0 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 0), S.orderI32));
+    try std.testing.expectEqual(.{ 0, 1 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 2), S.orderI32));
+    try std.testing.expectEqual(.{ 2, 2 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 5), S.orderI32));
+    try std.testing.expectEqual(.{ 2, 3 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 8), S.orderI32));
+    try std.testing.expectEqual(.{ 5, 6 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 64), S.orderI32));
+    try std.testing.expectEqual(.{ 6, 6 }, equalRange(i32, &.{ 2, 4, 8, 16, 32, 64 }, @as(i32, 100), S.orderI32));
+    try std.testing.expectEqual(.{ 2, 6 }, equalRange(i32, &.{ 2, 4, 8, 8, 8, 8, 15, 22 }, @as(i32, 8), S.orderI32));
+    try std.testing.expectEqual(.{ 2, 2 }, equalRange(u32, &.{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(.{ 3, 5 }, equalRange(u32, &.{ 2, 3, 4, 5, 5 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(.{ 1, 1 }, equalRange(f32, &.{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
     try std.testing.expectEqual(.{ 3, 5 }, equalRange(
         []const u8,
-        &[_][]const u8{ "Mars", "Venus", "Earth", "Saturn", "Uranus", "Mercury", "Jupiter", "Neptune" },
+        &.{ "Mars", "Venus", "Earth", "Saturn", "Uranus", "Mercury", "Jupiter", "Neptune" },
         @as(usize, 6),
         S.orderLength,
     ));
