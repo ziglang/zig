@@ -131,6 +131,20 @@ pub fn glibcRuntimeTriple(
     };
 }
 
+/// Returns the subdirectory triple to be used to find the correct musl for the given `arch` and
+/// `abi` in an installation directory.
+///
+/// `abi` must be a musl ABI, i.e. `.isMusl()`.
+pub fn muslRuntimeTriple(
+    allocator: Allocator,
+    arch: std.Target.Cpu.Arch,
+    abi: std.Target.Abi,
+) Allocator.Error![]const u8 {
+    assert(abi.isMusl());
+
+    return std.Target.linuxTripleSimple(allocator, arch, .linux, abi);
+}
+
 pub fn osArchName(target: std.Target) [:0]const u8 {
     return switch (target.os.tag) {
         .linux => switch (target.cpu.arch) {
