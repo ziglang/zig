@@ -130,18 +130,23 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
-/// Keep track of one `@compileLog` callsite per `AnalUnit`.
-/// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
-compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
+/// Keep track of `@compileLog`s per `AnalUnit`.
+/// We track the source location of the first `@compileLog` call, and all logged lines as a linked list.
+/// The list is singly linked, but we do track its tail for fast appends (optimizing many logs in one unit).
+compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
     base_node_inst: InternPool.TrackedInst.Index,
     node_offset: Ast.Node.Offset,
+    first_line: CompileLogLine.Index,
+    last_line: CompileLogLine.Index,
     pub fn src(self: @This()) LazySrcLoc {
         return .{
             .base_node_inst = self.base_node_inst,
             .offset = LazySrcLoc.Offset.nodeOffset(self.node_offset),
         };
     }
-}) = .{},
+}) = .empty,
+compile_log_lines: std.ArrayListUnmanaged(CompileLogLine) = .empty,
+free_compile_log_lines: std.ArrayListUnmanaged(CompileLogLine.Index) = .empty,
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
@@ -195,8 +200,6 @@ stage1_flags: packed struct {
     have_c_main: bool = false,
     reserved: u2 = 0,
 } = .{},
-
-compile_log_text: std.ArrayListUnmanaged(u8) = .empty,
 
 test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
@@ -297,7 +300,7 @@ pub const BuiltinDecl = enum {
     @"panic.shiftRhsTooBig",
     @"panic.invalidEnumValue",
     @"panic.forLenMismatch",
-    @"panic.memcpyLenMismatch",
+    @"panic.copyLenMismatch",
     @"panic.memcpyAlias",
     @"panic.noreturnReturned",
 
@@ -374,7 +377,7 @@ pub const BuiltinDecl = enum {
             .@"panic.shiftRhsTooBig",
             .@"panic.invalidEnumValue",
             .@"panic.forLenMismatch",
-            .@"panic.memcpyLenMismatch",
+            .@"panic.copyLenMismatch",
             .@"panic.memcpyAlias",
             .@"panic.noreturnReturned",
             => .func,
@@ -441,7 +444,7 @@ pub const SimplePanicId = enum {
     shift_rhs_too_big,
     invalid_enum_value,
     for_len_mismatch,
-    memcpy_len_mismatch,
+    copy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
 
@@ -465,7 +468,7 @@ pub const SimplePanicId = enum {
             .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
             .invalid_enum_value         => .@"panic.invalidEnumValue",
             .for_len_mismatch           => .@"panic.forLenMismatch",
-            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .copy_len_mismatch          => .@"panic.copyLenMismatch",
             .memcpy_alias               => .@"panic.memcpyAlias",
             .noreturn_returned          => .@"panic.noreturnReturned",
             // zig fmt: on
@@ -544,6 +547,31 @@ pub const Export = struct {
         pub fn ptr(i: Index, zcu: *const Zcu) *Export {
             return &zcu.all_exports.items[@intFromEnum(i)];
         }
+    };
+};
+
+pub const CompileLogLine = struct {
+    next: Index.Optional,
+    /// Does *not* include the trailing newline.
+    data: InternPool.NullTerminatedString,
+    pub const Index = enum(u32) {
+        _,
+        pub fn get(idx: Index, zcu: *Zcu) *CompileLogLine {
+            return &zcu.compile_log_lines.items[@intFromEnum(idx)];
+        }
+        pub fn toOptional(idx: Index) Optional {
+            return @enumFromInt(@intFromEnum(idx));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
     };
 };
 
@@ -1716,9 +1744,25 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
-                    .assign => {
-                        return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]);
-                    },
+                    .assign,
+                    .assign_mul,
+                    .assign_div,
+                    .assign_mod,
+                    .assign_add,
+                    .assign_sub,
+                    .assign_shl,
+                    .assign_shl_sat,
+                    .assign_shr,
+                    .assign_bit_and,
+                    .assign_bit_xor,
+                    .assign_bit_or,
+                    .assign_mul_wrap,
+                    .assign_add_wrap,
+                    .assign_sub_wrap,
+                    .assign_mul_sat,
+                    .assign_add_sat,
+                    .assign_sub_sat,
+                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]),
                     else => return tree.nodeToSpan(node),
                 }
             },
@@ -1727,9 +1771,25 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
-                    .assign => {
-                        return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
-                    },
+                    .assign,
+                    .assign_mul,
+                    .assign_div,
+                    .assign_mod,
+                    .assign_add,
+                    .assign_sub,
+                    .assign_shl,
+                    .assign_shl_sat,
+                    .assign_shr,
+                    .assign_bit_and,
+                    .assign_bit_xor,
+                    .assign_bit_or,
+                    .assign_mul_wrap,
+                    .assign_add_wrap,
+                    .assign_sub_wrap,
+                    .assign_mul_sat,
+                    .assign_add_sat,
+                    .assign_sub_sat,
+                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]),
                     else => return tree.nodeToSpan(node),
                 }
             },
@@ -2209,9 +2269,9 @@ pub const LazySrcLoc = struct {
         node_offset_field_default: Ast.Node.Offset,
         /// The source location points to the type of an array or struct initializer.
         node_offset_init_ty: Ast.Node.Offset,
-        /// The source location points to the LHS of an assignment.
+        /// The source location points to the LHS of an assignment (or assign-op, e.g. `+=`).
         node_offset_store_ptr: Ast.Node.Offset,
-        /// The source location points to the RHS of an assignment.
+        /// The source location points to the RHS of an assignment (or assign-op, e.g. `+=`).
         node_offset_store_operand: Ast.Node.Offset,
         /// The source location points to the operand of a `return` statement, or
         /// the `return` itself if there is no explicit operand.
@@ -2432,6 +2492,30 @@ pub const LazySrcLoc = struct {
             .lazy = lazy.offset,
         };
     }
+
+    /// Used to sort error messages, so that they're printed in a consistent order.
+    /// If an error is returned, that error makes sorting impossible.
+    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu) !bool {
+        const lhs_src = lhs_lazy.upgradeOrLost(zcu) orelse {
+            // LHS source location lost, so should never be referenced. Just sort it to the end.
+            return false;
+        };
+        const rhs_src = rhs_lazy.upgradeOrLost(zcu) orelse {
+            // RHS source location lost, so should never be referenced. Just sort it to the end.
+            return true;
+        };
+        if (lhs_src.file_scope != rhs_src.file_scope) {
+            return std.mem.order(
+                u8,
+                lhs_src.file_scope.sub_file_path,
+                rhs_src.file_scope.sub_file_path,
+            ).compare(.lt);
+        }
+
+        const lhs_span = try lhs_src.span(zcu.gpa);
+        const rhs_span = try rhs_src.span(zcu.gpa);
+        return lhs_span.main < rhs_span.main;
+    }
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };
@@ -2474,8 +2558,6 @@ pub fn deinit(zcu: *Zcu) void {
         }
         zcu.embed_table.deinit(gpa);
 
-        zcu.compile_log_text.deinit(gpa);
-
         zcu.local_zir_cache.handle.close();
         zcu.global_zir_cache.handle.close();
 
@@ -2503,7 +2585,9 @@ pub fn deinit(zcu: *Zcu) void {
         }
         zcu.cimport_errors.deinit(gpa);
 
-        zcu.compile_log_sources.deinit(gpa);
+        zcu.compile_logs.deinit(gpa);
+        zcu.compile_log_lines.deinit(gpa);
+        zcu.free_compile_log_lines.deinit(gpa);
 
         zcu.all_exports.deinit(gpa);
         zcu.free_exports.deinit(gpa);
@@ -2721,7 +2805,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         },
         .{
             .base = @ptrCast(zoir.limbs),
-            .len = zoir.limbs.len * 4,
+            .len = zoir.limbs.len * @sizeOf(std.math.big.Limb),
         },
         .{
             .base = zoir.string_bytes.ptr,
@@ -3380,6 +3464,22 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     }
 }
 
+/// Delete all compile logs performed by this `AnalUnit`.
+/// Re-analysis of the `AnalUnit` will cause logs to be rediscovered.
+pub fn deleteUnitCompileLogs(zcu: *Zcu, anal_unit: AnalUnit) void {
+    const kv = zcu.compile_logs.fetchSwapRemove(anal_unit) orelse return;
+    const gpa = zcu.gpa;
+    var opt_line_idx = kv.value.first_line.toOptional();
+    while (opt_line_idx.unwrap()) |line_idx| {
+        zcu.free_compile_log_lines.append(gpa, line_idx) catch {
+            // This space will be reused eventually, so we need not propagate this error.
+            // Just leak it for now, and let GC reclaim it later on.
+            return;
+        };
+        opt_line_idx = line_idx.get(zcu).next;
+    }
+}
+
 pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
@@ -3587,6 +3687,7 @@ pub fn atomicPtrAlignment(
         .mips,
         .mipsel,
         .nvptx,
+        .or1k,
         .powerpc,
         .powerpcle,
         .riscv32,
@@ -3842,9 +3943,11 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     .unnamed_test => true,
                     .@"test", .decltest => a: {
                         const fqn_slice = nav.fqn.toSlice(ip);
-                        for (comp.test_filters) |test_filter| {
-                            if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
-                        } else break :a false;
+                        if (comp.test_filters.len > 0) {
+                            for (comp.test_filters) |test_filter| {
+                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                            } else break :a false;
+                        }
                         break :a true;
                     },
                 };
@@ -3854,7 +3957,10 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         @intFromEnum(inst_info.inst),
                     });
                     try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
-                    try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                    // Non-fatal AstGen errors could mean this test decl failed
+                    if (nav.status == .fully_resolved) {
+                        try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                    }
                 }
             }
             for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {

@@ -167,6 +167,9 @@ discard_local_symbols: bool = false,
 /// Position Independent Executable
 pie: ?bool = null,
 
+/// Link Time Optimization mode
+lto: ?std.zig.LtoMode = null,
+
 dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
@@ -185,7 +188,9 @@ force_undefined_symbols: std.StringHashMap(void),
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
+/// Deprecated; prefer using `lto`.
 want_lto: ?bool = null,
+
 use_llvm: ?bool,
 use_lld: ?bool,
 
@@ -288,6 +293,7 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+    test_obj,
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -365,7 +371,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     }
 
     // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if (options.kind == .@"test" and mem.eql(u8, name, "test"))
+    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
         ""
     else
         owner.fmt("{s} ", .{name});
@@ -380,6 +386,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .lib => "zig build-lib",
             .obj => "zig build-obj",
             .@"test" => "zig test",
+            .test_obj => "zig test-obj",
         },
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
@@ -391,7 +398,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .target = target,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
-            .obj => .Obj,
+            .obj, .test_obj => .Obj,
             .exe, .@"test" => .Exe,
         },
         .link_mode = options.linkage,
@@ -693,6 +700,8 @@ const PkgConfigResult = struct {
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
 fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
+    const wl_rpath_prefix = "-Wl,-rpath,";
+
     const b = compile.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -783,6 +792,8 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             try zig_cflags.appendSlice(&[_][]const u8{ "-D", macro });
         } else if (mem.startsWith(u8, arg, "-D")) {
             try zig_cflags.append(arg);
+        } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
+            try zig_cflags.appendSlice(&[_][]const u8{ "-rpath", arg[wl_rpath_prefix.len..] });
         } else if (b.debug_pkg_config) {
             return compile.step.fail("unknown pkg-config flag '{s}'", .{arg});
         }
@@ -939,6 +950,10 @@ pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) voi
     compile.root_module.addConfigHeader(config_header);
 }
 
+pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
+    compile.root_module.addEmbedPath(lazy_path);
+}
+
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
@@ -1040,6 +1055,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .exe => "build-exe",
         .obj => "build-obj",
         .@"test" => "test",
+        .test_obj => "test-obj",
     };
     try zig_args.append(cmd);
 
@@ -1209,9 +1225,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (other.kind) {
                                 .exe => return step.fail("cannot link with an executable build artifact", .{}),
                                 .@"test" => return step.fail("cannot link with a test", .{}),
-                                .obj => {
+                                .obj, .test_obj => {
                                     const included_in_lib_or_obj = !my_responsibility and
-                                        (dep_compile.kind == .lib or dep_compile.kind == .obj);
+                                        (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
                                     if (!already_linked and !included_in_lib_or_obj) {
                                         try zig_args.append(other.getEmittedBin().getPath2(b, step));
                                         total_linker_objects += 1;
@@ -1681,7 +1697,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
-    if (compile.build_id) |build_id| {
+    if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
             .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
                 std.fmt.fmtSliceHexLower(hs.toSlice()),
@@ -1703,7 +1719,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
-    try addFlag(&zig_args, "lto", compile.want_lto);
+
+    if (compile.lto) |lto| {
+        try zig_args.append(switch (lto) {
+            .full => "-flto=full",
+            .thin => "-flto=thin",
+            .none => "-fno-lto",
+        });
+    } else try addFlag(&zig_args, "lto", compile.want_lto);
+
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {

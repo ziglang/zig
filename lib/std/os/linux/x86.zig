@@ -230,8 +230,6 @@ pub const F = struct {
     pub const UNLCK = 2;
 };
 
-pub const MMAP2_UNIT = 4096;
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";
@@ -352,7 +350,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     regspace: [64]u64,
 };
 

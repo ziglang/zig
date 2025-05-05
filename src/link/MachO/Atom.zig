@@ -794,9 +794,9 @@ fn resolveRelocInner(
                 aarch64.writeAddImmInst(@truncate(target), inst_code);
             } else {
                 var inst = aarch64.Instruction{
-                    .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+                    .load_store_register = mem.bytesToValue(@FieldType(
                         aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
+                        @tagName(aarch64.Instruction.load_store_register),
                     ), inst_code),
                 };
                 inst.load_store_register.offset = switch (inst.load_store_register.size) {
@@ -843,9 +843,9 @@ fn resolveRelocInner(
             const inst_code = code[rel_offset..][0..4];
             const reg_info: RegInfo = blk: {
                 if (aarch64.isArithmeticOp(inst_code)) {
-                    const inst = mem.bytesToValue(std.meta.TagPayload(
+                    const inst = mem.bytesToValue(@FieldType(
                         aarch64.Instruction,
-                        aarch64.Instruction.add_subtract_immediate,
+                        @tagName(aarch64.Instruction.add_subtract_immediate),
                     ), inst_code);
                     break :blk .{
                         .rd = inst.rd,
@@ -853,9 +853,9 @@ fn resolveRelocInner(
                         .size = inst.sf,
                     };
                 } else {
-                    const inst = mem.bytesToValue(std.meta.TagPayload(
+                    const inst = mem.bytesToValue(@FieldType(
                         aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
+                        @tagName(aarch64.Instruction.load_store_register),
                     ), inst_code);
                     break :blk .{
                         .rd = inst.rt,

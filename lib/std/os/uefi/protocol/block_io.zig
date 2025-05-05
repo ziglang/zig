@@ -2,6 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 pub const BlockIo = extern struct {
     const Self = @This();
@@ -11,27 +12,72 @@ pub const BlockIo = extern struct {
 
     _reset: *const fn (*BlockIo, extended_verification: bool) callconv(cc) Status,
     _read_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
-    _write_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
+    _write_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]const u8) callconv(cc) Status,
     _flush_blocks: *const fn (*BlockIo) callconv(cc) Status,
 
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const ReadBlocksError = uefi.UnexpectedError || error{
+        DeviceError,
+        NoMedia,
+        BadBufferSize,
+        InvalidParameter,
+    };
+    pub const WriteBlocksError = uefi.UnexpectedError || error{
+        WriteProtected,
+        NoMedia,
+        MediaChanged,
+        DeviceError,
+        BadBufferSize,
+        InvalidParameter,
+    };
+    pub const FlushBlocksError = uefi.UnexpectedError || error{
+        DeviceError,
+        NoMedia,
+    };
+
     /// Resets the block device hardware.
-    pub fn reset(self: *Self, extended_verification: bool) Status {
-        return self._reset(self, extended_verification);
+    pub fn reset(self: *Self, extended_verification: bool) ResetError!void {
+        switch (self._reset(self, extended_verification)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Reads the number of requested blocks from the device.
-    pub fn readBlocks(self: *Self, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) Status {
-        return self._read_blocks(self, media_id, lba, buffer_size, buf);
+    pub fn readBlocks(self: *Self, media_id: u32, lba: u64, buf: []u8) ReadBlocksError!void {
+        switch (self._read_blocks(self, media_id, lba, buf.len, buf.ptr)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .no_media => return Error.NoMedia,
+            .bad_buffer_size => return Error.BadBufferSize,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Writes a specified number of blocks to the device.
-    pub fn writeBlocks(self: *Self, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) Status {
-        return self._write_blocks(self, media_id, lba, buffer_size, buf);
+    pub fn writeBlocks(self: *Self, media_id: u32, lba: u64, buf: []const u8) WriteBlocksError!void {
+        switch (self._write_blocks(self, media_id, lba, buf.len, buf.ptr)) {
+            .success => {},
+            .write_protected => return Error.WriteProtected,
+            .no_media => return Error.NoMedia,
+            .media_changed => return Error.MediaChanged,
+            .device_error => return Error.DeviceError,
+            .bad_buffer_size => return Error.BadBufferSize,
+            .invalid_parameter => return Error.InvalidParameter,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Flushes all modified data to a physical block device.
-    pub fn flushBlocks(self: *Self) Status {
-        return self._flush_blocks(self);
+    pub fn flushBlocks(self: *Self) FlushBlocksError!void {
+        switch (self._flush_blocks(self)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            .no_media => return Error.NoMedia,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = uefi.Guid{

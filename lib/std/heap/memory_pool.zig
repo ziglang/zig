@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const Alignment = std.mem.Alignment;
 
 const debug_mode = @import("builtin").mode == .Debug;
 
@@ -8,14 +9,14 @@ pub const MemoryPoolError = error{OutOfMemory};
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
 pub fn MemoryPool(comptime Item: type) type {
-    return MemoryPoolAligned(Item, @alignOf(Item));
+    return MemoryPoolAligned(Item, .of(Item));
 }
 
 /// A memory pool that can allocate objects of a single type very quickly.
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
-pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: u29) type {
-    if (@alignOf(Item) == alignment) {
+pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: Alignment) type {
+    if (@alignOf(Item) == comptime alignment.toByteUnits()) {
         return MemoryPoolExtra(Item, .{});
     } else {
         return MemoryPoolExtra(Item, .{ .alignment = alignment });
@@ -24,7 +25,7 @@ pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: u29) type {
 
 pub const Options = struct {
     /// The alignment of the memory pool items. Use `null` for natural alignment.
-    alignment: ?u29 = null,
+    alignment: ?Alignment = null,
 
     /// If `true`, the memory pool can allocate additional items after a initial setup.
     /// If `false`, the memory pool will not allocate further after a call to `initPreheated`.
@@ -43,17 +44,17 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         pub const item_size = @max(@sizeOf(Node), @sizeOf(Item));
 
         // This needs to be kept in sync with Node.
-        const node_alignment = @alignOf(*anyopaque);
+        const node_alignment: Alignment = .of(*anyopaque);
 
         /// Alignment of the memory pool items. This is not necessarily the same
         /// as `@alignOf(Item)` as the pool also uses the items for internal means.
-        pub const item_alignment = @max(node_alignment, pool_options.alignment orelse @alignOf(Item));
+        pub const item_alignment: Alignment = node_alignment.max(pool_options.alignment orelse .of(Item));
 
         const Node = struct {
-            next: ?*align(item_alignment) @This(),
+            next: ?*align(item_alignment.toByteUnits()) @This(),
         };
-        const NodePtr = *align(item_alignment) Node;
-        const ItemPtr = *align(item_alignment) Item;
+        const NodePtr = *align(item_alignment.toByteUnits()) Node;
+        const ItemPtr = *align(item_alignment.toByteUnits()) Item;
 
         arena: std.heap.ArenaAllocator,
         free_list: ?NodePtr = null,
@@ -143,7 +144,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             pool.free_list = node;
         }
 
-        fn allocNew(pool: *Pool) MemoryPoolError!*align(item_alignment) [item_size]u8 {
+        fn allocNew(pool: *Pool) MemoryPoolError!*align(item_alignment.toByteUnits()) [item_size]u8 {
             const mem = try pool.arena.allocator().alignedAlloc(u8, item_alignment, item_size);
             return mem[0..item_size]; // coerce slice to array pointer
         }
@@ -213,7 +214,7 @@ test "greater than pointer manual alignment" {
         data: u64,
     };
 
-    var pool = MemoryPoolAligned(Foo, 16).init(std.testing.allocator);
+    var pool = MemoryPoolAligned(Foo, .@"16").init(std.testing.allocator);
     defer pool.deinit();
 
     const foo: *align(16) Foo = try pool.create();

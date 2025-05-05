@@ -170,8 +170,6 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const MMAP2_UNIT = 4096;
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -339,7 +337,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     regspace: [64]u64,
 };
 

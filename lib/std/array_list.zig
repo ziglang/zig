@@ -22,9 +22,9 @@ pub fn ArrayList(comptime T: type) type {
 ///
 /// This struct internally stores a `std.mem.Allocator` for memory management.
 /// To manually specify an allocator with each function call see `ArrayListAlignedUnmanaged`.
-pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
+pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
     if (alignment) |a| {
-        if (a == @alignOf(T)) {
+        if (a.toByteUnits() == @alignOf(T)) {
             return ArrayListAligned(T, null);
         }
     }
@@ -43,10 +43,10 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         capacity: usize,
         allocator: Allocator,
 
-        pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
+        pub const Slice = if (alignment) |a| ([]align(a.toByteUnits()) T) else []T;
 
         pub fn SentinelSlice(comptime s: T) type {
-            return if (alignment) |a| ([:s]align(a) T) else [:s]T;
+            return if (alignment) |a| ([:s]align(a.toByteUnits()) T) else [:s]T;
         }
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
@@ -611,9 +611,9 @@ pub fn ArrayListUnmanaged(comptime T: type) type {
 /// or use `toOwnedSlice`.
 ///
 /// Default initialization of this struct is deprecated; use `.empty` instead.
-pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
+pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alignment) type {
     if (alignment) |a| {
-        if (a == @alignOf(T)) {
+        if (a.toByteUnits() == @alignOf(T)) {
             return ArrayListAlignedUnmanaged(T, null);
         }
     }
@@ -637,10 +637,10 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             .capacity = 0,
         };
 
-        pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
+        pub const Slice = if (alignment) |a| ([]align(a.toByteUnits()) T) else []T;
 
         pub fn SentinelSlice(comptime s: T) type {
-            return if (alignment) |a| ([:s]align(a) T) else [:s]T;
+            return if (alignment) |a| ([:s]align(a.toByteUnits()) T) else [:s]T;
         }
 
         /// Initialize with capacity to hold `num` elements.
@@ -1913,7 +1913,7 @@ test "ArrayList(u8) implements writer" {
         try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
     }
     {
-        var list = ArrayListAligned(u8, 2).init(a);
+        var list = ArrayListAligned(u8, .@"2").init(a);
         defer list.deinit();
 
         const writer = list.writer();
@@ -1940,7 +1940,7 @@ test "ArrayListUnmanaged(u8) implements writer" {
         try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
     }
     {
-        var list: ArrayListAlignedUnmanaged(u8, 2) = .empty;
+        var list: ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
         defer list.deinit(a);
 
         const writer = list.writer(a);
@@ -2126,7 +2126,7 @@ test "toOwnedSliceSentinel" {
 test "accepts unaligned slices" {
     const a = testing.allocator;
     {
-        var list = std.ArrayListAligned(u8, 8).init(a);
+        var list = std.ArrayListAligned(u8, .@"8").init(a);
         defer list.deinit();
 
         try list.appendSlice(&.{ 0, 1, 2, 3 });
@@ -2136,7 +2136,7 @@ test "accepts unaligned slices" {
         try testing.expectEqualSlices(u8, list.items, &.{ 0, 8, 9, 6, 7, 2, 3 });
     }
     {
-        var list: std.ArrayListAlignedUnmanaged(u8, 8) = .empty;
+        var list: std.ArrayListAlignedUnmanaged(u8, .@"8") = .empty;
         defer list.deinit(a);
 
         try list.appendSlice(a, &.{ 0, 1, 2, 3 });

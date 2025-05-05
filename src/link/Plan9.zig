@@ -1090,7 +1090,9 @@ fn updateLazySymbolAtom(
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.CodegenFail => return error.LinkFailure,
-        error.Overflow => return diags.fail("codegen failure: encountered number too big for compiler", .{}),
+        error.Overflow,
+        error.RelocationNotByteAligned,
+        => return diags.fail("unable to codegen: {s}", .{@errorName(err)}),
     };
     const code = code_buffer.items;
     // duped_code is freed when the atom is freed

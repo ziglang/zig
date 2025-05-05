@@ -4,21 +4,40 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInput = extern struct {
-    _reset: *const fn (*const SimpleTextInput, bool) callconv(cc) Status,
-    _read_key_stroke: *const fn (*const SimpleTextInput, *Key.Input) callconv(cc) Status,
+    _reset: *const fn (*SimpleTextInput, bool) callconv(cc) Status,
+    _read_key_stroke: *const fn (*SimpleTextInput, *Key.Input) callconv(cc) Status,
     wait_for_key: Event,
 
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const ReadKeyStrokeError = uefi.UnexpectedError || error{
+        NotReady,
+        DeviceError,
+        Unsupported,
+    };
+
     /// Resets the input device hardware.
-    pub fn reset(self: *const SimpleTextInput, verify: bool) Status {
-        return self._reset(self, verify);
+    pub fn reset(self: *SimpleTextInput, verify: bool) ResetError!void {
+        switch (self._reset(self, verify)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStroke(self: *const SimpleTextInput, input_key: *Key.Input) Status {
-        return self._read_key_stroke(self, input_key);
+    pub fn readKeyStroke(self: *SimpleTextInput) ReadKeyStrokeError!Key.Input {
+        var key: Key.Input = undefined;
+        switch (self._read_key_stroke(self, &key)) {
+            .success => return key,
+            .not_ready => return Error.NotReady,
+            .device_error => return Error.DeviceError,
+            .unsupported => return Error.Unsupported,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

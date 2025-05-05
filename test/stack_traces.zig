@@ -839,6 +839,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
+                .macos, // Broken in LLVM 20.
             },
             .expect =
             \\error: TheSkyIsFalling

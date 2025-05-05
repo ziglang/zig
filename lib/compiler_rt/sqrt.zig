@@ -13,6 +13,8 @@ comptime {
     @export(&__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
         @export(&sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage, .visibility = common.visibility });
+    } else if (common.want_sparc_abi) {
+        @export(&_Qp_sqrt, .{ .name = "_Qp_sqrt", .linkage = common.linkage, .visibility = common.visibility });
     }
     @export(&sqrtq, .{ .name = "sqrtq", .linkage = common.linkage, .visibility = common.visibility });
     @export(&sqrtl, .{ .name = "sqrtl", .linkage = common.linkage, .visibility = common.visibility });
@@ -240,6 +242,10 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
 pub fn sqrtq(x: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return sqrt(@floatCast(x));
+}
+
+fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void {
+    c.* = sqrt(@floatCast(a.*));
 }
 
 pub fn sqrtl(x: c_longdouble) callconv(.c) c_longdouble {

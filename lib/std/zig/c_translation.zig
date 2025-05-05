@@ -88,6 +88,9 @@ fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype
         .pointer => {
             return castPtr(DestType, target);
         },
+        .@"fn" => {
+            return castPtr(DestType, &target);
+        },
         .optional => |target_opt| {
             if (@typeInfo(target_opt.child) == .pointer) {
                 return castPtr(DestType, target);
@@ -685,4 +688,15 @@ test "Extended C ABI casting" {
         try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
         try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
     }
+}
+
+// Function with complex signature for testing the SDL case
+fn complexFunction(_: ?*anyopaque, _: c_uint, _: ?*const fn (?*anyopaque) callconv(.c) c_uint, _: ?*anyopaque, _: c_uint, _: [*c]c_uint) callconv(.c) usize {
+    return 0;
+}
+
+test "function pointer casting" {
+    const SDL_FunctionPointer = ?*const fn () callconv(.c) void;
+    const fn_ptr = cast(SDL_FunctionPointer, complexFunction);
+    try testing.expect(fn_ptr != null);
 }

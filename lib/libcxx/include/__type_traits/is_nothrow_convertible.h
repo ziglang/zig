@@ -29,10 +29,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #  if __has_builtin(__is_nothrow_convertible)
 
 template <class _Tp, class _Up>
-struct is_nothrow_convertible : bool_constant<__is_nothrow_convertible(_Tp, _Up)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_nothrow_convertible : bool_constant<__is_nothrow_convertible(_Tp, _Up)> {};
 
 template <class _Tp, class _Up>
-inline constexpr bool is_nothrow_convertible_v = __is_nothrow_convertible(_Tp, _Up);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_convertible_v = __is_nothrow_convertible(_Tp, _Up);
 
 #  else // __has_builtin(__is_nothrow_convertible)
 

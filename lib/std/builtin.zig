@@ -141,11 +141,16 @@ pub const AtomicRmwOp = enum {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CodeModel = enum {
     default,
-    tiny,
-    small,
+    extreme,
     kernel,
-    medium,
     large,
+    medany,
+    medium,
+    medlow,
+    medmid,
+    normal,
+    small,
+    tiny,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -364,6 +369,9 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
+
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
 
     /// The standard `propeller` calling convention.
     propeller_sysv: CommonOptions,

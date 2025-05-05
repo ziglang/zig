@@ -22,7 +22,7 @@ unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
 stack_check: ?bool,
-sanitize_c: ?bool,
+sanitize_c: ?std.zig.SanitizeC,
 sanitize_thread: ?bool,
 fuzz: ?bool,
 code_model: std.builtin.CodeModel,
@@ -164,6 +164,7 @@ pub const IncludeDir = union(enum) {
     framework_path_system: LazyPath,
     other_step: *Step.Compile,
     config_header_step: *Step.ConfigHeader,
+    embed_path: LazyPath,
 
     pub fn appendZigProcessFlags(
         include_dir: IncludeDir,
@@ -199,6 +200,9 @@ pub const IncludeDir = union(enum) {
                 const full_file_path = config_header.output_file.getPath();
                 const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
                 try zig_args.appendSlice(&.{ "-I", header_dir_path });
+            },
+            .embed_path => |embed_path| {
+                try zig_args.append(try std.mem.concat(b.allocator, u8, &.{ "--embed-dir=", embed_path.getPath2(b, asking_step) }));
             },
         }
     }
@@ -252,7 +256,7 @@ pub const CreateOptions = struct {
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
-    sanitize_c: ?bool = null,
+    sanitize_c: ?std.zig.SanitizeC = null,
     sanitize_thread: ?bool = null,
     fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
@@ -470,7 +474,7 @@ pub fn addObjectFile(m: *Module, object: LazyPath) void {
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
-    assert(object.kind == .obj);
+    assert(object.kind == .obj or object.kind == .test_obj);
     m.linkLibraryOrObject(object);
 }
 
@@ -509,6 +513,11 @@ pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
     m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
         @panic("OOM");
+}
+
+pub fn addEmbedPath(m: *Module, lazy_path: LazyPath) void {
+    const b = m.owner;
+    m.include_dirs.append(b.allocator, .{ .embed_path = lazy_path.dupe(b) }) catch @panic("OOM");
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
@@ -550,12 +559,17 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
     try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
     try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+
+    if (m.sanitize_c) |sc| switch (sc) {
+        .off => try zig_args.append("-fno-sanitize-c"),
+        .trap => try zig_args.append("-fsanitize-c=trap"),
+        .full => try zig_args.append("-fsanitize-c=full"),
+    };
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {

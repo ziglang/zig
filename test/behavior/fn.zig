@@ -732,3 +732,27 @@ test "inline function return type is evaluated at comptime" {
     comptime assert(@TypeOf(result) == u16);
     try expect(result == 123);
 }
+
+test "coerce generic function making concrete parameter generic" {
+    const S = struct {
+        fn foo(_: anytype, x: u32) u32 {
+            comptime assert(@TypeOf(x) == u32);
+            return x;
+        }
+    };
+    const coerced: fn (anytype, anytype) u32 = S.foo;
+    const result = coerced({}, 123);
+    try expect(result == 123);
+}
+
+test "coerce generic function making generic parameter concrete" {
+    const S = struct {
+        fn foo(_: anytype, x: anytype) u32 {
+            comptime assert(@TypeOf(x) == u32);
+            return x;
+        }
+    };
+    const coerced: fn (anytype, u32) u32 = S.foo;
+    const result = coerced({}, 123);
+    try expect(result == 123);
+}

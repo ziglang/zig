@@ -13,6 +13,8 @@ pub const DevicePath = extern struct {
     subtype: u8,
     length: u16 align(1),
 
+    pub const CreateFileDevicePathError = Allocator.Error;
+
     pub const guid align(8) = Guid{
         .time_low = 0x09576e91,
         .time_mid = 0x6d3f,
@@ -23,15 +25,17 @@ pub const DevicePath = extern struct {
     };
 
     /// Returns the next DevicePath node in the sequence, if any.
-    pub fn next(self: *DevicePath) ?*DevicePath {
-        if (self.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
+    pub fn next(self: *const DevicePath) ?*const DevicePath {
+        const bytes: [*]const u8 = @ptrCast(self);
+        const next_node: *const DevicePath = @ptrCast(bytes + self.length);
+        if (next_node.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
-        return @as(*DevicePath, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
+        return next_node;
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
-    pub fn size(self: *DevicePath) usize {
+    pub fn size(self: *const DevicePath) usize {
         var node = self;
 
         while (node.next()) |next_node| {
@@ -42,7 +46,11 @@ pub const DevicePath = extern struct {
     }
 
     /// Creates a file device path from the existing device path and a file path.
-    pub fn create_file_device_path(self: *DevicePath, allocator: Allocator, path: [:0]align(1) const u16) !*DevicePath {
+    pub fn createFileDevicePath(
+        self: *const DevicePath,
+        allocator: Allocator,
+        path: []const u16,
+    ) CreateFileDevicePathError!*const DevicePath {
         const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s
@@ -67,7 +75,7 @@ pub const DevicePath = extern struct {
 
         ptr[path.len] = 0;
 
-        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
+        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@constCast(@as(*DevicePath, @ptrCast(new)).next().?)));
         end.type = .end;
         end.subtype = .end_entire;
         end.length = @sizeOf(uefi.DevicePath.End.EndEntireDevicePath);

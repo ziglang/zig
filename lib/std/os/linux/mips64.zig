@@ -273,8 +273,6 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const MMAP2_UNIT = 4096;
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";

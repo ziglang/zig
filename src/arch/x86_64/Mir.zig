@@ -1742,6 +1742,7 @@ pub const Memory = struct {
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
                 .reloc => |sym_index| sym_index,
+                .rip_inst => |inst_index| inst_index,
             },
             .off = switch (mem.mod) {
                 .rm => |rm| @bitCast(rm.disp),
@@ -1769,6 +1770,7 @@ pub const Memory = struct {
                         .frame => .{ .frame = @enumFromInt(mem.base) },
                         .table => .table,
                         .reloc => .{ .reloc = mem.base },
+                        .rip_inst => .{ .rip_inst = mem.base },
                     },
                     .scale_index = switch (mem.info.index) {
                         .none => null,
@@ -1832,7 +1834,7 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
 
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
-        .none, .reg, .table, .reloc => mem,
+        .none, .reg, .table, .reloc, .rip_inst => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,

@@ -1134,7 +1134,7 @@ pub fn updateFunc(
     ) catch |err| switch (err) {
         error.CodegenFail => return error.CodegenFail,
         error.OutOfMemory => return error.OutOfMemory,
-        error.Overflow => |e| {
+        error.Overflow, error.RelocationNotByteAligned => |e| {
             try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                 gpa,
                 zcu.navSrcLoc(nav_index),
@@ -1763,6 +1763,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         man.hash.addOptionalBytes(entry_name);
         man.hash.add(coff.base.stack_size);
         man.hash.add(coff.image_base);
+        man.hash.add(coff.base.build_id);
         {
             // TODO remove this, libraries must instead be resolved by the frontend.
             for (coff.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
@@ -1894,6 +1895,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{coff.base.stack_size}));
         }
         try argv.append(try allocPrint(arena, "-BASE:{d}", .{coff.image_base}));
+
+        switch (coff.base.build_id) {
+            .none => try argv.append("-BUILD-ID:NO"),
+            .fast => try argv.append("-BUILD-ID"),
+            .uuid, .sha1, .md5, .hexstring => {},
+        }
 
         if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");
@@ -2104,7 +2111,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                             try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.crtFileAsString(arena, "mingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",
@@ -2147,6 +2154,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             },
         }
 
+        if (comp.config.link_libc and link_in_crt) {
+            if (comp.zigc_static_lib) |zigc| {
+                try argv.append(try zigc.full_object_path.toString(arena));
+            }
+        }
+
         // libc++ dep
         if (comp.config.link_libcpp) {
             try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
@@ -2172,11 +2185,6 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
-            if (!comp.config.link_libc) {
-                if (comp.libc_static_lib) |lib| {
-                    try argv.append(try lib.full_object_path.toString(arena));
-                }
-            }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
             if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
@@ -3497,9 +3505,9 @@ pub const Relocation = struct {
                 const target_page = @as(i32, @intCast(ctx.target_vaddr >> 12));
                 const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
                 var inst = aarch64_util.Instruction{
-                    .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
+                    .pc_relative_address = mem.bytesToValue(@FieldType(
                         aarch64_util.Instruction,
-                        aarch64_util.Instruction.pc_relative_address,
+                        @tagName(aarch64_util.Instruction.pc_relative_address),
                     ), buffer[0..4]),
                 };
                 inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
@@ -3512,18 +3520,18 @@ pub const Relocation = struct {
                 const narrowed = @as(u12, @truncate(@as(u64, @intCast(ctx.target_vaddr))));
                 if (isArithmeticOp(buffer[0..4])) {
                     var inst = aarch64_util.Instruction{
-                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
                             aarch64_util.Instruction,
-                            aarch64_util.Instruction.add_subtract_immediate,
+                            @tagName(aarch64_util.Instruction.add_subtract_immediate),
                         ), buffer[0..4]),
                     };
                     inst.add_subtract_immediate.imm12 = narrowed;
                     mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
                 } else {
                     var inst = aarch64_util.Instruction{
-                        .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+                        .load_store_register = mem.bytesToValue(@FieldType(
                             aarch64_util.Instruction,
-                            aarch64_util.Instruction.load_store_register,
+                            @tagName(aarch64_util.Instruction.load_store_register),
                         ), buffer[0..4]),
                     };
                     const offset: u12 = blk: {

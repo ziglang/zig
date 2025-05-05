@@ -85,22 +85,19 @@ test "alignment and size of structs with 128-bit fields" {
         y: u8,
     };
     const expected = switch (builtin.cpu.arch) {
+        .amdgcn,
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
         .hexagon,
+        .lanai,
         .mips,
         .mipsel,
         .powerpc,
         .powerpcle,
-        .amdgcn,
         .riscv32,
-        .sparc,
         .s390x,
-        .lanai,
-        .wasm32,
-        .wasm64,
         => .{
             .a_align = 8,
             .a_size = 16,
@@ -114,59 +111,23 @@ test "alignment and size of structs with 128-bit fields" {
             .u129_size = 24,
         },
 
-        .mips64,
-        .mips64el,
-        .powerpc64,
-        .powerpc64le,
-        .sparc64,
-        => switch (builtin.object_format) {
-            .c => .{
-                .a_align = 16,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 16,
-                .u128_size = 16,
-                .u129_align = 16,
-                .u129_size = 32,
-            },
-            else => .{
-                .a_align = 8,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-        },
-
-        .x86_64 => .{
-            .a_align = 16,
-            .a_size = 16,
-
-            .b_align = 16,
-            .b_size = 32,
-
-            .u128_align = 16,
-            .u128_size = 16,
-            .u129_align = 16,
-            .u129_size = 32,
-        },
-
-        .x86,
         .aarch64,
         .aarch64_be,
-        .riscv64,
         .bpfel,
         .bpfeb,
+        .mips64,
+        .mips64el,
         .nvptx,
         .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .sparc,
+        .sparc64,
+        .riscv64,
+        .wasm32,
+        .wasm64,
+        .x86,
+        .x86_64,
         => .{
             .a_align = 16,
             .a_size = 16,
@@ -634,4 +595,14 @@ test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
     const nothing_ptr2: *const fn () callconv(.c) void = @ptrFromInt(nothing_int);
 
     try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
+}
+
+test "function pointer align mask" {
+    if (!(builtin.cpu.arch.isArm() or builtin.cpu.arch.isMIPS())) return error.SkipZigTest;
+
+    const a: *const fn () callconv(.c) void = @ptrFromInt(0x20202021);
+    _ = &a;
+
+    const b: *align(16) const fn () callconv(.c) void = @alignCast(a);
+    _ = &b;
 }

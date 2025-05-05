@@ -35,9 +35,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __includes {
-
-struct __fn {
+struct __includes {
   template <input_iterator _Iter1,
             sentinel_for<_Iter1> _Sent1,
             input_iterator _Iter2,
@@ -82,10 +80,8 @@ struct __fn {
   }
 };
 
-} // namespace __includes
-
 inline namespace __cpo {
-inline constexpr auto includes = __includes::__fn{};
+inline constexpr auto includes = __includes{};
 } // namespace __cpo
 } // namespace ranges
 

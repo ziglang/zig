@@ -8,8 +8,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :3:16: error: division by zero here causes undefined behavior
+// :3:16: error: division by zero here causes illegal behavior
 // :1:14: note: called from here

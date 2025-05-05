@@ -36,8 +36,7 @@ namespace ranges {
 template <class _Iter, class _Func>
 using for_each_result = in_fun_result<_Iter, _Func>;
 
-namespace __for_each {
-struct __fn {
+struct __for_each {
 private:
   template <class _Iter, class _Sent, class _Proj, class _Func>
   _LIBCPP_HIDE_FROM_ABI constexpr static for_each_result<_Iter, _Func>
@@ -65,10 +64,9 @@ public:
     return __for_each_impl(ranges::begin(__range), ranges::end(__range), __func, __proj);
   }
 };
-} // namespace __for_each
 
 inline namespace __cpo {
-inline constexpr auto for_each = __for_each::__fn{};
+inline constexpr auto for_each = __for_each{};
 } // namespace __cpo
 } // namespace ranges
 

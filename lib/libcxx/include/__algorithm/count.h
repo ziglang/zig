@@ -16,9 +16,10 @@
 #include <__bit/popcount.h>
 #include <__config>
 #include <__functional/identity.h>
-#include <__functional/invoke.h>
 #include <__fwd/bit_reference.h>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/invoke.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,7 +44,7 @@ __count(_Iter __first, _Sent __last, const _Tp& __value, _Proj& __proj) {
 // __bit_iterator implementation
 template <bool _ToCount, class _Cp, bool _IsConst>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 typename __bit_iterator<_Cp, _IsConst>::difference_type
-__count_bool(__bit_iterator<_Cp, _IsConst> __first, typename _Cp::size_type __n) {
+__count_bool(__bit_iterator<_Cp, _IsConst> __first, typename __size_difference_type_traits<_Cp>::size_type __n) {
   using _It             = __bit_iterator<_Cp, _IsConst>;
   using __storage_type  = typename _It::__storage_type;
   using difference_type = typename _It::difference_type;
@@ -74,12 +75,14 @@ template <class, class _Cp, bool _IsConst, class _Tp, class _Proj, __enable_if_t
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __iter_diff_t<__bit_iterator<_Cp, _IsConst> >
 __count(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, const _Tp& __value, _Proj&) {
   if (__value)
-    return std::__count_bool<true>(__first, static_cast<typename _Cp::size_type>(__last - __first));
-  return std::__count_bool<false>(__first, static_cast<typename _Cp::size_type>(__last - __first));
+    return std::__count_bool<true>(
+        __first, static_cast<typename __size_difference_type_traits<_Cp>::size_type>(__last - __first));
+  return std::__count_bool<false>(
+      __first, static_cast<typename __size_difference_type_traits<_Cp>::size_type>(__last - __first));
 }
 
 template <class _InputIterator, class _Tp>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __iter_diff_t<_InputIterator>
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __iter_diff_t<_InputIterator>
 count(_InputIterator __first, _InputIterator __last, const _Tp& __value) {
   __identity __proj;
   return std::__count<_ClassicAlgPolicy>(__first, __last, __value, __proj);

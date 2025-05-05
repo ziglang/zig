@@ -112,7 +112,7 @@ pub const Options = struct {
         /// No host verification is performed, which prevents a trusted connection from
         /// being established.
         no_verification,
-        /// Verify that the server certificate was issues for a given host.
+        /// Verify that the server certificate was issued for a given host.
         explicit: []const u8,
     },
     /// How to verify the authenticity of server certificates.

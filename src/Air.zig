@@ -37,7 +37,7 @@ pub const Inst = struct {
         /// liveness analysis without any special handling.
         /// Uses the `arg` field.
         arg,
-        /// Float or integer addition. For integers, wrapping is undefined behavior.
+        /// Float or integer addition. For integers, wrapping is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -66,7 +66,7 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         add_sat,
-        /// Float or integer subtraction. For integers, wrapping is undefined behavior.
+        /// Float or integer subtraction. For integers, wrapping is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -95,7 +95,7 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         sub_sat,
-        /// Float or integer multiplication. For integers, wrapping is undefined behavior.
+        /// Float or integer multiplication. For integers, wrapping is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -131,14 +131,14 @@ pub const Inst = struct {
         div_float,
         /// Same as `div_float` with optimized float mode.
         div_float_optimized,
-        /// Truncating integer or float division. For integers, wrapping is undefined behavior.
+        /// Truncating integer or float division. For integers, wrapping is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div_trunc,
         /// Same as `div_trunc` with optimized float mode.
         div_trunc_optimized,
-        /// Flooring integer or float division. For integers, wrapping is undefined behavior.
+        /// Flooring integer or float division. For integers, wrapping is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -146,8 +146,8 @@ pub const Inst = struct {
         /// Same as `div_floor` with optimized float mode.
         div_floor_optimized,
         /// Integer or float division.
-        /// If a remainder would be produced, undefined behavior occurs.
-        /// For integers, overflow is undefined behavior.
+        /// If a remainder would be produced, illegal behavior occurs.
+        /// For integers, overflow is illegal behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -170,14 +170,14 @@ pub const Inst = struct {
         mod_optimized,
         /// Add an offset to a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
-        /// Wrapping is undefined behavior.
+        /// Wrapping is illegal behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
         /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_add,
         /// Subtract an offset from a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
-        /// Wrapping is undefined behavior.
+        /// Wrapping is illegal behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
         /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
@@ -577,10 +577,10 @@ pub const Inst = struct {
         /// sign but an equal or smaller number of bits.
         /// Uses the `ty_op` field.
         trunc,
-        /// ?T => T. If the value is null, undefined behavior.
+        /// ?T => T. If the value is null, illegal behavior.
         /// Uses the `ty_op` field.
         optional_payload,
-        /// *?T => *T. If the value is null, undefined behavior.
+        /// *?T => *T. If the value is null, illegal behavior.
         /// Uses the `ty_op` field.
         optional_payload_ptr,
         /// *?T => *T. Sets the value to non-null with an undefined payload value.
@@ -589,16 +589,16 @@ pub const Inst = struct {
         /// Given a payload value, wraps it in an optional type.
         /// Uses the `ty_op` field.
         wrap_optional,
-        /// E!T -> T. If the value is an error, undefined behavior.
+        /// E!T -> T. If the value is an error, illegal behavior.
         /// Uses the `ty_op` field.
         unwrap_errunion_payload,
-        /// E!T -> E. If the value is not an error, undefined behavior.
+        /// E!T -> E. If the value is not an error, illegal behavior.
         /// Uses the `ty_op` field.
         unwrap_errunion_err,
-        /// *(E!T) -> *T. If the value is an error, undefined behavior.
+        /// *(E!T) -> *T. If the value is an error, illegal behavior.
         /// Uses the `ty_op` field.
         unwrap_errunion_payload_ptr,
-        /// *(E!T) -> E. If the value is not an error, undefined behavior.
+        /// *(E!T) -> E. If the value is not an error, illegal behavior.
         /// Uses the `ty_op` field.
         unwrap_errunion_err_ptr,
         /// *(E!T) => *T. Sets the value to non-error with an undefined payload value.
@@ -730,6 +730,18 @@ pub const Inst = struct {
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
         memcpy,
+        /// Given dest pointer and source pointer, copy elements from source to dest.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The dest element type may be any type.
+        /// Source pointer must have same element type as dest element type.
+        /// Dest slice may have any alignment; source pointer may have any alignment.
+        /// The two memory regions may overlap.
+        /// Result type is always void.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        /// If the length is compile-time known (due to the destination or
+        /// source being a pointer-to-array), then it is guaranteed to be
+        /// greater than zero.
+        memmove,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
@@ -985,6 +997,10 @@ pub const Inst = struct {
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
         vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),
+        vector_1_u8_type = @intFromEnum(InternPool.Index.vector_1_u8_type),
+        vector_2_u8_type = @intFromEnum(InternPool.Index.vector_2_u8_type),
+        vector_4_u8_type = @intFromEnum(InternPool.Index.vector_4_u8_type),
+        vector_8_u8_type = @intFromEnum(InternPool.Index.vector_8_u8_type),
         vector_16_u8_type = @intFromEnum(InternPool.Index.vector_16_u8_type),
         vector_32_u8_type = @intFromEnum(InternPool.Index.vector_32_u8_type),
         vector_8_i16_type = @intFromEnum(InternPool.Index.vector_8_i16_type),
@@ -1529,6 +1545,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
@@ -1692,6 +1709,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .cmpxchg_weak,
         .cmpxchg_strong,
         .atomic_store_unordered,

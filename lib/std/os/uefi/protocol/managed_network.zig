@@ -8,58 +8,186 @@ const Time = uefi.Time;
 const SimpleNetwork = uefi.protocol.SimpleNetwork;
 const MacAddress = uefi.MacAddress;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 pub const ManagedNetwork = extern struct {
     _get_mode_data: *const fn (*const ManagedNetwork, ?*Config, ?*SimpleNetwork) callconv(cc) Status,
-    _configure: *const fn (*const ManagedNetwork, ?*const Config) callconv(cc) Status,
-    _mcast_ip_to_mac: *const fn (*const ManagedNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
-    _groups: *const fn (*const ManagedNetwork, bool, ?*const MacAddress) callconv(cc) Status,
-    _transmit: *const fn (*const ManagedNetwork, *const CompletionToken) callconv(cc) Status,
-    _receive: *const fn (*const ManagedNetwork, *const CompletionToken) callconv(cc) Status,
-    _cancel: *const fn (*const ManagedNetwork, ?*const CompletionToken) callconv(cc) Status,
-    _poll: *const fn (*const ManagedNetwork) callconv(cc) Status,
+    _configure: *const fn (*ManagedNetwork, ?*const Config) callconv(cc) Status,
+    _mcast_ip_to_mac: *const fn (*ManagedNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
+    _groups: *const fn (*ManagedNetwork, bool, ?*const MacAddress) callconv(cc) Status,
+    _transmit: *const fn (*ManagedNetwork, *CompletionToken) callconv(cc) Status,
+    _receive: *const fn (*ManagedNetwork, *CompletionToken) callconv(cc) Status,
+    _cancel: *const fn (*ManagedNetwork, ?*const CompletionToken) callconv(cc) Status,
+    _poll: *const fn (*ManagedNetwork) callconv(cc) Status,
+
+    pub const GetModeDataError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        Unsupported,
+        NotStarted,
+    } || Error;
+    pub const ConfigureError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        OutOfResources,
+        Unsupported,
+        DeviceError,
+    } || Error;
+    pub const McastIpToMacError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        NotStarted,
+        Unsupported,
+        DeviceError,
+    } || Error;
+    pub const GroupsError = uefi.UnexpectedError || error{
+        InvalidParameter,
+        NotStarted,
+        AlreadyStarted,
+        NotFound,
+        DeviceError,
+        Unsupported,
+    } || Error;
+    pub const TransmitError = uefi.UnexpectedError || error{
+        NotStarted,
+        InvalidParameter,
+        AccessDenied,
+        OutOfResources,
+        DeviceError,
+        NotReady,
+        NoMedia,
+    };
+    pub const ReceiveError = uefi.UnexpectedError || error{
+        NotStarted,
+        InvalidParameter,
+        OutOfResources,
+        DeviceError,
+        AccessDenied,
+        NotReady,
+        NoMedia,
+    };
+    pub const CancelError = uefi.UnexpectedError || error{
+        NotStarted,
+        InvalidParameter,
+        NotFound,
+    };
+    pub const PollError = uefi.UnexpectedError || error{
+        NotStarted,
+        DeviceError,
+        NotReady,
+        Timeout,
+    };
+
+    pub const GetModeDataData = struct {
+        mnp_config: Config,
+        snp_mode: SimpleNetwork,
+    };
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
-    pub fn getModeData(self: *const ManagedNetwork, mnp_config_data: ?*Config, snp_mode_data: ?*SimpleNetwork) Status {
-        return self._get_mode_data(self, mnp_config_data, snp_mode_data);
+    pub fn getModeData(self: *const ManagedNetwork) GetModeDataError!GetModeDataData {
+        var data: GetModeDataData = undefined;
+        switch (self._get_mode_data(self, &data.mnp_config, &data.snp_mode)) {
+            .success => return data,
+            else => |status| {
+                try status.err();
+                return uefi.unexpectedStatus(status);
+            },
+        }
     }
 
     /// Sets or clears the operational parameters for the MNP child driver.
-    pub fn configure(self: *const ManagedNetwork, mnp_config_data: ?*const Config) Status {
-        return self._configure(self, mnp_config_data);
+    pub fn configure(self: *ManagedNetwork, mnp_config_data: ?*const Config) ConfigureError!void {
+        switch (self._configure(self, mnp_config_data)) {
+            .success => {},
+            else => |status| {
+                try status.err();
+                return uefi.unexpectedStatus(status);
+            },
+        }
     }
 
     /// Translates an IP multicast address to a hardware (MAC) multicast address.
     /// This function may be unsupported in some MNP implementations.
-    pub fn mcastIpToMac(self: *const ManagedNetwork, ipv6flag: bool, ipaddress: *const anyopaque, mac_address: *MacAddress) Status {
-        return self._mcast_ip_to_mac(self, ipv6flag, ipaddress, mac_address);
+    pub fn mcastIpToMac(
+        self: *ManagedNetwork,
+        ipv6flag: bool,
+        ipaddress: *const uefi.IpAddress,
+    ) McastIpToMacError!MacAddress {
+        var result: MacAddress = undefined;
+        switch (self._mcast_ip_to_mac(self, ipv6flag, ipaddress, &result)) {
+            .success => return result,
+            else => |status| {
+                try status.err();
+                return uefi.unexpectedStatus(status);
+            },
+        }
     }
 
     /// Enables and disables receive filters for multicast address.
     /// This function may be unsupported in some MNP implementations.
-    pub fn groups(self: *const ManagedNetwork, join_flag: bool, mac_address: ?*const MacAddress) Status {
-        return self._groups(self, join_flag, mac_address);
+    pub fn groups(
+        self: *ManagedNetwork,
+        join_flag: bool,
+        mac_address: ?*const MacAddress,
+    ) GroupsError!void {
+        switch (self._groups(self, join_flag, mac_address)) {
+            .success => {},
+            else => |status| {
+                try status.err();
+                return uefi.unexpectedStatus(status);
+            },
+        }
     }
 
     /// Places asynchronous outgoing data packets into the transmit queue.
-    pub fn transmit(self: *const ManagedNetwork, token: *const CompletionToken) Status {
-        return self._transmit(self, token);
+    pub fn transmit(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
+        switch (self._transmit(self, token)) {
+            .success => {},
+            .not_started => return Error.NotStarted,
+            .invalid_parameter => return Error.InvalidParameter,
+            .access_denied => return Error.AccessDenied,
+            .out_of_resources => return Error.OutOfResources,
+            .device_error => return Error.DeviceError,
+            .not_ready => return Error.NotReady,
+            .no_media => return Error.NoMedia,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Places an asynchronous receiving request into the receiving queue.
-    pub fn receive(self: *const ManagedNetwork, token: *const CompletionToken) Status {
-        return self._receive(self, token);
+    pub fn receive(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
+        switch (self._receive(self, token)) {
+            .success => {},
+            .not_started => return Error.NotStarted,
+            .invalid_parameter => return Error.InvalidParameter,
+            .out_of_resources => return Error.OutOfResources,
+            .device_error => return Error.DeviceError,
+            .access_denied => return Error.AccessDenied,
+            .not_ready => return Error.NotReady,
+            .no_media => return Error.NoMedia,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Aborts an asynchronous transmit or receive request.
-    pub fn cancel(self: *const ManagedNetwork, token: ?*const CompletionToken) Status {
-        return self._cancel(self, token);
+    pub fn cancel(self: *ManagedNetwork, token: ?*const CompletionToken) CancelError!void {
+        switch (self._cancel(self, token)) {
+            .success => {},
+            .not_started => return Error.NotStarted,
+            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return Error.NotFound,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Polls for incoming data packets and processes outgoing data packets.
-    pub fn poll(self: *const ManagedNetwork) Status {
-        return self._poll(self);
+    pub fn poll(self: *ManagedNetwork) PollError!void {
+        switch (self._poll(self)) {
+            .success => {},
+            .not_started => return Error.NotStarted,
+            .device_error => return Error.DeviceError,
+            .not_ready => return Error.NotReady,
+            .timeout => return Error.Timeout,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

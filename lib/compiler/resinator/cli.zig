@@ -17,6 +17,7 @@ pub const usage_string_after_command_name =
     \\This is necessary when the input path begins with a forward slash.
     \\
     \\Supported option prefixes are /, -, and --, so e.g. /h, -h, and --h all work.
+    \\Drop-in compatible with the Microsoft Resource Compiler.
     \\
     \\Supported Win32 RC Options:
     \\  /?, /h                  Print this help and exit.

@@ -56,7 +56,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     const dest_dir: ?InstallDir = switch (options.dest_dir) {
         .disabled => null,
         .default => switch (artifact.kind) {
-            .obj => @panic("object files have no standard installation procedure"),
+            .obj, .test_obj => @panic("object files have no standard installation procedure"),
             .exe, .@"test" => .bin,
             .lib => if (artifact.isDll()) .bin else .lib,
         },

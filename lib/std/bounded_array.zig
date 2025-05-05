@@ -2,6 +2,7 @@ const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Alignment = std.mem.Alignment;
 
 /// A structure with an array and a length, that can be used as a slice.
 ///
@@ -16,7 +17,7 @@ const testing = std.testing;
 /// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
 /// ```
 pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
-    return BoundedArrayAligned(T, @alignOf(T), buffer_capacity);
+    return BoundedArrayAligned(T, .of(T), buffer_capacity);
 }
 
 /// A structure with an array, length and alignment, that can be used as a
@@ -34,12 +35,12 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
-    comptime alignment: u29,
+    comptime alignment: Alignment,
     comptime buffer_capacity: usize,
 ) type {
     return struct {
         const Self = @This();
-        buffer: [buffer_capacity]T align(alignment) = undefined,
+        buffer: [buffer_capacity]T align(alignment.toByteUnits()) = undefined,
         len: usize = 0,
 
         /// Set the actual length of the slice.
@@ -51,15 +52,15 @@ pub fn BoundedArrayAligned(
 
         /// View the internal array as a slice whose size was previously set.
         pub fn slice(self: anytype) switch (@TypeOf(&self.buffer)) {
-            *align(alignment) [buffer_capacity]T => []align(alignment) T,
-            *align(alignment) const [buffer_capacity]T => []align(alignment) const T,
+            *align(alignment.toByteUnits()) [buffer_capacity]T => []align(alignment.toByteUnits()) T,
+            *align(alignment.toByteUnits()) const [buffer_capacity]T => []align(alignment.toByteUnits()) const T,
             else => unreachable,
         } {
             return self.buffer[0..self.len];
         }
 
         /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: *const Self) []align(alignment) const T {
+        pub fn constSlice(self: *const Self) []align(alignment.toByteUnits()) const T {
             return self.slice();
         }
 
@@ -120,7 +121,7 @@ pub fn BoundedArrayAligned(
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a pointer to the array of uninitialized elements.
-        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
+        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment.toByteUnits()) [n]T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -128,7 +129,7 @@ pub fn BoundedArrayAligned(
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the uninitialized elements.
-        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment) T {
+        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment.toByteUnits()) T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -146,7 +147,7 @@ pub fn BoundedArrayAligned(
         /// This can be useful for writing directly into it.
         /// Note that such an operation must be followed up with a
         /// call to `resize()`
-        pub fn unusedCapacitySlice(self: *Self) []align(alignment) T {
+        pub fn unusedCapacitySlice(self: *Self) []align(alignment.toByteUnits()) T {
             return self.buffer[self.len..];
         }
 
@@ -399,7 +400,7 @@ test BoundedArray {
 }
 
 test "BoundedArrayAligned" {
-    var a = try BoundedArrayAligned(u8, 16, 4).init(0);
+    var a = try BoundedArrayAligned(u8, .@"16", 4).init(0);
     try a.append(0);
     try a.append(0);
     try a.append(255);

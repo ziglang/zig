@@ -508,15 +508,8 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
             break :blk main_thread_area_buffer[0..area_desc.size];
         }
 
-        const begin_addr = mmap(
-            null,
-            area_desc.size + area_desc.alignment - 1,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
+        const begin_addr = mmap_tls(area_desc.size + area_desc.alignment - 1);
+        if (@call(.always_inline, linux.E.init, .{begin_addr}) != .SUCCESS) @trap();
 
         const area_ptr: [*]align(page_size_min) u8 = @ptrFromInt(begin_addr);
 
@@ -530,16 +523,19 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
     setThreadPointer(tp_value);
 }
 
-inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd: i32, offset: i64) usize {
+inline fn mmap_tls(length: usize) usize {
+    const prot = posix.PROT.READ | posix.PROT.WRITE;
+    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+
     if (@hasField(linux.SYS, "mmap2")) {
         return @call(.always_inline, linux.syscall6, .{
             .mmap2,
-            @intFromPtr(address),
+            0,
             length,
             prot,
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(usize, @truncate(@as(u64, @bitCast(offset)) / linux.MMAP2_UNIT)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
@@ -547,21 +543,21 @@ inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd
         return if (native_arch == .s390x) @call(.always_inline, linux.syscall1, .{
             .mmap,
             @intFromPtr(&[_]usize{
-                @intFromPtr(address),
+                0,
                 length,
                 prot,
                 @as(u32, @bitCast(flags)),
-                @as(usize, @bitCast(@as(isize, fd))),
-                @as(u64, @bitCast(offset)),
+                @as(usize, @bitCast(@as(isize, -1))),
+                0,
             }),
         }) else @call(.always_inline, linux.syscall6, .{
             .mmap,
-            @intFromPtr(address),
+            0,
             length,
             prot,
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(u64, @bitCast(offset)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     }
 }

@@ -38,6 +38,7 @@ pub const Feature = enum {
     spmx,
     sram,
     tinyencoding,
+    wrappingrjmp,
     xmega,
     xmega3,
     xmegau,
@@ -289,6 +290,11 @@ pub const all_features = blk: {
         .description = "The device has Tiny core specific instruction encodings",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.wrappingrjmp)] = .{
+        .llvm_name = "wrappingrjmp",
+        .description = "The device potentially requires emitting rjmp that wraps across the flash boundary",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.xmega)] = .{
         .llvm_name = "xmega",
         .description = "The device is a part of the xmega family",
@@ -381,6 +387,7 @@ pub const cpu = struct {
         .llvm_name = "at90c8534",
         .features = featureSet(&[_]Feature{
             .avr2,
+            .wrappingrjmp,
         }),
     };
     pub const at90can128: CpuModel = .{
@@ -536,6 +543,7 @@ pub const cpu = struct {
         .llvm_name = "at90s8515",
         .features = featureSet(&[_]Feature{
             .avr2,
+            .wrappingrjmp,
         }),
     };
     pub const at90s8535: CpuModel = .{
@@ -543,6 +551,7 @@ pub const cpu = struct {
         .llvm_name = "at90s8535",
         .features = featureSet(&[_]Feature{
             .avr2,
+            .wrappingrjmp,
         }),
     };
     pub const at90scr100: CpuModel = .{
@@ -609,6 +618,7 @@ pub const cpu = struct {
         .llvm_name = "ata5272",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const ata5505: CpuModel = .{
@@ -672,6 +682,7 @@ pub const cpu = struct {
         .llvm_name = "ata6285",
         .features = featureSet(&[_]Feature{
             .avr4,
+            .wrappingrjmp,
         }),
     };
     pub const ata6286: CpuModel = .{
@@ -714,6 +725,7 @@ pub const cpu = struct {
         .llvm_name = "ata6616c",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const ata6617c: CpuModel = .{
@@ -1545,6 +1557,7 @@ pub const cpu = struct {
             .movw,
             .mul,
             .spm,
+            .wrappingrjmp,
         }),
     };
     pub const atmega808: CpuModel = .{
@@ -1570,6 +1583,7 @@ pub const cpu = struct {
             .movw,
             .mul,
             .spm,
+            .wrappingrjmp,
         }),
     };
     pub const atmega8535: CpuModel = .{
@@ -1581,6 +1595,7 @@ pub const cpu = struct {
             .movw,
             .mul,
             .spm,
+            .wrappingrjmp,
         }),
     };
     pub const atmega88: CpuModel = .{
@@ -1627,6 +1642,7 @@ pub const cpu = struct {
             .movw,
             .mul,
             .spm,
+            .wrappingrjmp,
         }),
     };
     pub const atmega8hva: CpuModel = .{
@@ -2091,6 +2107,7 @@ pub const cpu = struct {
         .llvm_name = "attiny828",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny84: CpuModel = .{
@@ -2098,6 +2115,7 @@ pub const cpu = struct {
         .llvm_name = "attiny84",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny841: CpuModel = .{
@@ -2105,6 +2123,7 @@ pub const cpu = struct {
         .llvm_name = "attiny841",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny84a: CpuModel = .{
@@ -2112,6 +2131,7 @@ pub const cpu = struct {
         .llvm_name = "attiny84a",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny85: CpuModel = .{
@@ -2119,6 +2139,7 @@ pub const cpu = struct {
         .llvm_name = "attiny85",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny861: CpuModel = .{
@@ -2126,6 +2147,7 @@ pub const cpu = struct {
         .llvm_name = "attiny861",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny861a: CpuModel = .{
@@ -2133,6 +2155,7 @@ pub const cpu = struct {
         .llvm_name = "attiny861a",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny87: CpuModel = .{
@@ -2140,6 +2163,7 @@ pub const cpu = struct {
         .llvm_name = "attiny87",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny88: CpuModel = .{
@@ -2147,6 +2171,7 @@ pub const cpu = struct {
         .llvm_name = "attiny88",
         .features = featureSet(&[_]Feature{
             .avr25,
+            .wrappingrjmp,
         }),
     };
     pub const attiny9: CpuModel = .{

@@ -133,7 +133,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // enum class errc
 //
 // LWG3869 deprecates the UNIX STREAMS macros and enum values.
-// This makes the code clumbersome:
+// This makes the code cumbersome:
 // - the enum value is deprecated and should show a diagnostic,
 // - the macro is deprecated and should _not_ show a diagnostic in this
 //   context, and

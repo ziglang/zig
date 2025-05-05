@@ -395,6 +395,7 @@ pub fn mem(lower: *Lower, op_index: InstOpIndex, payload: u32) Memory {
         .sib => |*sib| switch (sib.base) {
             else => {},
             .table => sib.disp = lower.reloc(op_index, .table, sib.disp).signed,
+            .rip_inst => |inst_index| sib.disp = lower.reloc(op_index, .{ .inst = inst_index }, sib.disp).signed,
         },
         else => {},
     }
@@ -579,7 +580,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u, .ri_64, .ir => inst.data.ri.fixes,
-        .rm, .rmi_s, .mr => inst.data.rx.fixes,
+        .rm, .rmi_s, .rmi_u, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
         .rrmr => inst.data.rrrx.fixes,

@@ -304,6 +304,7 @@ pub const msghdr_const = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
+pub const time_t = isize;
 pub const mode_t = u32;
 pub const dev_t = usize;
 pub const nlink_t = u32;
@@ -453,7 +454,7 @@ pub const ucontext_t = extern struct {
     sigmask: u64,
     mcontext: mcontext_t,
     stack: stack_t,
-    sigset: sigset_t,
+    sigset: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
 };
 
 /// TODO
