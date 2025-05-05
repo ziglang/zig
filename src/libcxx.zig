@@ -383,11 +383,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
     const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
+    const abi_version: u2 = if (target.os.tag == .emscripten) 2 else 1;
     const abi_version_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
+        abi_version,
     });
     const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
+        abi_version,
     });
 
     const optimize_mode = comp.compilerRtOptMode();
