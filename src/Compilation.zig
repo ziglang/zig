@@ -5852,6 +5852,15 @@ pub fn addCCArgs(
                     try argv.append(
                         try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
                     );
+                } else if (target.isFreeBSDLibC()) {
+                    // https://docs.freebsd.org/en/books/porters-handbook/versions
+                    const min_ver = target.os.version_range.semver.min;
+                    try argv.append(try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{
+                        // We don't currently respect the minor and patch components. This wouldn't be particularly
+                        // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
+                        // symbols would be inconsistent with header declarations.
+                        min_ver.major * 100_000,
+                    }));
                 }
             }
 
