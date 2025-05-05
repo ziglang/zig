@@ -5825,11 +5825,12 @@ pub fn addCCArgs(
                 // See the comment in libcxx.zig for more details about this.
                 try argv.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
 
+                const abi_version: u2 = if (target.os.tag == .emscripten) 2 else 1;
                 try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-                    @intFromEnum(comp.libcxx_abi_version),
+                    abi_version,
                 }));
                 try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-                    @intFromEnum(comp.libcxx_abi_version),
+                    abi_version,
                 }));
 
                 try argv.append(libcxx.hardeningModeFlag(mod.optimize_mode));
