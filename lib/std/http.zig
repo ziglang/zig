@@ -577,21 +577,20 @@ pub const Reader = struct {
         len: switch (chunk_len_ptr.*) {
             .head => {
                 var cp: ChunkParser = .init;
-                const i = cp.feed(in.bufferContents());
-                switch (cp.state) {
-                    .invalid => return error.HttpChunkInvalid,
-                    .data => {
-                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(i);
-                    },
-                    else => {
-                        try in.fill(max_chunk_header_len);
-                        const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return error.HttpChunkInvalid;
-                        const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(header_len);
-                    },
+                while (true) {
+                    const i = cp.feed(in.bufferContents());
+                    switch (cp.state) {
+                        .invalid => return error.HttpChunkInvalid,
+                        .data => {
+                            in.toss(i);
+                            break;
+                        },
+                        else => {
+                            in.toss(i);
+                            try in.fillMore();
+                            continue;
+                        },
+                    }
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
                 const n = try in.read(bw, limit.min(.limited(cp.chunk_len)));
@@ -650,24 +649,21 @@ pub const Reader = struct {
             len: switch (chunk_len_ptr.*) {
                 .head => {
                     var cp: ChunkParser = .init;
-                    const available_buffer = in.bufferContents();
-                    const i = cp.feed(available_buffer);
-                    if (cp.state == .invalid) return error.HttpChunkInvalid;
-                    if (i == available_buffer.len) {
-                        if (already_requested_more) {
-                            chunk_len_ptr.* = .head;
-                            return amt_read;
+                    while (true) {
+                        const i = cp.feed(in.bufferContents());
+                        switch (cp.state) {
+                            .invalid => return error.HttpChunkInvalid,
+                            .data => {
+                                in.toss(i);
+                                break;
+                            },
+                            else => {
+                                in.toss(i);
+                                already_requested_more = true;
+                                try in.fillMore();
+                                continue;
+                            },
                         }
-                        already_requested_more = true;
-                        try in.fill(max_chunk_header_len);
-                        const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return error.HttpChunkInvalid;
-                        const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(header_len);
-                    } else {
-                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(i);
                     }
                     if (cp.chunk_len == 0) return parseTrailers(reader, amt_read);
                     continue :len .init(cp.chunk_len + 2);
@@ -739,21 +735,20 @@ pub const Reader = struct {
         len: switch (chunk_len_ptr.*) {
             .head => {
                 var cp: ChunkParser = .init;
-                const i = cp.feed(in.bufferContents());
-                switch (cp.state) {
-                    .invalid => return error.HttpChunkInvalid,
-                    .data => {
-                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(i);
-                    },
-                    else => {
-                        try in.fill(max_chunk_header_len);
-                        const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return error.HttpChunkInvalid;
-                        const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
-                        in.toss(header_len);
-                    },
+                while (true) {
+                    const i = cp.feed(in.bufferContents());
+                    switch (cp.state) {
+                        .invalid => return error.HttpChunkInvalid,
+                        .data => {
+                            in.toss(i);
+                            break;
+                        },
+                        else => {
+                            in.toss(i);
+                            try in.fillMore();
+                            continue;
+                        },
+                    }
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
                 const n = try in.discard(limit.min(.limited(cp.chunk_len)));
@@ -1010,16 +1005,14 @@ pub const BodyWriter = struct {
                 else => unreachable, // An earlier write call indicated more data would follow.
             },
         }
-        if (options.trailers.len > 0) {
-            try bw.writeAll("0\r\n");
-            for (options.trailers) |trailer| {
-                try bw.writeAll(trailer.name);
-                try bw.writeAll(": ");
-                try bw.writeAll(trailer.value);
-                try bw.writeAll("\r\n");
-            }
+        try bw.writeAll("0\r\n");
+        for (options.trailers) |trailer| {
+            try bw.writeAll(trailer.name);
+            try bw.writeAll(": ");
+            try bw.writeAll(trailer.value);
             try bw.writeAll("\r\n");
         }
+        try bw.writeAll("\r\n");
         w.state = .end;
     }
 
