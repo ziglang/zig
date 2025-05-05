@@ -304,6 +304,15 @@ pub const Request = struct {
         content: []const u8,
         options: RespondOptions,
     ) std.io.Writer.Error!void {
+        try respondUnflushed(request, content, options);
+        try request.server.out.flush();
+    }
+
+    pub fn respondUnflushed(
+        request: *Request,
+        content: []const u8,
+        options: RespondOptions,
+    ) std.io.Writer.Error!void {
         assert(options.status != .@"continue");
         if (std.debug.runtime_safety) {
             for (options.extra_headers) |header| {
