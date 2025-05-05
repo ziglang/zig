@@ -586,6 +586,7 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
+    src/libs/freebsd.zig
     src/libs/glibc.zig
     src/introspect.zig
     src/libs/libcxx.zig
