@@ -898,9 +898,40 @@ pub fn getEmittedPdb(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_pdb);
 }
 
+pub const DocEmitOptions = struct {
+    /// Override the default autodoc index.html file
+    index_html: ?LazyPath = null,
+    /// Override the default autodoc main.js file
+    main_js: ?LazyPath = null,
+    /// Include additional files in a "static" directory, to be combined with a custom index.html
+    static_dir: ?LazyPath = null,
+};
+
 /// Returns the path to the generated documentation directory.
-pub fn getEmittedDocs(compile: *Compile) LazyPath {
-    return compile.getEmittedFileGeneric(&compile.generated_docs);
+pub fn getEmittedDocs(compile: *Compile, options: DocEmitOptions) LazyPath {
+    const default_docs = compile.getEmittedFileGeneric(&compile.generated_docs);
+
+    const any_option_specified = o: {
+        inline for (@typeInfo(@TypeOf(options)).Struct.fields) |field| {
+            if (@field(options, field.name)) |_| break :o true;
+        } else break :o false;
+    };
+
+    if (!any_option_specified) {
+        return default_docs;
+    }
+
+    const b = compile.step.owner;
+    const final_docs = b.addWriteFiles();
+    final_docs.step.name = final_docs.step.owner.fmt("WriteFile autodoc custom emit {s}", .{compile.name});
+
+    _ = final_docs.addCopyDirectory(default_docs, ".", .{});
+
+    if (options.index_html) |index_html| _ = final_docs.addCopyFile(index_html, "index.html");
+    if (options.main_js) |main_js| _ = final_docs.addCopyFile(main_js, "main.js");
+    if (options.static_dir) |static_dir| _ = final_docs.addCopyDirectory(static_dir, "static", .{});
+
+    return final_docs.getDirectory();
 }
 
 /// Returns the path to the generated assembly code.
