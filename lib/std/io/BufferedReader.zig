@@ -357,35 +357,46 @@ pub fn discardRemaining(br: *BufferedReader) Reader.ShortError!usize {
 ///
 /// See also:
 /// * `peek`
+/// * `readSliceShort`
 pub fn readSlice(br: *BufferedReader, buffer: []u8) Reader.Error!void {
+    const n = try readSliceShort(br, buffer);
+    if (n != buffer.len) return error.EndOfStream;
+}
+
+/// Fill `buffer` with the next `buffer.len` bytes from the stream, advancing
+/// the seek position.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// Returns the number of bytes read, which is less than `buffer.len` if and
+/// only if the stream reached the end.
+///
+/// See also:
+/// * `readSlice`
+pub fn readSliceShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize {
     const in_buffer = br.buffer[br.seek..br.end];
     const copy_len = @min(buffer.len, in_buffer.len);
     @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
-    if (copy_len == buffer.len) {
+    if (buffer.len - copy_len == 0) {
         br.seek += copy_len;
-        return;
+        return buffer.len;
     }
     var i: usize = copy_len;
     br.end = 0;
     br.seek = 0;
     while (true) {
         const remaining = buffer[i..];
-        const n = try br.unbuffered_reader.readVec(&.{ remaining, br.buffer });
+        const n = br.unbuffered_reader.readVec(&.{ remaining, br.buffer }) catch |err| switch (err) {
+            error.EndOfStream => return i,
+            error.ReadFailed => return error.ReadFailed,
+        };
         if (n < remaining.len) {
             i += n;
             continue;
         }
         br.end = n - remaining.len;
-        return;
+        return buffer.len;
     }
-}
-
-/// Returns the number of bytes read, which is less than `buffer.len` if and
-/// only if the stream reached the end.
-pub fn readSliceShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize {
-    _ = br;
-    _ = buffer;
-    @panic("TODO");
 }
 
 pub const ReadAllocError = Reader.Error || Allocator.Error;

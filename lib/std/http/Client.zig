@@ -703,6 +703,16 @@ pub const Response = struct {
     pub fn bodyErr(response: *const Response) ?http.Reader.BodyError {
         return response.request.reader.body_err;
     }
+
+    pub fn iterateTrailers(response: *const Response) http.HeaderIterator {
+        const r = &response.request.reader;
+        assert(r.state == .ready);
+        return .{
+            .bytes = r.trailers,
+            .index = 0,
+            .is_trailer = true,
+        };
+    }
 };
 
 pub const Request = struct {
@@ -951,6 +961,7 @@ pub const Request = struct {
         HttpRedirectLocationInvalid,
         HttpContentEncodingUnsupported,
         HttpChunkInvalid,
+        HttpChunkTruncated,
         HttpHeadersOversize,
         UnsupportedUriScheme,
 

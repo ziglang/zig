@@ -72,20 +72,22 @@ test "trailers" {
 
         try expectEqualStrings("Hello, World!\n", body);
 
-        var it = response.head.iterateHeaders();
         {
+            var it = response.head.iterateHeaders();
             const header = it.next().?;
             try expect(!it.is_trailer);
             try expectEqualStrings("transfer-encoding", header.name);
             try expectEqualStrings("chunked", header.value);
+            try expectEqual(null, it.next());
         }
         {
+            var it = response.iterateTrailers();
             const header = it.next().?;
             try expect(it.is_trailer);
             try expectEqualStrings("X-Checksum", header.name);
             try expectEqualStrings("aaaa", header.value);
+            try expectEqual(null, it.next());
         }
-        try expectEqual(null, it.next());
     }
 
     // connection has been kept alive
