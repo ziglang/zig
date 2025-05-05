@@ -523,6 +523,7 @@ pub const getauxval = if (extern_getauxval) struct {
 }.getauxval else getauxvalImpl;
 
 fn getauxvalImpl(index: usize) callconv(.c) usize {
+    @disableInstrumentation();
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
