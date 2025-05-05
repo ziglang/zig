@@ -553,44 +553,64 @@ pub const Reader = struct {
             .body_remaining_chunk_len => |*x| x,
             else => unreachable,
         };
+        return chunkedReadEndless(reader, bw, limit, chunk_len_ptr) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.WriteFailed => return error.WriteFailed,
+            error.EndOfStream => {
+                reader.body_err = error.HttpChunkTruncated;
+                return error.ReadFailed;
+            },
+            else => |e| {
+                reader.body_err = e;
+                return error.ReadFailed;
+            },
+        };
+    }
+
+    fn chunkedReadEndless(
+        reader: *Reader,
+        bw: *std.io.BufferedWriter,
+        limit: std.io.Reader.Limit,
+        chunk_len_ptr: *RemainingChunkLen,
+    ) (BodyError || std.io.Reader.RwError)!usize {
         const in = reader.in;
         len: switch (chunk_len_ptr.*) {
             .head => {
                 var cp: ChunkParser = .init;
                 const i = cp.feed(in.bufferContents());
                 switch (cp.state) {
-                    .invalid => return reader.failBody(error.HttpChunkInvalid),
+                    .invalid => return error.HttpChunkInvalid,
                     .data => {
-                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(i);
                     },
                     else => {
-                        try endless(reader, in.fill(max_chunk_header_len));
+                        try in.fill(max_chunk_header_len);
                         const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        if (cp.state != .data) return error.HttpChunkInvalid;
                         const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(header_len);
                     },
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
-                const n = try endless(reader, in.read(bw, limit.min(.limited(cp.chunk_len))));
+                const n = try in.read(bw, limit.min(.limited(cp.chunk_len)));
                 chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
                 return n;
             },
             .n => {
-                if ((try in.peekByte()) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                if ((try in.peekByte()) != '\n') return error.HttpChunkInvalid;
                 in.toss(1);
                 continue :len .head;
             },
             .rn => {
-                const rn = try endless(reader, in.peekArray(2));
-                if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                const rn = try in.peekArray(2);
+                if (rn[0] != '\r' or rn[1] != '\n') return error.HttpChunkInvalid;
                 in.toss(2);
                 continue :len .head;
             },
             else => |remaining_chunk_len| {
-                const n = try endless(reader, in.read(bw, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2))));
+                const n = try in.read(bw, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2)));
                 chunk_len_ptr.* = .init(@intFromEnum(remaining_chunk_len) - n);
                 return n;
             },
@@ -604,6 +624,24 @@ pub const Reader = struct {
             .body_remaining_chunk_len => |*x| x,
             else => unreachable,
         };
+        return chunkedReadVecEndless(reader, data, chunk_len_ptr) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => {
+                reader.body_err = error.HttpChunkTruncated;
+                return error.ReadFailed;
+            },
+            else => |e| {
+                reader.body_err = e;
+                return error.ReadFailed;
+            },
+        };
+    }
+
+    fn chunkedReadVecEndless(
+        reader: *Reader,
+        data: []const []u8,
+        chunk_len_ptr: *RemainingChunkLen,
+    ) (BodyError || std.io.Reader.Error)!usize {
         const in = reader.in;
         var already_requested_more = false;
         var amt_read: usize = 0;
@@ -614,21 +652,21 @@ pub const Reader = struct {
                     var cp: ChunkParser = .init;
                     const available_buffer = in.bufferContents();
                     const i = cp.feed(available_buffer);
-                    if (cp.state == .invalid) return reader.failBody(error.HttpChunkInvalid);
+                    if (cp.state == .invalid) return error.HttpChunkInvalid;
                     if (i == available_buffer.len) {
                         if (already_requested_more) {
                             chunk_len_ptr.* = .head;
                             return amt_read;
                         }
                         already_requested_more = true;
-                        try endless(reader, in.fill(max_chunk_header_len));
+                        try in.fill(max_chunk_header_len);
                         const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        if (cp.state != .data) return error.HttpChunkInvalid;
                         const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(header_len);
                     } else {
-                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(i);
                     }
                     if (cp.chunk_len == 0) return parseTrailers(reader, amt_read);
@@ -636,13 +674,13 @@ pub const Reader = struct {
                 },
                 .n => {
                     if (in.bufferContents().len < 1) already_requested_more = true;
-                    if ((try endless(reader, in.takeByte())) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                    if ((try in.takeByte()) != '\n') return error.HttpChunkInvalid;
                     continue :len .head;
                 },
                 .rn => {
                     if (in.bufferContents().len < 2) already_requested_more = true;
-                    const rn = try endless(reader, in.takeArray(2));
-                    if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                    const rn = try in.takeArray(2);
+                    if (rn[0] != '\r' or rn[1] != '\n') return error.HttpChunkInvalid;
                     continue :len .head;
                 },
                 else => |remaining_chunk_len| {
@@ -657,12 +695,14 @@ pub const Reader = struct {
                         chunk_len_ptr.* = next_chunk_len;
                         continue :data;
                     }
-                    if (already_requested_more) {
-                        chunk_len_ptr.* = next_chunk_len;
-                        return amt_read;
+                    if (available_buffer.len - copy_len == 0) {
+                        if (already_requested_more) {
+                            chunk_len_ptr.* = next_chunk_len;
+                            return amt_read;
+                        }
+                        already_requested_more = true;
+                        try in.fillMore();
                     }
-                    already_requested_more = true;
-                    try endless(reader, in.fillMore());
                     continue :len next_chunk_len;
                 },
             }
@@ -677,44 +717,62 @@ pub const Reader = struct {
             .body_remaining_chunk_len => |*x| x,
             else => unreachable,
         };
+        return chunkedDiscardEndless(reader, limit, chunk_len_ptr) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => {
+                reader.body_err = error.HttpChunkTruncated;
+                return error.ReadFailed;
+            },
+            else => |e| {
+                reader.body_err = e;
+                return error.ReadFailed;
+            },
+        };
+    }
+
+    fn chunkedDiscardEndless(
+        reader: *Reader,
+        limit: std.io.Reader.Limit,
+        chunk_len_ptr: *RemainingChunkLen,
+    ) (BodyError || std.io.Reader.Error)!usize {
         const in = reader.in;
         len: switch (chunk_len_ptr.*) {
             .head => {
                 var cp: ChunkParser = .init;
                 const i = cp.feed(in.bufferContents());
                 switch (cp.state) {
-                    .invalid => return reader.failBody(error.HttpChunkInvalid),
+                    .invalid => return error.HttpChunkInvalid,
                     .data => {
-                        if (i > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (i > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(i);
                     },
                     else => {
-                        try endless(reader, in.fill(max_chunk_header_len));
+                        try in.fill(max_chunk_header_len);
                         const next_i = cp.feed(in.bufferContents()[i..]);
-                        if (cp.state != .data) return reader.failBody(error.HttpChunkInvalid);
+                        if (cp.state != .data) return error.HttpChunkInvalid;
                         const header_len = i + next_i;
-                        if (header_len > max_chunk_header_len) return reader.failBody(error.HttpChunkInvalid);
+                        if (header_len > max_chunk_header_len) return error.HttpChunkInvalid;
                         in.toss(header_len);
                     },
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
-                const n = try endless(reader, in.discard(limit.min(.limited(cp.chunk_len))));
+                const n = try in.discard(limit.min(.limited(cp.chunk_len)));
                 chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
                 return n;
             },
             .n => {
-                if ((try endless(reader, in.peekByte())) != '\n') return reader.failBody(error.HttpChunkInvalid);
+                if ((try in.peekByte()) != '\n') return error.HttpChunkInvalid;
                 in.toss(1);
                 continue :len .head;
             },
             .rn => {
-                const rn = try endless(reader, in.peekArray(2));
-                if (rn[0] != '\r' or rn[1] != '\n') return reader.failBody(error.HttpChunkInvalid);
+                const rn = try in.peekArray(2);
+                if (rn[0] != '\r' or rn[1] != '\n') return error.HttpChunkInvalid;
                 in.toss(2);
                 continue :len .head;
             },
             else => |remaining_chunk_len| {
-                const n = try endless(reader, in.discard(limit.min(.limited(remaining_chunk_len.int() - 2))));
+                const n = try in.discard(limit.min(.limited(remaining_chunk_len.int() - 2)));
                 chunk_len_ptr.* = .init(remaining_chunk_len.int() - n);
                 return n;
             },
@@ -723,32 +781,28 @@ pub const Reader = struct {
 
     /// Called when next bytes in the stream are trailers, or "\r\n" to indicate
     /// end of chunked body.
-    fn parseTrailers(reader: *Reader, amt_read: usize) std.io.Reader.Error!usize {
+    fn parseTrailers(reader: *Reader, amt_read: usize) (BodyError || std.io.Reader.Error)!usize {
         const in = reader.in;
-        var hp: HeadParser = .{};
-        var trailers_len: usize = 0;
+        const rn = try in.peekArray(2);
+        if (rn[0] == '\r' and rn[1] == '\n') {
+            in.toss(2);
+            reader.state = .ready;
+            assert(reader.trailers.len == 0);
+            return amt_read;
+        }
+        var hp: HeadParser = .{ .state = .seen_rn };
+        var trailers_len: usize = 2;
         while (true) {
-            if (trailers_len >= in.buffer.len) return reader.failBody(error.HttpHeadersOversize);
+            if (trailers_len >= in.buffer.len) return error.HttpHeadersOversize;
             try in.fill(trailers_len + 1);
             trailers_len += hp.feed(in.bufferContents()[trailers_len..]);
             if (hp.state == .finished) {
                 reader.state = .ready;
                 reader.trailers = in.bufferContents()[0..trailers_len];
+                in.toss(trailers_len);
                 return amt_read;
             }
         }
-    }
-
-    fn failBody(r: *Reader, err: BodyError) error{ReadFailed} {
-        r.body_err = err;
-        return error.ReadFailed;
-    }
-
-    fn endless(r: *Reader, x: anytype) @TypeOf(x) {
-        return x catch |err| switch (err) {
-            error.EndOfStream => return failBody(r, error.HttpChunkTruncated),
-            else => return err,
-        };
     }
 };
 
