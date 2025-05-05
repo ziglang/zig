@@ -51,7 +51,7 @@ pub fn reader(br: *BufferedReader) Reader {
 
 /// Equivalent semantics to `std.io.Reader.VTable.readVec`.
 pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
-    return passthruReadVec(br, data);
+    return readVecLimit(br, data, .unlimited);
 }
 
 /// Equivalent semantics to `std.io.Reader.VTable.read`.
@@ -106,10 +106,55 @@ pub fn readRemaining(br: *BufferedReader, bw: *BufferedWriter) Reader.RwRemainin
 
 /// Equivalent to `readVec` but reads at most `limit` bytes.
 pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit) Reader.Error!usize {
-    _ = br;
-    _ = data;
-    _ = limit;
-    @panic("TODO");
+    assert(@intFromEnum(Reader.Limit.unlimited) == std.math.maxInt(usize));
+    var remaining = @intFromEnum(limit);
+    for (data, 0..) |buf, i| {
+        const buffered = br.buffer[br.seek..br.end];
+        const copy_len = @min(buffered.len, buf.len, remaining);
+        @memcpy(buf[0..copy_len], buffered[0..copy_len]);
+        br.seek += copy_len;
+        remaining -= copy_len;
+        if (remaining == 0) break;
+        if (buf.len - copy_len == 0) continue;
+
+        br.seek = 0;
+        br.end = 0;
+        var vecs: [8][]u8 = undefined; // Arbitrarily chosen value.
+        const available_remaining_buf = buf[copy_len..];
+        vecs[0] = available_remaining_buf[0..@min(available_remaining_buf.len, remaining)];
+        const vec_start_remaining = remaining;
+        remaining -= vecs[0].len;
+        var vecs_i: usize = 1;
+        var data_i: usize = i + 1;
+        while (true) {
+            if (vecs.len - vecs_i == 0) {
+                const n = try br.unbuffered_reader.readVec(&vecs);
+                return @intFromEnum(limit) - vec_start_remaining + n;
+            }
+            if (remaining == 0 or data.len - data_i == 0) {
+                vecs[vecs_i] = br.buffer;
+                vecs_i += 1;
+                const n = try br.unbuffered_reader.readVec(vecs[0..vecs_i]);
+                const cutoff = vec_start_remaining - remaining;
+                if (n > cutoff) {
+                    br.end = n - cutoff;
+                    return @intFromEnum(limit) - remaining;
+                } else {
+                    return @intFromEnum(limit) - vec_start_remaining + n;
+                }
+            }
+            if (data[data_i].len == 0) {
+                data_i += 1;
+                continue;
+            }
+            const data_elem = data[data_i];
+            vecs[vecs_i] = data_elem[0..@min(data_elem.len, remaining)];
+            remaining -= vecs[vecs_i].len;
+            vecs_i += 1;
+            data_i += 1;
+        }
+    }
+    return @intFromEnum(limit) - remaining;
 }
 
 fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
@@ -144,44 +189,7 @@ fn passthruDiscard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize
 
 fn passthruReadVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(context));
-    var total: usize = 0;
-    for (data, 0..) |buf, i| {
-        const buffered = br.buffer[br.seek..br.end];
-        const copy_len = @min(buffered.len, buf.len);
-        @memcpy(buf[0..copy_len], buffered[0..copy_len]);
-        total += copy_len;
-        br.seek += copy_len;
-        if (copy_len < buf.len) {
-            br.seek = 0;
-            br.end = 0;
-            var vecs: [8][]u8 = undefined; // Arbitrarily chosen value.
-            vecs[0] = buf[copy_len..];
-            const vecs_len: usize = @min(vecs.len, data.len - i);
-            var vec_data_len: usize = vecs[0].len;
-            for (vecs[1..vecs_len], data[i + 1 ..][0 .. vecs_len - 1]) |*v, d| {
-                vec_data_len += d.len;
-                v.* = d;
-            }
-            if (vecs_len < vecs.len) {
-                vecs[vecs_len] = br.buffer;
-                const n = try br.unbuffered_reader.readVec(vecs[0 .. vecs_len + 1]);
-                total += @min(n, vec_data_len);
-                br.end = n -| vec_data_len;
-                return total;
-            }
-            if (vecs[vecs.len - 1].len >= br.buffer.len) {
-                total += try br.unbuffered_reader.readVec(&vecs);
-                return total;
-            }
-            vec_data_len -= vecs[vecs.len - 1].len;
-            vecs[vecs.len - 1] = br.buffer;
-            const n = try br.unbuffered_reader.readVec(&vecs);
-            total += @min(n, vec_data_len);
-            br.end = n -| vec_data_len;
-            return total;
-        }
-    }
-    return total;
+    return readVecLimit(br, data, .unlimited);
 }
 
 pub fn seekBy(br: *BufferedReader, seek_by: i64) !void {
