@@ -1,7 +1,6 @@
-/// pem.zig implements the PEM data encoding, which originated in Privacy Enhanced Mail. 
-/// The most common use of PEM encoding today is in TLS keys and certificates. 
+/// pem.zig implements the PEM data encoding, which originated in Privacy Enhanced Mail.
+/// The most common use of PEM encoding today is in TLS keys and certificates.
 /// See RFC 1421.
-
 const std = @import("std");
 const mem = std.mem;
 const sort = std.sort;
@@ -32,10 +31,10 @@ pub const Block = struct {
     allocator: Allocator,
 
     const Self = @This();
-    
+
     pub fn init(allocator: Allocator) Block {
         const headers = StringKeyHashMap.init(allocator);
-        
+
         return .{
             .type = "",
             .headers = headers,
@@ -48,13 +47,13 @@ pub const Block = struct {
     pub fn deinit(self: *Self) void {
         var headers = self.headers;
         headers.deinit();
-        
+
         self.allocator.free(self.bytes);
         self.* = undefined;
     }
 };
 
-pub const Error = error {
+pub const Error = error{
     NotPemData,
     PemDataEmpty,
     PemHeaderHasColon,
@@ -69,10 +68,10 @@ const colon = ":";
 /// etc) in the input. It returns that block and the remainder of the input.
 pub fn decode(allocator: Allocator, data: []const u8) !Block {
     var rest = data;
-    
+
     while (true) {
         if (mem.startsWith(u8, rest, pem_start[1..])) {
-            rest = rest[pem_start.len-1..];
+            rest = rest[pem_start.len - 1 ..];
         } else {
             const cut_data = cut(rest, pem_start);
             if (cut_data.found) {
@@ -81,42 +80,42 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
                 return Error.NotPemData;
             }
         }
-        
+
         const line_data = getLine(rest);
         if (!mem.endsWith(u8, line_data.line, pem_end_of_line)) {
             continue;
         }
-        
-        const type_line = line_data.line[0 .. line_data.line.len-pem_end_of_line.len];
+
+        const type_line = line_data.line[0 .. line_data.line.len - pem_end_of_line.len];
 
         rest = line_data.rest;
-        
+
         var p = Block.init(allocator);
         p.type = type_line;
-        
+
         while (true) {
             if (rest.len == 0) {
                 return Error.PemDataEmpty;
             }
-            
+
             const line_data2 = getLine(rest);
-            
+
             const cut_data = cut(line_data2.line, colon);
             if (!cut_data.found) {
                 break;
             }
-            
+
             const key = trimSpace(cut_data.before);
             const val = trimSpace(cut_data.after);
-           
+
             try p.headers.put(key, val);
-            
+
             rest = line_data2.rest;
         }
-        
-        var end_index: usize = 0; 
+
+        var end_index: usize = 0;
         var end_trailer_index: usize = 0;
-        
+
         if (p.headers.count() == 0 and mem.startsWith(u8, rest, pem_end[1..])) {
             end_index = 0;
             end_trailer_index = pem_end.len - 1;
@@ -128,7 +127,7 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
                 continue;
             }
         }
-        
+
         var end_trailer = rest[end_trailer_index..];
         const end_trailer_len = type_line.len + pem_end_of_line.len;
         if (end_trailer.len < end_trailer_len) {
@@ -140,12 +139,12 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
         if (!mem.startsWith(u8, end_trailer, type_line) or !mem.endsWith(u8, end_trailer, pem_end_of_line)) {
             continue;
         }
-        
+
         const line_data2 = getLine(rest_of_end_line);
         if (line_data2.line.len != 0) {
             continue;
         }
-        
+
         const base64_data = try removeSpacesAndTabs(allocator, rest[0..end_index]);
 
         const base64_decode_len = try base64.decodedLen(base64_data.len, .standard);
@@ -178,7 +177,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
             return Error.PemHeaderHasColon;
         }
     }
-    
+
     var buf = ArraySlice.init(allocator);
     defer buf.deinit();
 
@@ -186,14 +185,14 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
 
     try buf.appendSlice(b.type);
     try buf.appendSlice("-----\n");
-    
+
     if (b.headers.count() > 0) {
         const proc_type = "Proc-Type";
 
         var h = try allocator.alloc([]const u8, b.headers.count());
 
         var has_proc_type: bool = false;
-        
+
         var kv_i: usize = 0;
 
         var headers = (try b.headers.clone()).iterator();
@@ -218,7 +217,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
 
         // strings sort a to z
         sort.block([]const u8, h, {}, stringSort([]const u8));
-        
+
         for (h) |k| {
             if (b.headers.get(k)) |val| {
                 try appendHeader(&buf, k, val);
@@ -240,7 +239,7 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
             try buf.appendSlice(nl);
             break;
         } else {
-            try buf.appendSlice(banse64_encoded[idx..(idx+pem_line_length)]);
+            try buf.appendSlice(banse64_encoded[idx..(idx + pem_line_length)]);
             try buf.appendSlice(nl);
 
             idx += pem_line_length;
@@ -288,19 +287,19 @@ fn getLine(data: []const u8) GetLineData {
     if (mem.indexOf(u8, data, "\n")) |val| {
         i = val;
         j = i + 1;
-        if (i > 0 and data[i-1] == '\r') {
+        if (i > 0 and data[i - 1] == '\r') {
             i -= 1;
         }
     }
-    
+
     return .{
-        .line = mem.trimRight(u8, data[0..i], " \t"), 
+        .line = mem.trimRight(u8, data[0..i], " \t"),
         .rest = data[j..],
     };
 }
 
-// removeSpacesAndTabs returns a copy of its input with all spaces and tabs
-// removed, if there were any. Otherwise, the input is returned unchanged.
+/// removeSpacesAndTabs returns a copy of its input with all spaces and tabs
+/// removed, if there were any. Otherwise, the input is returned unchanged.
 fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
     var buf = ArraySlice.init(alloc);
     defer buf.deinit();
@@ -309,7 +308,7 @@ fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
         if (b == ' ' or b == '\t' or b == '\n') {
             continue;
         }
-        
+
         try buf.append(b);
     }
 
@@ -327,7 +326,7 @@ fn cut(s: []const u8, sep: []const u8) CutData {
     if (i) |j| {
         return .{
             .before = s[0..j],
-            .after = s[j+sep.len..],
+            .after = s[j + sep.len ..],
             .found = true,
         };
     }
@@ -339,8 +338,8 @@ fn cut(s: []const u8, sep: []const u8) CutData {
     };
 }
 
-// TrimSpace returns a subslice of s by slicing off all leading and
-// trailing white space, as defined by Unicode.
+/// TrimSpace returns a subslice of s by slicing off all leading and
+/// trailing white space, as defined by Unicode.
 fn trimSpace(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len) : (start += 1) {
@@ -348,19 +347,19 @@ fn trimSpace(s: []const u8) []const u8 {
             break;
         }
     }
-    
+
     var stop = s.len - 1;
     while (stop > start) : (stop -= 1) {
         if (!std.ascii.isWhitespace(s[stop])) {
             break;
         }
     }
-    
+
     if (start == stop) {
         return "";
     }
-    
-    return s[start..(stop+1)];
+
+    return s[start..(stop + 1)];
 }
 
 fn base64Encode(alloc: Allocator, input: []const u8) ![]const u8 {
@@ -387,14 +386,14 @@ test "ASN.1 type CERTIFICATE" {
         "-----END CERTIFICATE-----\n";
 
     const alloc = testing.allocator;
- 
+
     var pem = try decode(alloc, byte);
     defer pem.deinit();
 
     try testing.expectFmt("CERTIFICATE", "{s}", .{pem.type});
     try testing.expect(pem.bytes.len > 0);
 
-    const check = 
+    const check =
         "MIIBmTCCAUegAwIBAgIBKjAJBgUrDgMCHQUAMBMxETAPBgNVBAMTCEF0bGFudGlz" ++
         "MB4XDTEyMDcwOTAzMTAzOFoXDTEzMDcwOTAzMTAzN1owEzERMA8GA1UEAxMIQXRs" ++
         "YW50aXMwXDANBgkqhkiG9w0BAQEFAANLADBIAkEAu+BXo+miabDIHHx+yquqzqNh" ++
@@ -433,7 +432,7 @@ test "ASN.1 type CERTIFICATE + Explanatory Text" {
     try testing.expectFmt("CERTIFICATE", "{s}", .{pem.type});
     try testing.expect(pem.bytes.len > 0);
 
-    const check = 
+    const check =
         "MIIBmTCCAUegAwIBAgIBKjAJBgUrDgMCHQUAMBMxETAPBgNVBAMTCEF0bGFudGlz" ++
         "MB4XDTEyMDcwOTAzMTAzOFoXDTEzMDcwOTAzMTAzN1owEzERMA8GA1UEAxMIQXRs" ++
         "YW50aXMwXDANBgkqhkiG9w0BAQEFAANLADBIAkEAu+BXo+miabDIHHx+yquqzqNh" ++
@@ -477,7 +476,7 @@ test "ASN.1 type RSA PRIVATE With headers" {
     try testing.expectFmt("RSA IDs", "{s}", .{header_1});
     try testing.expectFmt("thsasd", "{s}", .{header_2});
 
-    const check = 
+    const check =
         "MIIBmTCCAUegAwIBAgIBKjAJBgUrDgMCHQUAMBMxETAPBgNVBAMTCEF0bGFudGlz" ++
         "MB4XDTEyMDcwOTAzMTAzOFoXDTEzMDcwOTAzMTAzN1owEzERMA8GA1UEAxMIQXRs" ++
         "YW50aXMwXDANBgkqhkiG9w0BAQEFAANLADBIAkEAu+BXo+miabDIHHx+yquqzqNh" ++
@@ -493,7 +492,7 @@ test "ASN.1 type RSA PRIVATE With headers" {
 
 test "encode pem bin" {
     const alloc = testing.allocator;
-    
+
     var pp = Block.init(alloc);
     pp.type = "RSA PRIVATE";
     try pp.headers.put("TTTYYY", "dghW66666");
@@ -525,6 +524,4 @@ test "encode pem bin" {
     const header_2 = pem.headers.get("TTTYYY").?;
     try testing.expectFmt("4,Encond", "{s}", .{header_1});
     try testing.expectFmt("dghW66666", "{s}", .{header_2});
-    
 }
-
