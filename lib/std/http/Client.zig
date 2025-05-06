@@ -1078,6 +1078,7 @@ pub const Request = struct {
             _ = reader.discardRemaining() catch |err| switch (err) {
                 error.ReadFailed => return r.reader.body_err.?,
             };
+            r.reader.restituteHeadBuffer();
         }
         const new_uri = r.uri.resolveInPlace(location.len, aux_buf) catch |err| switch (err) {
             error.UnexpectedCharacter => return error.HttpRedirectLocationInvalid,
@@ -1124,6 +1125,10 @@ pub const Request = struct {
         const new_connection = try r.client.connect(new_host, uriPort(new_uri, protocol), protocol);
         r.uri = new_uri;
         r.connection = new_connection;
+        r.reader = .{
+            .in = &new_connection.reader,
+            .state = .ready,
+        };
         r.redirect_behavior.subtractOne();
     }
 

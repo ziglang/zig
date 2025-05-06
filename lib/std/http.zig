@@ -410,14 +410,14 @@ pub const Reader = struct {
         var head_end: usize = 0;
         while (true) {
             if (head_end >= in.buffer.len) return error.HttpHeadersOversize;
-            const buf = in.peekGreedy(head_end + 1) catch |err| switch (err) {
+            in.fillMore() catch |err| switch (err) {
                 error.EndOfStream => switch (head_end) {
                     0 => return error.HttpConnectionClosing,
                     else => return error.HttpRequestTruncated,
                 },
                 error.ReadFailed => return error.ReadFailed,
             };
-            head_end += hp.feed(buf[head_end..]);
+            head_end += hp.feed(in.bufferContents()[head_end..]);
             if (hp.state == .finished) {
                 reader.head_buffer = in.steal(head_end);
                 reader.state = .received_head;

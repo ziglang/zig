@@ -219,6 +219,7 @@ pub const Request = struct {
     };
 
     pub fn iterateHeaders(r: *Request) http.HeaderIterator {
+        assert(r.server.reader.state == .received_head);
         return http.HeaderIterator.init(r.server.reader.head_buffer);
     }
 
@@ -230,13 +231,11 @@ pub const Request = struct {
             "TRansfer-encoding:\tdeflate, chunked \r\n" ++
             "connectioN:\t keep-alive \r\n\r\n";
 
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(@constCast(request_bytes));
-
         var server: Server = .{
             .reader = .{
-                .in = &br,
-                .state = .ready,
+                .in = undefined,
+                .state = .received_head,
+                .head_buffer = @constCast(request_bytes),
             },
             .out = undefined,
         };

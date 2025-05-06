@@ -1158,7 +1158,8 @@ test "redirect to different connection" {
             const connection = try net_server.accept();
             defer connection.stream.close();
 
-            const new_loc = try std.fmt.bufPrint(&send_buffer, "http://127.0.0.1:{d}/ok", .{
+            var loc_buf: [50]u8 = undefined;
+            const new_loc = try std.fmt.bufPrint(&loc_buf, "http://127.0.0.1:{d}/ok", .{
                 global.other_port.?,
             });
 
