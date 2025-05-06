@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Renderer = @import("renderer.zig").Renderer;
+const Render = @import("Render.zig");
 
 nodes: Node.List.Slice,
 extra: []u32,
@@ -160,8 +160,8 @@ pub fn deinit(doc: *Document, allocator: Allocator) void {
 }
 
 /// Renders a document directly to a writer using the default renderer.
-pub fn render(doc: Document, writer: anytype) @TypeOf(writer).Error!void {
-    const renderer: Renderer(@TypeOf(writer), void) = .{ .context = {} };
+pub fn render(doc: Document, writer: *std.io.BufferedWriter) @TypeOf(writer).Error!void {
+    const renderer: Render(@TypeOf(writer), void) = .{ .context = {} };
     try renderer.render(doc, writer);
 }
 
