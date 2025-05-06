@@ -166,6 +166,7 @@ fn writeFile(
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
 ) std.io.Writer.FileError!usize {
+    if (std.fs.File.Handle == void) unreachable;
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const gpa = aw.allocator;
     var list = aw.toArrayList();
