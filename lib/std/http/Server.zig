@@ -30,6 +30,10 @@ pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
     };
 }
 
+pub fn deinit(s: *Server) void {
+    s.reader.restituteHeadBuffer();
+}
+
 pub const ReceiveHeadError = http.Reader.HeadError || error{
     /// Client sent headers that did not conform to the HTTP protocol.
     ///
@@ -483,6 +487,7 @@ pub const Request = struct {
                 return error.HttpExpectationFailed;
             }
         }
+        if (!request.head.method.requestHasBody()) return .ending;
         return request.server.reader.bodyReader(request.head.transfer_encoding, request.head.content_length);
     }
 
