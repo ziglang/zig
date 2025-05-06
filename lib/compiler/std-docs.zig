@@ -334,7 +334,7 @@ fn buildWasmBinary(
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
     while (true) {
-        receiveWasmMessage(arena, context, poller.reader(.stdout), &result, &result_error_bundle) catch |err| switch (err) {
+        receiveWasmMessage(gpa, arena, context, poller.reader(.stdout), &result, &result_error_bundle) catch |err| switch (err) {
             error.EndOfStream => break,
             error.ReadFailed => if (!(try poller.poll())) break,
             else => |e| return e,
@@ -387,6 +387,7 @@ fn buildWasmBinary(
 }
 
 fn receiveWasmMessage(
+    gpa: Allocator,
     arena: Allocator,
     context: *Context,
     br: *std.io.BufferedReader,
@@ -394,8 +395,9 @@ fn receiveWasmMessage(
     result_error_bundle: *std.zig.ErrorBundle,
 ) !void {
     // Ensure that we will be able to read the entire message without blocking.
+    try br.fillAlloc(gpa, @sizeOf(std.zig.Server.Message.Header));
     const header = try br.peekStructEndian(std.zig.Server.Message.Header, .little);
-    try br.fill(@sizeOf(std.zig.Server.Message.Header) + header.bytes_len);
+    try br.fillAlloc(gpa, @sizeOf(std.zig.Server.Message.Header) + header.bytes_len);
     br.toss(@sizeOf(std.zig.Server.Message.Header));
     switch (header.tag) {
         .zig_version => {

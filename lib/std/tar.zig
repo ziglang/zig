@@ -293,28 +293,6 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
-/// Options for iterator.
-/// Buffers should be provided by the caller.
-pub const IteratorOptions = struct {
-    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
-    file_name_buffer: []u8,
-    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
-    link_name_buffer: []u8,
-    /// Collects error messages during unpacking
-    diagnostics: ?*Diagnostics = null,
-};
-
-/// Iterates over files in tar archive.
-/// `next` returns each file in tar archive.
-pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
-    return .{
-        .reader = reader,
-        .diagnostics = options.diagnostics,
-        .file_name_buffer = options.file_name_buffer,
-        .link_name_buffer = options.link_name_buffer,
-    };
-}
-
 /// Type of the file returned by iterator `next` method.
 pub const FileKind = enum {
     directory,
@@ -323,206 +301,230 @@ pub const FileKind = enum {
 };
 
 /// Iterator over entries in the tar file represented by reader.
-pub fn Iterator(comptime ReaderType: type) type {
-    return struct {
-        reader: ReaderType,
-        diagnostics: ?*Diagnostics = null,
+pub const Iterator = struct {
+    reader: *std.io.BufferedReader,
+    diagnostics: ?*Diagnostics = null,
 
-        // buffers for heeader and file attributes
-        header_buffer: [Header.SIZE]u8 = undefined,
+    // buffers for heeader and file attributes
+    header_buffer: [Header.SIZE]u8 = undefined,
+    file_name_buffer: []u8,
+    link_name_buffer: []u8,
+
+    // bytes of padding to the end of the block
+    padding: usize = 0,
+    // not consumed bytes of file from last next iteration
+    unread_file_bytes: u64 = 0,
+
+    /// Options for iterator.
+    /// Buffers should be provided by the caller.
+    pub const Options = struct {
+        /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
         file_name_buffer: []u8,
+        /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
         link_name_buffer: []u8,
+        /// Collects error messages during unpacking
+        diagnostics: ?*Diagnostics = null,
+    };
 
-        // bytes of padding to the end of the block
-        padding: usize = 0,
-        // not consumed bytes of file from last next iteration
-        unread_file_bytes: u64 = 0,
-
-        pub const File = struct {
-            name: []const u8, // name of file, symlink or directory
-            link_name: []const u8, // target name of symlink
-            size: u64 = 0, // size of the file in bytes
-            mode: u32 = 0,
-            kind: FileKind = .file,
-
-            unread_bytes: *u64,
-            parent_reader: ReaderType,
-
-            pub const Reader = std.io.Reader(File, ReaderType.Error, File.read);
-
-            pub fn reader(self: File) Reader {
-                return .{ .context = self };
-            }
-
-            pub fn read(self: File, dest: []u8) ReaderType.Error!usize {
-                const buf = dest[0..@min(dest.len, self.unread_bytes.*)];
-                const n = try self.parent_reader.read(buf);
-                self.unread_bytes.* -= n;
-                return n;
-            }
-
-            // Writes file content to writer.
-            pub fn writeAll(self: File, out_writer: anytype) !void {
-                var buffer: [4096]u8 = undefined;
-
-                while (self.unread_bytes.* > 0) {
-                    const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
-                    try self.parent_reader.readNoEof(buf);
-                    try out_writer.writeAll(buf);
-                    self.unread_bytes.* -= buf.len;
-                }
-            }
+    /// Iterates over files in tar archive.
+    /// `next` returns each file in tar archive.
+    pub fn init(reader: *std.io.BufferedReader, options: Options) Iterator {
+        return .{
+            .reader = reader,
+            .diagnostics = options.diagnostics,
+            .file_name_buffer = options.file_name_buffer,
+            .link_name_buffer = options.link_name_buffer,
         };
+    }
 
-        const Self = @This();
+    pub const File = struct {
+        name: []const u8, // name of file, symlink or directory
+        link_name: []const u8, // target name of symlink
+        size: u64 = 0, // size of the file in bytes
+        mode: u32 = 0,
+        kind: FileKind = .file,
 
-        fn readHeader(self: *Self) !?Header {
-            if (self.padding > 0) {
-                try self.reader.skipBytes(self.padding, .{});
-            }
-            const n = try self.reader.readAll(&self.header_buffer);
-            if (n == 0) return null;
-            if (n < Header.SIZE) return error.UnexpectedEndOfStream;
-            const header = Header{ .bytes = self.header_buffer[0..Header.SIZE] };
-            if (try header.checkChksum() == 0) return null;
-            return header;
-        }
+        unread_bytes: *u64,
+        parent_reader: *std.io.BufferedReader,
 
-        fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
-            if (size > buffer.len) return error.TarInsufficientBuffer;
-            const buf = buffer[0..size];
-            try self.reader.readNoEof(buf);
-            return nullStr(buf);
-        }
-
-        fn newFile(self: *Self) File {
+        pub fn reader(self: *File) std.io.Reader {
             return .{
-                .name = self.file_name_buffer[0..0],
-                .link_name = self.link_name_buffer[0..0],
-                .parent_reader = self.reader,
-                .unread_bytes = &self.unread_file_bytes,
+                .context = self,
+                .vtable = &.{
+                    .read = read,
+                    .readVec = readVec,
+                    .discard = discard,
+                },
             };
         }
 
-        // Number of padding bytes in the last file block.
-        fn blockPadding(size: u64) usize {
-            const block_rounded = std.mem.alignForward(u64, size, Header.SIZE); // size rounded to te block boundary
-            return @intCast(block_rounded - size);
+        fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Reader.Limit) std.io.Reader.RwError!usize {
+            const file: *File = @ptrCast(@alignCast(context));
+            if (file.unread_bytes.* == 0) return error.EndOfStream;
+            const n = try file.parent_reader.read(bw, limit.min(.limited(file.unread_bytes.*)));
+            file.unread_bytes.* -= n;
+            return n;
         }
 
-        /// Iterates through the tar archive as if it is a series of files.
-        /// Internally, the tar format often uses entries (header with optional
-        /// content) to add meta data that describes the next file. These
-        /// entries should not normally be visible to the outside. As such, this
-        /// loop iterates through one or more entries until it collects a all
-        /// file attributes.
-        pub fn next(self: *Self) !?File {
-            if (self.unread_file_bytes > 0) {
-                // If file content was not consumed by caller
-                try self.reader.skipBytes(self.unread_file_bytes, .{});
-                self.unread_file_bytes = 0;
-            }
-            var file: File = self.newFile();
-
-            while (try self.readHeader()) |header| {
-                const kind = header.kind();
-                const size: u64 = try header.size();
-                self.padding = blockPadding(size);
-
-                switch (kind) {
-                    // File types to return upstream
-                    .directory, .normal, .symbolic_link => {
-                        file.kind = switch (kind) {
-                            .directory => .directory,
-                            .normal => .file,
-                            .symbolic_link => .sym_link,
-                            else => unreachable,
-                        };
-                        file.mode = try header.mode();
-
-                        // set file attributes if not already set by prefix/extended headers
-                        if (file.size == 0) {
-                            file.size = size;
-                        }
-                        if (file.link_name.len == 0) {
-                            file.link_name = try header.linkName(self.link_name_buffer);
-                        }
-                        if (file.name.len == 0) {
-                            file.name = try header.fullName(self.file_name_buffer);
-                        }
-
-                        self.padding = blockPadding(file.size);
-                        self.unread_file_bytes = file.size;
-                        return file;
-                    },
-                    // Prefix header types
-                    .gnu_long_name => {
-                        file.name = try self.readString(@intCast(size), self.file_name_buffer);
-                    },
-                    .gnu_long_link => {
-                        file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
-                    },
-                    .extended_header => {
-                        // Use just attributes from last extended header.
-                        file = self.newFile();
-
-                        var rdr = paxIterator(self.reader, @intCast(size));
-                        while (try rdr.next()) |attr| {
-                            switch (attr.kind) {
-                                .path => {
-                                    file.name = try attr.value(self.file_name_buffer);
-                                },
-                                .linkpath => {
-                                    file.link_name = try attr.value(self.link_name_buffer);
-                                },
-                                .size => {
-                                    var buf: [pax_max_size_attr_len]u8 = undefined;
-                                    file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
-                                },
-                            }
-                        }
-                    },
-                    // Ignored header type
-                    .global_extended_header => {
-                        self.reader.skipBytes(size, .{}) catch return error.TarHeadersTooBig;
-                    },
-                    // All other are unsupported header types
-                    else => {
-                        const d = self.diagnostics orelse return error.TarUnsupportedHeader;
-                        try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
-                            .file_name = try d.allocator.dupe(u8, header.name()),
-                            .file_type = kind,
-                        } });
-                        if (kind == .gnu_sparse) {
-                            try self.skipGnuSparseExtendedHeaders(header);
-                        }
-                        self.reader.skipBytes(size, .{}) catch return error.TarHeadersTooBig;
-                    },
-                }
-            }
-            return null;
+        fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+            const file: *File = @ptrCast(@alignCast(context));
+            if (file.unread_bytes.* == 0) return error.EndOfStream;
+            const n = try file.parent_reader.readVecLimit(data, .limited(file.unread_bytes.*));
+            file.unread_bytes.* -= n;
+            return n;
         }
 
-        fn skipGnuSparseExtendedHeaders(self: *Self, header: Header) !void {
-            var is_extended = header.bytes[482] > 0;
-            while (is_extended) {
-                var buf: [Header.SIZE]u8 = undefined;
-                const n = try self.reader.readAll(&buf);
-                if (n < Header.SIZE) return error.UnexpectedEndOfStream;
-                is_extended = buf[504] > 0;
-            }
+        fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+            const file: *File = @ptrCast(@alignCast(context));
+            const n = limit.minInt(file.unread_bytes.*);
+            file.unread_bytes.* -= n;
+            return n;
+        }
+
+        pub fn readRemaining(file: *File, out: *std.io.BufferedWriter) std.io.Reader.RwRemainingError!void {
+            return file.reader().readRemaining(out);
         }
     };
-}
 
-/// Pax attributes iterator.
-/// Size is length of pax extended header in reader.
-fn paxIterator(reader: anytype, size: usize) PaxIterator(@TypeOf(reader)) {
-    return PaxIterator(@TypeOf(reader)){
-        .reader = reader,
-        .size = size,
-    };
-}
+    fn readHeader(self: *Iterator) !?Header {
+        if (self.padding > 0) {
+            try self.reader.discardAll(self.padding);
+        }
+        const n = try self.reader.readSliceShort(&self.header_buffer);
+        if (n == 0) return null;
+        if (n < Header.SIZE) return error.UnexpectedEndOfStream;
+        const header = Header{ .bytes = self.header_buffer[0..Header.SIZE] };
+        if (try header.checkChksum() == 0) return null;
+        return header;
+    }
+
+    fn readString(self: *Iterator, size: usize, buffer: []u8) ![]const u8 {
+        if (size > buffer.len) return error.TarInsufficientBuffer;
+        const buf = buffer[0..size];
+        try self.reader.readSlice(buf);
+        return nullStr(buf);
+    }
+
+    fn newFile(self: *Iterator) File {
+        return .{
+            .name = self.file_name_buffer[0..0],
+            .link_name = self.link_name_buffer[0..0],
+            .parent_reader = self.reader,
+            .unread_bytes = &self.unread_file_bytes,
+        };
+    }
+
+    // Number of padding bytes in the last file block.
+    fn blockPadding(size: u64) usize {
+        const block_rounded = std.mem.alignForward(u64, size, Header.SIZE); // size rounded to te block boundary
+        return @intCast(block_rounded - size);
+    }
+
+    /// Iterates through the tar archive as if it is a series of files.
+    /// Internally, the tar format often uses entries (header with optional
+    /// content) to add meta data that describes the next file. These
+    /// entries should not normally be visible to the outside. As such, this
+    /// loop iterates through one or more entries until it collects a all
+    /// file attributes.
+    pub fn next(self: *Iterator) !?File {
+        if (self.unread_file_bytes > 0) {
+            // If file content was not consumed by caller
+            try self.reader.discardAll64(self.unread_file_bytes);
+            self.unread_file_bytes = 0;
+        }
+        var file: File = self.newFile();
+
+        while (try self.readHeader()) |header| {
+            const kind = header.kind();
+            const size: u64 = try header.size();
+            self.padding = blockPadding(size);
+
+            switch (kind) {
+                // File types to return upstream
+                .directory, .normal, .symbolic_link => {
+                    file.kind = switch (kind) {
+                        .directory => .directory,
+                        .normal => .file,
+                        .symbolic_link => .sym_link,
+                        else => unreachable,
+                    };
+                    file.mode = try header.mode();
+
+                    // set file attributes if not already set by prefix/extended headers
+                    if (file.size == 0) {
+                        file.size = size;
+                    }
+                    if (file.link_name.len == 0) {
+                        file.link_name = try header.linkName(self.link_name_buffer);
+                    }
+                    if (file.name.len == 0) {
+                        file.name = try header.fullName(self.file_name_buffer);
+                    }
+
+                    self.padding = blockPadding(file.size);
+                    self.unread_file_bytes = file.size;
+                    return file;
+                },
+                // Prefix header types
+                .gnu_long_name => {
+                    file.name = try self.readString(@intCast(size), self.file_name_buffer);
+                },
+                .gnu_long_link => {
+                    file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
+                },
+                .extended_header => {
+                    // Use just attributes from last extended header.
+                    file = self.newFile();
+
+                    var rdr: PaxIterator = .{
+                        .reader = self.reader,
+                        .size = @intCast(size),
+                    };
+                    while (try rdr.next()) |attr| {
+                        switch (attr.kind) {
+                            .path => {
+                                file.name = try attr.value(self.file_name_buffer);
+                            },
+                            .linkpath => {
+                                file.link_name = try attr.value(self.link_name_buffer);
+                            },
+                            .size => {
+                                var buf: [pax_max_size_attr_len]u8 = undefined;
+                                file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
+                            },
+                        }
+                    }
+                },
+                // Ignored header type
+                .global_extended_header => {
+                    self.reader.discardAll64(size) catch return error.TarHeadersTooBig;
+                },
+                // All other are unsupported header types
+                else => {
+                    const d = self.diagnostics orelse return error.TarUnsupportedHeader;
+                    try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
+                        .file_name = try d.allocator.dupe(u8, header.name()),
+                        .file_type = kind,
+                    } });
+                    if (kind == .gnu_sparse) {
+                        try self.skipGnuSparseExtendedHeaders(header);
+                    }
+                    self.reader.discardAll64(size) catch return error.TarHeadersTooBig;
+                },
+            }
+        }
+        return null;
+    }
+
+    fn skipGnuSparseExtendedHeaders(self: *Iterator, header: Header) !void {
+        var is_extended = header.bytes[482] > 0;
+        while (is_extended) {
+            var buf: [Header.SIZE]u8 = undefined;
+            try self.reader.readSlice(&buf);
+            is_extended = buf[504] > 0;
+        }
+    }
+};
 
 const PaxAttributeKind = enum {
     path,
@@ -533,103 +535,92 @@ const PaxAttributeKind = enum {
 // maxInt(u64) has 20 chars, base 10 in practice we got 24 chars
 const pax_max_size_attr_len = 64;
 
-fn PaxIterator(comptime ReaderType: type) type {
-    return struct {
-        size: usize, // cumulative size of all pax attributes
-        reader: ReaderType,
-        // scratch buffer used for reading attribute length and keyword
-        scratch: [128]u8 = undefined,
+pub const PaxIterator = struct {
+    size: usize, // cumulative size of all pax attributes
+    reader: *std.io.BufferedReader,
 
-        const Self = @This();
+    const Self = @This();
 
-        const Attribute = struct {
-            kind: PaxAttributeKind,
-            len: usize, // length of the attribute value
-            reader: ReaderType, // reader positioned at value start
+    const Attribute = struct {
+        kind: PaxAttributeKind,
+        len: usize, // length of the attribute value
+        reader: *std.io.BufferedReader, // reader positioned at value start
 
-            // Copies pax attribute value into destination buffer.
-            // Must be called with destination buffer of size at least Attribute.len.
-            pub fn value(self: Attribute, dst: []u8) ![]const u8 {
-                if (self.len > dst.len) return error.TarInsufficientBuffer;
-                // assert(self.len <= dst.len);
-                const buf = dst[0..self.len];
-                const n = try self.reader.readAll(buf);
-                if (n < self.len) return error.UnexpectedEndOfStream;
-                try validateAttributeEnding(self.reader);
-                if (hasNull(buf)) return error.PaxNullInValue;
-                return buf;
-            }
-        };
-
-        // Iterates over pax attributes. Returns known only known attributes.
-        // Caller has to call value in Attribute, to advance reader across value.
-        pub fn next(self: *Self) !?Attribute {
-            // Pax extended header consists of one or more attributes, each constructed as follows:
-            // "%d %s=%s\n", <length>, <keyword>, <value>
-            while (self.size > 0) {
-                const length_buf = try self.readUntil(' ');
-                const length = try std.fmt.parseInt(usize, length_buf, 10); // record length in bytes
-
-                const keyword = try self.readUntil('=');
-                if (hasNull(keyword)) return error.PaxNullInKeyword;
-
-                // calculate value_len
-                const value_start = length_buf.len + keyword.len + 2; // 2 separators
-                if (length < value_start + 1 or self.size < length) return error.UnexpectedEndOfStream;
-                const value_len = length - value_start - 1; // \n separator at end
-                self.size -= length;
-
-                const kind: PaxAttributeKind = if (eql(keyword, "path"))
-                    .path
-                else if (eql(keyword, "linkpath"))
-                    .linkpath
-                else if (eql(keyword, "size"))
-                    .size
-                else {
-                    try self.reader.skipBytes(value_len, .{});
-                    try validateAttributeEnding(self.reader);
-                    continue;
-                };
-                if (kind == .size and value_len > pax_max_size_attr_len) {
-                    return error.PaxSizeAttrOverflow;
-                }
-                return Attribute{
-                    .kind = kind,
-                    .len = value_len,
-                    .reader = self.reader,
-                };
-            }
-
-            return null;
-        }
-
-        fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
-            var fbs: std.io.BufferedWriter = undefined;
-            fbs.initFixed(&self.scratch);
-            try self.reader.streamUntilDelimiter(&fbs, delimiter, null);
-            return fbs.getWritten();
-        }
-
-        fn eql(a: []const u8, b: []const u8) bool {
-            return std.mem.eql(u8, a, b);
-        }
-
-        fn hasNull(str: []const u8) bool {
-            return (std.mem.indexOfScalar(u8, str, 0)) != null;
-        }
-
-        // Checks that each record ends with new line.
-        fn validateAttributeEnding(reader: ReaderType) !void {
-            if (try reader.readByte() != '\n') return error.PaxInvalidAttributeEnd;
+        // Copies pax attribute value into destination buffer.
+        // Must be called with destination buffer of size at least Attribute.len.
+        pub fn value(self: Attribute, dst: []u8) ![]const u8 {
+            if (self.len > dst.len) return error.TarInsufficientBuffer;
+            // assert(self.len <= dst.len);
+            const buf = dst[0..self.len];
+            const n = try self.reader.readSliceShort(buf);
+            if (n < self.len) return error.UnexpectedEndOfStream;
+            try validateAttributeEnding(self.reader);
+            if (hasNull(buf)) return error.PaxNullInValue;
+            return buf;
         }
     };
-}
+
+    // Iterates over pax attributes. Returns known only known attributes.
+    // Caller has to call value in Attribute, to advance reader across value.
+    pub fn next(self: *Self) !?Attribute {
+        // Pax extended header consists of one or more attributes, each constructed as follows:
+        // "%d %s=%s\n", <length>, <keyword>, <value>
+        while (self.size > 0) {
+            const length_buf = try self.reader.takeSentinel(' ');
+            const length = try std.fmt.parseInt(usize, length_buf, 10); // record length in bytes
+
+            const keyword = try self.reader.takeSentinel('=');
+            if (hasNull(keyword)) return error.PaxNullInKeyword;
+
+            // calculate value_len
+            const value_start = length_buf.len + keyword.len + 2; // 2 separators
+            if (length < value_start + 1 or self.size < length) return error.UnexpectedEndOfStream;
+            const value_len = length - value_start - 1; // \n separator at end
+            self.size -= length;
+
+            const kind: PaxAttributeKind = if (eql(keyword, "path"))
+                .path
+            else if (eql(keyword, "linkpath"))
+                .linkpath
+            else if (eql(keyword, "size"))
+                .size
+            else {
+                try self.reader.discardAll(value_len);
+                try validateAttributeEnding(self.reader);
+                continue;
+            };
+            if (kind == .size and value_len > pax_max_size_attr_len) {
+                return error.PaxSizeAttrOverflow;
+            }
+            return .{
+                .kind = kind,
+                .len = value_len,
+                .reader = self.reader,
+            };
+        }
+
+        return null;
+    }
+
+    fn eql(a: []const u8, b: []const u8) bool {
+        return std.mem.eql(u8, a, b);
+    }
+
+    fn hasNull(str: []const u8) bool {
+        return (std.mem.indexOfScalar(u8, str, 0)) != null;
+    }
+
+    // Checks that each record ends with new line.
+    fn validateAttributeEnding(reader: *std.io.BufferedReader) !void {
+        if (try reader.takeByte() != '\n') return error.PaxInvalidAttributeEnd;
+    }
+};
 
 /// Saves tar file content to the file systems.
-pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
+pub fn pipeToFileSystem(dir: std.fs.Dir, reader: *std.io.BufferedReader, options: PipeOptions) !void {
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    var iter = iterator(reader, .{
+    var iter: Iterator = .init(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
         .diagnostics = options.diagnostics,
@@ -827,8 +818,9 @@ test PaxIterator {
     var buffer: [1024]u8 = undefined;
 
     outer: for (cases) |case| {
-        var stream = std.io.fixedBufferStream(case.data);
-        var iter = paxIterator(stream.reader(), case.data.len);
+        var br: std.io.BufferedReader = undefined;
+        br.initFixed(case.data);
+        var iter: PaxIterator = .init(&br, case.data.len);
 
         var i: usize = 0;
         while (iter.next() catch |err| {
@@ -942,7 +934,7 @@ test "create file and symlink" {
     file.close();
 }
 
-test iterator {
+test Iterator {
     // Example tar file is created from this tree structure:
     // $ tree example
     //    example
@@ -969,7 +961,7 @@ test iterator {
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     // Create iterator
-    var iter = iterator(fbs.reader(), .{
+    var iter: Iterator = .init(fbs.reader(), .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
     });

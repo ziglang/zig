@@ -694,43 +694,49 @@ fn render_docs(
         var link_buffer: std.ArrayListUnmanaged(u8) = .empty;
     };
 
-    const Writer = std.ArrayListUnmanaged(u8).Writer;
-    const Renderer = markdown.Renderer(Writer, Decl.Index);
-    const renderer: Renderer = .{
-        .context = decl_index,
+    var render: markdown.Render = .{
+        .context = &decl_index,
         .renderFn = struct {
+            const fmtHtml = markdown.Render.fmtHtml;
             fn render(
-                r: Renderer,
+                r: markdown.Render,
                 doc: markdown.Document,
                 node: markdown.Document.Node.Index,
-                writer: Writer,
+                writer: *std.io.BufferedWriter,
             ) !void {
+                const decl_index_ptr: *const Decl.Index = @alignCast(@ptrCast(r.context));
                 const data = doc.nodes.items(.data)[@intFromEnum(node)];
                 switch (doc.nodes.items(.tag)[@intFromEnum(node)]) {
                     .code_span => {
                         try writer.writeAll("<code>");
                         const content = doc.string(data.text.content);
-                        if (resolve_decl_path(r.context, content)) |resolved_decl_index| {
+                        if (resolve_decl_path(decl_index_ptr.*, content)) |resolved_decl_index| {
                             g.link_buffer.clearRetainingCapacity();
-                            try resolveDeclLink(resolved_decl_index, &g.link_buffer);
+                            resolveDeclLink(resolved_decl_index, &g.link_buffer) catch |err| switch (err) {
+                                error.OutOfMemory => return error.WriteFailed,
+                            };
 
                             try writer.writeAll("<a href=\"#");
                             _ = missing_feature_url_escape;
                             try writer.writeAll(g.link_buffer.items);
-                            try writer.print("\">{}</a>", .{markdown.fmtHtml(content)});
+                            try writer.print("\">{f}</a>", .{fmtHtml(content)});
                         } else {
-                            try writer.print("{}", .{markdown.fmtHtml(content)});
+                            try writer.print("{f}", .{fmtHtml(content)});
                         }
 
                         try writer.writeAll("</code>");
                     },
 
-                    else => try Renderer.renderDefault(r, doc, node, writer),
+                    else => try markdown.Render.renderDefault(r, doc, node, writer),
                 }
             }
         }.render,
     };
-    try renderer.render(parsed_doc, out.writer(gpa));
+    var aw: std.io.AllocatingWriter = undefined;
+    defer out.* = aw.toArrayList();
+    render.render(parsed_doc, aw.fromArrayList(gpa, out)) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 }
 
 fn resolve_decl_path(decl_index: Decl.Index, path: []const u8) ?Decl.Index {
@@ -772,10 +778,11 @@ export fn decl_type_html(decl_index: Decl.Index) String {
 const Oom = error{OutOfMemory};
 
 fn unpackInner(tar_bytes: []u8) !void {
-    var fbs = std.io.fixedBufferStream(tar_bytes);
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(tar_bytes);
     var file_name_buffer: [1024]u8 = undefined;
     var link_name_buffer: [1024]u8 = undefined;
-    var it = std.tar.iterator(fbs.reader(), .{
+    var it = std.tar.Iterator.init(&br, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
     });
@@ -796,7 +803,7 @@ fn unpackInner(tar_bytes: []u8) !void {
                         {
                             gop.value_ptr.* = file;
                         }
-                        const file_bytes = tar_bytes[fbs.pos..][0..@intCast(tar_file.size)];
+                        const file_bytes = tar_bytes[br.seek..][0..@intCast(tar_file.size)];
                         assert(file == try Walk.add_file(file_name, file_bytes));
                     }
                 } else {

@@ -129,9 +129,7 @@ const testing = std.testing;
 
 pub const Document = @import("markdown/Document.zig");
 pub const Parser = @import("markdown/Parser.zig");
-pub const Renderer = @import("markdown/renderer.zig").Renderer;
-pub const renderNodeInlineText = @import("markdown/renderer.zig").renderNodeInlineText;
-pub const fmtHtml = @import("markdown/renderer.zig").fmtHtml;
+pub const Render = @import("markdown/Render.zig");
 
 // Avoid exposing main to other files merely importing this one.
 pub const main = if (@import("root") == @This())

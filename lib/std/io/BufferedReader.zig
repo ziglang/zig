@@ -316,6 +316,15 @@ pub fn discardAll(br: *BufferedReader, n: usize) Reader.Error!void {
     if ((try br.discardShort(n)) != n) return error.EndOfStream;
 }
 
+pub fn discardAll64(br: *BufferedReader, n: u64) Reader.Error!void {
+    var remaining: u64 = n;
+    while (remaining > 0) {
+        const limited = std.math.cast(usize, remaining) orelse std.math.maxInt(usize);
+        try discardAll(br, limited);
+        remaining -= limited;
+    }
+}
+
 /// Skips the next `n` bytes from the stream, advancing the seek position.
 ///
 /// Unlike `toss` which is infallible, in this function `n` can be any amount.
@@ -896,28 +905,35 @@ pub fn takeLeb128(br: *BufferedReader, comptime Result: type) TakeLeb128Error!Re
     } }))) orelse error.Overflow;
 }
 
+pub fn expandTotalCapacity(br: *BufferedReader, allocator: Allocator, n: usize) Allocator.Error!void {
+    if (n <= br.buffer.len) return;
+    if (br.seek > 0) rebase(br);
+    var list: ArrayList(u8) = .{
+        .items = br.buffer[0..br.end],
+        .capacity = br.buffer.len,
+    };
+    defer br.buffer = list.allocatedSlice();
+    try list.ensureTotalCapacity(allocator, n);
+}
+
+pub const FillAllocError = Reader.Error || Allocator.Error;
+
+pub fn fillAlloc(br: *BufferedReader, allocator: Allocator, n: usize) FillAllocError!void {
+    try expandTotalCapacity(br, allocator, n);
+    return fill(br, n);
+}
+
 /// Returns a slice into the unused capacity of `buffer` with at least
 /// `min_len` bytes, extending `buffer` by resizing it with `gpa` as necessary.
 ///
 /// After calling this function, typically the caller will follow up with a
 /// call to `advanceBufferEnd` to report the actual number of bytes buffered.
-pub fn writableSliceGreedyAlloc(
-    br: *BufferedReader,
-    allocator: Allocator,
-    min_len: usize,
-) error{OutOfMemory}![]u8 {
+pub fn writableSliceGreedyAlloc(br: *BufferedReader, allocator: Allocator, min_len: usize) Allocator.Error![]u8 {
     {
         const unused = br.buffer[br.end..];
         if (unused.len >= min_len) return unused;
     }
-    const seek = br.seek;
-    if (seek > 0) {
-        const buffer = br.buffer[0..br.end];
-        const remainder = buffer[seek..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        br.end = remainder.len;
-        br.seek = 0;
-    }
+    if (br.seek > 0) rebase(br);
     {
         var list: ArrayList(u8) = .{
             .items = br.buffer[0..br.end],

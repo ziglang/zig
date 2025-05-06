@@ -443,7 +443,13 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
             const err_offset = token_offsets[err.token] + ast.errorOffset(err);
             const err_loc = std.zig.findLineColumn(ast.source, err_offset);
             rendered_err.clearRetainingCapacity();
-            try ast.renderError(err, rendered_err.writer(gpa));
+            {
+                var aw: std.io.AllocatingWriter = undefined;
+                defer rendered_err = aw.toArrayList();
+                ast.renderError(err, aw.fromArrayList(gpa, &rendered_err)) catch |e| switch (e) {
+                    error.WriteFailed => return error.OutOfMemory,
+                };
+            }
             log.err("{s}:{}:{}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
         }
         return Ast.parse(gpa, "", .zig);
