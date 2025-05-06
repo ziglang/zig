@@ -88,7 +88,7 @@ pub fn fileSourceHtml(
             if (next_annotate_index >= options.source_location_annotations.len) break;
             const next_annotation = options.source_location_annotations[next_annotate_index];
             if (cursor <= next_annotation.file_byte_offset) break;
-            try out.writer(gpa).print("<span id=\"{s}{d}\"></span>", .{
+            try out.print(gpa, "<span id=\"{s}{d}\"></span>", .{
                 options.annotation_prefix, next_annotation.dom_id,
             });
             next_annotate_index += 1;
