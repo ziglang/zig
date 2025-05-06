@@ -2756,21 +2756,67 @@ test "recursive format function" {
 
 pub const hex_charset = "0123456789abcdef";
 
-/// Converts an unsigned integer of any multiple of u8 to an array of lowercase
-/// hex bytes, little endian.
-pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
-    comptime assert(@typeInfo(@TypeOf(x)).int.signedness == .unsigned);
-    var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
-    var i: usize = 0;
-    while (i < result.len / 2) : (i += 1) {
-        const byte: u8 = @truncate(x >> @intCast(8 * i));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
+/// Deprecated, use `std.fmt.hexOptions(x, .{ .endianness = .little })` instead.
+pub fn hex(x: anytype) HexOptionsResult(@TypeOf(x), .{ .endianness = .little }) {
+    return hexOptions(x, .{ .endianness = .little });
+}
+
+/// Converts an integer to an array of hex characters.
+pub fn hexOptions(x: anytype, comptime options: HexOptions) HexOptionsResult(@TypeOf(x), options) {
+    var result: HexOptionsResult(@TypeOf(x), options) = undefined;
+
+    comptime switch (@typeInfo(@TypeOf(x))) {
+        .comptime_int => if (!(x >= -(1 << (4 * result.len - 1)) and x < 1 << (4 * result.len)))
+            @compileError("out of bounds"),
+        .int => |int| if (int.bits > 4 * result.len) @compileError("out of bounds"),
+        else => @compileError("x is not an integer"),
+    };
+
+    const table = switch (options.case) {
+        .lower => "0123456789abcdef",
+        .upper => "0123456789ABCDEF",
+    };
+
+    _ = switch (options.endianness) {
+        .little => {
+            inline for (0..result.len / 2) |i| {
+                result[2 * i] = table[@as(u4, @truncate(math.shr(@TypeOf(x), x, 4 * (2 * i + 1))))];
+                result[2 * i + 1] = table[@as(u4, @truncate(math.shr(@TypeOf(x), x, 4 * 2 * i)))];
+            }
+        },
+        .big => .{inline for (0..result.len) |i| {
+            result[i] = table[@as(u4, @truncate(math.shr(@TypeOf(x), x, 4 * (result.len - 1 - i))))];
+        }},
+    };
+
     return result;
 }
 
+pub fn HexOptionsResult(x: type, comptime options: HexOptions) type {
+    const hex_count = 2 * (options.octet_count orelse comptime switch (@typeInfo(x)) {
+        .int => |int| (int.bits + 7) / 8,
+        .comptime_int => @compileError("std.fmt.hexOptions on comptime_int must have options.octet_count set"),
+        else => @compileError("type must be an integer"),
+    });
+
+    return [hex_count]u8;
+}
+
+pub const HexOptions = struct {
+    /// Whether octets are ordered little-endian or big-endian
+    endianness: std.builtin.Endian = .big,
+    case: enum { lower, upper } = .lower,
+    /// Sign pads the result to the number of octets.
+    /// Required for `comptime_int`.
+    octet_count: ?usize = null,
+};
+
 test hex {
+    {
+        const x = hex(@as(u48, 0x1234_5678_abcd));
+        try std.testing.expect(x.len == 12);
+        try std.testing.expectEqualStrings("cdab78563412", &x);
+    }
     {
         const x = hex(@as(u32, 0xdeadbeef));
         try std.testing.expect(x.len == 8);
@@ -2780,6 +2826,24 @@ test hex {
         const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";
         try std.testing.expect(s.len == 18);
         try std.testing.expectEqualStrings("[00efcdab78563412]", s);
+    }
+}
+
+test hexOptions {
+    {
+        const x = hexOptions(@as(u48, 0x1234_5678_abcd), .{ .octet_count = 8 });
+        try std.testing.expect(x.len == 16);
+        try std.testing.expectEqualStrings("000012345678abcd", &x);
+    }
+    {
+        const x = hexOptions(@as(u32, 0xdeadbeef), .{ .endianness = .little, .case = .upper });
+        try std.testing.expect(x.len == 8);
+        try std.testing.expectEqualStrings("EFBEADDE", &x);
+    }
+    {
+        const x = hexOptions(-0x3047abed, .{ .octet_count = 8, .endianness = .little });
+        try std.testing.expect(x.len == 16);
+        try std.testing.expectEqualStrings("1354b8cfffffffff", &x);
     }
 }
 
