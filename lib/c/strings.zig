@@ -6,7 +6,8 @@ comptime {
 }
 
 fn bzero(s: *anyopaque, n: usize) void {
-    _ = std.zig.c_builtins.__builtin_memset(s, 0, n);
+    const s_cast = @as([*c]u8, @ptrCast(s));
+    @memset(s_cast[0..n], 0);
 }
 
 test bzero {
