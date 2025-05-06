@@ -393,12 +393,18 @@ pub const Reader = struct {
         ReadFailed,
     };
 
+    pub fn restituteHeadBuffer(reader: *Reader) void {
+        reader.in.restitute(reader.head_buffer.len);
+        reader.head_buffer.len = 0;
+    }
+
     /// Buffers the entire head into `head_buffer`, invalidating the previous
     /// `head_buffer`, if any.
     pub fn receiveHead(reader: *Reader) HeadError!void {
         reader.trailers = &.{};
         const in = reader.in;
         in.restitute(reader.head_buffer.len);
+        reader.head_buffer.len = 0;
         in.rebase();
         var hp: HeadParser = .{};
         var head_end: usize = 0;

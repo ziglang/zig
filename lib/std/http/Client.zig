@@ -117,14 +117,12 @@ pub const ConnectionPool = struct {
     ///
     /// Threadsafe.
     pub fn release(pool: *ConnectionPool, connection: *Connection) void {
-        if (connection.closing) return connection.destroy();
-
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
         pool.used.remove(&connection.pool_node);
 
-        if (pool.free_size == 0) return connection.destroy();
+        if (connection.closing or pool.free_size == 0) return connection.destroy();
 
         if (pool.free_len >= pool.free_size) {
             const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
@@ -669,8 +667,10 @@ pub const Response = struct {
     /// See also:
     /// * `readerDecompressing`
     pub fn reader(response: *Response) std.io.Reader {
+        const req = response.request;
+        if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
-        return response.request.reader.bodyReader(head.transfer_encoding, head.content_length);
+        return req.reader.bodyReader(head.transfer_encoding, head.content_length);
     }
 
     /// If compressed body has been negotiated this will return decompressed bytes.
@@ -805,11 +805,13 @@ pub const Request = struct {
 
     /// Returns the request's `Connection` back to the pool of the `Client`.
     pub fn deinit(r: *Request) void {
+        r.reader.restituteHeadBuffer();
         if (r.connection) |connection| {
-            if (r.reader.state != .ready) {
-                // Connection cannot be reused.
-                connection.closing = true;
-            }
+            connection.closing = connection.closing or switch (r.reader.state) {
+                .ready => false,
+                .received_head => r.method.requestHasBody(),
+                else => true,
+            };
             r.client.connection_pool.release(connection);
         }
         r.* = undefined;
@@ -1025,7 +1027,14 @@ pub const Request = struct {
             }
 
             if (head.status.class() == .redirect and r.redirect_behavior != .unhandled) {
-                if (r.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
+                if (r.redirect_behavior == .not_allowed) {
+                    // Connection can still be reused by skipping the body.
+                    var reader = r.reader.bodyReader(head.transfer_encoding, head.content_length);
+                    _ = reader.discardRemaining() catch |err| switch (err) {
+                        error.ReadFailed => connection.closing = true,
+                    };
+                    return error.TooManyHttpRedirects;
+                }
                 try r.redirect(head, &aux_buf);
                 try r.sendBodiless();
                 continue;
