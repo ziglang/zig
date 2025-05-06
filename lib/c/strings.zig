@@ -5,7 +5,7 @@ comptime {
     @export(&bzero, .{ .name = "bzero", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn bzero(s: *anyopaque, n: usize) void {
+fn bzero(s: *anyopaque, n: usize) callconv(.c) void {
     const s_cast = @as([*c]u8, @ptrCast(s));
     @memset(s_cast[0..n], 0);
 }
