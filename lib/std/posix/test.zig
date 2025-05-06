@@ -1377,6 +1377,8 @@ fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
 }
 
 test "fchmodat smoke test" {
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23808
+
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
