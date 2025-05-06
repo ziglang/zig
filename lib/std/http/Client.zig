@@ -820,7 +820,7 @@ pub const Request = struct {
     /// Sends and flushes a complete request as only HTTP head, no body.
     pub fn sendBodiless(r: *Request) std.io.Writer.Error!void {
         try sendBodilessUnflushed(r);
-        try r.connection.?.writer.flush();
+        try r.connection.?.flush();
     }
 
     /// Sends but does not flush a complete request as only HTTP head, no body.
@@ -830,9 +830,22 @@ pub const Request = struct {
         try sendHead(r);
     }
 
+    /// Transfers the HTTP head over the connection and flushes.
+    ///
+    /// See also:
+    /// * `sendBodyUnflushed`
+    pub fn sendBody(r: *Request) std.io.Writer.Error!http.BodyWriter {
+        const result = try sendBodyUnflushed(r);
+        try r.connection.?.flush();
+        return result;
+    }
+
     /// Transfers the HTTP head over the connection, which is not flushed until
     /// `BodyWriter.flush` or `BodyWriter.end` is called.
-    pub fn sendBody(r: *Request) std.io.Writer.Error!http.BodyWriter {
+    ///
+    /// See also:
+    /// * `sendBody`
+    pub fn sendBodyUnflushed(r: *Request) std.io.Writer.Error!http.BodyWriter {
         assert(r.method.requestHasBody());
         try sendHead(r);
         return .{
