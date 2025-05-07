@@ -809,7 +809,8 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .aarch64, .aarch64_be => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
-        .spirv64 => .stage2_spirv64,
+        .spirv32 => if (target.os.tag == .opencl) .stage2_spirv64 else .other,
+        .spirv, .spirv64 => .stage2_spirv64,
         else => .other,
     };
 }
