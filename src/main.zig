@@ -3331,12 +3331,18 @@ fn buildOutputType(
         // We are providing our own cache key, because this file has nothing
         // to do with the cache manifest.
         var hasher = Cache.Hasher.init("0123456789abcdef");
-        var w = io.multiWriter(.{ f.writer(), hasher.writer() });
-        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-        try fifo.pump(fs.File.stdin().reader().unbuffered(), w.writer().unbuffered());
+        var file_writer = f.writer();
+        var file_writer_bw = file_writer.interface().unbuffered();
+        var hasher_writer = hasher.writer(&file_writer_bw);
+        var buffer: [1000]u8 = undefined;
+        var bw = hasher_writer.interface().buffered(&buffer);
+        bw.writeFileAll(.stdin(), .{}) catch |err| switch (err) {
+            error.WriteFailed => fatal("failed to write {s}: {s}", .{ dump_path, file_writer.err.? }),
+            else => fatal("failed to pipe stdin to {s}: {s}", .{ dump_path, err }),
+        };
+        try bw.flush();
 
-        var bin_digest: Cache.BinDigest = undefined;
-        hasher.final(&bin_digest);
+        const bin_digest: Cache.BinDigest = hasher_writer.final();
 
         const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
             &bin_digest, ext.canonicalName(target),
