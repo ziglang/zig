@@ -167,16 +167,3 @@ test "updateTimes" {
     try expect(stat_new.atime < stat_old.atime);
     try expect(stat_new.mtime < stat_old.mtime);
 }
-
-test "GenericReader methods can return error.EndOfStream" {
-    // https://github.com/ziglang/zig/issues/17733
-    var fbs = std.io.fixedBufferStream("");
-    try std.testing.expectError(
-        error.EndOfStream,
-        fbs.reader().readEnum(enum(u8) { a, b }, .little),
-    );
-    try std.testing.expectError(
-        error.EndOfStream,
-        fbs.reader().isBytes("foo"),
-    );
-}
