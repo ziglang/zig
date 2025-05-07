@@ -19,9 +19,6 @@ pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
 pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
 pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
 
-pub const BitWriter = @import("io/bit_writer.zig").BitWriter;
-pub const bitWriter = @import("io/bit_writer.zig").bitWriter;
-
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
 
@@ -434,7 +431,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = AllocatingWriter;
-    _ = BitWriter;
     _ = BufferedReader;
     _ = BufferedWriter;
     _ = Reader;
