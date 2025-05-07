@@ -169,12 +169,10 @@ pub const Object = struct {
     ///   via the usual `intern_map` mechanism.
     ptr_types: PtrTypeMap = .{},
 
-    /// For test declarations for Vulkan, we have to add a push constant with a pointer to a
-    /// buffer that we can use. We only need to generate this once, this holds the link information
+    /// For test declarations for Vulkan, we have to add a buffer.
+    /// We only need to generate this once, this holds the link information
     /// related to that.
-    error_push_constant: ?struct {
-        push_constant_ptr: SpvModule.Decl.Index,
-    } = null,
+    error_buffer: ?SpvModule.Decl.Index = null,
 
     pub fn init(gpa: Allocator, target: std.Target) Object {
         return .{
@@ -1739,15 +1737,34 @@ const NavGen = struct {
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
             .generic => if (self.spv.hasFeature(.generic_pointer)) .Generic else .Function,
+            .global => {
+                if (self.spv.hasFeature(.kernel)) return .CrossWorkgroup;
+                return .StorageBuffer;
+            },
+            .push_constant => {
+                assert(self.spv.hasFeature(.shader));
+                return .PushConstant;
+            },
+            .output => {
+                assert(self.spv.hasFeature(.shader));
+                return .Output;
+            },
+            .uniform => {
+                assert(self.spv.hasFeature(.shader));
+                return .Uniform;
+            },
+            .storage_buffer => {
+                assert(self.spv.hasFeature(.shader));
+                return .StorageBuffer;
+            },
+            .physical_storage_buffer => {
+                assert(self.spv.hasFeature(.physical_storage_buffer));
+                return .PhysicalStorageBuffer;
+            },
+            .constant => .UniformConstant,
             .shared => .Workgroup,
             .local => .Function,
-            .global => if (self.spv.hasFeature(.shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
-            .constant => .UniformConstant,
-            .push_constant => .PushConstant,
             .input => .Input,
-            .output => .Output,
-            .uniform => .Uniform,
-            .storage_buffer => .StorageBuffer,
             .gs,
             .fs,
             .ss,
@@ -2713,38 +2730,32 @@ const NavGen = struct {
                 });
             },
             .vulkan, .opengl => {
-                const ptr_ptr_anyerror_ty_id = self.spv.allocId();
-                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
-                    .id_result = ptr_ptr_anyerror_ty_id,
-                    .storage_class = .PushConstant,
-                    .type = ptr_anyerror_ty_id,
-                });
-
-                if (self.object.error_push_constant == null) {
+                if (self.object.error_buffer == null) {
                     const spv_err_decl_index = try self.spv.allocDecl(.global);
                     try self.spv.declareDeclDeps(spv_err_decl_index, &.{});
 
-                    const push_constant_struct_ty_id = self.spv.allocId();
-                    try self.spv.structType(push_constant_struct_ty_id, &.{ptr_anyerror_ty_id}, &.{"error_out_ptr"});
-                    try self.spv.decorate(push_constant_struct_ty_id, .Block);
-                    try self.spv.decorateMember(push_constant_struct_ty_id, 0, .{ .Offset = .{ .byte_offset = 0 } });
+                    const buffer_struct_ty_id = self.spv.allocId();
+                    try self.spv.structType(buffer_struct_ty_id, &.{anyerror_ty_id}, &.{"error_out"});
+                    try self.spv.decorate(buffer_struct_ty_id, .Block);
+                    try self.spv.decorateMember(buffer_struct_ty_id, 0, .{ .Offset = .{ .byte_offset = 0 } });
 
-                    const ptr_push_constant_struct_ty_id = self.spv.allocId();
+                    const ptr_buffer_struct_ty_id = self.spv.allocId();
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
-                        .id_result = ptr_push_constant_struct_ty_id,
-                        .storage_class = .PushConstant,
-                        .type = push_constant_struct_ty_id,
+                        .id_result = ptr_buffer_struct_ty_id,
+                        .storage_class = self.spvStorageClass(.global),
+                        .type = buffer_struct_ty_id,
                     });
 
+                    const buffer_struct_id = self.spv.declPtr(spv_err_decl_index).result_id;
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
-                        .id_result_type = ptr_push_constant_struct_ty_id,
-                        .id_result = self.spv.declPtr(spv_err_decl_index).result_id,
-                        .storage_class = .PushConstant,
+                        .id_result_type = ptr_buffer_struct_ty_id,
+                        .id_result = buffer_struct_id,
+                        .storage_class = self.spvStorageClass(.global),
                     });
+                    try self.spv.decorate(buffer_struct_id, .{ .DescriptorSet = .{ .descriptor_set = 0 } });
+                    try self.spv.decorate(buffer_struct_id, .{ .Binding = .{ .binding_point = 0 } });
 
-                    self.object.error_push_constant = .{
-                        .push_constant_ptr = spv_err_decl_index,
-                    };
+                    self.object.error_buffer = spv_err_decl_index;
                 }
 
                 try self.spv.sections.execution_modes.emit(self.spv.gpa, .OpExecutionMode, .{
@@ -2767,24 +2778,16 @@ const NavGen = struct {
                     .id_result = self.spv.allocId(),
                 });
 
-                const spv_err_decl_index = self.object.error_push_constant.?.push_constant_ptr;
-                const push_constant_id = self.spv.declPtr(spv_err_decl_index).result_id;
+                const spv_err_decl_index = self.object.error_buffer.?;
+                const buffer_id = self.spv.declPtr(spv_err_decl_index).result_id;
                 try decl_deps.append(spv_err_decl_index);
 
                 const zero_id = try self.constInt(Type.u32, 0);
-                // We cannot use OpInBoundsAccessChain to dereference cross-storage class, so we have to use
-                // a load.
-                const tmp = self.spv.allocId();
                 try section.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
-                    .id_result_type = ptr_ptr_anyerror_ty_id,
-                    .id_result = tmp,
-                    .base = push_constant_id,
-                    .indexes = &.{zero_id},
-                });
-                try section.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = ptr_anyerror_ty_id,
                     .id_result = p_error_id,
-                    .pointer = tmp,
+                    .base = buffer_id,
+                    .indexes = &.{zero_id},
                 });
             },
             else => unreachable,
@@ -4562,7 +4565,8 @@ const NavGen = struct {
                         const field_int_id = blk: {
                             if (field_ty.isPtrAtRuntime(zcu)) {
                                 assert(self.spv.hasFeature(.addresses) or
-                                    (self.spv.hasFeature(.physical_storage_buffer) and field_ty.ptrAddressSpace(zcu) == .storage_buffer));
+                                    (self.spv.hasFeature(.physical_storage_buffer) and
+                                        field_ty.ptrAddressSpace(zcu) == .storage_buffer));
                                 break :blk try self.intFromPtr(field_id);
                             }
                             break :blk try self.bitCast(field_int_ty, field_ty, field_id);
@@ -4969,13 +4973,16 @@ const NavGen = struct {
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
-            const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
-            const active_pl_ptr_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                .id_result_type = active_pl_ptr_ty_id,
-                .id_result = active_pl_ptr_id,
-                .operand = pl_ptr_id,
-            });
+            const active_pl_ptr_id = if (!layout.payload_ty.eql(payload_ty, zcu)) blk: {
+                const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
+                const active_pl_ptr_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = active_pl_ptr_ty_id,
+                    .id_result = active_pl_ptr_id,
+                    .operand = pl_ptr_id,
+                });
+                break :blk active_pl_ptr_id;
+            } else pl_ptr_id;
 
             try self.store(payload_ty, active_pl_ptr_id, payload.?, .{});
         } else {

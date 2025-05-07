@@ -2014,7 +2014,7 @@ pub const Cpu = struct {
             .global, .local, .shared => is_gpu,
             .constant => is_gpu and (context == null or context == .constant),
             .param => is_nvptx,
-            .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
+            .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
         };
     }
 };

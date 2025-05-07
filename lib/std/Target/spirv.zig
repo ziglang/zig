@@ -21,6 +21,7 @@ pub const Feature = enum {
     generic_pointer,
     vector16,
     shader,
+    variable_pointers,
     physical_storage_buffer,
 };
 
@@ -129,6 +130,11 @@ pub const all_features = blk: {
         .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
         .dependencies = featureSet(&[_]Feature{.v1_0}),
     };
+    result[@intFromEnum(Feature.variable_pointers)] = .{
+        .llvm_name = null,
+        .description = "Enable SPV_KHR_variable_pointers extension and the (VariablePointers, VariablePointersStorageBuffer) capabilities",
+        .dependencies = featureSet(&[_]Feature{.v1_0}),
+    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -147,7 +153,7 @@ pub const cpu = struct {
     pub const vulkan_v1_2: CpuModel = .{
         .name = "vulkan_v1_2",
         .llvm_name = null,
-        .features = featureSet(&[_]Feature{ .v1_5, .shader, .physical_storage_buffer }),
+        .features = featureSet(&[_]Feature{ .v1_5, .shader }),
     };
 
     pub const opencl_v2: CpuModel = .{

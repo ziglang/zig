@@ -501,21 +501,26 @@ pub fn addrSpaceCastIsValid(
 /// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
 /// for a particular architecture and address space wether such pointers are logical.
 pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
-    if (target.os.tag != .vulkan) {
-        return false;
-    }
+    if (target.os.tag != .vulkan) return false;
 
     return switch (as) {
         // TODO: Vulkan doesn't support pointers in the generic address space, we
         // should remove this case but this requires a change in defaultAddressSpace().
         // For now, at least disable them from being regarded as physical.
         .generic => true,
-        // For now, all global pointers are represented using PhysicalStorageBuffer, so these are real
-        // pointers.
+        // For now, all global pointers are represented using StorageBuffer or CrossWorkgroup,
+        // so these are real pointers.
         .global => false,
-        // TODO: Allowed with VK_KHR_variable_pointers.
-        .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
+        .physical_storage_buffer => false,
+        .shared => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        .constant,
+        .local,
+        .input,
+        .output,
+        .uniform,
+        .push_constant,
+        .storage_buffer,
+        => true,
         else => unreachable,
     };
 }
