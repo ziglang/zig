@@ -389,7 +389,8 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
     try pp.ensureTotalTokenCapacity(pp.tokens.len + estimated_token_count);
 
     var if_level: u8 = 0;
-    var if_kind: [64]u8 = .{0} ** 64;
+    const if_kind_buf_size = comptime mem.packedArrayByteLen(u2, 256) catch unreachable;
+    var if_kind: [if_kind_buf_size]u8 = @splat(0);
     const until_else = 0;
     const until_endif = 1;
     const until_endif_seen_else = 2;
