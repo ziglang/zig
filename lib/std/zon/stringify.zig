@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const BufferedWriter = std.io.BufferedWriter;
 
 /// Options for `serialize`.
 pub const SerializeOptions = struct {
@@ -40,7 +41,7 @@ pub const SerializeOptions = struct {
 /// Serialize the given value as ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
-pub fn serialize(val: anytype, options: SerializeOptions, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn serialize(val: anytype, options: SerializeOptions, writer: *BufferedWriter) std.io.Writer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -59,9 +60,9 @@ pub fn serialize(val: anytype, options: SerializeOptions, writer: *std.io.Buffer
 pub fn serializeMaxDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: *std.io.BufferedWriter,
+    writer: *BufferedWriter,
     depth: usize,
-) std.io.Writer.Error!void {
+) Serializer.DepthError!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -79,8 +80,8 @@ pub fn serializeMaxDepth(
 pub fn serializeArbitraryDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: *std.io.BufferedWriter,
-) std.io.Writer.Error!void {
+    writer: *BufferedWriter,
+) Serializer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -436,9 +437,10 @@ pub const SerializeContainerOptions = struct {
 pub const Serializer = struct {
     options: Options = .{},
     indent_level: u8 = 0,
-    writer: *std.io.BufferedWriter,
+    writer: *BufferedWriter,
 
     pub const Error = std.io.Writer.Error;
+    pub const DepthError = Error || error{ExceededMaxDepth};
 
     pub const Options = struct {
         /// If false, only syntactically necessary whitespace is emitted.
@@ -453,7 +455,7 @@ pub const Serializer = struct {
 
     /// Serialize a value, similar to `serializeMaxDepth`.
     /// Can return `error.ExceededMaxDepth`.
-    pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, depth: usize) Error!void {
+    pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, depth: usize) DepthError!void {
         try checkValueDepth(val, depth);
         return self.valueArbitraryDepth(val, options);
     }
@@ -618,13 +620,12 @@ pub const Serializer = struct {
         try self.writer.print(".{fp_}", .{std.zig.fmtId(name)});
     }
 
+    pub const CodePointError = Error || error{InvalidCodepoint};
+
     /// Serialize `val` as a Unicode codepoint.
     ///
     /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
-    pub fn codePoint(
-        self: *Serializer,
-        val: u21,
-    ) Error!void {
+    pub fn codePoint(self: *Serializer, val: u21) CodePointError!void {
         var buf: [8]u8 = undefined;
         const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
         const str = buf[0..len];
@@ -647,7 +648,7 @@ pub const Serializer = struct {
         val: anytype,
         options: ValueOptions,
         depth: usize,
-    ) Error!void {
+    ) DepthError!void {
         try checkValueDepth(val, depth);
         try self.tupleArbitraryDepth(val, options);
     }
@@ -697,6 +698,8 @@ pub const Serializer = struct {
         top_level: bool = false,
     };
 
+    pub const MultilineStringError = Error || error{InnerCarriageReturn};
+
     /// Like `value`, but always serializes to a multiline string literal.
     ///
     /// Returns `error.InnerCarriageReturn` if `val` contains a CR not followed by a newline,
@@ -705,7 +708,7 @@ pub const Serializer = struct {
         self: *Serializer,
         val: []const u8,
         options: MultilineStringOptions,
-    ) Error!void {
+    ) MultilineStringError!void {
         // Make sure the string does not contain any carriage returns not followed by a newline
         var i: usize = 0;
         while (i < val.len) : (i += 1) {
@@ -818,7 +821,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) Error!void {
+        ) DepthError!void {
             try self.container.fieldMaxDepth(null, val, options, depth);
         }
 
@@ -893,7 +896,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) Error!void {
+        ) DepthError!void {
             try self.container.fieldMaxDepth(name, val, options, depth);
         }
 
@@ -1012,7 +1015,7 @@ pub const Serializer = struct {
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) Error!void {
+        ) DepthError!void {
             try checkValueDepth(val, depth);
             try self.fieldArbitraryDepth(name, val, options);
         }
@@ -1037,13 +1040,13 @@ pub const Serializer = struct {
 };
 
 test Serializer {
-    var s: Serializer = .{
-        .writer = std.io.null_writer,
-    };
+    var null_writer: std.io.Writer.Null = undefined;
+    var bw = null_writer.writer().unbuffered();
+    var s: Serializer = .{ .writer = &bw };
     var vec2 = try s.beginStruct(.{});
     try vec2.field("x", 1.5, .{});
-    try vec2.fieldPrefix();
-    try s.value(2.5);
+    try vec2.fieldPrefix("prefix");
+    try s.value(2.5, .{});
     try vec2.end();
 }
 
@@ -1053,7 +1056,8 @@ fn expectSerializeEqual(
     options: SerializeOptions,
 ) !void {
     var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.init(std.testing.allocator);
+    aw.init(std.testing.allocator);
+    const bw = &aw.buffered_writer;
     defer aw.deinit();
 
     try serialize(value, options, bw);
@@ -1155,7 +1159,8 @@ test "std.zon stringify whitespace, high level API" {
 
 test "std.zon stringify whitespace, low level API" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     for ([2]bool{ true, false }) |whitespace| {
@@ -1512,7 +1517,8 @@ test "std.zon stringify whitespace, low level API" {
 
 test "std.zon stringify utf8 codepoints" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     // Printable ASCII
@@ -1622,7 +1628,8 @@ test "std.zon stringify utf8 codepoints" {
 
 test "std.zon stringify strings" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     // Minimal case
@@ -1692,7 +1699,8 @@ test "std.zon stringify strings" {
 
 test "std.zon stringify multiline strings" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     inline for (.{ true, false }) |whitespace| {
@@ -1912,7 +1920,8 @@ test "std.zon stringify skip default fields" {
 
 test "std.zon depth limits" {
     var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.init(std.testing.allocator);
+    aw.init(std.testing.allocator);
+    const bw = &aw.buffered_writer;
     defer aw.deinit();
 
     const Recurse = struct { r: []const @This() };
@@ -2173,7 +2182,8 @@ test "std.zon stringify primitives" {
 
 test "std.zon stringify ident" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     try expectSerializeEqual(".{ .a = 0 }", .{ .a = 0 }, .{});
@@ -2220,7 +2230,8 @@ test "std.zon stringify ident" {
 
 test "std.zon stringify as tuple" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     // Tuples
@@ -2241,7 +2252,8 @@ test "std.zon stringify as tuple" {
 
 test "std.zon stringify as float" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     // Comptime float
@@ -2345,7 +2357,8 @@ test "std.zon pointers" {
 
 test "std.zon tuple/struct field" {
     var aw: std.io.AllocatingWriter = undefined;
-    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
+    aw.init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.buffered_writer };
     defer aw.deinit();
 
     // Test on structs
