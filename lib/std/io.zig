@@ -16,9 +16,6 @@ pub const BufferedReader = @import("io/BufferedReader.zig");
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
 
-pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
-pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
-
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
 
