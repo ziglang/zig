@@ -594,19 +594,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             break :m (try process.createEnvironFromMap(arena, env_map, .{
                 .zig_progress_fd = prog_fd,
             })).ptr;
-        } else if (builtin.link_libc) {
-            break :m (try process.createEnvironFromExisting(arena, std.c.environ, .{
-                .zig_progress_fd = prog_fd,
-            })).ptr;
-        } else if (builtin.output_mode == .Exe) {
-            // Then we have Zig start code and this works.
-            // TODO type-safety for null-termination of `os.environ`.
-            break :m (try process.createEnvironFromExisting(arena, @ptrCast(std.os.environ.ptr), .{
-                .zig_progress_fd = prog_fd,
-            })).ptr;
         } else {
-            // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            break :m (try process.createEnvironFromExisting(arena, std.os.envpN(), .{
+                .zig_progress_fd = prog_fd,
+            })).ptr;
         }
     };
 
