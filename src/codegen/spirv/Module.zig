@@ -369,8 +369,11 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Emit memory model
     const addressing_model: spec.AddressingModel = blk: {
         if (self.hasFeature(.shader)) {
-            assert(self.target.cpu.arch == .spirv64);
-            if (self.hasFeature(.physical_storage_buffer)) break :blk .PhysicalStorageBuffer64;
+            if (self.hasFeature(.physical_storage_buffer)) {
+                assert(self.target.cpu.arch == .spirv64);
+                break :blk .PhysicalStorageBuffer64;
+            }
+            assert(self.target.cpu.arch == .spirv);
             break :blk .Logical;
         }
 
