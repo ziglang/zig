@@ -440,11 +440,9 @@ const Parser = struct {
         };
     }
 
-    fn parseExprInner(
-        self: *@This(),
-        T: type,
-        node: Zoir.Node.Index,
-    ) error{ ParseZon, OutOfMemory, WrongType }!T {
+    const InnerError = error{ ParseZon, OutOfMemory, WrongType };
+
+    fn parseExprInner(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
         if (T == Zoir.Node.Index) {
             return node;
         }
@@ -624,7 +622,7 @@ const Parser = struct {
         }
     }
 
-    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
         switch (node.get(self.zoir)) {
             .string_literal => return self.parseString(T, node),
             .array_literal => |nodes| return self.parseSlice(T, nodes),
@@ -633,7 +631,7 @@ const Parser = struct {
         }
     }
 
-    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
@@ -643,7 +641,10 @@ const Parser = struct {
         var aw: std.io.AllocatingWriter = undefined;
         try aw.initCapacity(gpa, size_hint);
         defer aw.deinit();
-        switch (try ZonGen.parseStrLit(self.ast, ast_node, &aw.buffered_writer)) {
+        const parsed = ZonGen.parseStrLit(self.ast, ast_node, &aw.buffered_writer) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+        switch (parsed) {
             .success => {},
             .failure => |err| {
                 const token = self.ast.nodeMainToken(ast_node);
@@ -662,9 +663,9 @@ const Parser = struct {
         }
 
         if (pointer.sentinel() != null) {
-            return aw.toOwnedSliceSentinel(gpa, 0);
+            return aw.toOwnedSliceSentinel(0);
         } else {
-            return aw.toOwnedSlice(gpa);
+            return aw.toOwnedSlice();
         }
     }
 

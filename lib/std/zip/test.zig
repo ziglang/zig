@@ -2,14 +2,15 @@ const std = @import("std");
 const testing = std.testing;
 const zip = @import("../zip.zig");
 const maxInt = std.math.maxInt;
+const assert = std.debug.assert;
 
-pub const File = struct {
+const File = struct {
     name: []const u8,
     content: []const u8,
     compression: zip.CompressionMethod,
 };
 
-pub fn expectFiles(
+fn expectFiles(
     test_files: []const File,
     dir: std.fs.Dir,
     opt: struct {
@@ -40,7 +41,7 @@ pub fn expectFiles(
 
 // Used to store any data from writing a file to the zip archive that's needed
 // when writing the corresponding central directory record.
-pub const FileStore = struct {
+const FileStore = struct {
     compression: zip.CompressionMethod,
     file_offset: u64,
     crc32: u32,
@@ -48,40 +49,40 @@ pub const FileStore = struct {
     uncompressed_size: usize,
 };
 
-pub fn makeZip(
-    buf: []u8,
-    comptime files: []const File,
-    options: WriteZipOptions,
-) !std.io.FixedBufferStream([]u8) {
-    var store: [files.len]FileStore = undefined;
-    return try makeZipWithStore(buf, files, options, &store);
+fn makeZip(buf: []u8, files: []const File, options: WriteZipOptions) !std.io.BufferedReader {
+    const store = try std.testing.allocator.alloc(FileStore, files.len);
+    defer std.testing.allocator.free(store);
+    return makeZipWithStore(buf, files, options, store);
 }
 
-pub fn makeZipWithStore(
+fn makeZipWithStore(
     buf: []u8,
     files: []const File,
     options: WriteZipOptions,
     store: []FileStore,
-) !std.io.FixedBufferStream([]u8) {
-    var fbs = std.io.fixedBufferStream(buf);
-    try writeZip(fbs.writer(), files, store, options);
-    return std.io.fixedBufferStream(buf[0..fbs.pos]);
+) !std.io.BufferedReader {
+    var out: std.io.BufferedWriter = undefined;
+    out.initFixed(buf);
+    try writeZip(&out, files, store, options);
+    var result: std.io.BufferedReader = undefined;
+    result.initFixed(buf[0..out.end]);
+    return result;
 }
 
-pub const WriteZipOptions = struct {
+const WriteZipOptions = struct {
     end: ?EndRecordOptions = null,
     local_header: ?LocalHeaderOptions = null,
 };
-pub const LocalHeaderOptions = struct {
+const LocalHeaderOptions = struct {
     zip64: ?LocalHeaderZip64Options = null,
     compressed_size: ?u32 = null,
     uncompressed_size: ?u32 = null,
     extra_len: ?u16 = null,
 };
-pub const LocalHeaderZip64Options = struct {
+const LocalHeaderZip64Options = struct {
     data_size: ?u16 = null,
 };
-pub const EndRecordOptions = struct {
+const EndRecordOptions = struct {
     zip64: ?Zip64Options = null,
     sig: ?[4]u8 = null,
     disk_number: ?u16 = null,
@@ -93,7 +94,7 @@ pub const EndRecordOptions = struct {
     comment_len: ?u16 = null,
     comment: ?[]const u8 = null,
 };
-pub const Zip64Options = struct {
+const Zip64Options = struct {
     locator_sig: ?[4]u8 = null,
     locator_zip64_disk_count: ?u32 = null,
     locator_record_file_offset: ?u64 = null,
@@ -102,7 +103,7 @@ pub const Zip64Options = struct {
     central_directory_size: ?u64 = null,
 };
 
-pub fn writeZip(
+fn writeZip(
     writer: *std.io.BufferedWriter,
     files: []const File,
     store: []FileStore,
@@ -128,21 +129,19 @@ pub fn writeZip(
 
 /// Provides methods to format and write the contents of a zip archive
 /// to the underlying Writer.
-pub const Zipper = struct {
+const Zipper = struct {
     writer: *std.io.BufferedWriter,
-    bytes_written: u64,
+    init_count: u64,
     central_count: u64 = 0,
     first_central_offset: ?u64 = null,
     last_central_limit: ?u64 = null,
 
-    const Self = @This();
-
-    pub fn init(writer: *std.io.BufferedWriter) Zipper {
-        return .{ .writer = writer, .bytes_written = 0 };
+    fn init(writer: *std.io.BufferedWriter) Zipper {
+        return .{ .writer = writer, .init_count = writer.count };
     }
 
-    pub fn writeFile(
-        self: *Self,
+    fn writeFile(
+        self: *Zipper,
         opt: struct {
             name: []const u8,
             content: []const u8,
@@ -152,7 +151,7 @@ pub const Zipper = struct {
     ) !FileStore {
         const writer = self.writer;
 
-        const file_offset: u64 = @intCast(self.bytes_written);
+        const file_offset: u64 = writer.count - self.init_count;
         const crc32 = std.hash.Crc32.hash(opt.content);
 
         const header_options = opt.write_options.local_header;
@@ -178,32 +177,33 @@ pub const Zipper = struct {
                 .filename_len = @intCast(opt.name.len),
                 .extra_len = extra_len,
             };
-            self.bytes_written += try writer.writeStructEndian(hdr, .little);
+            try writer.writeStructEndian(hdr, .little);
         }
-        self.bytes_written += try writer.writeAll(opt.name);
+        try writer.writeAll(opt.name);
 
         if (header_options) |hdr| {
             if (hdr.zip64) |options| {
-                self.bytes_written += try writer.writeInt(u16, 0x0001, .little);
+                try writer.writeInt(u16, 0x0001, .little);
                 const data_size = if (options.data_size) |size| size else 8;
-                self.bytes_written += try writer.writeInt(u16, data_size, .little);
-                self.bytes_written += try writer.writeInt(u64, 0, .little);
-                self.bytes_written += try writer.writeInt(u64, @intCast(opt.content.len), .little);
+                try writer.writeInt(u16, data_size, .little);
+                try writer.writeInt(u64, 0, .little);
+                try writer.writeInt(u64, @intCast(opt.content.len), .little);
             }
         }
 
         var compressed_size: u32 = undefined;
         switch (opt.compression) {
             .store => {
-                self.bytes_written += try writer.writeAll(opt.content);
+                try writer.writeAll(opt.content);
                 compressed_size = @intCast(opt.content.len);
             },
             .deflate => {
-                const offset = self.bytes_written;
-                var fbs = std.io.fixedBufferStream(opt.content);
-                self.bytes_written += try std.compress.flate.deflate.compress(.raw, fbs.reader(), writer, .{});
-                std.debug.assert(fbs.pos == opt.content.len);
-                compressed_size = @intCast(self.bytes_written - offset);
+                const offset = writer.count;
+                var br: std.io.BufferedReader = undefined;
+                br.initFixed(@constCast(opt.content));
+                try std.compress.flate.deflate.compress(.raw, &br, writer, .{});
+                assert(br.seek == opt.content.len);
+                compressed_size = @intCast(writer.count - offset);
             },
             else => unreachable,
         }
@@ -216,8 +216,8 @@ pub const Zipper = struct {
         };
     }
 
-    pub fn writeCentralRecord(
-        self: *Self,
+    fn writeCentralRecord(
+        self: *Zipper,
         store: FileStore,
         opt: struct {
             name: []const u8,
@@ -225,7 +225,7 @@ pub const Zipper = struct {
         },
     ) !void {
         if (self.first_central_offset == null) {
-            self.first_central_offset = self.bytes_written;
+            self.first_central_offset = self.writer.count - self.init_count;
         }
         self.central_count += 1;
 
@@ -248,12 +248,12 @@ pub const Zipper = struct {
             .external_file_attributes = 0,
             .local_file_header_offset = @intCast(store.file_offset),
         };
-        self.bytes_written += try self.writer.writeStructEndian(hdr, .little);
-        self.bytes_written += try self.writer.writeAll(opt.name);
-        self.last_central_limit = self.bytes_written;
+        try self.writer.writeStructEndian(hdr, .little);
+        try self.writer.writeAll(opt.name);
+        self.last_central_limit = self.writer.count - self.init_count;
     }
 
-    pub fn writeEndRecord(self: *Self, opt: EndRecordOptions) !void {
+    fn writeEndRecord(self: *Zipper, opt: EndRecordOptions) !void {
         const cd_offset = self.first_central_offset orelse 0;
         const cd_end = self.last_central_limit orelse 0;
 
@@ -271,14 +271,14 @@ pub const Zipper = struct {
                 .central_directory_size = @intCast(cd_end - cd_offset),
                 .central_directory_offset = @intCast(cd_offset),
             };
-            self.bytes_written += try self.writer.writeStructEndian(fixed, .little);
+            try self.writer.writeStructEndian(fixed, .little);
             const locator: zip.EndLocator64 = .{
                 .signature = if (zip64.locator_sig) |s| s else zip.end_locator64_sig,
                 .zip64_disk_count = if (zip64.locator_zip64_disk_count) |c| c else 0,
                 .record_file_offset = if (zip64.locator_record_file_offset) |o| o else @intCast(end64_off),
                 .total_disk_count = if (zip64.locator_total_disk_count) |c| c else 1,
             };
-            self.bytes_written += try self.writer.writeStructEndian(locator, .little);
+            try self.writer.writeStructEndian(locator, .little);
         }
         const hdr: zip.EndRecord = .{
             .signature = if (opt.sig) |s| s else zip.end_record_sig,
@@ -290,8 +290,179 @@ pub const Zipper = struct {
             .central_directory_offset = if (opt.central_directory_offset) |o| o else @intCast(cd_offset),
             .comment_len = if (opt.comment_len) |l| l else (if (opt.comment) |c| @as(u16, @intCast(c.len)) else 0),
         };
-        self.bytes_written += try self.writer.writeStructEndian(hdr, .little);
+        try self.writer.writeStructEndian(hdr, .little);
         if (opt.comment) |c|
-            self.bytes_written += try self.writer.writeAll(c);
+            try self.writer.writeAll(c);
     }
 };
+
+fn testZip(options: zip.ExtractOptions, comptime files: []const File, write_opt: WriteZipOptions) !void {
+    var store: [files.len]FileStore = undefined;
+    try testZipWithStore(options, files, write_opt, &store);
+}
+fn testZipWithStore(
+    options: zip.ExtractOptions,
+    test_files: []const File,
+    write_opt: WriteZipOptions,
+    store: []FileStore,
+) !void {
+    var zip_buf: [4096]u8 = undefined;
+    var fbs = try makeZipWithStore(&zip_buf, test_files, write_opt, store);
+
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    try zip.extract(tmp.dir, fbs.seekableStream(), options);
+    try expectFiles(test_files, tmp.dir, .{});
+}
+fn testZipError(expected_error: anyerror, file: File, options: zip.ExtractOptions) !void {
+    var zip_buf: [4096]u8 = undefined;
+    var store: [1]FileStore = undefined;
+    var fbs = try makeZipWithStore(&zip_buf, &[_]File{file}, .{}, &store);
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    try testing.expectError(expected_error, zip.extract(tmp.dir, fbs.seekableStream(), options));
+}
+
+test "zip one file" {
+    try testZip(.{}, &[_]File{
+        .{ .name = "onefile.txt", .content = "Just a single file\n", .compression = .store },
+    }, .{});
+}
+test "zip multiple files" {
+    try testZip(.{ .allow_backslashes = true }, &[_]File{
+        .{ .name = "foo", .content = "a foo file\n", .compression = .store },
+        .{ .name = "subdir/bar", .content = "bar is this right?\nanother newline\n", .compression = .store },
+        .{ .name = "subdir\\whoa", .content = "you can do backslashes", .compression = .store },
+        .{ .name = "subdir/another/baz", .content = "bazzy mc bazzerson", .compression = .store },
+    }, .{});
+}
+test "zip deflated" {
+    try testZip(.{}, &[_]File{
+        .{ .name = "deflateme", .content = "This is a deflated file.\nIt should be smaller in the Zip file1\n", .compression = .deflate },
+        // TODO: re-enable this if/when we add support for deflate64
+        //.{ .name = "deflateme64", .content = "The 64k version of deflate!\n", .compression = .deflate64 },
+        .{ .name = "raw", .content = "Not all files need to be deflated in the same Zip.\n", .compression = .store },
+    }, .{});
+}
+test "zip verify filenames" {
+    // no empty filenames
+    try testZipError(error.ZipBadFilename, .{ .name = "", .content = "", .compression = .store }, .{});
+    // no absolute paths
+    try testZipError(error.ZipBadFilename, .{ .name = "/", .content = "", .compression = .store }, .{});
+    try testZipError(error.ZipBadFilename, .{ .name = "/foo", .content = "", .compression = .store }, .{});
+    try testZipError(error.ZipBadFilename, .{ .name = "/foo/bar", .content = "", .compression = .store }, .{});
+    // no '..' components
+    try testZipError(error.ZipBadFilename, .{ .name = "..", .content = "", .compression = .store }, .{});
+    try testZipError(error.ZipBadFilename, .{ .name = "foo/..", .content = "", .compression = .store }, .{});
+    try testZipError(error.ZipBadFilename, .{ .name = "foo/bar/..", .content = "", .compression = .store }, .{});
+    try testZipError(error.ZipBadFilename, .{ .name = "foo/bar/../", .content = "", .compression = .store }, .{});
+    // no backslashes
+    try testZipError(error.ZipFilenameHasBackslash, .{ .name = "foo\\bar", .content = "", .compression = .store }, .{});
+}
+
+test "zip64" {
+    const test_files = [_]File{
+        .{ .name = "fram", .content = "fram foo fro fraba", .compression = .store },
+        .{ .name = "subdir/barro", .content = "aljdk;jal;jfd;lajkf", .compression = .store },
+    };
+
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .record_count_disk = std.math.maxInt(u16), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .record_count_total = std.math.maxInt(u16), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .record_count_disk = std.math.maxInt(u16), // trigger zip64
+            .record_count_total = std.math.maxInt(u16), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .central_directory_size = std.math.maxInt(u32), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+        .local_header = .{
+            .zip64 = .{ // trigger local header zip64
+                .data_size = 16,
+            },
+            .compressed_size = std.math.maxInt(u32),
+            .uncompressed_size = std.math.maxInt(u32),
+            .extra_len = 20,
+        },
+    });
+}
+
+test "bad zip files" {
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    var zip_buf: [4096]u8 = undefined;
+
+    const file_a = [_]File{.{ .name = "a", .content = "", .compression = .store }};
+
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .sig = [_]u8{ 1, 2, 3, 4 } } });
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .comment_len = 1 } });
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .comment = "a", .comment_len = 0 } });
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .disk_number = 1 } });
+        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_disk_number = 1 } });
+        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .record_count_disk = 1 } });
+        try testing.expectError(error.ZipDiskRecordCountTooLarge, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_size = 1 } });
+        try testing.expectError(error.ZipCdOversized, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_size = 0 } });
+        try testing.expectError(error.ZipCdUndersized, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_offset = 0 } });
+        try testing.expectError(error.ZipBadCdOffset, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+    {
+        var fbs = try makeZip(&zip_buf, &file_a, .{
+            .end = .{
+                .zip64 = .{ .locator_sig = [_]u8{ 1, 2, 3, 4 } },
+                .central_directory_size = std.math.maxInt(u32), // trigger 64
+            },
+        });
+        try testing.expectError(error.ZipBadLocatorSig, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+    }
+}

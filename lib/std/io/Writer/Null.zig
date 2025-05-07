@@ -35,7 +35,7 @@ fn writeFile(
     limit: Writer.Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
-) Writer.Error!usize {
+) Writer.FileError!usize {
     const nw: *NullWriter = @alignCast(@ptrCast(context));
     var n: usize = 0;
     if (offset == .none) {

@@ -192,21 +192,6 @@ fn passthruReadVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize 
     return readVecLimit(br, data, .unlimited);
 }
 
-pub fn seekBy(br: *BufferedReader, seek_by: i64) !void {
-    if (seek_by < 0) try br.seekBackwardBy(@abs(seek_by)) else try br.seekForwardBy(@abs(seek_by));
-}
-
-pub fn seekBackwardBy(br: *BufferedReader, seek_by: u64) !void {
-    if (seek_by > br.end - br.seek) return error.Unseekable; // TODO
-    br.seek += @abs(seek_by);
-}
-
-pub fn seekForwardBy(br: *BufferedReader, seek_by: u64) !void {
-    const seek, const need_unbuffered_seek = @subWithOverflow(br.seek, @abs(seek_by));
-    if (need_unbuffered_seek > 0) return error.Unseekable; // TODO
-    br.seek = seek;
-}
-
 /// Returns the next `len` bytes from `unbuffered_reader`, filling the buffer as
 /// necessary.
 ///

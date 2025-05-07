@@ -5,11 +5,8 @@
 
 const builtin = @import("builtin");
 const std = @import("std");
-const testing = std.testing;
-
-pub const testutil = @import("zip/test.zig");
-const File = testutil.File;
-const FileStore = testutil.FileStore;
+const File = std.fs.File;
+const is_le = builtin.target.cpu.arch.endian() == .little;
 
 pub const CompressionMethod = enum(u16) {
     store = 0,
@@ -95,57 +92,71 @@ pub const EndRecord = extern struct {
     central_directory_size: u32 align(1),
     central_directory_offset: u32 align(1),
     comment_len: u16 align(1),
+
     pub fn need_zip64(self: EndRecord) bool {
         return isMaxInt(self.record_count_disk) or
             isMaxInt(self.record_count_total) or
             isMaxInt(self.central_directory_size) or
             isMaxInt(self.central_directory_offset);
     }
-};
 
-/// Find and return the end record for the given seekable zip stream.
-/// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
-/// its context must also have a `.reader()` method that returns an instance of
-/// `std.io.Reader`.
-pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
-    var buf: [@sizeOf(EndRecord) + std.math.maxInt(u16)]u8 = undefined;
-    const record_len_max = @min(stream_len, buf.len);
-    var loaded_len: u32 = 0;
+    pub const FindBufferError = error{ ZipNoEndRecord, ZipTruncated };
 
-    var comment_len: u16 = 0;
-    while (true) {
-        const record_len: u32 = @as(u32, comment_len) + @sizeOf(EndRecord);
-        if (record_len > record_len_max)
-            return error.ZipNoEndRecord;
-
-        if (record_len > loaded_len) {
-            const new_loaded_len = @min(loaded_len + 300, record_len_max);
-            const read_len = new_loaded_len - loaded_len;
-
-            try seekable_stream.seekTo(stream_len - @as(u64, new_loaded_len));
-            const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
-            const len = try seekable_stream.context.reader().readAll(read_buf);
-            if (len != read_len)
-                return error.ZipTruncated;
-            loaded_len = new_loaded_len;
-        }
-
-        const record_bytes = buf[buf.len - record_len ..][0..@sizeOf(EndRecord)];
-        if (std.mem.eql(u8, record_bytes[0..4], &end_record_sig) and
-            std.mem.readInt(u16, record_bytes[20..22], .little) == comment_len)
-        {
-            const record: *align(1) EndRecord = @ptrCast(record_bytes.ptr);
-            if (builtin.target.cpu.arch.endian() != .little) {
-                std.mem.byteSwapAllFields(@TypeOf(record.*), record);
-            }
-            return record.*;
-        }
-
-        if (comment_len == std.math.maxInt(u16))
-            return error.ZipNoEndRecord;
-        comment_len += 1;
+    /// TODO audit this logic
+    pub fn findBuffer(buffer: []const u8) FindBufferError!EndRecord {
+        const pos = std.mem.lastIndexOf(u8, buffer, &end_record_sig) orelse return error.ZipNoEndRecord;
+        if (pos + @sizeOf(EndRecord) > buffer.len) return error.EndOfStream;
+        const record_ptr: *EndRecord = @ptrCast(buffer[pos..][0..@sizeOf(EndRecord)]);
+        var record = record_ptr.*;
+        if (!is_le) std.mem.byteSwapAllFields(EndRecord, &record);
+        return record;
     }
-}
+
+    pub const FindFileError = File.GetEndPosError || File.SeekError || error{
+        ZipNoEndRecord,
+        EndOfStream,
+    };
+
+    pub fn findFile(fr: *File.Reader) FindFileError!EndRecord {
+        const end_pos = try fr.getSize();
+
+        var buf: [@sizeOf(EndRecord) + std.math.maxInt(u16)]u8 = undefined;
+        const record_len_max = @min(end_pos, buf.len);
+        var loaded_len: u32 = 0;
+        var comment_len: u16 = 0;
+        while (true) {
+            const record_len: u32 = @as(u32, comment_len) + @sizeOf(EndRecord);
+            if (record_len > record_len_max)
+                return error.ZipNoEndRecord;
+
+            if (record_len > loaded_len) {
+                const new_loaded_len = @min(loaded_len + 300, record_len_max);
+                const read_len = new_loaded_len - loaded_len;
+
+                try fr.seekTo(end_pos - @as(u64, new_loaded_len));
+                const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
+                var br = fr.interface().unbuffered();
+                br.readSlice(read_buf) catch |err| switch (err) {
+                    error.ReadFailed => return fr.err.?,
+                };
+                loaded_len = new_loaded_len;
+            }
+
+            const record_bytes = buf[buf.len - record_len ..][0..@sizeOf(EndRecord)];
+            if (std.mem.eql(u8, record_bytes[0..4], &end_record_sig) and
+                std.mem.readInt(u16, record_bytes[20..22], .little) == comment_len)
+            {
+                const record: *align(1) EndRecord = @ptrCast(record_bytes.ptr);
+                if (!is_le) std.mem.byteSwapAllFields(EndRecord, record);
+                return record.*;
+            }
+
+            if (comment_len == std.math.maxInt(u16))
+                return error.ZipNoEndRecord;
+            comment_len += 1;
+        }
+    }
+};
 
 /// Decompresses the given data from `reader` into `writer`.  Stops early if more
 /// than `uncompressed_size` bytes are processed and verifies that exactly that
@@ -248,319 +259,322 @@ fn readZip64FileExtents(comptime T: type, header: T, extents: *FileExtents, data
     }
 }
 
-pub fn Iterator(comptime SeekableStream: type) type {
-    return struct {
-        stream: SeekableStream,
+pub const Iterator = struct {
+    input: *File.Reader,
 
-        cd_record_count: u64,
-        cd_zip_offset: u64,
-        cd_size: u64,
+    cd_record_count: u64,
+    cd_zip_offset: u64,
+    cd_size: u64,
 
-        cd_record_index: u64 = 0,
-        cd_record_offset: u64 = 0,
+    cd_record_index: u64 = 0,
+    cd_record_offset: u64 = 0,
 
-        const Self = @This();
+    pub fn init(input: *File.Reader) !Iterator {
+        const end_record = try EndRecord.findFile(input);
 
-        pub fn init(stream: SeekableStream) !Self {
-            const stream_len = try stream.getEndPos();
+        if (!isMaxInt(end_record.record_count_disk) and end_record.record_count_disk > end_record.record_count_total)
+            return error.ZipDiskRecordCountTooLarge;
 
-            const end_record = try findEndRecord(stream, stream_len);
+        if (end_record.disk_number != 0 or end_record.central_directory_disk_number != 0)
+            return error.ZipMultiDiskUnsupported;
 
-            if (!isMaxInt(end_record.record_count_disk) and end_record.record_count_disk > end_record.record_count_total)
-                return error.ZipDiskRecordCountTooLarge;
-
-            if (end_record.disk_number != 0 or end_record.central_directory_disk_number != 0)
+        {
+            const counts_valid = !isMaxInt(end_record.record_count_disk) and !isMaxInt(end_record.record_count_total);
+            if (counts_valid and end_record.record_count_disk != end_record.record_count_total)
                 return error.ZipMultiDiskUnsupported;
-
-            {
-                const counts_valid = !isMaxInt(end_record.record_count_disk) and !isMaxInt(end_record.record_count_total);
-                if (counts_valid and end_record.record_count_disk != end_record.record_count_total)
-                    return error.ZipMultiDiskUnsupported;
-            }
-
-            var result = Self{
-                .stream = stream,
-                .cd_record_count = end_record.record_count_total,
-                .cd_zip_offset = end_record.central_directory_offset,
-                .cd_size = end_record.central_directory_size,
-            };
-            if (!end_record.need_zip64()) return result;
-
-            const locator_end_offset: u64 = @as(u64, end_record.comment_len) + @sizeOf(EndRecord) + @sizeOf(EndLocator64);
-            if (locator_end_offset > stream_len)
-                return error.ZipTruncated;
-            try stream.seekTo(stream_len - locator_end_offset);
-            const locator = try stream.context.reader().readStructEndian(EndLocator64, .little);
-            if (!std.mem.eql(u8, &locator.signature, &end_locator64_sig))
-                return error.ZipBadLocatorSig;
-            if (locator.zip64_disk_count != 0)
-                return error.ZipUnsupportedZip64DiskCount;
-            if (locator.total_disk_count != 1)
-                return error.ZipMultiDiskUnsupported;
-
-            try stream.seekTo(locator.record_file_offset);
-
-            const record64 = try stream.context.reader().readStructEndian(EndRecord64, .little);
-
-            if (!std.mem.eql(u8, &record64.signature, &end_record64_sig))
-                return error.ZipBadEndRecord64Sig;
-
-            if (record64.end_record_size < @sizeOf(EndRecord64) - 12)
-                return error.ZipEndRecord64SizeTooSmall;
-            if (record64.end_record_size > @sizeOf(EndRecord64) - 12)
-                return error.ZipEndRecord64UnhandledExtraData;
-
-            if (record64.version_needed_to_extract > 45)
-                return error.ZipUnsupportedVersion;
-
-            {
-                const is_multidisk = record64.disk_number != 0 or
-                    record64.central_directory_disk_number != 0 or
-                    record64.record_count_disk != record64.record_count_total;
-                if (is_multidisk)
-                    return error.ZipMultiDiskUnsupported;
-            }
-
-            if (isMaxInt(end_record.record_count_total)) {
-                result.cd_record_count = record64.record_count_total;
-            } else if (end_record.record_count_total != record64.record_count_total)
-                return error.Zip64RecordCountTotalMismatch;
-
-            if (isMaxInt(end_record.central_directory_offset)) {
-                result.cd_zip_offset = record64.central_directory_offset;
-            } else if (end_record.central_directory_offset != record64.central_directory_offset)
-                return error.Zip64CentralDirectoryOffsetMismatch;
-
-            if (isMaxInt(end_record.central_directory_size)) {
-                result.cd_size = record64.central_directory_size;
-            } else if (end_record.central_directory_size != record64.central_directory_size)
-                return error.Zip64CentralDirectorySizeMismatch;
-
-            return result;
         }
 
-        pub fn next(self: *Self) !?Entry {
-            if (self.cd_record_index == self.cd_record_count) {
-                if (self.cd_record_offset != self.cd_size)
-                    return if (self.cd_size > self.cd_record_offset)
-                        error.ZipCdOversized
-                    else
-                        error.ZipCdUndersized;
-
-                return null;
-            }
-
-            const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
-            try self.stream.seekTo(header_zip_offset);
-            const header = try self.stream.context.reader().readStructEndian(CentralDirectoryFileHeader, .little);
-            if (!std.mem.eql(u8, &header.signature, &central_file_header_sig))
-                return error.ZipBadCdOffset;
-
-            self.cd_record_index += 1;
-            self.cd_record_offset += @sizeOf(CentralDirectoryFileHeader) + header.filename_len + header.extra_len + header.comment_len;
-
-            // Note: checking the version_needed_to_extract doesn't seem to be helpful, i.e. the zip file
-            // at https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-linux.zip
-            // has an undocumented version 788 but extracts just fine.
-
-            if (header.flags.encrypted)
-                return error.ZipEncryptionUnsupported;
-            // TODO: check/verify more flags
-            if (header.disk_number != 0)
-                return error.ZipMultiDiskUnsupported;
-
-            var extents: FileExtents = .{
-                .uncompressed_size = header.uncompressed_size,
-                .compressed_size = header.compressed_size,
-                .local_file_header_offset = header.local_file_header_offset,
-            };
-
-            if (header.extra_len > 0) {
-                var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
-                const extra = extra_buf[0..header.extra_len];
-
-                {
-                    try self.stream.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
-                    const len = try self.stream.context.reader().readAll(extra);
-                    if (len != extra.len)
-                        return error.ZipTruncated;
-                }
-
-                var extra_offset: usize = 0;
-                while (extra_offset + 4 <= extra.len) {
-                    const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
-                    const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
-                    const end = extra_offset + 4 + data_size;
-                    if (end > extra.len)
-                        return error.ZipBadExtraFieldSize;
-                    const data = extra[extra_offset + 4 .. end];
-                    switch (@as(ExtraHeader, @enumFromInt(header_id))) {
-                        .zip64_info => try readZip64FileExtents(CentralDirectoryFileHeader, header, &extents, data),
-                        else => {}, // ignore
-                    }
-                    extra_offset = end;
-                }
-            }
-
-            return .{
-                .version_needed_to_extract = header.version_needed_to_extract,
-                .flags = header.flags,
-                .compression_method = header.compression_method,
-                .last_modification_time = header.last_modification_time,
-                .last_modification_date = header.last_modification_date,
-                .header_zip_offset = header_zip_offset,
-                .crc32 = header.crc32,
-                .filename_len = header.filename_len,
-                .compressed_size = extents.compressed_size,
-                .uncompressed_size = extents.uncompressed_size,
-                .file_offset = extents.local_file_header_offset,
-            };
-        }
-
-        pub const Entry = struct {
-            version_needed_to_extract: u16,
-            flags: GeneralPurposeFlags,
-            compression_method: CompressionMethod,
-            last_modification_time: u16,
-            last_modification_date: u16,
-            header_zip_offset: u64,
-            crc32: u32,
-            filename_len: u32,
-            compressed_size: u64,
-            uncompressed_size: u64,
-            file_offset: u64,
-
-            pub fn extract(
-                self: Entry,
-                stream: SeekableStream,
-                options: ExtractOptions,
-                filename_buf: []u8,
-                dest: std.fs.Dir,
-            ) !u32 {
-                if (filename_buf.len < self.filename_len)
-                    return error.ZipInsufficientBuffer;
-                const filename = filename_buf[0..self.filename_len];
-
-                try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
-
-                {
-                    const len = try stream.context.reader().readAll(filename);
-                    if (len != filename.len)
-                        return error.ZipBadFileOffset;
-                }
-
-                const local_data_header_offset: u64 = local_data_header_offset: {
-                    const local_header = blk: {
-                        try stream.seekTo(self.file_offset);
-                        break :blk try stream.context.reader().readStructEndian(LocalFileHeader, .little);
-                    };
-                    if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
-                        return error.ZipBadFileOffset;
-                    if (local_header.version_needed_to_extract != self.version_needed_to_extract)
-                        return error.ZipMismatchVersionNeeded;
-                    if (local_header.last_modification_time != self.last_modification_time)
-                        return error.ZipMismatchModTime;
-                    if (local_header.last_modification_date != self.last_modification_date)
-                        return error.ZipMismatchModDate;
-
-                    if (@as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(self.flags)))
-                        return error.ZipMismatchFlags;
-                    if (local_header.crc32 != 0 and local_header.crc32 != self.crc32)
-                        return error.ZipMismatchCrc32;
-                    var extents: FileExtents = .{
-                        .uncompressed_size = local_header.uncompressed_size,
-                        .compressed_size = local_header.compressed_size,
-                        .local_file_header_offset = 0,
-                    };
-                    if (local_header.extra_len > 0) {
-                        var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
-                        const extra = extra_buf[0..local_header.extra_len];
-
-                        {
-                            try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
-                            const len = try stream.context.reader().readAll(extra);
-                            if (len != extra.len)
-                                return error.ZipTruncated;
-                        }
-
-                        var extra_offset: usize = 0;
-                        while (extra_offset + 4 <= local_header.extra_len) {
-                            const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
-                            const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
-                            const end = extra_offset + 4 + data_size;
-                            if (end > local_header.extra_len)
-                                return error.ZipBadExtraFieldSize;
-                            const data = extra[extra_offset + 4 .. end];
-                            switch (@as(ExtraHeader, @enumFromInt(header_id))) {
-                                .zip64_info => try readZip64FileExtents(LocalFileHeader, local_header, &extents, data),
-                                else => {}, // ignore
-                            }
-                            extra_offset = end;
-                        }
-                    }
-
-                    if (extents.compressed_size != 0 and
-                        extents.compressed_size != self.compressed_size)
-                        return error.ZipMismatchCompLen;
-                    if (extents.uncompressed_size != 0 and
-                        extents.uncompressed_size != self.uncompressed_size)
-                        return error.ZipMismatchUncompLen;
-
-                    if (local_header.filename_len != self.filename_len)
-                        return error.ZipMismatchFilenameLen;
-
-                    break :local_data_header_offset @as(u64, local_header.filename_len) +
-                        @as(u64, local_header.extra_len);
-                };
-
-                if (isBadFilename(filename))
-                    return error.ZipBadFilename;
-
-                if (options.allow_backslashes) {
-                    std.mem.replaceScalar(u8, filename, '\\', '/');
-                } else {
-                    if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
-                        return error.ZipFilenameHasBackslash;
-                }
-
-                // All entries that end in '/' are directories
-                if (filename[filename.len - 1] == '/') {
-                    if (self.uncompressed_size != 0)
-                        return error.ZipBadDirectorySize;
-                    try dest.makePath(filename[0 .. filename.len - 1]);
-                    return std.hash.Crc32.hash(&.{});
-                }
-
-                const out_file = blk: {
-                    if (std.fs.path.dirname(filename)) |dirname| {
-                        var parent_dir = try dest.makeOpenPath(dirname, .{});
-                        defer parent_dir.close();
-
-                        const basename = std.fs.path.basename(filename);
-                        break :blk try parent_dir.createFile(basename, .{ .exclusive = true });
-                    }
-                    break :blk try dest.createFile(filename, .{ .exclusive = true });
-                };
-                defer out_file.close();
-                const local_data_file_offset: u64 =
-                    @as(u64, self.file_offset) +
-                    @as(u64, @sizeOf(LocalFileHeader)) +
-                    local_data_header_offset;
-                try stream.seekTo(local_data_file_offset);
-                var compressed_remaining: u64 = self.compressed_size;
-                const crc = try decompress(
-                    self.compression_method,
-                    self.uncompressed_size,
-                    stream.context.reader(),
-                    out_file.writer(),
-                    &compressed_remaining,
-                );
-                if (compressed_remaining != 0) return error.ZipDecompressTruncated;
-                return crc;
-            }
+        var result: Iterator = .{
+            .input = input,
+            .cd_record_count = end_record.record_count_total,
+            .cd_zip_offset = end_record.central_directory_offset,
+            .cd_size = end_record.central_directory_size,
         };
+        if (!end_record.need_zip64()) return result;
+
+        const locator_end_offset: u64 = @as(u64, end_record.comment_len) + @sizeOf(EndRecord) + @sizeOf(EndLocator64);
+        const stream_len = try input.getSize();
+
+        if (locator_end_offset > stream_len)
+            return error.ZipTruncated;
+        try input.seekTo(stream_len - locator_end_offset);
+        var br = input.interface().unbuffered();
+        const locator = br.readStructEndian(EndLocator64, .little) catch |err| switch (err) {
+            error.ReadFailed => return input.err.?,
+        };
+        if (!std.mem.eql(u8, &locator.signature, &end_locator64_sig))
+            return error.ZipBadLocatorSig;
+        if (locator.zip64_disk_count != 0)
+            return error.ZipUnsupportedZip64DiskCount;
+        if (locator.total_disk_count != 1)
+            return error.ZipMultiDiskUnsupported;
+
+        try input.seekTo(locator.record_file_offset);
+
+        const record64 = br.readStructEndian(EndRecord64, .little) catch |err| switch (err) {
+            error.ReadFailed => return input.err.?,
+        };
+
+        if (!std.mem.eql(u8, &record64.signature, &end_record64_sig))
+            return error.ZipBadEndRecord64Sig;
+
+        if (record64.end_record_size < @sizeOf(EndRecord64) - 12)
+            return error.ZipEndRecord64SizeTooSmall;
+        if (record64.end_record_size > @sizeOf(EndRecord64) - 12)
+            return error.ZipEndRecord64UnhandledExtraData;
+
+        if (record64.version_needed_to_extract > 45)
+            return error.ZipUnsupportedVersion;
+
+        {
+            const is_multidisk = record64.disk_number != 0 or
+                record64.central_directory_disk_number != 0 or
+                record64.record_count_disk != record64.record_count_total;
+            if (is_multidisk)
+                return error.ZipMultiDiskUnsupported;
+        }
+
+        if (isMaxInt(end_record.record_count_total)) {
+            result.cd_record_count = record64.record_count_total;
+        } else if (end_record.record_count_total != record64.record_count_total)
+            return error.Zip64RecordCountTotalMismatch;
+
+        if (isMaxInt(end_record.central_directory_offset)) {
+            result.cd_zip_offset = record64.central_directory_offset;
+        } else if (end_record.central_directory_offset != record64.central_directory_offset)
+            return error.Zip64CentralDirectoryOffsetMismatch;
+
+        if (isMaxInt(end_record.central_directory_size)) {
+            result.cd_size = record64.central_directory_size;
+        } else if (end_record.central_directory_size != record64.central_directory_size)
+            return error.Zip64CentralDirectorySizeMismatch;
+
+        return result;
+    }
+
+    pub fn next(self: *Iterator) !?Entry {
+        if (self.cd_record_index == self.cd_record_count) {
+            if (self.cd_record_offset != self.cd_size)
+                return if (self.cd_size > self.cd_record_offset)
+                    error.ZipCdOversized
+                else
+                    error.ZipCdUndersized;
+
+            return null;
+        }
+
+        const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
+        const input = self.input;
+        try input.seekTo(header_zip_offset);
+        var br = input.interface().unbuffered();
+        const header = br.readStructEndian(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
+            error.ReadFailed => return input.err.?,
+        };
+        if (!std.mem.eql(u8, &header.signature, &central_file_header_sig))
+            return error.ZipBadCdOffset;
+
+        self.cd_record_index += 1;
+        self.cd_record_offset += @sizeOf(CentralDirectoryFileHeader) + header.filename_len + header.extra_len + header.comment_len;
+
+        // Note: checking the version_needed_to_extract doesn't seem to be helpful, i.e. the zip file
+        // at https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-linux.zip
+        // has an undocumented version 788 but extracts just fine.
+
+        if (header.flags.encrypted)
+            return error.ZipEncryptionUnsupported;
+        // TODO: check/verify more flags
+        if (header.disk_number != 0)
+            return error.ZipMultiDiskUnsupported;
+
+        var extents: FileExtents = .{
+            .uncompressed_size = header.uncompressed_size,
+            .compressed_size = header.compressed_size,
+            .local_file_header_offset = header.local_file_header_offset,
+        };
+
+        if (header.extra_len > 0) {
+            var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
+            const extra = extra_buf[0..header.extra_len];
+
+            try input.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
+            br.readSlice(extra) catch |err| switch (err) {
+                error.ReadFailed => return input.err.?,
+            };
+
+            var extra_offset: usize = 0;
+            while (extra_offset + 4 <= extra.len) {
+                const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
+                const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
+                const end = extra_offset + 4 + data_size;
+                if (end > extra.len)
+                    return error.ZipBadExtraFieldSize;
+                const data = extra[extra_offset + 4 .. end];
+                switch (@as(ExtraHeader, @enumFromInt(header_id))) {
+                    .zip64_info => try readZip64FileExtents(CentralDirectoryFileHeader, header, &extents, data),
+                    else => {}, // ignore
+                }
+                extra_offset = end;
+            }
+        }
+
+        return .{
+            .version_needed_to_extract = header.version_needed_to_extract,
+            .flags = header.flags,
+            .compression_method = header.compression_method,
+            .last_modification_time = header.last_modification_time,
+            .last_modification_date = header.last_modification_date,
+            .header_zip_offset = header_zip_offset,
+            .crc32 = header.crc32,
+            .filename_len = header.filename_len,
+            .compressed_size = extents.compressed_size,
+            .uncompressed_size = extents.uncompressed_size,
+            .file_offset = extents.local_file_header_offset,
+        };
+    }
+
+    pub const Entry = struct {
+        version_needed_to_extract: u16,
+        flags: GeneralPurposeFlags,
+        compression_method: CompressionMethod,
+        last_modification_time: u16,
+        last_modification_date: u16,
+        header_zip_offset: u64,
+        crc32: u32,
+        filename_len: u32,
+        compressed_size: u64,
+        uncompressed_size: u64,
+        file_offset: u64,
+
+        pub fn extract(
+            self: Entry,
+            stream: *File.Reader,
+            options: ExtractOptions,
+            filename_buf: []u8,
+            dest: std.fs.Dir,
+        ) !u32 {
+            if (filename_buf.len < self.filename_len)
+                return error.ZipInsufficientBuffer;
+            const filename = filename_buf[0..self.filename_len];
+
+            try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
+
+            {
+                const len = try stream.context.reader().readAll(filename);
+                if (len != filename.len)
+                    return error.ZipBadFileOffset;
+            }
+
+            const local_data_header_offset: u64 = local_data_header_offset: {
+                const local_header = blk: {
+                    try stream.seekTo(self.file_offset);
+                    break :blk try stream.context.reader().readStructEndian(LocalFileHeader, .little);
+                };
+                if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
+                    return error.ZipBadFileOffset;
+                if (local_header.version_needed_to_extract != self.version_needed_to_extract)
+                    return error.ZipMismatchVersionNeeded;
+                if (local_header.last_modification_time != self.last_modification_time)
+                    return error.ZipMismatchModTime;
+                if (local_header.last_modification_date != self.last_modification_date)
+                    return error.ZipMismatchModDate;
+
+                if (@as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(self.flags)))
+                    return error.ZipMismatchFlags;
+                if (local_header.crc32 != 0 and local_header.crc32 != self.crc32)
+                    return error.ZipMismatchCrc32;
+                var extents: FileExtents = .{
+                    .uncompressed_size = local_header.uncompressed_size,
+                    .compressed_size = local_header.compressed_size,
+                    .local_file_header_offset = 0,
+                };
+                if (local_header.extra_len > 0) {
+                    var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
+                    const extra = extra_buf[0..local_header.extra_len];
+
+                    {
+                        try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
+                        const len = try stream.context.reader().readAll(extra);
+                        if (len != extra.len)
+                            return error.ZipTruncated;
+                    }
+
+                    var extra_offset: usize = 0;
+                    while (extra_offset + 4 <= local_header.extra_len) {
+                        const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
+                        const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
+                        const end = extra_offset + 4 + data_size;
+                        if (end > local_header.extra_len)
+                            return error.ZipBadExtraFieldSize;
+                        const data = extra[extra_offset + 4 .. end];
+                        switch (@as(ExtraHeader, @enumFromInt(header_id))) {
+                            .zip64_info => try readZip64FileExtents(LocalFileHeader, local_header, &extents, data),
+                            else => {}, // ignore
+                        }
+                        extra_offset = end;
+                    }
+                }
+
+                if (extents.compressed_size != 0 and
+                    extents.compressed_size != self.compressed_size)
+                    return error.ZipMismatchCompLen;
+                if (extents.uncompressed_size != 0 and
+                    extents.uncompressed_size != self.uncompressed_size)
+                    return error.ZipMismatchUncompLen;
+
+                if (local_header.filename_len != self.filename_len)
+                    return error.ZipMismatchFilenameLen;
+
+                break :local_data_header_offset @as(u64, local_header.filename_len) +
+                    @as(u64, local_header.extra_len);
+            };
+
+            if (isBadFilename(filename))
+                return error.ZipBadFilename;
+
+            if (options.allow_backslashes) {
+                std.mem.replaceScalar(u8, filename, '\\', '/');
+            } else {
+                if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
+                    return error.ZipFilenameHasBackslash;
+            }
+
+            // All entries that end in '/' are directories
+            if (filename[filename.len - 1] == '/') {
+                if (self.uncompressed_size != 0)
+                    return error.ZipBadDirectorySize;
+                try dest.makePath(filename[0 .. filename.len - 1]);
+                return std.hash.Crc32.hash(&.{});
+            }
+
+            const out_file = blk: {
+                if (std.fs.path.dirname(filename)) |dirname| {
+                    var parent_dir = try dest.makeOpenPath(dirname, .{});
+                    defer parent_dir.close();
+
+                    const basename = std.fs.path.basename(filename);
+                    break :blk try parent_dir.createFile(basename, .{ .exclusive = true });
+                }
+                break :blk try dest.createFile(filename, .{ .exclusive = true });
+            };
+            defer out_file.close();
+            const local_data_file_offset: u64 =
+                @as(u64, self.file_offset) +
+                @as(u64, @sizeOf(LocalFileHeader)) +
+                local_data_header_offset;
+            try stream.seekTo(local_data_file_offset);
+            var compressed_remaining: u64 = self.compressed_size;
+            const crc = try decompress(
+                self.compression_method,
+                self.uncompressed_size,
+                stream.context.reader(),
+                out_file.writer(),
+                &compressed_remaining,
+            );
+            if (compressed_remaining != 0) return error.ZipDecompressTruncated;
+            return crc;
+        }
     };
-}
+};
 
 // returns true if `filename` starts with `root` followed by a forward slash
 fn filenameInRoot(filename: []const u8, root: []const u8) bool {
@@ -609,17 +623,13 @@ pub const ExtractOptions = struct {
     diagnostics: ?*Diagnostics = null,
 };
 
-/// Extract the zipped files inside `seekable_stream` to the given `dest` directory.
-/// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
-/// its context must also have a `.reader()` method that returns an instance of
-/// `std.io.Reader`.
-pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptions) !void {
-    const SeekableStream = @TypeOf(seekable_stream);
-    var iter = try Iterator(SeekableStream).init(seekable_stream);
+/// Extract the zipped files to the given `dest` directory.
+pub fn extract(dest: std.fs.Dir, fr: *File.Reader, options: ExtractOptions) !void {
+    var iter = try Iterator.init(fr);
 
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
-        const crc32 = try entry.extract(seekable_stream, options, &filename_buf, dest);
+        const crc32 = try entry.extract(fr, options, &filename_buf, dest);
         if (crc32 != entry.crc32)
             return error.ZipCrcMismatch;
         if (options.diagnostics) |d| {
@@ -628,173 +638,6 @@ pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptio
     }
 }
 
-fn testZip(options: ExtractOptions, comptime files: []const File, write_opt: testutil.WriteZipOptions) !void {
-    var store: [files.len]FileStore = undefined;
-    try testZipWithStore(options, files, write_opt, &store);
-}
-fn testZipWithStore(
-    options: ExtractOptions,
-    test_files: []const File,
-    write_opt: testutil.WriteZipOptions,
-    store: []FileStore,
-) !void {
-    var zip_buf: [4096]u8 = undefined;
-    var fbs = try testutil.makeZipWithStore(&zip_buf, test_files, write_opt, store);
-
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
-    try extract(tmp.dir, fbs.seekableStream(), options);
-    try testutil.expectFiles(test_files, tmp.dir, .{});
-}
-fn testZipError(expected_error: anyerror, file: File, options: ExtractOptions) !void {
-    var zip_buf: [4096]u8 = undefined;
-    var store: [1]FileStore = undefined;
-    var fbs = try testutil.makeZipWithStore(&zip_buf, &[_]File{file}, .{}, &store);
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
-    try testing.expectError(expected_error, extract(tmp.dir, fbs.seekableStream(), options));
-}
-
-test "zip one file" {
-    try testZip(.{}, &[_]File{
-        .{ .name = "onefile.txt", .content = "Just a single file\n", .compression = .store },
-    }, .{});
-}
-test "zip multiple files" {
-    try testZip(.{ .allow_backslashes = true }, &[_]File{
-        .{ .name = "foo", .content = "a foo file\n", .compression = .store },
-        .{ .name = "subdir/bar", .content = "bar is this right?\nanother newline\n", .compression = .store },
-        .{ .name = "subdir\\whoa", .content = "you can do backslashes", .compression = .store },
-        .{ .name = "subdir/another/baz", .content = "bazzy mc bazzerson", .compression = .store },
-    }, .{});
-}
-test "zip deflated" {
-    try testZip(.{}, &[_]File{
-        .{ .name = "deflateme", .content = "This is a deflated file.\nIt should be smaller in the Zip file1\n", .compression = .deflate },
-        // TODO: re-enable this if/when we add support for deflate64
-        //.{ .name = "deflateme64", .content = "The 64k version of deflate!\n", .compression = .deflate64 },
-        .{ .name = "raw", .content = "Not all files need to be deflated in the same Zip.\n", .compression = .store },
-    }, .{});
-}
-test "zip verify filenames" {
-    // no empty filenames
-    try testZipError(error.ZipBadFilename, .{ .name = "", .content = "", .compression = .store }, .{});
-    // no absolute paths
-    try testZipError(error.ZipBadFilename, .{ .name = "/", .content = "", .compression = .store }, .{});
-    try testZipError(error.ZipBadFilename, .{ .name = "/foo", .content = "", .compression = .store }, .{});
-    try testZipError(error.ZipBadFilename, .{ .name = "/foo/bar", .content = "", .compression = .store }, .{});
-    // no '..' components
-    try testZipError(error.ZipBadFilename, .{ .name = "..", .content = "", .compression = .store }, .{});
-    try testZipError(error.ZipBadFilename, .{ .name = "foo/..", .content = "", .compression = .store }, .{});
-    try testZipError(error.ZipBadFilename, .{ .name = "foo/bar/..", .content = "", .compression = .store }, .{});
-    try testZipError(error.ZipBadFilename, .{ .name = "foo/bar/../", .content = "", .compression = .store }, .{});
-    // no backslashes
-    try testZipError(error.ZipFilenameHasBackslash, .{ .name = "foo\\bar", .content = "", .compression = .store }, .{});
-}
-
-test "zip64" {
-    const test_files = [_]File{
-        .{ .name = "fram", .content = "fram foo fro fraba", .compression = .store },
-        .{ .name = "subdir/barro", .content = "aljdk;jal;jfd;lajkf", .compression = .store },
-    };
-
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .record_count_disk = std.math.maxInt(u16), // trigger zip64
-        },
-    });
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .record_count_total = std.math.maxInt(u16), // trigger zip64
-        },
-    });
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .record_count_disk = std.math.maxInt(u16), // trigger zip64
-            .record_count_total = std.math.maxInt(u16), // trigger zip64
-        },
-    });
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .central_directory_size = std.math.maxInt(u32), // trigger zip64
-        },
-    });
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
-        },
-    });
-    try testZip(.{}, &test_files, .{
-        .end = .{
-            .zip64 = .{},
-            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
-        },
-        .local_header = .{
-            .zip64 = .{ // trigger local header zip64
-                .data_size = 16,
-            },
-            .compressed_size = std.math.maxInt(u32),
-            .uncompressed_size = std.math.maxInt(u32),
-            .extra_len = 20,
-        },
-    });
-}
-
-test "bad zip files" {
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
-    var zip_buf: [4096]u8 = undefined;
-
-    const file_a = [_]File{.{ .name = "a", .content = "", .compression = .store }};
-
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .sig = [_]u8{ 1, 2, 3, 4 } } });
-        try testing.expectError(error.ZipNoEndRecord, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .comment_len = 1 } });
-        try testing.expectError(error.ZipNoEndRecord, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .comment = "a", .comment_len = 0 } });
-        try testing.expectError(error.ZipNoEndRecord, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .disk_number = 1 } });
-        try testing.expectError(error.ZipMultiDiskUnsupported, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_disk_number = 1 } });
-        try testing.expectError(error.ZipMultiDiskUnsupported, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .record_count_disk = 1 } });
-        try testing.expectError(error.ZipDiskRecordCountTooLarge, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_size = 1 } });
-        try testing.expectError(error.ZipCdOversized, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_size = 0 } });
-        try testing.expectError(error.ZipCdUndersized, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_offset = 0 } });
-        try testing.expectError(error.ZipBadCdOffset, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
-    {
-        var fbs = try testutil.makeZip(&zip_buf, &file_a, .{
-            .end = .{
-                .zip64 = .{ .locator_sig = [_]u8{ 1, 2, 3, 4 } },
-                .central_directory_size = std.math.maxInt(u32), // trigger 64
-            },
-        });
-        try testing.expectError(error.ZipBadLocatorSig, extract(tmp.dir, fbs.seekableStream(), .{}));
-    }
+test {
+    _ = @import("zip/test.zig");
 }
