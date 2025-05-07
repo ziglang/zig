@@ -6,7 +6,7 @@ comptime {
 }
 
 fn bzero(s: *anyopaque, n: usize) callconv(.c) void {
-    const s_cast = @as([*c]u8, @ptrCast(s));
+    const s_cast: [*]u8 = @ptrCast(s);
     @memset(s_cast[0..n], 0);
 }
 
