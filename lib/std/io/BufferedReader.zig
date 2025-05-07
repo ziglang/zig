@@ -1160,3 +1160,11 @@ test readSliceShort {
 test readVec {
     return error.Unimplemented;
 }
+
+test "expected error.EndOfStream" {
+    // Unit test inspired by https://github.com/ziglang/zig/issues/17733
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed("");
+    try std.testing.expectError(error.EndOfStream, br.readEnum(enum(u8) { a, b }, .little));
+    try std.testing.expectError(error.EndOfStream, br.isBytes("foo"));
+}
