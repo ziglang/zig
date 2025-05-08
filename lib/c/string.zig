@@ -6,6 +6,13 @@ comptime {
     @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strlen, .{ .name = "strlen", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&strchr, .{ .name = "strchr", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&strrchr, .{ .name = "strrchr", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&memchr, .{ .name = "memchr", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .weak, .visibility = .hidden });
+    @export(&strchrnul, .{ .name = "strchrnul", .linkage = .weak, .visibility = common.visibility });
+    @export(&memrchr, .{ .name = "__memrchr", .linkage = .weak, .visibility = .hidden });
+    @export(&memrchr, .{ .name = "memrchr", .linkage = .weak, .visibility = common.visibility });
 }
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
@@ -42,4 +49,81 @@ test strncmp {
 
 fn strlen(s: [*:0]const c_char) callconv(.c) usize {
     return std.mem.len(s);
+}
+
+fn strchrnul(s: [*:0]const c_char, c: c_int) callconv(.c) [*:0]const c_char {
+    const needle: u8 = @intCast(c);
+    if (needle == 0) return s + strlen(s);
+
+    var it: [*:0]const u8 = @ptrCast(s);
+    while (it[0] != 0 and it[0] != needle) : (it += 1) {}
+    return @ptrCast(it);
+}
+
+test strchrnul {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(strchrnul(foo, 'd') == foo);
+    try std.testing.expect(strchrnul(foo, 'o') == (foo + 4));
+    try std.testing.expect(strchrnul(foo, 'z') == (foo + 5));
+    try std.testing.expect(strchrnul(foo, 0) == (foo + 5));
+}
+
+fn strchr(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
+    const result = strchrnul(s, c);
+    return if (result[0] != 0) result else null;
+}
+
+test strchr {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(strchr(foo, 'd') == foo);
+    try std.testing.expect(strchr(foo, 'o') == (foo + 4));
+    try std.testing.expect(strchr(foo, 'z') == null);
+    try std.testing.expect(strchr(foo, 0) == null);
+}
+
+fn memchr(m: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*const anyopaque {
+    const needle: u8 = @intCast(c);
+    const s: [*:0]const u8 = @ptrCast(m);
+    var idx: usize = 0;
+    while (idx < n) : (idx += 1) {
+        if (s[idx] == needle) return @ptrCast(s + idx);
+    }
+    return null;
+}
+
+test memchr {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(memchr(foo, 'd', 5) == @as(*const anyopaque, @ptrCast(foo)));
+    try std.testing.expect(memchr(foo, 'o', 5) == @as(*const anyopaque, @ptrCast(foo + 4)));
+    try std.testing.expect(memchr(foo, 'z', 5) == null);
+}
+
+fn memrchr(m: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*const anyopaque {
+    const needle: u8 = @intCast(c);
+    const s: [*:0]const u8 = @ptrCast(m);
+    var idx: usize = n;
+    while (idx > 0) {
+        idx -= 1;
+        if (s[idx] == needle) return @ptrCast(s + idx);
+    }
+    return null;
+}
+
+test memrchr {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(memrchr(foo, 'd', 5) == @as(*const anyopaque, @ptrCast(foo)));
+    try std.testing.expect(memrchr(foo, 'o', 5) == @as(*const anyopaque, @ptrCast(foo + 4)));
+    try std.testing.expect(memrchr(foo, 'z', 5) == null);
+}
+
+fn strrchr(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
+    return @ptrCast(memrchr(s, c, strlen(s) + 1));
+}
+
+test strrchr {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(strrchr(foo, 'd') == foo);
+    try std.testing.expect(strrchr(foo, 'o') == (foo + 4));
+    try std.testing.expect(strrchr(foo, 'z') == null);
+    try std.testing.expect(strrchr(foo, 0) == null);
 }
