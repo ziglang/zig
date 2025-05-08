@@ -353,7 +353,8 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target_util.osRequiresLibC(target) or (target.isGnuLibC() and !options.resolved_target.is_native_abi)))
+            (target_util.osRequiresLibC(target) or
+                ((target.isGnuLibC() or target.isFreeBSDLibC()) and !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
