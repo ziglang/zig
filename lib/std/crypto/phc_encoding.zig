@@ -188,9 +188,10 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
 ///
 /// `params` can also include any additional parameters.
 pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
-    var buf = io.fixedBufferStream(str);
-    try serializeTo(params, buf.writer());
-    return buf.getWritten();
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(str);
+    try serializeTo(params, &bw);
+    return bw.getWritten();
 }
 
 /// Compute the number of bytes required to serialize `params`
@@ -200,7 +201,7 @@ pub fn calcSize(params: anytype) usize {
     return @as(usize, @intCast(buf.bytes_written));
 }
 
-fn serializeTo(params: anytype, out: anytype) !void {
+fn serializeTo(params: anytype, out: *std.io.BufferedWriter) !void {
     const HashResult = @TypeOf(params);
 
     if (@hasField(HashResult, version_param_name)) {

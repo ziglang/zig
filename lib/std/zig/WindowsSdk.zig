@@ -759,14 +759,14 @@ const MsvcLibDir = struct {
         while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
             if (entry.kind != .directory) continue;
 
-            var fbs = std.io.fixedBufferStream(&state_subpath_buf);
-            const writer = fbs.writer();
+            var bw: std.io.BufferedWriter = undefined;
+            bw.initFixed(&state_subpath_buf);
 
-            writer.writeAll(entry.name) catch unreachable;
-            writer.writeByte(std.fs.path.sep) catch unreachable;
-            writer.writeAll("state.json") catch unreachable;
+            bw.writeAll(entry.name) catch unreachable;
+            bw.writeByte(std.fs.path.sep) catch unreachable;
+            bw.writeAll("state.json") catch unreachable;
 
-            const json_contents = instances_dir.readFileAlloc(allocator, fbs.getWritten(), std.math.maxInt(usize)) catch continue;
+            const json_contents = instances_dir.readFileAlloc(allocator, bw.getWritten(), std.math.maxInt(usize)) catch continue;
             defer allocator.free(json_contents);
 
             var parsed = std.json.parseFromSlice(std.json.Value, allocator, json_contents, .{}) catch continue;

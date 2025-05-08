@@ -955,13 +955,14 @@ test Iterator {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var fbs = std.io.fixedBufferStream(data);
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     // User provided buffers to the iterator
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     // Create iterator
-    var iter: Iterator = .init(fbs.reader(), .{
+    var iter: Iterator = .init(&br, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
     });
@@ -1014,15 +1015,15 @@ test pipeToFileSystem {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var fbs = std.io.fixedBufferStream(data);
-    const reader = fbs.reader();
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
     const dir = tmp.dir;
 
-    // Save tar from `reader` to the file system `dir`
-    pipeToFileSystem(dir, reader, .{
+    // Save tar from reader to the file system `dir`
+    pipeToFileSystem(dir, &br, .{
         .mode_mode = .ignore,
         .strip_components = 1,
         .exclude_empty_directories = true,
@@ -1046,8 +1047,8 @@ test pipeToFileSystem {
 
 test "pipeToFileSystem root_dir" {
     const data = @embedFile("tar/testdata/example.tar");
-    var fbs = std.io.fixedBufferStream(data);
-    const reader = fbs.reader();
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     // with strip_components = 1
     {
@@ -1056,7 +1057,7 @@ test "pipeToFileSystem root_dir" {
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
-        pipeToFileSystem(tmp.dir, reader, .{
+        pipeToFileSystem(tmp.dir, &br, .{
             .strip_components = 1,
             .diagnostics = &diagnostics,
         }) catch |err| {
@@ -1072,13 +1073,13 @@ test "pipeToFileSystem root_dir" {
 
     // with strip_components = 0
     {
-        fbs.reset();
+        br.initFixed(data);
         var tmp = testing.tmpDir(.{ .no_follow = true });
         defer tmp.cleanup();
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
-        pipeToFileSystem(tmp.dir, reader, .{
+        pipeToFileSystem(tmp.dir, &br, .{
             .strip_components = 0,
             .diagnostics = &diagnostics,
         }) catch |err| {
@@ -1095,45 +1096,45 @@ test "pipeToFileSystem root_dir" {
 
 test "findRoot with single file archive" {
     const data = @embedFile("tar/testdata/22752.tar");
-    var fbs = std.io.fixedBufferStream(data);
-    const reader = fbs.reader();
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
-    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+    try pipeToFileSystem(tmp.dir, &br, .{ .diagnostics = &diagnostics });
 
     try testing.expectEqualStrings("", diagnostics.root_dir);
 }
 
 test "findRoot without explicit root dir" {
     const data = @embedFile("tar/testdata/19820.tar");
-    var fbs = std.io.fixedBufferStream(data);
-    const reader = fbs.reader();
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
-    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+    try pipeToFileSystem(tmp.dir, &br, .{ .diagnostics = &diagnostics });
 
     try testing.expectEqualStrings("root", diagnostics.root_dir);
 }
 
 test "pipeToFileSystem strip_components" {
     const data = @embedFile("tar/testdata/example.tar");
-    var fbs = std.io.fixedBufferStream(data);
-    const reader = fbs.reader();
+    var br: std.io.BufferedReader = undefined;
+    br.initFixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
 
-    pipeToFileSystem(tmp.dir, reader, .{
+    pipeToFileSystem(tmp.dir, &br, .{
         .strip_components = 3,
         .diagnostics = &diagnostics,
     }) catch |err| {
@@ -1187,13 +1188,13 @@ test "executable bit" {
     const data = @embedFile("tar/testdata/example.tar");
 
     for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
+        var br: std.io.BufferedReader = undefined;
+        br.initFixed(data);
 
         var tmp = testing.tmpDir(.{ .no_follow = true });
         //defer tmp.cleanup();
 
-        pipeToFileSystem(tmp.dir, reader, .{
+        pipeToFileSystem(tmp.dir, &br, .{
             .strip_components = 1,
             .exclude_empty_directories = true,
             .mode_mode = opt,
