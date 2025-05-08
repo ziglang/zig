@@ -1006,7 +1006,7 @@ pub const CObject = struct {
                 var bw: std.io.BufferedWriter = undefined;
                 bw.initFixed(&buffer);
                 break :source_line try eb.addString(
-                    buffer[0 .. br.streamToDelimiterOrEnd(&bw, '\n') catch break :source_line 0],
+                    buffer[0 .. br.readDelimiterEnding(&bw, '\n') catch break :source_line 0],
                 );
             };
 
@@ -2701,7 +2701,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             const is_hit = man.hit() catch |err| switch (err) {
                 error.CacheCheckFailed => switch (man.diagnostic) {
                     .none => unreachable,
-                    .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return comp.setMiscFailure(
+                    .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
                         .check_whole_cache,
                         "failed to check cache: {s} {s}",
                         .{ @tagName(man.diagnostic), @errorName(e) },

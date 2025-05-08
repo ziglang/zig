@@ -5912,8 +5912,8 @@ fn zirCompileLog(
     const gpa = zcu.gpa;
 
     var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.init(sema.gpa);
     defer aw.deinit();
+    const bw = &aw.buffered_writer;
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
@@ -22360,7 +22360,7 @@ fn ptrFromIntVal(
             addr;
 
         if (!ptr_align.check(masked_addr)) {
-            return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
+            return sema.fail(block, operand_src, "pointer type '{f}' requires aligned address", .{ptr_ty.fmt(pt)});
         }
     }
 
