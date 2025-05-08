@@ -605,6 +605,7 @@ pub const ReadFileError = error{
     /// Known to be possible when:
     /// - Unable to read from disconnected virtual com port (Windows)
     AccessDenied,
+    NotOpenForReading,
     Unexpected,
 };
 
@@ -638,6 +639,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
                 .ACCESS_DENIED => return error.AccessDenied,
+                .INVALID_HANDLE => return error.NotOpenForReading,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -1152,7 +1154,10 @@ pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     return handle;
 }
 
-pub const SetFilePointerError = error{Unexpected};
+pub const SetFilePointerError = error{
+    Unseekable,
+    Unexpected,
+};
 
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_BEGIN`.
 pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!void {
@@ -1162,6 +1167,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1173,6 +1180,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1184,6 +1193,8 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1196,6 +1207,8 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
