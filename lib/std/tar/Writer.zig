@@ -441,11 +441,12 @@ test "write files" {
         for (files) |file|
             try wrt.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.io.FixedBufferStream = .{ .buffer = output.getWritten() };
-        var iter = std.tar.iterator(
-            input.reader(),
-            .{ .file_name_buffer = &file_name_buffer, .link_name_buffer = &link_name_buffer },
-        );
+        var input: std.io.BufferedReader = undefined;
+        input.initFixed(output.getWritten());
+        var iter = std.tar.iterator(&input, .{
+            .file_name_buffer = &file_name_buffer,
+            .link_name_buffer = &link_name_buffer,
+        });
 
         // first entry is directory with prefix
         {
@@ -475,15 +476,17 @@ test "write files" {
         var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
         defer output.deinit();
         for (files) |file| {
-            var content = std.io.fixedBufferStream(file.content);
-            try wrt.writeFileStream(file.path, file.content.len, content.reader(), .{});
+            var content: std.io.BufferedReader = undefined;
+            content.initFixed(file.content);
+            try wrt.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.io.FixedBufferStream = .{ .buffer = output.getWritten() };
-        var iter = std.tar.iterator(
-            input.reader(),
-            .{ .file_name_buffer = &file_name_buffer, .link_name_buffer = &link_name_buffer },
-        );
+        var input: std.io.BufferedReader = undefined;
+        input.initFixed(output.getWritten());
+        var iter = std.tar.iterator(&input, .{
+            .file_name_buffer = &file_name_buffer,
+            .link_name_buffer = &link_name_buffer,
+        });
 
         var i: usize = 0;
         while (try iter.next()) |actual| {
