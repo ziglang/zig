@@ -183,6 +183,116 @@ test "@min/@max more than two vector arguments" {
     try expectEqual(@Vector(2, u32){ 5, 2 }, @max(x, y, z));
 }
 
+test "@min/@max with incompatible arbitrary integer types" {
+    const x: i32 = -30;
+    const y: u32 = 0x8000_0010;
+    const z: u36 = 0x2_0000_0010;
+
+    const M = struct {
+        fn min(lhs: i32, rhs: u32) i32 {
+            return @min(lhs, rhs);
+        }
+
+        fn min3(fst: i32, snd: u32, thrd: u36) i32 {
+            return @min(fst, snd, thrd);
+        }
+
+        fn max(lhs: i32, rhs: u32) u32 {
+            return @max(lhs, rhs);
+        }
+
+        fn max3(fst: i32, snd: u32, thrd: u36) u36 {
+            return @max(fst, snd, thrd);
+        }
+    };
+
+    // test min for comptime value
+    const min = @min(x, y);
+    try expectEqual(i6, @TypeOf(min));
+    try expectEqual(-30, min);
+    const min3 = @min(x, y, z);
+    try expectEqual(i6, @TypeOf(min3));
+    try expectEqual(-30, min3);
+
+    // test min for runtime value
+    const m_min = M.min(x, y);
+    try expectEqual(-30, m_min);
+    const m_min3 = M.min3(x, y, z);
+    try expectEqual(-30, m_min3);
+
+    // test max for comptime value
+    const max = @max(x, y);
+    try expectEqual(u32, @TypeOf(max));
+    try expectEqual(0x8000_0010, max);
+    const max3 = @max(x, y, z);
+    try expectEqual(u34, @TypeOf(max3));
+    try expectEqual(0x2_0000_0010, max3);
+
+    // test max for runtime value
+    const m_max = M.max(x, y);
+    try expectEqual(0x8000_0010, m_max);
+    const m_max3 = M.max3(x, y, z);
+    try expectEqual(0x2_0000_0010, m_max3);
+}
+
+test "@min/@max vector with incompatible arbitrary integer types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const x: @Vector(2, i16) = @splat(-30);
+    const y: @Vector(2, u16) = @splat(0x8010);
+    const z: @Vector(2, u32) = @splat(0x2_0010);
+
+    const M = struct {
+        fn min(lhs: @Vector(2, i16), rhs: @Vector(2, u16)) @Vector(2, i16) {
+            return @min(lhs, rhs);
+        }
+
+        fn min3(fst: @Vector(2, i16), snd: @Vector(2, u16), thrd: @Vector(2, u32)) @Vector(2, i16) {
+            return @min(fst, snd, thrd);
+        }
+
+        fn max(lhs: @Vector(2, i16), rhs: @Vector(2, u16)) @Vector(2, u16) {
+            return @max(lhs, rhs);
+        }
+
+        fn max3(fst: @Vector(2, i16), snd: @Vector(2, u16), thrd: @Vector(2, u32)) @Vector(2, u32) {
+            return @max(fst, snd, thrd);
+        }
+    };
+
+    // test min for comptime value
+    const min = @min(x, y);
+    try expectEqual(@Vector(2, i6), @TypeOf(min));
+    try expectEqual(@as(@Vector(2, i16), @splat(-30)), min);
+    const min3 = @min(x, y, z);
+    try expectEqual(@Vector(2, i6), @TypeOf(min3));
+    try expectEqual(@as(@Vector(2, i16), @splat(-30)), min3);
+
+    // test min for runtime value
+    const m_min = M.min(x, y);
+    try expectEqual(@as(@Vector(2, i16), @splat(-30)), m_min);
+    const m_min3 = M.min3(x, y, z);
+    try expectEqual(@as(@Vector(2, i16), @splat(-30)), m_min3);
+
+    // test max for comptime value
+    const max = @max(x, y);
+    try expectEqual(@Vector(2, u16), @TypeOf(max));
+    try expectEqual(@as(@Vector(2, u16), @splat(0x8010)), max);
+    const max3 = @max(x, y, z);
+    try expectEqual(@Vector(2, u18), @TypeOf(max3));
+    try expectEqual(@as(@Vector(2, u18), @splat(0x2_0010)), max3);
+
+    // test max for runtime value
+    const m_max = M.max(x, y);
+    try expectEqual(@as(@Vector(2, u16), @splat(0x8010)), m_max);
+    const m_max3 = M.max3(x, y, z);
+    try expectEqual(@as(@Vector(2, u32), @splat(0x2_0010)), m_max3);
+}
+
 test "@min/@max notices bounds" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
