@@ -695,7 +695,6 @@ pub const Os = struct {
     /// since this is the stable syscall interface.
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
-            .freebsd,
             .aix,
             .netbsd,
             .driverkit,
@@ -714,6 +713,7 @@ pub const Os = struct {
 
             .linux,
             .windows,
+            .freebsd,
             .freestanding,
             .fuchsia,
             .ps3,
