@@ -353,7 +353,9 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target_util.osRequiresLibC(target) or (target.isGnuLibC() and !options.resolved_target.is_native_abi)))
+            (target_util.osRequiresLibC(target) or
+                // For these libcs, Zig can only provide dynamic libc when cross-compiling.
+                ((target.isGnuLibC() or target.isFreeBSDLibC()) and !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -368,12 +370,18 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.link_mode) |link_mode| break :b link_mode;
 
-        if (explicitly_exe_or_dyn_lib and link_libc and options.resolved_target.is_native_abi and
-            (target.isGnuLibC() or target.isMuslLibC()))
-        {
-            // If targeting the system's native ABI and the system's libc is
-            // glibc or musl, link dynamically by default.
-            break :b .dynamic;
+        if (explicitly_exe_or_dyn_lib and link_libc) {
+            // When using the native glibc/musl ABI, dynamic linking is usually what people want.
+            if (options.resolved_target.is_native_abi and (target.isGnuLibC() or target.isMuslLibC())) {
+                break :b .dynamic;
+            }
+
+            // When targeting systems where the kernel and libc are developed alongside each other,
+            // dynamic linking is the better default; static libc may contain code that requires
+            // the very latest kernel version.
+            if (target.isFreeBSDLibC()) {
+                break :b .dynamic;
+            }
         }
 
         // Static is generally a better default. Fight me.
