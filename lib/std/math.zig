@@ -570,6 +570,15 @@ pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     return ov[0];
 }
 
+/// Returns the sum of `a` and `b`, which can be any integer types, including
+/// different ones from each other, or else returns `null` indicating the
+/// result cannot fit inside the provided `Result` type.
+pub fn addAny(comptime Result: type, a: anytype, b: anytype) ?Result {
+    if (Result == comptime_int) return @as(comptime_int, a) + @as(comptime_int, b);
+    const O = std.meta.Int(.signed, @max(@bitSizeOf(@TypeOf(a)), @bitSizeOf(@TypeOf(b))) + 1);
+    return cast(Result, @as(O, a) + @as(O, b));
+}
+
 /// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a - b;
