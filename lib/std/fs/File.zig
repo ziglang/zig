@@ -947,6 +947,22 @@ pub const Reader = struct {
         };
     }
 
+    pub fn seekTo(r: *Reader, offset: u64) SeekError!void {
+        // TODO if the offset is after the current offset, seek by discarding.
+        if (r.seek_err) |err| return err;
+        switch (r.mode) {
+            .positional, .positional_reading => {
+                r.pos = offset;
+            },
+            .streaming, .streaming_reading => {
+                posix.lseek_SET(r.file.handle, offset) catch |err| {
+                    r.seek_err = err;
+                    return err;
+                };
+            },
+        }
+    }
+
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying read calls as possible.
     const max_buffers_len = 16;
@@ -975,7 +991,7 @@ pub const Reader = struct {
                     error.WriteFailed => return error.WriteFailed,
                     error.Unseekable => {
                         r.mode = .streaming;
-                        assert(pos == 0);
+                        if (pos != 0) @panic("TODO need to seek here");
                         return 0;
                     },
                     error.Unimplemented => {
@@ -1011,7 +1027,7 @@ pub const Reader = struct {
                 const n = file.pread(dest, pos) catch |err| switch (err) {
                     error.Unseekable => {
                         r.mode = .streaming_reading;
-                        assert(pos == 0);
+                        if (pos != 0) @panic("TODO need to seek here");
                         return 0;
                     },
                     else => |e| {

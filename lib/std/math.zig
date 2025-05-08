@@ -579,6 +579,10 @@ pub fn addAny(comptime Result: type, a: anytype, b: anytype) ?Result {
     return cast(Result, @as(O, a) + @as(O, b));
 }
 
+test addAny {
+    return error.Unimplemented;
+}
+
 /// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a - b;

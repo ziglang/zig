@@ -304,30 +304,35 @@ const crypt_format = struct {
 
     /// Serialize parameters into a string in modular crypt format.
     pub fn serialize(params: anytype, str: []u8) EncodingError![]const u8 {
-        var buf = io.fixedBufferStream(str);
-        try serializeTo(params, buf.writer());
-        return buf.getWritten();
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(str);
+        try serializeTo(params, &bw);
+        return bw.getWritten();
     }
 
     /// Compute the number of bytes required to serialize `params`
     pub fn calcSize(params: anytype) usize {
-        var buf = io.countingWriter(io.null_writer);
-        serializeTo(params, buf.writer()) catch unreachable;
-        return @as(usize, @intCast(buf.bytes_written));
+        var null_writer: std.io.Writer.Null = .{};
+        var trash: [64]u8 = undefined;
+        var bw = null_writer.writer().buffered(&trash);
+        serializeTo(params, &bw) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+        };
+        return bw.count;
     }
 
-    fn serializeTo(params: anytype, out: anytype) !void {
+    fn serializeTo(params: anytype, out: *std.io.BufferedWriter) !void {
         var header: [14]u8 = undefined;
         header[0..3].* = prefix.*;
         Codec.intEncode(header[3..4], params.ln);
         Codec.intEncode(header[4..9], params.r);
         Codec.intEncode(header[9..14], params.p);
-        try out.writeAll(&header);
-        try out.writeAll(params.salt);
-        try out.writeAll("$");
+
         var buf: [@TypeOf(params.hash).max_encoded_length]u8 = undefined;
         const hash_str = try params.hash.toB64(&buf);
-        try out.writeAll(hash_str);
+
+        var vecs: [4][]const u8 = .{ &header, params.salt, "$", hash_str };
+        try out.writeVecAll(&vecs);
     }
 
     /// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet,

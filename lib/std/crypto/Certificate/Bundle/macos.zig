@@ -16,64 +16,64 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
         "/Library/Keychains/System.keychain",
     };
 
+    const now_sec = std.time.timestamp();
+
+    var records: std.ArrayListUnmanaged(u32) = .empty;
+    defer records.deinit(gpa);
+
+    var tables: std.ArrayListUnmanaged(u32) = .empty;
+    defer tables.deinit(gpa);
+
     for (keychainPaths) |keychainPath| {
         const file = try fs.openFileAbsolute(keychainPath, .{});
         defer file.close();
 
-        const bytes = try file.readToEndAlloc(gpa, std.math.maxInt(u32));
-        defer gpa.free(bytes);
+        var in_buffer: [256]u8 = undefined;
+        comptime assert(in_buffer.len > @sizeOf(ApplDbHeader));
+        comptime assert(in_buffer.len > @sizeOf(ApplDbSchema));
+        comptime assert(in_buffer.len > @sizeOf(TableHeader));
+        comptime assert(in_buffer.len > @sizeOf(X509CertHeader));
+        var file_reader = file.reader();
+        var br = file_reader.interface().buffered(&in_buffer);
 
-        var stream = std.io.fixedBufferStream(bytes);
-        const reader = stream.reader();
+        const db_header = try br.takeStructEndian(ApplDbHeader, .big);
+        if (!mem.eql(u8, &db_header.signature, "kych")) continue;
 
-        const db_header = try reader.readStructEndian(ApplDbHeader, .big);
-        assert(mem.eql(u8, &db_header.signature, "kych"));
+        try file_reader.seekTo(db_header.schema_offset);
+        br = file_reader.interface().buffered(&in_buffer);
 
-        try stream.seekTo(db_header.schema_offset);
+        const db_schema = try br.takeStructEndian(ApplDbSchema, .big);
 
-        const db_schema = try reader.readStructEndian(ApplDbSchema, .big);
+        try tables.resize(db_schema.table_count);
+        for (tables.items) |*offset| offset.* = try br.takeInt(u32, .big);
 
-        var table_list = try gpa.alloc(u32, db_schema.table_count);
-        defer gpa.free(table_list);
+        for (tables.items) |table_offset| {
+            try file_reader.seekTo(db_header.schema_offset + table_offset);
+            br = file_reader.interface().buffered(&in_buffer);
 
-        var table_idx: u32 = 0;
-        while (table_idx < table_list.len) : (table_idx += 1) {
-            table_list[table_idx] = try reader.readInt(u32, .big);
-        }
-
-        const now_sec = std.time.timestamp();
-
-        for (table_list) |table_offset| {
-            try stream.seekTo(db_header.schema_offset + table_offset);
-
-            const table_header = try reader.readStructEndian(TableHeader, .big);
+            const table_header = try br.takeStructEndian(TableHeader, .big);
 
             if (@as(std.c.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
                 continue;
             }
 
-            var record_list = try gpa.alloc(u32, table_header.record_count);
-            defer gpa.free(record_list);
+            try records.resize(gpa, table_header.record_count);
+            for (records.items) |*offset| offset.* = try br.takeInt(u32, .big);
 
-            var record_idx: u32 = 0;
-            while (record_idx < record_list.len) : (record_idx += 1) {
-                record_list[record_idx] = try reader.readInt(u32, .big);
-            }
-
-            for (record_list) |record_offset| {
+            for (records.items) |record_offset| {
                 // An offset of zero means that the record is not present.
                 // An offset that is not 4-byte-aligned is invalid.
                 if (record_offset == 0 or record_offset % 4 != 0) continue;
 
-                try stream.seekTo(db_header.schema_offset + table_offset + record_offset);
+                try file_reader.seekTo(db_header.schema_offset + table_offset + record_offset);
+                br = file_reader.interface().buffered(&in_buffer);
 
-                const cert_header = try reader.readStructEndian(X509CertHeader, .big);
-
+                const cert_header = try br.takeStructEndian(X509CertHeader, .big);
                 if (cert_header.cert_size == 0) continue;
 
-                const cert_start = @as(u32, @intCast(cb.bytes.items.len));
+                const cert_start: u32 = @intCast(cb.bytes.items.len);
                 const dest_buf = try cb.bytes.addManyAsSlice(gpa, cert_header.cert_size);
-                try reader.readNoEof(dest_buf);
+                try br.readSlice(dest_buf);
 
                 try cb.parseCert(gpa, cert_start, now_sec);
             }
