@@ -864,8 +864,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     // Example:
                     // .balign 4
                     // .globl _Exit_2_2_5
-                    // .type _Exit_2_2_5, %function;
-                    // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
+                    // .type _Exit_2_2_5, %function
+                    // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5, remove
                     // _Exit_2_2_5: .long 0
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
@@ -876,19 +876,16 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                     const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                     if (ver.patch == 0) {
-                        const sym_plus_ver = if (want_default)
-                            sym_name
-                        else
-                            try std.fmt.allocPrint(
-                                arena,
-                                "{s}_GLIBC_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor },
-                            );
+                        const sym_plus_ver = try std.fmt.allocPrint(
+                            arena,
+                            "{s}_{d}_{d}",
+                            .{ sym_name, ver.major, ver.minor },
+                        );
                         try stubs_asm.writer().print(
                             \\.balign {d}
                             \\.globl {s}
-                            \\.type {s}, %function;
-                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}
+                            \\.type {s}, %function
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}, remove
                             \\{s}: {s} 0
                             \\
                         , .{
@@ -904,19 +901,16 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             wordDirective(target),
                         });
                     } else {
-                        const sym_plus_ver = if (want_default)
-                            sym_name
-                        else
-                            try std.fmt.allocPrint(
-                                arena,
-                                "{s}_GLIBC_{d}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor, ver.patch },
-                            );
+                        const sym_plus_ver = try std.fmt.allocPrint(
+                            arena,
+                            "{s}_{d}_{d}_{d}",
+                            .{ sym_name, ver.major, ver.minor, ver.patch },
+                        );
                         try stubs_asm.writer().print(
                             \\.balign {d}
                             \\.globl {s}
-                            \\.type {s}, %function;
-                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
+                            \\.type {s}, %function
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}, remove
                             \\{s}: {s} 0
                             \\
                         , .{
@@ -1041,9 +1035,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     // Example:
                     // .balign 4
                     // .globl environ_2_2_5
-                    // .type environ_2_2_5, %object;
-                    // .size environ_2_2_5, 4;
-                    // .symver environ_2_2_5, environ@@GLIBC_2.2.5
+                    // .type environ_2_2_5, %object
+                    // .size environ_2_2_5, 4
+                    // .symver environ_2_2_5, environ@@GLIBC_2.2.5, remove
                     // environ_2_2_5: .fill 4, 1, 0
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
@@ -1054,20 +1048,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                     const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                     if (ver.patch == 0) {
-                        const sym_plus_ver = if (want_default)
-                            sym_name
-                        else
-                            try std.fmt.allocPrint(
-                                arena,
-                                "{s}_GLIBC_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor },
-                            );
+                        const sym_plus_ver = try std.fmt.allocPrint(
+                            arena,
+                            "{s}_{d}_{d}",
+                            .{ sym_name, ver.major, ver.minor },
+                        );
                         try stubs_asm.writer().print(
                             \\.balign {d}
                             \\.globl {s}
-                            \\.type {s}, %object;
-                            \\.size {s}, {d};
-                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}
+                            \\.type {s}, %object
+                            \\.size {s}, {d}
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}, remove
                             \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
@@ -1085,20 +1076,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             size,
                         });
                     } else {
-                        const sym_plus_ver = if (want_default)
-                            sym_name
-                        else
-                            try std.fmt.allocPrint(
-                                arena,
-                                "{s}_GLIBC_{d}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor, ver.patch },
-                            );
+                        const sym_plus_ver = try std.fmt.allocPrint(
+                            arena,
+                            "{s}_{d}_{d}_{d}",
+                            .{ sym_name, ver.major, ver.minor, ver.patch },
+                        );
                         try stubs_asm.writer().print(
                             \\.balign {d}
                             \\.globl {s}
-                            \\.type {s}, %object;
-                            \\.size {s}, {d};
-                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
+                            \\.type {s}, %object
+                            \\.size {s}, {d}
+                            \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}, remove
                             \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
