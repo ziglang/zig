@@ -48,7 +48,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
 
-    .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf },
@@ -177,7 +176,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
     .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
-    .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabihf },
@@ -256,8 +254,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .sparc64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .solaris, .abi = .none },
 
-    .{ .cpu_arch = .thumb, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .thumb, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .linux, .abi = .eabi },
