@@ -8,6 +8,7 @@ const OP = std.dwarf.OP;
 const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -41,8 +42,7 @@ pub const Options = struct {
     call_frame_context: bool = false,
 };
 
-// Explicitly defined to support executing sub-expressions
-pub const Error = error{
+pub const RunError = error{
     UnimplementedExpressionCall,
     UnimplementedOpcode,
     UnimplementedUserOpcode,
@@ -62,7 +62,12 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
+
+    OutOfMemory,
+    EndOfStream,
+    Overflow,
+    DivisionByZero,
+} || abi.RegBytesError;
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -74,44 +79,16 @@ pub fn StackMachine(comptime options: Options) type {
         8 => u64,
         else => @compileError("Unsupported address size of " ++ options.addr_size),
     };
-
     const SignedAddress = switch (options.addr_size) {
         2 => i16,
         4 => i32,
         8 => i64,
         else => @compileError("Unsupported address size of " ++ options.addr_size),
     };
-
     return struct {
-        const Self = @This();
+        stack: std.ArrayListUnmanaged(Value) = .empty,
 
-        const Operand = union(enum) {
-            generic: Address,
-            register: u8,
-            type_size: u8,
-            branch_offset: i16,
-            base_register: struct {
-                base_register: u8,
-                offset: i64,
-            },
-            composite_location: struct {
-                size: u64,
-                offset: i64,
-            },
-            block: []const u8,
-            register_type: struct {
-                register: u8,
-                type_offset: Address,
-            },
-            const_type: struct {
-                type_offset: Address,
-                value_bytes: []const u8,
-            },
-            deref_type: struct {
-                size: u8,
-                type_offset: Address,
-            },
-        };
+        const Self = @This();
 
         const Value = union(enum) {
             generic: Address,
@@ -132,7 +109,7 @@ pub fn StackMachine(comptime options: Options) type {
                 value_bytes: []const u8,
             },
 
-            pub fn asIntegral(self: Value) !Address {
+            fn asIntegral(self: Value) !Address {
                 return switch (self) {
                     .generic => |v| v,
 
@@ -151,185 +128,131 @@ pub fn StackMachine(comptime options: Options) type {
                     },
                 };
             }
-        };
 
-        stack: std.ArrayListUnmanaged(Value) = .empty,
+            fn fromInt(int: anytype) Value {
+                const info = @typeInfo(@TypeOf(int)).int;
+                if (@sizeOf(@TypeOf(int)) > options.addr_size) {
+                    return .{ .generic = switch (info.signedness) {
+                        .signed => @bitCast(@as(SignedAddress, @truncate(int))),
+                        .unsigned => @truncate(int),
+                    } };
+                } else {
+                    return .{ .generic = switch (info.signedness) {
+                        .signed => @bitCast(@as(SignedAddress, @intCast(int))),
+                        .unsigned => @intCast(int),
+                    } };
+                }
+            }
+        };
 
         pub fn reset(self: *Self) void {
             self.stack.clearRetainingCapacity();
         }
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Self, allocator: Allocator) void {
             self.stack.deinit(allocator);
-        }
-
-        fn generic(value: anytype) Operand {
-            const int_info = @typeInfo(@TypeOf(value)).int;
-            if (@sizeOf(@TypeOf(value)) > options.addr_size) {
-                return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(@as(SignedAddress, @truncate(value))),
-                    .unsigned => @truncate(value),
-                } };
-            } else {
-                return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(@as(SignedAddress, @intCast(value))),
-                    .unsigned => @intCast(value),
-                } };
-            }
-        }
-
-        pub fn readOperand(reader: *std.io.BufferedReader, opcode: u8, context: Context) !?Operand {
-            return switch (opcode) {
-                OP.addr => generic(try reader.takeInt(Address, options.endian)),
-                OP.call_ref => switch (context.format) {
-                    .@"32" => generic(try reader.takeInt(u32, options.endian)),
-                    .@"64" => generic(try reader.takeInt(u64, options.endian)),
-                },
-                OP.const1u,
-                OP.pick,
-                => generic(try reader.takeByte()),
-                OP.deref_size,
-                OP.xderef_size,
-                => .{ .type_size = try reader.takeByte() },
-                OP.const1s => generic(try reader.takeByteSigned()),
-                OP.const2u,
-                OP.call2,
-                => generic(try reader.takeInt(u16, options.endian)),
-                OP.call4 => generic(try reader.takeInt(u32, options.endian)),
-                OP.const2s => generic(try reader.takeInt(i16, options.endian)),
-                OP.bra,
-                OP.skip,
-                => .{ .branch_offset = try reader.takeInt(i16, options.endian) },
-                OP.const4u => generic(try reader.takeInt(u32, options.endian)),
-                OP.const4s => generic(try reader.takeInt(i32, options.endian)),
-                OP.const8u => generic(try reader.takeInt(u64, options.endian)),
-                OP.const8s => generic(try reader.takeInt(i64, options.endian)),
-                OP.constu,
-                OP.plus_uconst,
-                OP.addrx,
-                OP.constx,
-                OP.convert,
-                OP.reinterpret,
-                => generic(try reader.takeLeb128(u64)),
-                OP.consts,
-                OP.fbreg,
-                => generic(try reader.takeLeb128(i64)),
-                OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
-                OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
-                OP.breg0...OP.breg31 => |n| .{ .base_register = .{
-                    .base_register = n - OP.breg0,
-                    .offset = try reader.takeLeb128(i64),
-                } },
-                OP.regx => .{ .register = try reader.takeLeb128(u8) },
-                OP.bregx => .{ .base_register = .{
-                    .base_register = try reader.takeLeb128(u8),
-                    .offset = try reader.takeLeb128(i64),
-                } },
-                OP.regval_type => .{ .register_type = .{
-                    .register = try reader.takeLeb128(u8),
-                    .type_offset = try reader.takeLeb128(Address),
-                } },
-                OP.piece => .{ .composite_location = .{
-                    .size = try reader.takeLeb128(u64),
-                    .offset = 0,
-                } },
-                OP.bit_piece => .{ .composite_location = .{
-                    .size = try reader.takeLeb128(u64),
-                    .offset = try reader.takeLeb128(i64),
-                } },
-                OP.implicit_value, OP.entry_value => .{
-                    .block = try reader.take(try reader.takeLeb128(usize)),
-                },
-                OP.const_type => .{ .const_type = .{
-                    .type_offset = try reader.takeLeb128(Address),
-                    .value_bytes = try reader.take(try reader.takeByte()),
-                } },
-                OP.deref_type, OP.xderef_type => .{ .deref_type = .{
-                    .size = try reader.takeByte(),
-                    .type_offset = try reader.takeLeb128(Address),
-                } },
-                OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
-                else => null,
-            };
         }
 
         pub fn run(
             self: *Self,
             expression: []const u8,
-            allocator: std.mem.Allocator,
+            gpa: Allocator,
             context: Context,
             initial_value: ?usize,
-        ) Error!?Value {
-            if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
-            var reader: std.io.BufferedReader = undefined;
-            reader.initFixed(@constCast(expression));
-            while (try self.step(&reader, allocator, context)) {}
-            if (self.stack.items.len == 0) return null;
-            return self.stack.items[self.stack.items.len - 1];
-        }
-
-        /// Reads an opcode and its operands from `stream`, then executes it
-        pub fn step(
-            self: *Self,
-            reader: *std.io.BufferedReader,
-            allocator: std.mem.Allocator,
-            context: Context,
-        ) Error!bool {
-            if (@sizeOf(usize) != @sizeOf(Address) or options.endian != native_endian)
+        ) RunError!?Value {
+            if (@sizeOf(usize) != @sizeOf(Address) or options.endian != native_endian) {
+                // This restriction can be removed when the `@ptrFromInt` calls are removed.
                 @compileError("Execution of non-native address sizes / endianness is not supported");
+            }
 
-            const opcode = reader.takeByte() catch |err| switch (err) {
-                error.EndOfStream => return false,
-                error.ReadFailed => return error.ReadFailed,
-            };
-            if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
-            const operand = try readOperand(reader, opcode, context);
-            switch (opcode) {
+            const stack = &self.stack;
+            if (initial_value) |i| try stack.append(gpa, .{ .generic = i });
 
+            var i: usize = 0;
+            // TODO: https://github.com/ziglang/zig/issues/15556
+            op: switch (nextOpcode(expression, &i)) {
                 // 2.5.1.1: Literal Encodings
-                OP.lit0...OP.lit31,
-                OP.addr,
-                OP.const1u,
-                OP.const2u,
-                OP.const4u,
-                OP.const8u,
-                OP.const1s,
-                OP.const2s,
-                OP.const4s,
-                OP.const8s,
-                OP.constu,
-                OP.consts,
-                => try self.stack.append(allocator, .{ .generic = operand.?.generic }),
-
-                OP.const_type => {
-                    const const_type = operand.?.const_type;
-                    try self.stack.append(allocator, .{ .const_type = .{
-                        .type_offset = const_type.type_offset,
-                        .value_bytes = const_type.value_bytes,
-                    } });
+                @intFromEnum(OP.lit0)...@intFromEnum(OP.lit31) => |n| {
+                    try stack.append(gpa, .{ .generic = n - @intFromEnum(OP.lit0) });
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.addr) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, Address)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const1u) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, u8)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const2u) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, u16)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const4u) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, u32)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const8u) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, u64)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const1s) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, i8)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const2s) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, i16)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const4s) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, i32)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.const8s) => {
+                    try stack.append(gpa, .fromInt(try nextInt(expression, &i, i64)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.constu) => {
+                    try stack.append(gpa, .fromInt(try nextLeb128(expression, &i, u64)));
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.consts) => {
+                    try stack.append(gpa, .fromInt(try nextLeb128(expression, &i, i64)));
+                    continue :op nextOpcode(expression, &i);
                 },
 
-                OP.addrx,
-                OP.constx,
+                @intFromEnum(OP.const_type) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    try stack.append(gpa, .{ .const_type = .{
+                        .type_offset = try nextLeb128(expression, &i, Address),
+                        .value_bytes = try nextSlice(expression, &i, try nextInt(expression, &i, u8)),
+                    } });
+                    continue :op nextOpcode(expression, &i);
+                },
+
+                @intFromEnum(OP.addrx),
+                @intFromEnum(OP.constx),
                 => {
-                    if (context.compile_unit == null) return error.IncompleteExpressionContext;
-                    if (context.debug_addr == null) return error.IncompleteExpressionContext;
-                    const debug_addr_index = operand.?.generic;
-                    const offset = context.compile_unit.?.addr_base + debug_addr_index;
-                    if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
-                    const value = mem.readInt(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)], native_endian);
-                    try self.stack.append(allocator, .{ .generic = value });
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    const compile_unit = context.compile_unit orelse return error.IncompleteExpressionContext;
+                    const debug_addr = context.debug_addr orelse return error.IncompleteExpressionContext;
+                    const debug_addr_index = try nextLeb128(expression, &i, u64);
+                    const offset = compile_unit.addr_base + debug_addr_index;
+                    if (offset >= debug_addr.len) return error.InvalidExpression;
+                    const value = mem.readInt(Address, debug_addr[offset..][0..@sizeOf(Address)], options.endian);
+                    try stack.append(gpa, .fromInt(value));
+                    continue :op nextOpcode(expression, &i);
                 },
 
                 // 2.5.1.2: Register Values
-                OP.fbreg => {
-                    if (context.compile_unit == null) return error.IncompleteExpressionContext;
-                    if (context.compile_unit.?.frame_base == null) return error.IncompleteExpressionContext;
+                @intFromEnum(OP.fbreg) => {
+                    const compile_unit = context.compile_unit orelse return error.IncompleteExpressionContext;
+                    const frame_base = compile_unit.frame_base orelse return error.IncompleteExpressionContext;
 
-                    const offset: i64 = @intCast(operand.?.generic);
+                    const offset = try nextLeb128(expression, &i, i64);
                     _ = offset;
 
-                    switch (context.compile_unit.?.frame_base.?.*) {
+                    switch (frame_base.*) {
                         .exprloc => {
                             // TODO: Run this expression in a nested stack machine
                             return error.UnimplementedOpcode;
@@ -345,344 +268,407 @@ pub fn StackMachine(comptime options: Options) type {
                         else => return error.InvalidFrameBase,
                     }
                 },
-                OP.breg0...OP.breg31,
-                OP.bregx,
-                => {
-                    if (context.thread_context == null) return error.IncompleteExpressionContext;
-
-                    const base_register = operand.?.base_register;
-                    var value: i64 = @intCast(mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        base_register.base_register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian));
-                    value += base_register.offset;
-                    try self.stack.append(allocator, .{ .generic = @intCast(value) });
+                @intFromEnum(OP.breg0)...@intFromEnum(OP.breg31) => |n| {
+                    const thread_context = context.thread_context orelse return error.IncompleteExpressionContext;
+                    const base_register = n - @intFromEnum(OP.breg0);
+                    const offset = try nextLeb128(expression, &i, i64);
+                    const reg_bytes = try abi.regBytes(thread_context, base_register, context.reg_context);
+                    const start_addr = mem.readInt(Address, reg_bytes[0..@sizeOf(Address)], options.endian);
+                    try stack.append(gpa, .{
+                        .generic = std.math.addAny(Address, start_addr, offset) orelse
+                            return error.InvalidExpression,
+                    });
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.regval_type => {
-                    const register_type = operand.?.register_type;
-                    const value = mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        register_type.register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian);
-                    try self.stack.append(allocator, .{
+                @intFromEnum(OP.bregx) => {
+                    const thread_context = context.thread_context orelse return error.IncompleteExpressionContext;
+                    const base_register = try nextLeb128(expression, &i, u8);
+                    const offset = try nextLeb128(expression, &i, i64);
+                    const reg_bytes = try abi.regBytes(thread_context, base_register, context.reg_context);
+                    const start_addr = mem.readInt(Address, reg_bytes[0..@sizeOf(Address)], options.endian);
+                    try stack.append(gpa, .{
+                        .generic = std.math.addAny(Address, start_addr, offset) orelse
+                            return error.InvalidExpression,
+                    });
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.regval_type) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    const thread_context = context.thread_context orelse return error.IncompleteExpressionContext;
+                    const register = try nextLeb128(expression, &i, u8);
+                    const type_offset = try nextLeb128(expression, &i, Address);
+                    const reg_bytes = try abi.regBytes(thread_context, register, context.reg_context);
+                    const value = mem.readInt(Address, reg_bytes[0..@sizeOf(Address)], options.endian);
+                    try stack.append(gpa, .{
                         .regval_type = .{
-                            .type_offset = register_type.type_offset,
+                            .type_offset = type_offset,
                             .type_size = @sizeOf(Address),
                             .value = value,
                         },
                     });
+                    continue :op nextOpcode(expression, &i);
                 },
 
                 // 2.5.1.3: Stack Operations
-                OP.dup => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    try self.stack.append(allocator, self.stack.items[self.stack.items.len - 1]);
+                @intFromEnum(OP.dup) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    try stack.append(gpa, stack.items[stack.items.len - 1]);
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.drop => {
-                    _ = self.stack.pop();
+                @intFromEnum(OP.drop) => {
+                    _ = stack.pop();
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.pick, OP.over => {
-                    const stack_index = if (opcode == OP.over) 1 else operand.?.generic;
-                    if (stack_index >= self.stack.items.len) return error.InvalidExpression;
-                    try self.stack.append(allocator, self.stack.items[self.stack.items.len - 1 - stack_index]);
+                @intFromEnum(OP.pick) => {
+                    const stack_index = try nextInt(expression, &i, u8);
+                    if (stack_index >= stack.items.len) return error.InvalidExpression;
+                    try stack.append(gpa, stack.items[stack.items.len - 1 - stack_index]);
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.swap => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    mem.swap(Value, &self.stack.items[self.stack.items.len - 1], &self.stack.items[self.stack.items.len - 2]);
+                @intFromEnum(OP.over) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    try stack.append(gpa, stack.items[stack.items.len - 2]);
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.rot => {
-                    if (self.stack.items.len < 3) return error.InvalidExpression;
-                    const first = self.stack.items[self.stack.items.len - 1];
-                    self.stack.items[self.stack.items.len - 1] = self.stack.items[self.stack.items.len - 2];
-                    self.stack.items[self.stack.items.len - 2] = self.stack.items[self.stack.items.len - 3];
-                    self.stack.items[self.stack.items.len - 3] = first;
+                @intFromEnum(OP.swap) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    mem.swap(Value, &stack.items[stack.items.len - 1], &stack.items[stack.items.len - 2]);
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.deref,
-                OP.xderef,
-                OP.deref_size,
-                OP.xderef_size,
-                OP.deref_type,
-                OP.xderef_type,
-                => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const addr = try self.stack.items[self.stack.items.len - 1].asIntegral();
-                    const addr_space_identifier: ?usize = switch (opcode) {
-                        OP.xderef,
-                        OP.xderef_size,
-                        OP.xderef_type,
-                        => blk: {
-                            _ = self.stack.pop();
-                            if (self.stack.items.len == 0) return error.InvalidExpression;
-                            break :blk try self.stack.items[self.stack.items.len - 1].asIntegral();
-                        },
-                        else => null,
-                    };
+                @intFromEnum(OP.rot) => {
+                    if (stack.items.len < 3) return error.InvalidExpression;
+                    const first = stack.items[stack.items.len - 1];
+                    stack.items[stack.items.len - 1] = stack.items[stack.items.len - 2];
+                    stack.items[stack.items.len - 2] = stack.items[stack.items.len - 3];
+                    stack.items[stack.items.len - 3] = first;
+                    continue :op nextOpcode(expression, &i);
+                },
 
+                @intFromEnum(OP.deref_type) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const size = try nextInt(expression, &i, u8);
+                    const type_offset = try nextLeb128(expression, &i, Address);
+                    const addr = try stack.items[stack.items.len - 1].asIntegral();
+                    const loaded = try accessAddress(size, addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{
+                        .regval_type = .{
+                            .type_offset = type_offset,
+                            .type_size = size,
+                            .value = loaded,
+                        },
+                    };
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.deref_size) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const addr = try stack.items[stack.items.len - 1].asIntegral();
+                    const type_size = try nextInt(expression, &i, u8);
+                    const loaded = try accessAddress(type_size, addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{ .generic = loaded };
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.xderef_size) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const type_size = try nextInt(expression, &i, u8);
+                    const addr = try stack.pop().?.asIntegral();
+                    const addr_space_identifier = try stack.items[stack.items.len - 1].asIntegral();
                     // Usage of addr_space_identifier in the address calculation is implementation defined.
                     // This code will need to be updated to handle any architectures that utilize this.
                     _ = addr_space_identifier;
-
-                    const size = switch (opcode) {
-                        OP.deref,
-                        OP.xderef,
-                        => @sizeOf(Address),
-                        OP.deref_size,
-                        OP.xderef_size,
-                        => operand.?.type_size,
-                        OP.deref_type,
-                        OP.xderef_type,
-                        => operand.?.deref_type.size,
-                        else => unreachable,
-                    };
-
-                    if (context.memory_accessor) |memory_accessor| {
-                        if (!switch (size) {
-                            1 => memory_accessor.load(u8, addr) != null,
-                            2 => memory_accessor.load(u16, addr) != null,
-                            4 => memory_accessor.load(u32, addr) != null,
-                            8 => memory_accessor.load(u64, addr) != null,
-                            else => return error.InvalidExpression,
-                        }) return error.InvalidExpression;
-                    }
-
-                    const value: Address = std.math.cast(Address, @as(u64, switch (size) {
-                        1 => @as(*const u8, @ptrFromInt(addr)).*,
-                        2 => @as(*const u16, @ptrFromInt(addr)).*,
-                        4 => @as(*const u32, @ptrFromInt(addr)).*,
-                        8 => @as(*const u64, @ptrFromInt(addr)).*,
-                        else => return error.InvalidExpression,
-                    })) orelse return error.InvalidExpression;
-
-                    switch (opcode) {
-                        OP.deref_type,
-                        OP.xderef_type,
-                        => {
-                            self.stack.items[self.stack.items.len - 1] = .{
-                                .regval_type = .{
-                                    .type_offset = operand.?.deref_type.type_offset,
-                                    .type_size = operand.?.deref_type.size,
-                                    .value = value,
-                                },
-                            };
-                        },
-                        else => {
-                            self.stack.items[self.stack.items.len - 1] = .{ .generic = value };
-                        },
-                    }
+                    const loaded = try accessAddress(type_size, addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{ .generic = loaded };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.push_object_address => {
+                @intFromEnum(OP.deref) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const addr = try stack.items[stack.items.len - 1].asIntegral();
+                    const loaded = try accessAddress(@sizeOf(Address), addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{ .generic = loaded };
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.xderef) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const addr = try stack.pop().?.asIntegral();
+                    const addr_space_identifier = try stack.items[stack.items.len - 1].asIntegral();
+                    // Usage of addr_space_identifier in the address calculation is implementation defined.
+                    // This code will need to be updated to handle any architectures that utilize this.
+                    _ = addr_space_identifier;
+                    const loaded = try accessAddress(@sizeOf(Address), addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{ .generic = loaded };
+                    continue :op nextOpcode(expression, &i);
+                },
+
+                @intFromEnum(OP.xderef_type),
+                => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const addr = try stack.pop().?.asIntegral();
+                    const addr_space_identifier = try stack.items[stack.items.len - 1].asIntegral();
+                    // Usage of addr_space_identifier in the address calculation is implementation defined.
+                    // This code will need to be updated to handle any architectures that utilize this.
+                    _ = addr_space_identifier;
+                    const size = try nextInt(expression, &i, u8);
+                    const type_offset = try nextLeb128(expression, &i, Address);
+                    const loaded = try accessAddress(size, addr, context.memory_accessor);
+                    stack.items[stack.items.len - 1] = .{
+                        .regval_type = .{
+                            .type_offset = type_offset,
+                            .type_size = size,
+                            .value = loaded,
+                        },
+                    };
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.push_object_address) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
                     // In sub-expressions, `push_object_address` is not meaningful (as per the
                     // spec), so treat it like a nop
                     if (!context.entry_value_context) {
                         if (context.object_address == null) return error.IncompleteExpressionContext;
-                        try self.stack.append(allocator, .{ .generic = @intFromPtr(context.object_address.?) });
+                        try stack.append(gpa, .{ .generic = @intFromPtr(context.object_address.?) });
                     }
                 },
-                OP.form_tls_address => {
+                @intFromEnum(OP.form_tls_address) => {
                     return error.UnimplementedOpcode;
                 },
-                OP.call_frame_cfa => {
+                @intFromEnum(OP.call_frame_cfa) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
                     if (context.cfa) |cfa| {
-                        try self.stack.append(allocator, .{ .generic = cfa });
+                        try stack.append(gpa, .{ .generic = cfa });
                     } else return error.IncompleteExpressionContext;
+                    continue :op nextOpcode(expression, &i);
                 },
 
                 // 2.5.1.4: Arithmetic and Logical Operations
-                OP.abs => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const value: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.abs) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const value: isize = @bitCast(try stack.items[stack.items.len - 1].asIntegral());
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @abs(value),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.@"and" => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = a & try self.stack.items[self.stack.items.len - 1].asIntegral(),
+                @intFromEnum(OP.@"and") => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = a & try stack.items[stack.items.len - 1].asIntegral(),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.div => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
-                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.div) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a: isize = @bitCast(try stack.pop().?.asIntegral());
+                    const b: isize = @bitCast(try stack.items[stack.items.len - 1].asIntegral());
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @bitCast(try std.math.divTrunc(isize, b, a)),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.minus => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const b = try self.stack.pop().?.asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.sub(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
+                @intFromEnum(OP.minus) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const b = try stack.pop().?.asIntegral();
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = try std.math.sub(Address, try stack.items[stack.items.len - 1].asIntegral(), b),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.mod => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
-                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.mod) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a: isize = @bitCast(try stack.pop().?.asIntegral());
+                    const b: isize = @bitCast(try stack.items[stack.items.len - 1].asIntegral());
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @bitCast(@mod(b, a)),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.mul => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
-                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.mul) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a: isize = @bitCast(try stack.pop().?.asIntegral());
+                    const b: isize = @bitCast(try stack.items[stack.items.len - 1].asIntegral());
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @bitCast(@mulWithOverflow(a, b)[0]),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.neg => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.neg) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @bitCast(
                             try std.math.negate(
-                                @as(isize, @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral())),
+                                @as(isize, @bitCast(try stack.items[stack.items.len - 1].asIntegral())),
                             ),
                         ),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.not => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = ~try self.stack.items[self.stack.items.len - 1].asIntegral(),
+                @intFromEnum(OP.not) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = ~try stack.items[stack.items.len - 1].asIntegral(),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.@"or" => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = a | try self.stack.items[self.stack.items.len - 1].asIntegral(),
+                @intFromEnum(OP.@"or") => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = a | try stack.items[stack.items.len - 1].asIntegral(),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.plus => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const b = try self.stack.pop().?.asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.add(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
+                @intFromEnum(OP.plus) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const b = try stack.pop().?.asIntegral();
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = try std.math.add(Address, try stack.items[stack.items.len - 1].asIntegral(), b),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.plus_uconst => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const constant = operand.?.generic;
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = try std.math.add(Address, try self.stack.items[self.stack.items.len - 1].asIntegral(), constant),
-                    };
+                @intFromEnum(OP.plus_uconst) => {
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    stack.items[stack.items.len - 1] = .{ .generic = std.math.addAny(
+                        Address,
+                        try nextLeb128(expression, &i, u64),
+                        try stack.items[stack.items.len - 1].asIntegral(),
+                    ) orelse return error.Overflow };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.shl => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    const b = try self.stack.items[self.stack.items.len - 1].asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.shl) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    const b = try stack.items[stack.items.len - 1].asIntegral();
+                    stack.items[stack.items.len - 1] = .{
                         .generic = std.math.shl(usize, b, a),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.shr => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    const b = try self.stack.items[self.stack.items.len - 1].asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.shr) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    const b = try stack.items[stack.items.len - 1].asIntegral();
+                    stack.items[stack.items.len - 1] = .{
                         .generic = std.math.shr(usize, b, a),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.shra => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
-                    self.stack.items[self.stack.items.len - 1] = .{
+                @intFromEnum(OP.shra) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    const b: isize = @bitCast(try stack.items[stack.items.len - 1].asIntegral());
+                    stack.items[stack.items.len - 1] = .{
                         .generic = @bitCast(std.math.shr(isize, b, a)),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.xor => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().?.asIntegral();
-                    self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = a ^ try self.stack.items[self.stack.items.len - 1].asIntegral(),
+                @intFromEnum(OP.xor) => {
+                    if (stack.items.len < 2) return error.InvalidExpression;
+                    const a = try stack.pop().?.asIntegral();
+                    stack.items[stack.items.len - 1] = .{
+                        .generic = a ^ try stack.items[stack.items.len - 1].asIntegral(),
                     };
+                    continue :op nextOpcode(expression, &i);
                 },
 
                 // 2.5.1.5: Control Flow Operations
-                OP.le,
-                OP.ge,
-                OP.eq,
-                OP.lt,
-                OP.gt,
-                OP.ne,
-                => {
-                    if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = self.stack.pop().?;
-                    const b = self.stack.items[self.stack.items.len - 1];
+                @intFromEnum(OP.le) => {
+                    try cmpOp(stack, .lte);
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.ge) => {
+                    try cmpOp(stack, .gte);
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.eq) => {
+                    try cmpOp(stack, .eq);
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.lt) => {
+                    try cmpOp(stack, .lt);
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.gt) => {
+                    try cmpOp(stack, .gt);
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.ne) => {
+                    try cmpOp(stack, .neq);
+                    continue :op nextOpcode(expression, &i);
+                },
 
-                    if (a == .generic and b == .generic) {
-                        const a_int: isize = @bitCast(a.asIntegral() catch unreachable);
-                        const b_int: isize = @bitCast(b.asIntegral() catch unreachable);
-                        const result = @intFromBool(switch (opcode) {
-                            OP.le => b_int <= a_int,
-                            OP.ge => b_int >= a_int,
-                            OP.eq => b_int == a_int,
-                            OP.lt => b_int < a_int,
-                            OP.gt => b_int > a_int,
-                            OP.ne => b_int != a_int,
-                            else => unreachable,
-                        });
-
-                        self.stack.items[self.stack.items.len - 1] = .{ .generic = result };
-                    } else {
-                        // TODO: Load the types referenced by these values, find their comparison operator, and run it
-                        return error.UnimplementedTypedComparison;
+                @intFromEnum(OP.skip) => {
+                    const branch_offset = try nextInt(expression, &i, i16);
+                    i = std.math.addAny(usize, i, branch_offset) orelse return error.InvalidExpression;
+                    continue :op nextOpcode(expression, &i);
+                },
+                @intFromEnum(OP.bra) => {
+                    const branch_offset = try nextInt(expression, &i, i16);
+                    const condition = try (stack.pop() orelse return error.InvalidExpression).asIntegral();
+                    if (condition != 0) {
+                        i = std.math.addAny(usize, i, branch_offset) orelse return error.InvalidExpression;
                     }
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.skip, OP.bra => {
-                    const branch_offset = operand.?.branch_offset;
-                    const condition = if (opcode == OP.bra) blk: {
-                        if (self.stack.items.len == 0) return error.InvalidExpression;
-                        break :blk try self.stack.pop().?.asIntegral() != 0;
-                    } else true;
-
-                    if (condition) reader.seekBy(branch_offset) catch return error.InvalidExpression;
-                },
-                OP.call2,
-                OP.call4,
-                OP.call_ref,
-                => {
-                    const debug_info_offset = operand.?.generic;
+                @intFromEnum(OP.call2) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    const debug_info_offset = nextInt(expression, &i, u16);
                     _ = debug_info_offset;
-
                     // TODO: Load a DIE entry at debug_info_offset in a .debug_info section (the spec says that it
                     //       can be in a separate exe / shared object from the one containing this expression).
                     //       Transfer control to the DW_AT_location attribute, with the current stack as input.
-
+                    return error.UnimplementedExpressionCall;
+                },
+                @intFromEnum(OP.call4) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    const debug_info_offset = nextInt(expression, &i, u32);
+                    _ = debug_info_offset;
+                    // TODO: Load a DIE entry at debug_info_offset in a .debug_info section (the spec says that it
+                    //       can be in a separate exe / shared object from the one containing this expression).
+                    //       Transfer control to the DW_AT_location attribute, with the current stack as input.
+                    return error.UnimplementedExpressionCall;
+                },
+                @intFromEnum(OP.call_ref) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    const debug_info_offset: u64 = switch (context.format) {
+                        .@"32" => nextInt(expression, &i, u32),
+                        .@"64" => nextInt(expression, &i, u64),
+                    };
+                    _ = debug_info_offset;
+                    // TODO: Load a DIE entry at debug_info_offset in a .debug_info section (the spec says that it
+                    //       can be in a separate exe / shared object from the one containing this expression).
+                    //       Transfer control to the DW_AT_location attribute, with the current stack as input.
                     return error.UnimplementedExpressionCall;
                 },
 
                 // 2.5.1.6: Type Conversions
-                OP.convert => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = operand.?.generic;
+                @intFromEnum(OP.convert) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const type_offset = try nextLeb128(expression, &i, u64);
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
-                    const value = self.stack.items[self.stack.items.len - 1];
+                    const value = stack.items[stack.items.len - 1];
                     if (type_offset == 0) {
-                        self.stack.items[self.stack.items.len - 1] = .{ .generic = try value.asIntegral() };
+                        stack.items[stack.items.len - 1] = .{ .generic = try value.asIntegral() };
                     } else {
                         // TODO: Load the DW_TAG_base_type entry in context.compile_unit, find a conversion operator
                         //       from the old type to the new type, run it.
                         return error.UnimplementedTypeConversion;
                     }
+                    continue :op nextOpcode(expression, &i);
                 },
-                OP.reinterpret => {
-                    if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = operand.?.generic;
+                @intFromEnum(OP.reinterpret) => {
+                    if (options.call_frame_context) return error.InvalidCFAOpcode;
+                    if (stack.items.len == 0) return error.InvalidExpression;
+                    const type_offset = try nextLeb128(expression, &i, u64);
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
-                    const value = self.stack.items[self.stack.items.len - 1];
+                    const value = stack.items[stack.items.len - 1];
                     if (type_offset == 0) {
-                        self.stack.items[self.stack.items.len - 1] = .{ .generic = try value.asIntegral() };
+                        stack.items[stack.items.len - 1] = .{ .generic = try value.asIntegral() };
                     } else {
-                        self.stack.items[self.stack.items.len - 1] = switch (value) {
+                        stack.items[stack.items.len - 1] = switch (value) {
                             .generic => |v| .{
                                 .regval_type = .{
                                     .type_offset = type_offset,
@@ -705,45 +691,128 @@ pub fn StackMachine(comptime options: Options) type {
                             },
                         };
                     }
+                    continue :op nextOpcode(expression, &i);
                 },
 
                 // 2.5.1.7: Special Operations
-                OP.nop => {},
-                OP.entry_value => {
-                    const block = operand.?.block;
-                    if (block.len == 0) return error.InvalidSubExpression;
+                @intFromEnum(OP.nop) => continue :op nextOpcode(expression, &i),
+                @intFromEnum(OP.entry_value) => {
+                    const block_len = try nextLeb128(expression, &i, usize);
+                    if (block_len == 0) return error.InvalidSubExpression;
+                    const block = try nextSlice(expression, &i, block_len);
 
                     // TODO: The spec states that this sub-expression needs to observe the state (ie. registers)
                     //       as it was upon entering the current subprogram. If this isn't being called at the
                     //       end of a frame unwind operation, an additional ThreadContext with this state will be needed.
 
-                    if (isOpcodeRegisterLocation(block[0])) {
-                        if (context.thread_context == null) return error.IncompleteExpressionContext;
+                    switch (block[0]) {
+                        @intFromEnum(OP.reg0)...@intFromEnum(OP.reg31) => |n| {
+                            const thread_context = context.thread_context orelse
+                                return error.IncompleteExpressionContext;
+                            const register = n - @intFromEnum(OP.reg0);
+                            const reg_bytes = try abi.regBytes(thread_context, register, context.reg_context);
+                            const value = mem.readInt(usize, reg_bytes[0..@sizeOf(usize)], options.endian);
+                            try stack.append(gpa, .{ .generic = value });
+                            continue :op nextOpcode(expression, &i);
+                        },
+                        @intFromEnum(OP.regx) => {
+                            const thread_context = context.thread_context orelse
+                                return error.IncompleteExpressionContext;
+                            const register = try nextLeb128(expression, &i, u8);
+                            const reg_bytes = try abi.regBytes(thread_context, register, context.reg_context);
+                            const value = mem.readInt(usize, reg_bytes[0..@sizeOf(usize)], options.endian);
+                            try stack.append(gpa, .{ .generic = value });
+                            continue :op nextOpcode(expression, &i);
+                        },
+                        else => {
+                            var stack_machine: Self = .{};
+                            defer stack_machine.deinit(gpa);
 
-                        var block_reader: std.io.BufferedReader = undefined;
-                        block_reader.initFixed(@constCast(block));
-                        const register = (try readOperand(&block_reader, block[0], context)).?.register;
-                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
-                        try self.stack.append(allocator, .{ .generic = value });
-                    } else {
-                        var stack_machine: Self = .{};
-                        defer stack_machine.deinit(allocator);
-
-                        var sub_context = context;
-                        sub_context.entry_value_context = true;
-                        const result = try stack_machine.run(block, allocator, sub_context, null);
-                        try self.stack.append(allocator, result orelse return error.InvalidSubExpression);
+                            var sub_context = context;
+                            sub_context.entry_value_context = true;
+                            const result = try stack_machine.run(block, gpa, sub_context, null);
+                            try stack.append(gpa, result orelse return error.InvalidSubExpression);
+                            continue :op nextOpcode(expression, &i);
+                        },
                     }
                 },
 
-                // These have already been handled by readOperand
-                OP.lo_user...OP.hi_user => unreachable,
+                @intFromEnum(OP.lo_user)...@intFromEnum(OP.hi_user) - 1 => return error.UnimplementedUserOpcode,
+
+                // Repurposed for exiting the loop.
+                @intFromEnum(OP.hi_user) => {
+                    if (stack.items.len == 0) return null;
+                    return stack.items[stack.items.len - 1];
+                },
+
                 else => {
                     //std.debug.print("Unknown DWARF expression opcode: {x}\n", .{opcode});
                     return error.UnknownExpressionOpcode;
                 },
             }
-            return true;
+            comptime unreachable;
+        }
+
+        fn nextOpcode(expression: []const u8, i: *usize) u8 {
+            const index = i.*;
+            if (expression.len - index == 0) return @intFromEnum(OP.hi_user); // repurposed to indicate end
+            i.* = index + 1;
+            return expression[index];
+        }
+
+        fn nextInt(expression: []const u8, i: *usize, comptime I: type) !I {
+            const n = @divExact(@bitSizeOf(I), 8);
+            const slice = try nextSlice(expression, i, n);
+            return mem.readInt(I, slice[0..n], options.endian);
+        }
+
+        fn nextSlice(expression: []const u8, i: *usize, len: usize) ![]const u8 {
+            const index = i.*;
+            if (expression.len - index < len) return error.EndOfStream;
+            i.* = index + len;
+            return expression[index..][0..len];
+        }
+
+        fn nextLeb128(expression: []const u8, i: *usize, comptime I: type) !I {
+            var br: std.io.BufferedReader = undefined;
+            br.initFixed(@constCast(expression));
+            br.seek = i.*;
+            assert(br.seek <= br.end);
+            const result = br.takeLeb128(I) catch |err| switch (err) {
+                error.ReadFailed => unreachable,
+                else => |e| return e,
+            };
+            i.* = br.seek;
+            return result;
+        }
+
+        fn accessAddress(size: u8, addr: Address, accessor: ?*std.debug.MemoryAccessor) !Address {
+            if (accessor) |memory_accessor| {
+                switch (size) {
+                    1 => if (memory_accessor.load(u8, addr) == null) return error.InvalidExpression,
+                    2 => if (memory_accessor.load(u16, addr) == null) return error.InvalidExpression,
+                    4 => if (memory_accessor.load(u32, addr) == null) return error.InvalidExpression,
+                    8 => if (memory_accessor.load(u64, addr) == null) return error.InvalidExpression,
+                    else => return error.InvalidExpression,
+                }
+            }
+            return switch (size) {
+                1 => std.math.cast(Address, @as(*const u8, @ptrFromInt(addr)).*),
+                2 => std.math.cast(Address, @as(*const u16, @ptrFromInt(addr)).*),
+                4 => std.math.cast(Address, @as(*const u32, @ptrFromInt(addr)).*),
+                8 => std.math.cast(Address, @as(*const u64, @ptrFromInt(addr)).*),
+                else => return error.InvalidExpression,
+            } orelse return error.InvalidExpression;
+        }
+
+        fn cmpOp(stack: *std.ArrayListUnmanaged(Value), op: std.math.CompareOperator) !void {
+            if (stack.items.len < 2) return error.InvalidExpression;
+            const a = stack.pop().?;
+            const b = stack.items[stack.items.len - 1];
+
+            const a_int = try a.asIntegral();
+            const b_int = try b.asIntegral();
+            stack.items[stack.items.len - 1] = .{ .generic = @intFromBool(std.math.compare(a_int, op, b_int)) };
         }
     };
 }
@@ -758,7 +827,7 @@ pub fn Builder(comptime options: Options) type {
 
     return struct {
         /// Zero-operand instructions
-        pub fn writeOpcode(writer: anytype, comptime opcode: u8) !void {
+        pub fn writeOpcode(writer: *std.io.BufferedWriter, comptime opcode: u8) !void {
             if (options.call_frame_context and !comptime isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
                 OP.dup,
@@ -799,14 +868,14 @@ pub fn Builder(comptime options: Options) type {
         }
 
         // 2.5.1.1: Literal Encodings
-        pub fn writeLiteral(writer: anytype, literal: u8) !void {
+        pub fn writeLiteral(writer: *std.io.BufferedWriter, literal: u8) !void {
             switch (literal) {
                 0...31 => |n| try writer.writeByte(n + OP.lit0),
                 else => return error.InvalidLiteral,
             }
         }
 
-        pub fn writeConst(writer: anytype, comptime T: type, value: T) !void {
+        pub fn writeConst(writer: *std.io.BufferedWriter, comptime T: type, value: T) !void {
             if (@typeInfo(T) != .int) @compileError("Constants must be integers");
 
             switch (T) {
@@ -838,12 +907,12 @@ pub fn Builder(comptime options: Options) type {
             }
         }
 
-        pub fn writeConstx(writer: anytype, debug_addr_offset: anytype) !void {
+        pub fn writeConstx(writer: *std.io.BufferedWriter, debug_addr_offset: anytype) !void {
             try writer.writeByte(OP.constx);
             try leb.writeUleb128(writer, debug_addr_offset);
         }
 
-        pub fn writeConstType(writer: anytype, die_offset: anytype, value_bytes: []const u8) !void {
+        pub fn writeConstType(writer: *std.io.BufferedWriter, die_offset: anytype, value_bytes: []const u8) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             if (value_bytes.len > 0xff) return error.InvalidTypeLength;
             try writer.writeByte(OP.const_type);
@@ -852,36 +921,36 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeAll(value_bytes);
         }
 
-        pub fn writeAddr(writer: anytype, value: Address) !void {
+        pub fn writeAddr(writer: *std.io.BufferedWriter, value: Address) !void {
             try writer.writeByte(OP.addr);
             try writer.writeInt(Address, value, options.endian);
         }
 
-        pub fn writeAddrx(writer: anytype, debug_addr_offset: anytype) !void {
+        pub fn writeAddrx(writer: *std.io.BufferedWriter, debug_addr_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.addrx);
             try leb.writeUleb128(writer, debug_addr_offset);
         }
 
         // 2.5.1.2: Register Values
-        pub fn writeFbreg(writer: anytype, offset: anytype) !void {
+        pub fn writeFbreg(writer: *std.io.BufferedWriter, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeBreg(writer: anytype, register: u8, offset: anytype) !void {
+        pub fn writeBreg(writer: *std.io.BufferedWriter, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeBregx(writer: anytype, register: anytype, offset: anytype) !void {
+        pub fn writeBregx(writer: *std.io.BufferedWriter, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
             try leb.writeUleb128(writer, register);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeRegvalType(writer: anytype, register: anytype, offset: anytype) !void {
+        pub fn writeRegvalType(writer: *std.io.BufferedWriter, register: anytype, offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.regval_type);
             try leb.writeUleb128(writer, register);
@@ -889,29 +958,29 @@ pub fn Builder(comptime options: Options) type {
         }
 
         // 2.5.1.3: Stack Operations
-        pub fn writePick(writer: anytype, index: u8) !void {
+        pub fn writePick(writer: *std.io.BufferedWriter, index: u8) !void {
             try writer.writeByte(OP.pick);
             try writer.writeByte(index);
         }
 
-        pub fn writeDerefSize(writer: anytype, size: u8) !void {
+        pub fn writeDerefSize(writer: *std.io.BufferedWriter, size: u8) !void {
             try writer.writeByte(OP.deref_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeXDerefSize(writer: anytype, size: u8) !void {
+        pub fn writeXDerefSize(writer: *std.io.BufferedWriter, size: u8) !void {
             try writer.writeByte(OP.xderef_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
+        pub fn writeDerefType(writer: *std.io.BufferedWriter, size: u8, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.deref_type);
             try writer.writeByte(size);
             try leb.writeUleb128(writer, die_offset);
         }
 
-        pub fn writeXDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
+        pub fn writeXDerefType(writer: *std.io.BufferedWriter, size: u8, die_offset: anytype) !void {
             try writer.writeByte(OP.xderef_type);
             try writer.writeByte(size);
             try leb.writeUleb128(writer, die_offset);
@@ -919,24 +988,24 @@ pub fn Builder(comptime options: Options) type {
 
         // 2.5.1.4: Arithmetic and Logical Operations
 
-        pub fn writePlusUconst(writer: anytype, uint_value: anytype) !void {
+        pub fn writePlusUconst(writer: *std.io.BufferedWriter, uint_value: anytype) !void {
             try writer.writeByte(OP.plus_uconst);
             try leb.writeUleb128(writer, uint_value);
         }
 
         // 2.5.1.5: Control Flow Operations
 
-        pub fn writeSkip(writer: anytype, offset: i16) !void {
+        pub fn writeSkip(writer: *std.io.BufferedWriter, offset: i16) !void {
             try writer.writeByte(OP.skip);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeBra(writer: anytype, offset: i16) !void {
+        pub fn writeBra(writer: *std.io.BufferedWriter, offset: i16) !void {
             try writer.writeByte(OP.bra);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeCall(writer: anytype, comptime T: type, offset: T) !void {
+        pub fn writeCall(writer: *std.io.BufferedWriter, comptime T: type, offset: T) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             switch (T) {
                 u16 => try writer.writeByte(OP.call2),
@@ -947,19 +1016,19 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeInt(T, offset, options.endian);
         }
 
-        pub fn writeCallRef(writer: anytype, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
+        pub fn writeCallRef(writer: *std.io.BufferedWriter, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.call_ref);
             try writer.writeInt(if (is_64) u64 else u32, value, options.endian);
         }
 
-        pub fn writeConvert(writer: anytype, die_offset: anytype) !void {
+        pub fn writeConvert(writer: *std.io.BufferedWriter, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.convert);
             try leb.writeUleb128(writer, die_offset);
         }
 
-        pub fn writeReinterpret(writer: anytype, die_offset: anytype) !void {
+        pub fn writeReinterpret(writer: *std.io.BufferedWriter, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.reinterpret);
             try leb.writeUleb128(writer, die_offset);
@@ -967,23 +1036,23 @@ pub fn Builder(comptime options: Options) type {
 
         // 2.5.1.7: Special Operations
 
-        pub fn writeEntryValue(writer: anytype, expression: []const u8) !void {
+        pub fn writeEntryValue(writer: *std.io.BufferedWriter, expression: []const u8) !void {
             try writer.writeByte(OP.entry_value);
             try leb.writeUleb128(writer, expression.len);
             try writer.writeAll(expression);
         }
 
         // 2.6: Location Descriptions
-        pub fn writeReg(writer: anytype, register: u8) !void {
+        pub fn writeReg(writer: *std.io.BufferedWriter, register: u8) !void {
             try writer.writeByte(OP.reg0 + register);
         }
 
-        pub fn writeRegx(writer: anytype, register: anytype) !void {
+        pub fn writeRegx(writer: *std.io.BufferedWriter, register: anytype) !void {
             try writer.writeByte(OP.regx);
             try leb.writeUleb128(writer, register);
         }
 
-        pub fn writeImplicitValue(writer: anytype, value_bytes: []const u8) !void {
+        pub fn writeImplicitValue(writer: *std.io.BufferedWriter, value_bytes: []const u8) !void {
             try writer.writeByte(OP.implicit_value);
             try leb.writeUleb128(writer, value_bytes.len);
             try writer.writeAll(value_bytes);
@@ -991,21 +1060,21 @@ pub fn Builder(comptime options: Options) type {
     };
 }
 
-// Certain opcodes are not allowed in a CFA context, see 6.4.2
-fn isOpcodeValidInCFA(opcode: u8) bool {
+/// Certain opcodes are not allowed in a CFA context, see 6.4.2
+fn isOpcodeValidInCFA(opcode: OP) bool {
     return switch (opcode) {
-        OP.addrx,
-        OP.call2,
-        OP.call4,
-        OP.call_ref,
-        OP.const_type,
-        OP.constx,
-        OP.convert,
-        OP.deref_type,
-        OP.regval_type,
-        OP.reinterpret,
-        OP.push_object_address,
-        OP.call_frame_cfa,
+        .addrx,
+        .call2,
+        .call4,
+        .call_ref,
+        .const_type,
+        .constx,
+        .convert,
+        .deref_type,
+        .regval_type,
+        .reinterpret,
+        .push_object_address,
+        .call_frame_cfa,
         => false,
         else => true,
     };
