@@ -5113,11 +5113,13 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         // Just to save disk space, we delete the files that are never needed again.
-        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) });
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| switch (err) {
+            error.FileNotFound => {}, // the file wasn't created due to an error we reported
+            else => log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) }),
         };
-        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| switch (err) {
+            error.FileNotFound => {}, // the file wasn't created due to an error we reported
+            else => log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) }),
         };
         if (std.process.can_spawn) {
             var child = std.process.Child.init(argv.items, arena);
