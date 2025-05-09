@@ -8,6 +8,8 @@ comptime {
     @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strcasecmp, .{ .name = "strcasecmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strncasecmp, .{ .name = "strncasecmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strcasecmp_l, .{ .name = "__strcasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strncasecmp_l, .{ .name = "__strncasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
@@ -48,6 +50,11 @@ fn strcasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
     return @as(c_int, toLower(l[0])) - @as(c_int, toLower(r[0]));
 }
 
+fn __strcasecmp_l(s1: [*:0]const c_char, s2: [*:0]const c_char, locale: *anyopaque) callconv(.c) c_int {
+    _ = locale;
+    return strcasecmp(s1, s2);
+}
+
 fn strncasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(.c) c_int {
     const toLower = std.ascii.toLower;
     var l: [*:0]const u8 = @ptrCast(s1);
@@ -61,6 +68,11 @@ fn strncasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(
     }
 
     return @as(c_int, toLower(l[0])) - @as(c_int, toLower(r[0]));
+}
+
+fn __strncasecmp_l(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize, locale: *anyopaque) callconv(.c) c_int {
+    _ = locale;
+    return strncasecmp(s1, s2, n);
 }
 
 test strcasecmp {
