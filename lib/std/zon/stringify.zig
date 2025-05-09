@@ -35,8 +35,8 @@ pub const SerializeOptions = struct {
     /// If false, struct fields are not written if they are equal to their default value. Comparison
     /// is done by `std.meta.eql`.
     emit_default_optional_fields: bool = true,
-    /// Should unicode characters be escaped in strings? If false unicode charecters are not escaped if entire string is valid utf8.
-    escape_unicode: bool = true,
+    /// Should unicode characters be escaped in strings
+    escape_unicode: bool = false,
 };
 
 /// Serialize the given value as ZON.
@@ -722,8 +722,8 @@ pub fn Serializer(Writer: type) type {
 
         /// Options for formatting strings.
         pub const StringOptions = struct {
-            /// Should unicode characters be escaped in strings? If false unicode charecters are not escaped if entire string is valid utf8.
-            escape_unicode: bool = true,
+            /// Should unicode characters be escaped in strings?
+            escape_unicode: bool = false,
         };
 
         /// Like `value`, but always serializes `val` as a string.
@@ -1666,8 +1666,12 @@ test "std.zon stringify strings" {
     var sz = serializer(buf.writer(), .{});
 
     // Minimal case
-    try sz.string("abc⚡\n", .{});
+    try sz.string("abc⚡\n", .{ .escape_unicode = true });
     try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string("abc⚡\n", .{});
+    try std.testing.expectEqualStrings("\"abc⚡\n\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.tuple("abc⚡\n", .{});
@@ -1794,7 +1798,7 @@ test "std.zon stringify multiline strings" {
 
         {
             const str: []const u8 = &.{ 'a', '\r', 'c' };
-            try sz.string(str, .{});
+            try sz.string(str, .{ .escape_unicode = true });
             try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
             buf.clearRetainingCapacity();
         }
