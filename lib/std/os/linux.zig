@@ -2041,9 +2041,7 @@ pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usi
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.accept, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), 0 });
-    }
+    // There's no point in using the accept syscall as it just forwards to the accept4 syscall in the kernel.
     return accept4(fd, addr, len, 0);
 }
 
@@ -9315,3 +9313,223 @@ pub const SHADOW_STACK = struct {
     /// Set up a restore token in the shadow stack.
     pub const SET_TOKEN: u64 = 1 << 0;
 };
+
+// socket functions not tested:
+// - send (these forward to sendto in the kernel, and Zig doesn't provide bindings for them)
+// - recv (these forward to recvfrom in the kernel, and Zig doesn't provide bindings for them)
+// - accept4 (accept forwards to accept4 in the kernel, and Zig's binding for accept forwards directly to accept4)
+
+test "inet sockets" {
+    // socket functions tested:
+    // - [x] socket
+    // - [x] bind
+    // - [x] connect
+    // - [x] listen
+    // - [x] accept (and by extension accept4)
+    // - [x] getsockname
+    // - [x] getpeername
+    // - [ ] socketpair
+    // - [ ] send
+    // - [ ] recv
+    // - [x] sendto
+    // - [x] recvfrom
+    // - [x] shutdown
+    // - [ ] setsockopt
+    // - [ ] getsockopt
+    // - [ ] sendmsg
+    // - [ ] recvmsg
+    // - [ ] accept4
+    // - [ ] recvmmsg
+    // - [ ] sendmmsg
+
+    // create a socket "fd" to be the server
+    var rc = socket(AF.INET, SOCK.STREAM, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    const fd: fd_t = @intCast(rc);
+
+    var addr: sockaddr.storage = undefined;
+    var len: u32 = @sizeOf(@TypeOf(addr));
+    rc = getsockname(fd, @ptrCast(&addr), &len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+    try std.testing.expectEqual(@sizeOf(sockaddr.in), len);
+    try std.testing.expectEqual(AF.INET, addr.family);
+    const addr_in = @as(*sockaddr.in, @ptrCast(&addr));
+    try std.testing.expectEqual(0, addr_in.addr);
+    try std.testing.expectEqual(0, addr_in.port);
+
+    // bind the socket to a random port
+    const INADDR_LOOPBACK = std.mem.nativeToBig(u32, 0x7F_00_00_01);
+    addr = undefined;
+    addr_in.* = .{
+        .addr = INADDR_LOOPBACK,
+        .port = 0,
+    };
+    rc = bind(fd, @ptrCast(&addr), @sizeOf(sockaddr.in));
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    // test getsockname
+    addr = undefined;
+    len = @sizeOf(@TypeOf(addr));
+    rc = getsockname(fd, @ptrCast(&addr), &len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+    try std.testing.expectEqual(@sizeOf(sockaddr.in), len);
+    try std.testing.expectEqual(AF.INET, addr.family);
+    try std.testing.expectEqual(INADDR_LOOPBACK, addr_in.addr);
+    const bind_port = addr_in.port;
+
+    // listen with a backlog of one so we can establish a connection and accept on the same thread
+    rc = listen(fd, 1);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    // create another socket "other_fd" to be the client
+    rc = socket(AF.INET, SOCK.STREAM, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    const other_fd: fd_t = @intCast(rc);
+
+    // connect to other_fd from fd
+    addr = undefined;
+    addr_in.* = .{
+        .addr = INADDR_LOOPBACK,
+        .port = bind_port,
+    };
+    rc = connect(other_fd, @ptrCast(&addr), @sizeOf(sockaddr.in));
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    // check connection sock addr
+    addr = undefined;
+    len = @sizeOf(@TypeOf(addr));
+    rc = getsockname(other_fd, @ptrCast(&addr), &len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+    try std.testing.expectEqual(@sizeOf(sockaddr.in), len);
+    try std.testing.expectEqual(AF.INET, addr.family);
+    try std.testing.expectEqual(INADDR_LOOPBACK, addr_in.addr);
+    const other_port = addr_in.port;
+
+    // check connection peer addr
+    addr = undefined;
+    len = @sizeOf(@TypeOf(addr));
+    rc = getpeername(other_fd, @ptrCast(&addr), &len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+    try std.testing.expectEqual(@sizeOf(sockaddr.in), len);
+    try std.testing.expectEqual(AF.INET, addr.family);
+    try std.testing.expectEqual(INADDR_LOOPBACK, addr_in.addr);
+    try std.testing.expectEqual(bind_port, addr_in.port);
+
+    // accept the connection to fd from other_fd and check peer addr
+    addr = undefined;
+    len = @sizeOf(@TypeOf(addr));
+    rc = accept(fd, @ptrCast(&addr), &len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(AF.INET, addr.family);
+    try std.testing.expectEqual(INADDR_LOOPBACK, addr_in.addr);
+    try std.testing.expectEqual(other_port, addr_in.port);
+    const conn_fd: fd_t = @intCast(rc);
+
+    const data = "foo";
+    rc = sendto(conn_fd, data, data.len, 0, null, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(data.len, rc);
+
+    rc = shutdown(fd, SHUT.RDWR);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    var recv_data: [data.len]u8 = undefined;
+    rc = recvfrom(other_fd, &recv_data, recv_data.len, 0, null, null);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(recv_data.len, rc);
+    try std.testing.expectEqualSlices(u8, data, &recv_data);
+
+    rc = close(conn_fd);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    rc = close(fd);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    rc = close(other_fd);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+}
+
+test "unix sockets" {
+    // socket functions tested:
+    // - [ ] socket
+    // - [ ] bind
+    // - [ ] connect
+    // - [ ] listen
+    // - [ ] accept
+    // - [ ] getsockname
+    // - [ ] getpeername
+    // - [x] socketpair
+    // - [ ] send
+    // - [ ] recv
+    // - [ ] sendto
+    // - [ ] recvfrom
+    // - [ ] shutdown
+    // - [ ] setsockopt
+    // - [ ] getsockopt
+    // - [x] sendmsg
+    // - [x] recvmsg
+    // - [ ] accept4
+    // - [ ] recvmmsg
+    // - [ ] sendmmsg
+
+    // create a socket "fd" to be the server
+    var socks: [2]socket_t = undefined;
+    var rc = socketpair(AF.UNIX, SOCK.SEQPACKET, 0, &socks);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+
+    const data = "foo";
+    const send_iov: [1]iovec_const = .{.{
+        .base = data,
+        .len = data.len,
+    }};
+    rc = sendmsg(socks[0], &.{
+        .name = null,
+        .namelen = 0,
+        .iov = &send_iov,
+        .iovlen = send_iov.len,
+        .control = null,
+        .controllen = 0,
+        .flags = 0,
+    }, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(data.len, rc);
+
+    var recv_data: [data.len]u8 = undefined;
+    var recv_iov: [1]iovec = .{.{
+        .base = &recv_data,
+        .len = recv_data.len,
+    }};
+    var hdr: msghdr = .{
+        .name = null,
+        .namelen = 0,
+        .iov = &recv_iov,
+        .iovlen = recv_iov.len,
+        .control = null,
+        .controllen = 0,
+        .flags = 0,
+    };
+    rc = recvmsg(socks[1], &hdr, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(data.len, rc);
+    try std.testing.expectEqual(data.len, recv_iov[0].len);
+    try std.testing.expectEqualSlices(u8, data, &recv_data);
+
+    rc = close(socks[0]);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    rc = close(socks[1]);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+}
