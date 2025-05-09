@@ -6,9 +6,8 @@ pub const autoHash = auto_hash.autoHash;
 pub const autoHashStrat = auto_hash.hash;
 pub const Strategy = auto_hash.HashStrategy;
 
-// pub for polynomials + generic crc32 construction
 pub const crc = @import("hash/crc.zig");
-pub const Crc32 = crc.Crc32;
+pub const Crc32 = crc.Crc32IsoHdlc;
 
 const fnv = @import("hash/fnv.zig");
 pub const Fnv1a_32 = fnv.Fnv1a_32;

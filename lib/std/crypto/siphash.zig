@@ -238,48 +238,6 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         pub fn toInt(msg: []const u8, key: *const [key_length]u8) T {
             return State.hash(msg, key);
         }
-
-        pub fn writer(self: *Self) std.io.Writer {
-            return .{
-                .context = self,
-                .vtable = &.{
-                    .writeSplat = &writeSplat,
-                    .writeFile = &writeFile,
-                },
-            };
-        }
-
-        fn writeSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-            const self: *Self = @alignCast(@ptrCast(ctx));
-            var len: usize = 0;
-            for (data[0 .. data.len - 1]) |slice| {
-                self.update(slice);
-                len += slice.len;
-            }
-            {
-                const slice = data[data.len - 1];
-                for (0..splat) |_| self.update(slice);
-                len += slice.len * splat;
-            }
-            return len;
-        }
-
-        fn writeFile(
-            ctx: ?*anyopaque,
-            file: std.fs.File,
-            offset: std.io.Writer.Offset,
-            limit: std.io.Writer.Limit,
-            headers_and_trailers: []const []const u8,
-            headers_len: usize,
-        ) std.io.Writer.Error!usize {
-            _ = ctx;
-            _ = file;
-            _ = offset;
-            _ = limit;
-            _ = headers_and_trailers;
-            _ = headers_len;
-            @panic("TODO");
-        }
     };
 }
 

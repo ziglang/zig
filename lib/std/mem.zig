@@ -2196,7 +2196,9 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
-        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
+        else => {
+            ptr.* = @byteSwap(ptr.*);
+        },
     }
 }
 

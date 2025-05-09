@@ -90,39 +90,32 @@ pub const Tag = struct {
         };
     }
 
-    pub fn encode(self: Tag, writer: anytype) @TypeOf(writer).Error!void {
-        var tag1 = FirstTag{
+    pub fn encode(self: Tag, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+        var tag1: FirstTag = .{
             .number = undefined,
             .constructed = self.constructed,
             .class = self.class,
         };
-
-        var buffer: [3]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buffer);
-        var writer2 = stream.writer();
-
         switch (@intFromEnum(self.number)) {
             0...std.math.maxInt(u5) => |n| {
                 tag1.number = @intCast(n);
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
+                try writer.writeByte(@bitCast(tag1));
             },
             std.math.maxInt(u5) + 1...std.math.maxInt(u7) => |n| {
                 tag1.number = 15;
                 const tag2 = NextTag{ .number = @intCast(n), .continues = false };
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
-                writer2.writeByte(@bitCast(tag2)) catch unreachable;
+                try writer.writeByte(@bitCast(tag1));
+                try writer.writeByte(@bitCast(tag2));
             },
             else => |n| {
                 tag1.number = 15;
                 const tag2 = NextTag{ .number = @intCast(n >> 7), .continues = true };
                 const tag3 = NextTag{ .number = @truncate(n), .continues = false };
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
-                writer2.writeByte(@bitCast(tag2)) catch unreachable;
-                writer2.writeByte(@bitCast(tag3)) catch unreachable;
+                try writer.writeByte(@bitCast(tag1));
+                try writer.writeByte(@bitCast(tag2));
+                try writer.writeByte(@bitCast(tag3));
             },
         }
-
-        _ = try writer.write(stream.getWritten());
     }
 
     const FirstTag = packed struct(u8) { number: u5, constructed: bool, class: Tag.Class };

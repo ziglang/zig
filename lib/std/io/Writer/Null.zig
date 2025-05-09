@@ -19,6 +19,10 @@ pub fn writer(nw: *NullWriter) Writer {
     };
 }
 
+pub fn writable(nw: *NullWriter, buffer: []u8) std.io.BufferedWriter {
+    return writer(nw).buffered(buffer);
+}
+
 fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
     _ = context;
     const headers = data[0 .. data.len - 1];

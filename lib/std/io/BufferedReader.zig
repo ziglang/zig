@@ -35,6 +35,10 @@ pub fn bufferContents(br: *BufferedReader) []u8 {
     return br.buffer[br.seek..br.end];
 }
 
+pub fn bufferedLen(br: *const BufferedReader) usize {
+    return br.end - br.seek;
+}
+
 /// Although `BufferedReader` can easily satisfy the `Reader` interface, it's
 /// generally more practical to pass a `BufferedReader` instance itself around,
 /// since it will result in fewer calls across vtable boundaries.
@@ -47,6 +51,10 @@ pub fn reader(br: *BufferedReader) Reader {
             .discard = passthruDiscard,
         },
     };
+}
+
+pub fn hashed(br: *BufferedReader, hasher: anytype) Reader.Hashed(@TypeOf(hasher)) {
+    return .{ .in = br, .hasher = hasher };
 }
 
 /// Equivalent semantics to `std.io.Reader.VTable.readVec`.
@@ -401,6 +409,30 @@ pub fn readSliceShort(br: *BufferedReader, buffer: []u8) Reader.ShortError!usize
     }
 }
 
+/// Fill `buffer` with the next `buffer.len` bytes from the stream, advancing
+/// the seek position.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// If the provided buffer cannot be filled completely, `error.EndOfStream` is
+/// returned instead.
+///
+/// The function is inline to avoid the dead code in case `endian` is
+/// comptime-known and matches host endianness.
+///
+/// See also:
+/// * `readSlice`
+/// * `readSliceEndianAlloc`
+pub inline fn readSliceEndian(
+    br: *BufferedReader,
+    comptime Elem: type,
+    buffer: []Elem,
+    endian: std.builtin.Endian,
+) Reader.Error!void {
+    try readSlice(br, @ptrCast(buffer));
+    if (native_endian != endian) for (buffer) |*elem| std.mem.byteSwapAllFields(Elem, elem);
+}
+
 pub const ReadAllocError = Reader.Error || Allocator.Error;
 
 /// The function is inline to avoid the dead code in case `endian` is
@@ -408,14 +440,14 @@ pub const ReadAllocError = Reader.Error || Allocator.Error;
 pub inline fn readSliceEndianAlloc(
     br: *BufferedReader,
     allocator: Allocator,
-    Elem: type,
+    comptime Elem: type,
     len: usize,
     endian: std.builtin.Endian,
 ) ReadAllocError![]Elem {
     const dest = try allocator.alloc(Elem, len);
     errdefer allocator.free(dest);
     try readSlice(br, @ptrCast(dest));
-    if (native_endian != endian) std.mem.byteSwapAllFields(Elem, dest);
+    if (native_endian != endian) for (dest) |*elem| std.mem.byteSwapAllFields(Elem, elem);
     return dest;
 }
 

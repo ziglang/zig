@@ -95,14 +95,19 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
         pub const Options = struct {};
 
         s: [8]u32 align(16),
-        // Streaming Cache
-        buf: [64]u8 = undefined,
-        buf_len: u8 = 0,
-        total_len: u64 = 0,
+        /// Streaming Cache
+        buf: [64]u8,
+        buf_len: u8,
+        total_len: u64,
 
         pub fn init(options: Options) Self {
             _ = options;
-            return Self{ .s = iv };
+            return .{
+                .s = iv,
+                .buf = undefined,
+                .buf_len = 0,
+                .total_len = 0,
+            };
         }
 
         pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
@@ -377,16 +382,25 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
             for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
 
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
+        pub fn writable(this: *@This(), buffer: []u8) std.io.BufferedWriter {
+            return .{
+                .unbuffered_writer = .{
+                    .context = this,
+                    .vtable = &.{
+                        .writeSplat = writeSplat,
+                        .writeFile = std.io.Writer.unimplementedWriteFile,
+                    },
+                },
+                .buffer = buffer,
+            };
         }
 
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
+        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+            const this: *@This() = @ptrCast(@alignCast(context));
+            const start_total = this.total_len;
+            for (data[0 .. data.len - 1]) |slice| this.update(slice);
+            for (0..splat) |_| this.update(data[data.len - 1]);
+            return @intCast(this.total_len - start_total);
         }
     };
 }

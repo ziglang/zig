@@ -2,6 +2,11 @@ const std = @import("../std.zig");
 const deflate = @import("flate/deflate.zig");
 const inflate = @import("flate/inflate.zig");
 
+/// When decompressing, the output buffer is used as the history window, so
+/// less than this may result in failure to decompress streams that were
+/// compressed with a larger window.
+pub const max_window_len = std.compress.flate.max_window_len;
+
 /// Decompress compressed data from reader and write plain data to the writer.
 pub fn decompress(reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) !void {
     try inflate.decompress(.zlib, reader, writer);

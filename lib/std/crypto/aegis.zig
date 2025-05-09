@@ -801,18 +801,6 @@ fn AegisMac(comptime T: type) type {
             ctx.update(msg);
             ctx.final(out);
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Mac, Error, write);
-
-        fn write(self: *Mac, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Mac) Writer {
-            return .{ .context = self };
-        }
     };
 }
 

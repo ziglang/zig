@@ -4,9 +4,12 @@
 //! organizations, or policy documents.
 encoded: []const u8,
 
-pub const InitError = std.fmt.ParseIntError || error{MissingPrefix} || std.io.FixedBufferStream(u8).WriteError;
+pub const EncodeError = error{
+    WriteFailed,
+    MissingPrefix,
+};
 
-pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
+pub fn encode(dot_notation: []const u8, out: *std.io.BufferedWriter) EncodeError!void {
     var split = std.mem.splitScalar(u8, dot_notation, '.');
     const first_str = split.next() orelse return error.MissingPrefix;
     const second_str = split.next() orelse return error.MissingPrefix;
@@ -14,10 +17,7 @@ pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
     const first = try std.fmt.parseInt(u8, first_str, 10);
     const second = try std.fmt.parseInt(u8, second_str, 10);
 
-    var stream = std.io.fixedBufferStream(out);
-    var writer = stream.writer();
-
-    try writer.writeByte(first * 40 + second);
+    try out.writeByte(first * 40 + second);
 
     var i: usize = 1;
     while (split.next()) |s| {
@@ -28,16 +28,26 @@ pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
             const place = std.math.pow(Arc, encoding_base, n_bytes - @as(Arc, @intCast(j)));
             const digit: u8 = @intCast(@divFloor(parsed, place));
 
-            try writer.writeByte(digit | 0x80);
+            try out.writeByte(digit | 0x80);
             parsed -= digit * place;
 
             i += 1;
         }
-        try writer.writeByte(@intCast(parsed));
+        try out.writeByte(@intCast(parsed));
         i += 1;
     }
+}
 
-    return .{ .encoded = stream.getWritten() };
+pub const InitError = std.fmt.ParseIntError || error{ MissingPrefix, BufferTooSmall };
+
+pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(out);
+    encode(dot_notation, &bw) catch |err| switch (err) {
+        error.WriteFailed => return error.BufferTooSmall,
+        else => |e| return e,
+    };
+    return .{ .encoded = bw.getWritten() };
 }
 
 test fromDot {
@@ -48,7 +58,7 @@ test fromDot {
     }
 }
 
-pub fn toDot(self: Oid, writer: anytype) @TypeOf(writer).Error!void {
+pub fn toDot(self: Oid, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
     const encoded = self.encoded;
     const first = @divTrunc(encoded[0], 40);
     const second = encoded[0] - first * 40;
@@ -80,9 +90,10 @@ test toDot {
     var buf: [256]u8 = undefined;
 
     for (test_cases) |t| {
-        var stream = std.io.fixedBufferStream(&buf);
-        try toDot(Oid{ .encoded = t.encoded }, stream.writer());
-        try std.testing.expectEqualStrings(t.dot_notation, stream.getWritten());
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(&buf);
+        try toDot(Oid{ .encoded = t.encoded }, &bw);
+        try std.testing.expectEqualStrings(t.dot_notation, bw.getWritten());
     }
 }
 

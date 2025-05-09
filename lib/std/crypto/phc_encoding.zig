@@ -196,9 +196,11 @@ pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
 
 /// Compute the number of bytes required to serialize `params`
 pub fn calcSize(params: anytype) usize {
-    var buf = io.countingWriter(io.null_writer);
-    serializeTo(params, buf.writer()) catch unreachable;
-    return @as(usize, @intCast(buf.bytes_written));
+    var null_writer: std.io.Writer.Null = .{};
+    var trash: [128]u8 = undefined;
+    var bw = null_writer.writable(&trash);
+    serializeTo(params, &bw) catch unreachable;
+    return bw.count;
 }
 
 fn serializeTo(params: anytype, out: *std.io.BufferedWriter) !void {

@@ -136,8 +136,8 @@ pub fn failingWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: 
 pub fn failingWriteFile(
     context: ?*anyopaque,
     file: std.fs.File,
-    offset: std.io.Writer.Offset,
-    limit: std.io.Writer.Limit,
+    offset: Offset,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) FileError!usize {
@@ -158,11 +158,13 @@ pub const failing: Writer = .{
     },
 };
 
+/// For use when the `Writer` implementation can cannot offer a more efficient
+/// implementation than a basic read/write loop on the file.
 pub fn unimplementedWriteFile(
     context: ?*anyopaque,
     file: std.fs.File,
-    offset: std.io.Writer.Offset,
-    limit: std.io.Writer.Limit,
+    offset: Offset,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) FileError!usize {
@@ -173,6 +175,84 @@ pub fn unimplementedWriteFile(
     _ = headers_and_trailers;
     _ = headers_len;
     return error.Unimplemented;
+}
+
+/// Provides a `Writer` implementation based on calling `Hasher.update`, sending
+/// all data also to an underlying `std.io.BufferedWriter`.
+///
+/// When using this, the underlying writer is best unbuffered because all
+/// writes are passed on directly to it.
+///
+/// This implementation makes suboptimal buffering decisions due to being
+/// generic. A better solution will involve creating a writer for each hash
+/// function, where the splat buffer can be tailored to the hash implementation
+/// details.
+pub fn Hashed(comptime Hasher: type) type {
+    return struct {
+        out: *std.io.BufferedWriter,
+        hasher: Hasher,
+
+        pub fn writable(this: *@This(), buffer: []u8) std.io.BufferedWriter {
+            return .{
+                .unbuffered_writer = .{
+                    .context = this,
+                    .vtable = &.{
+                        .writeSplat = @This().writeSplat,
+                        .writeFile = Writer.unimplementedWriteFile,
+                    },
+                },
+                .buffer = buffer,
+            };
+        }
+
+        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
+            const this: *@This() = @alignCast(@ptrCast(context));
+            const n = try this.out.writeSplat(data, splat);
+            const short_data = data[0 .. data.len - @intFromBool(splat == 0)];
+            var remaining: usize = n;
+            for (short_data) |slice| {
+                if (remaining < slice.len) {
+                    this.hasher.update(slice[0..remaining]);
+                    return n;
+                } else {
+                    remaining -= slice.len;
+                    this.hasher.update(slice);
+                }
+            }
+            const remaining_splat = switch (splat) {
+                0, 1 => {
+                    assert(remaining == 0);
+                    return n;
+                },
+                else => splat - 1,
+            };
+            const last = data[data.len - 1];
+            assert(remaining == remaining_splat * last.len);
+            switch (last.len) {
+                0 => {
+                    assert(remaining == 0);
+                    return n;
+                },
+                1 => {
+                    var buffer: [64]u8 = undefined;
+                    @memset(&buffer, last[0]);
+                    while (remaining > 0) {
+                        const update_len = @min(remaining, buffer.len);
+                        this.hasher.update(buffer[0..update_len]);
+                        remaining -= update_len;
+                    }
+                    return n;
+                },
+                else => {},
+            }
+            while (remaining > 0) {
+                const update_len = @min(remaining, last.len);
+                this.hasher.update(last[0..update_len]);
+                remaining -= update_len;
+            }
+            return n;
+        }
+    };
 }
 
 test {

@@ -403,6 +403,10 @@ pub fn Inflate(comptime container: Container, comptime Lookahead: type) type {
                 },
             };
         }
+
+        pub fn readable(self: *Self, buffer: []u8) std.io.BufferedReader {
+            return reader(self).buffered(buffer);
+        }
     };
 }
 
