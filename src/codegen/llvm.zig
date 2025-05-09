@@ -11457,6 +11457,7 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?Ca
             std.builtin.CallingConvention.CommonOptions,
             => .{ pl.incoming_stack_alignment, 0 },
             std.builtin.CallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params },
+            std.builtin.CallingConvention.SpirvOptions => .{ null, 0 },
             else => @compileError("TODO: toLlvmCallConv" ++ @tagName(pl)),
         },
     };

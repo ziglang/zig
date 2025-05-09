@@ -189,9 +189,18 @@ pub const CallingConvention = union(enum(u8)) {
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
-        .spirv, .spirv32, .spirv64 => .spirv_kernel,
+        .spirv, .spirv32, .spirv64 => .{ .spirv_kernel = .{} },
         else => unreachable,
     };
+
+    pub fn localSize(x: u16, y: u16, z: u16) CallingConvention {
+        return switch (builtin.target.cpu.arch) {
+            .spirv, .spirv32, .spirv64 => .{
+                .spirv_kernel = .{ .mode = .{ .local_size = .{ .x = x, .y = y, .z = z } } },
+            },
+            else => unreachable,
+        };
+    }
 
     /// Deprecated; use `.auto`.
     pub const Unspecified: CallingConvention = .auto;
@@ -236,9 +245,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// Deprecated; use `.kernel`.
     pub const Kernel: CallingConvention = .kernel;
     /// Deprecated; use `.spirv_fragment`.
-    pub const Fragment: CallingConvention = .spirv_fragment;
+    pub const Fragment: CallingConvention = .{ .spirv_fragment = .{} };
     /// Deprecated; use `.spirv_vertex`.
-    pub const Vertex: CallingConvention = .spirv_vertex;
+    pub const Vertex: CallingConvention = .{ .spirv_vertex = .{} };
 
     /// The default Zig calling convention when neither `export` nor `inline` is specified.
     /// This calling convention makes no guarantees about stack alignment, registers, etc.
@@ -401,10 +410,10 @@ pub const CallingConvention = union(enum(u8)) {
     nvptx_kernel,
 
     // Calling conventions for kernels and shaders on the `spirv`, `spirv32`, and `spirv64` architectures.
-    spirv_device,
-    spirv_kernel,
-    spirv_fragment,
-    spirv_vertex,
+    spirv_device: SpirvOptions,
+    spirv_kernel: SpirvOptions,
+    spirv_vertex: SpirvOptions,
+    spirv_fragment: SpirvOptions,
 
     /// Options shared across most calling conventions.
     pub const CommonOptions = struct {
@@ -477,6 +486,26 @@ pub const CallingConvention = union(enum(u8)) {
             machine,
         };
     };
+
+    /// Options for the spirv calling conventions.
+    pub const SpirvOptions = struct {
+        /// The execution mode.
+        mode: ?ExecutionMode = null,
+
+        pub const ExecutionMode = union(enum) {
+            pixel_center_integer,
+            origin_upper_left,
+            origin_lower_left,
+            early_fragment_tests,
+            depth_replacing,
+            depth_greater,
+            depth_less,
+            depth_unchanged,
+            local_size: LocalSize,
+        };
+    };
+
+    pub const LocalSize = struct { x: u16, y: u16, z: u16 };
 
     /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.

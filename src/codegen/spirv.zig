@@ -2870,7 +2870,7 @@ const NavGen = struct {
         };
 
         try self.spv.declareDeclDeps(spv_decl_index, decl_deps.items);
-        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode);
+        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode, null);
     }
 
     fn genNav(self: *NavGen, do_codegen: bool) !void {

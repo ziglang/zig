@@ -96,7 +96,8 @@ pub const EntryPoint = struct {
     /// The name of the kernel to be exported.
     name: []const u8,
     /// Calling Convention
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode.Extended,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -312,11 +313,18 @@ fn entryPoints(self: *Module) !Section {
 
         const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.execution_model,
+            .execution_model = entry_point.exec_model,
             .entry_point = entry_point_id,
             .name = entry_point.name,
             .interface = interface.items,
         });
+
+        if (entry_point.exec_mode) |exec_mode| {
+            try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+                .entry_point = entry_point_id,
+                .mode = exec_mode,
+            });
+        }
     }
 
     return entry_points;
@@ -749,12 +757,14 @@ pub fn declareEntryPoint(
     self: *Module,
     decl_index: Decl.Index,
     name: []const u8,
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode.Extended,
 ) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
         .name = try self.arena.allocator().dupe(u8, name),
-        .execution_model = execution_model,
+        .exec_model = exec_model,
+        .exec_mode = exec_mode,
     });
 }
 
