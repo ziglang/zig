@@ -192,7 +192,7 @@ pub const Diags = struct {
                 current_err.?.* = .{ .msg = duped_msg };
             } else if (current_err != null) {
                 const context_prefix = ">>> ";
-                var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
+                var trimmed = mem.trimEnd(u8, line, &std.ascii.whitespace);
                 if (mem.startsWith(u8, trimmed, context_prefix)) {
                     trimmed = trimmed[context_prefix.len..];
                 }

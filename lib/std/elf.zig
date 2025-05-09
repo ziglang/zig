@@ -2330,12 +2330,12 @@ pub const ar_hdr = extern struct {
     ar_fmag: [2]u8,
 
     pub fn date(self: ar_hdr) std.fmt.ParseIntError!u64 {
-        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{0x20});
+        const value = mem.trimEnd(u8, &self.ar_date, &[_]u8{0x20});
         return std.fmt.parseInt(u64, value, 10);
     }
 
     pub fn size(self: ar_hdr) std.fmt.ParseIntError!u32 {
-        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{0x20});
+        const value = mem.trimEnd(u8, &self.ar_size, &[_]u8{0x20});
         return std.fmt.parseInt(u32, value, 10);
     }
 
@@ -2369,7 +2369,7 @@ pub const ar_hdr = extern struct {
     pub fn nameOffset(self: ar_hdr) std.fmt.ParseIntError!?u32 {
         const value = &self.ar_name;
         if (value[0] != '/') return null;
-        const trimmed = mem.trimRight(u8, value, &[_]u8{0x20});
+        const trimmed = mem.trimEnd(u8, value, &[_]u8{0x20});
         return try std.fmt.parseInt(u32, trimmed[1..], 10);
     }
 };

@@ -1162,7 +1162,7 @@ pub fn formatFloatHexadecimal(
 
     try writer.writeAll("0x");
     try writer.writeByte(buf[0]);
-    const trimmed = mem.trimRight(u8, buf[1..], "0");
+    const trimmed = mem.trimEnd(u8, buf[1..], "0");
     if (options.precision) |precision| {
         if (precision > 0) try writer.writeAll(".");
     } else if (trimmed.len > 0) {

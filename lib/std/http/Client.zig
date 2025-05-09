@@ -473,7 +473,7 @@ pub const Response = struct {
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
         const status: http.Status = @enumFromInt(parseInt3(first_line[9..12]));
-        const reason = mem.trimLeft(u8, first_line[12..], " ");
+        const reason = mem.trimStart(u8, first_line[12..], " ");
 
         res.version = version;
         res.status = status;

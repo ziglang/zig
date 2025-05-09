@@ -362,8 +362,8 @@ fn CpuinfoParser(comptime impl: anytype) type {
             while (true) {
                 const line = (try reader.readUntilDelimiterOrEof(&line_buf, '\n')) orelse break;
                 const colon_pos = mem.indexOfScalar(u8, line, ':') orelse continue;
-                const key = mem.trimRight(u8, line[0..colon_pos], " \t");
-                const value = mem.trimLeft(u8, line[colon_pos + 1 ..], " \t");
+                const key = mem.trimEnd(u8, line[0..colon_pos], " \t");
+                const value = mem.trimStart(u8, line[colon_pos + 1 ..], " \t");
 
                 if (!try obj.line_hook(key, value))
                     break;
