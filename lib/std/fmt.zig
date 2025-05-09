@@ -596,7 +596,7 @@ pub fn formatType(
             }
         },
         .@"struct" => |info| {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len > 0 and actual_fmt[0] != 's') invalidFmtError(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -626,7 +626,17 @@ pub fn formatType(
                 }
                 try writer.writeAll(f.name);
                 try writer.writeAll(" = ");
-                try formatType(@field(value, f.name), ANY, options, writer, max_depth - 1);
+                const fld = @field(value, f.name);
+                // if we have a string, use actual fmt: pointer and array?
+                if ((actual_fmt.len > 0 and actual_fmt[0] == 's') and
+                    (@typeInfo(@TypeOf(fld)) == .pointer or @typeInfo(@TypeOf(fld)) == .array))
+                {
+                    try writer.writeAll("\"");
+                    try formatType(fld, actual_fmt, options, writer, max_depth - 1);
+                    try writer.writeAll("\"");
+                } else {
+                    try formatType(fld, ANY, options, writer, max_depth - 1);
+                }
             }
             try writer.writeAll(" }");
         },
