@@ -474,18 +474,6 @@ pub const Blake3 = struct {
         }
         output.rootOutputBytes(out_slice);
     }
-
-    pub const Error = error{};
-    pub const Writer = std.io.Writer(*Blake3, Error, write);
-
-    fn write(self: *Blake3, bytes: []const u8) Error!usize {
-        self.update(bytes);
-        return bytes.len;
-    }
-
-    pub fn writer(self: *Blake3) Writer {
-        return .{ .context = self };
-    }
 };
 
 // Use named type declarations to workaround crash with anonymous structs (issue #4373).
