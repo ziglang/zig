@@ -148,7 +148,7 @@ test strrchr {
     try std.testing.expect(strrchr(foo, 'd') == foo);
     try std.testing.expect(strrchr(foo, 'o') == (foo + 4));
     try std.testing.expect(strrchr(foo, 'z') == null);
-    try std.testing.expect(strrchr(foo, 0) == null);
+    try std.testing.expect(strrchr(foo, 0) == (foo + 5));
 }
 
 fn rindex(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
