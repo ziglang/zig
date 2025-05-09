@@ -6,13 +6,24 @@ comptime {
     @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strlen, .{ .name = "strlen", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&index, .{ .name = "index", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strchr, .{ .name = "strchr", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strrchr, .{ .name = "strrchr", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&rindex, .{ .name = "rindex", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&memset, .{ .name = "memset", .linkage = common.linkage, .visibility = common.visibility });
+    { // TODO: Conditional export for armeabi?
+        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memset, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memset, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
+    }
     @export(&memchr, .{ .name = "memchr", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&strrchr, .{ .name = "strrchr", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .weak, .visibility = .hidden });
     @export(&strchrnul, .{ .name = "strchrnul", .linkage = .weak, .visibility = common.visibility });
-    @export(&memrchr, .{ .name = "__memrchr", .linkage = .weak, .visibility = .hidden });
     @export(&memrchr, .{ .name = "memrchr", .linkage = .weak, .visibility = common.visibility });
+    @export(&memrchr, .{ .name = "__memrchr", .linkage = .weak, .visibility = .hidden });
 }
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
@@ -81,6 +92,18 @@ test strchr {
     try std.testing.expect(strchr(foo, 0) == null);
 }
 
+fn index(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
+    return strchr(s, c);
+}
+
+test index {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(index(foo, 'd') == foo);
+    try std.testing.expect(index(foo, 'o') == (foo + 4));
+    try std.testing.expect(index(foo, 'z') == null);
+    try std.testing.expect(index(foo, 0) == null);
+}
+
 fn memchr(m: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*const anyopaque {
     const needle: u8 = @intCast(c);
     const s: [*:0]const u8 = @ptrCast(m);
@@ -127,3 +150,30 @@ test strrchr {
     try std.testing.expect(strrchr(foo, 'z') == null);
     try std.testing.expect(strrchr(foo, 0) == null);
 }
+
+fn rindex(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
+    return strrchr(s, c);
+}
+
+test rindex {
+    const foo: [*:0]const c_char = @ptrCast("disco");
+    try std.testing.expect(rindex(foo, 'd') == foo);
+    try std.testing.expect(rindex(foo, 'o') == (foo + 4));
+    try std.testing.expect(rindex(foo, 'z') == null);
+    try std.testing.expect(rindex(foo, 0) == null);
+}
+
+// NOTE: This is a wrapper because the compiler_rt implementation has a
+// differnet function signature (c is u8)
+fn memset(dest: *anyopaque, c: c_int, n: usize) callconv(.c) *anyopaque {
+    @setRuntimeSafety(false);
+    const buf: [*]u8 = @ptrCast(dest);
+    const v: u8 = @intCast(c);
+    @memset(buf[0..n], v);
+    return dest;
+}
+
+fn __aeabi_memclr(dest: *anyopaque, n: usize) callconv(.c) *anyopaque {
+    return memset(dest, 0, n);
+}
+
