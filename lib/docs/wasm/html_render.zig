@@ -155,7 +155,22 @@ pub fn fileSourceHtml(
             .string_literal,
             .char_literal,
             .multiline_string_literal_line,
-            => {
+            => s: {
+                if (file.imports.get(token_index)) |builtin_node| {
+                    switch (file_index.categorize_expr(builtin_node)) {
+                        .alias => |alias_decl| {
+                            try out.appendSlice(gpa, "<a class=\"tok-str import\" href=\"#");
+                            _ = missing_feature_url_escape;
+                            try alias_decl.get().fqn(out);
+                            try out.appendSlice(gpa, "\">");
+                            try appendEscaped(out, slice);
+                            try out.appendSlice(gpa, "</a>");
+                            break :s;
+                        },
+                        else => {},
+                    }
+                }
+
                 try out.appendSlice(gpa, "<span class=\"tok-str\">");
                 try appendEscaped(out, slice);
                 try out.appendSlice(gpa, "</span>");
@@ -357,6 +372,18 @@ fn walkFieldAccesses(
     assert(ast.nodeTag(node) == .field_access);
     const object_node, const field_ident = ast.nodeData(node).node_and_token;
     switch (ast.nodeTag(object_node)) {
+        .builtin_call,
+        .builtin_call_comma,
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        => {
+            switch (file_index.categorize_expr(object_node)) {
+                .alias => |aliasee| {
+                    try aliasee.get().fqn(out);
+                },
+                else => {},
+            }
+        },
         .identifier => {
             const lhs_ident = ast.nodeMainToken(object_node);
             try resolveIdentLink(file_index, out, lhs_ident);
