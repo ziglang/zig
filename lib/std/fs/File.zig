@@ -934,6 +934,10 @@ pub const Reader = struct {
         };
     }
 
+    pub fn readable(r: *Reader, buffer: []u8) std.io.BufferedReader {
+        return interface(r).buffered(buffer);
+    }
+
     pub fn getSize(r: *Reader) GetEndPosError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
@@ -1228,6 +1232,7 @@ pub const Writer = struct {
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
     read_err: ?ReadError = null,
+    seek_err: ?SeekError = null,
 
     pub const Mode = Reader.Mode;
 
@@ -1247,6 +1252,20 @@ pub const Writer = struct {
                 .writeSplat = writeSplat,
                 .writeFile = writeFile,
             },
+        };
+    }
+
+    pub fn writable(w: *Writer, buffer: []u8) std.io.BufferedWriter {
+        return interface(w).buffered(buffer);
+    }
+
+    pub fn moveToReader(w: *Writer) Reader {
+        defer w.* = undefined;
+        return .{
+            .file = w.file,
+            .mode = w.mode,
+            .pos = w.pos,
+            .seek_err = w.seek_err,
         };
     }
 
@@ -1346,6 +1365,21 @@ pub const Writer = struct {
             return n;
         }
         return error.Unimplemented;
+    }
+
+    pub fn seekTo(w: *Writer, offset: u64) SeekError!void {
+        if (w.seek_err) |err| return err;
+        switch (w.mode) {
+            .positional, .positional_reading => {
+                w.pos = offset;
+            },
+            .streaming, .streaming_reading => {
+                posix.lseek_SET(w.file.handle, offset) catch |err| {
+                    w.seek_err = err;
+                    return err;
+                };
+            },
+        }
     }
 };
 

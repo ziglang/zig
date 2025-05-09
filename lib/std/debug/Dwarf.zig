@@ -2176,7 +2176,7 @@ pub const ElfModule = struct {
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!Dwarf.ElfModule {
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
+        if (expected_crc) |crc| if (crc != std.hash.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;

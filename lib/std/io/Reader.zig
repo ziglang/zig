@@ -331,3 +331,71 @@ test "readAlloc when the backing reader provides one byte at a time" {
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
 }
+
+/// Provides a `Reader` implementation by passing data from an underlying
+/// reader through `Hasher.update`.
+///
+/// The underlying reader is best unbuffered.
+///
+/// This implementation makes suboptimal buffering decisions due to being
+/// generic. A better solution will involve creating a reader for each hash
+/// function, where the discard buffer can be tailored to the hash
+/// implementation details.
+pub fn Hashed(comptime Hasher: type) type {
+    return struct {
+        in: *BufferedReader,
+        hasher: Hasher,
+
+        pub fn readable(this: *@This(), buffer: []u8) BufferedReader {
+            return .{
+                .unbuffered_reader = .{
+                    .context = this,
+                    .vtable = &.{
+                        .read = @This().read,
+                        .readVec = @This().readVec,
+                        .discard = @This().discard,
+                    },
+                },
+                .buffer = buffer,
+                .end = 0,
+                .seek = 0,
+            };
+        }
+
+        fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize {
+            const this: *@This() = @alignCast(@ptrCast(context));
+            const slice = limit.slice(try bw.writableSliceGreedy(1));
+            const n = try this.in.readVec(&.{slice});
+            this.hasher.update(slice[0..n]);
+            bw.advance(n);
+            return n;
+        }
+
+        fn discard(context: ?*anyopaque, limit: Limit) Error!usize {
+            const this: *@This() = @alignCast(@ptrCast(context));
+            var bw = this.hasher.writable(&.{});
+            const n = this.in.read(&bw, limit) catch |err| switch (err) {
+                error.WriteFailed => unreachable,
+                else => |e| return e,
+            };
+            return n;
+        }
+
+        fn readVec(context: ?*anyopaque, data: []const []u8) Error!usize {
+            const this: *@This() = @alignCast(@ptrCast(context));
+            const n = try this.in.readVec(data);
+            var remaining: usize = n;
+            for (data) |slice| {
+                if (remaining < slice.len) {
+                    this.hasher.update(slice[0..remaining]);
+                    return n;
+                } else {
+                    remaining -= slice.len;
+                    this.hasher.update(slice);
+                }
+            }
+            assert(remaining == 0);
+            return n;
+        }
+    };
+}
