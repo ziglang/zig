@@ -1,5 +1,10 @@
 const std = @import("../std.zig");
 
+/// When decompressing, the output buffer is used as the history window, so
+/// less than this may result in failure to decompress streams that were
+/// compressed with a larger window.
+pub const max_window_len = 1 << 16;
+
 /// Deflate is a lossless data compression file format that uses a combination
 /// of LZ77 and Huffman coding.
 pub const deflate = @import("flate/deflate.zig");

@@ -58,6 +58,10 @@ pub fn initFixed(bw: *BufferedWriter, buffer: []u8) void {
     };
 }
 
+pub fn hashed(bw: *BufferedWriter, hasher: anytype) Writer.Hashed(@TypeOf(hasher)) {
+    return .{ .out = bw, .hasher = hasher };
+}
+
 /// This function is available when using `initFixed`.
 pub fn getWritten(bw: *const BufferedWriter) []u8 {
     assert(bw.unbuffered_writer.vtable == &fixed_vtable);
@@ -157,7 +161,7 @@ pub fn advance(bw: *BufferedWriter, n: usize) void {
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
-/// fields in order to handle partial writes from `Writer.VTable.writeVec`.
+/// fields in order to handle partial writes from `Writer.VTable.writeSplat`.
 pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
     var index: usize = 0;
     var truncate: usize = 0;
@@ -171,6 +175,36 @@ pub fn writeVecAll(bw: *BufferedWriter, data: [][]const u8) Writer.Error!void {
         while (index < data.len and truncate >= data[index].len) {
             truncate -= data[index].len;
             index += 1;
+        }
+    }
+}
+
+/// The `data` parameter is mutable because this function needs to mutate the
+/// fields in order to handle partial writes from `Writer.VTable.writeSplat`.
+pub fn writeSplatAll(bw: *BufferedWriter, data: [][]const u8, splat: usize) Writer.Error!void {
+    var index: usize = 0;
+    var truncate: usize = 0;
+    var remaining_splat = splat;
+    while (index + 1 < data.len) {
+        {
+            const untruncated = data[index];
+            data[index] = untruncated[truncate..];
+            defer data[index] = untruncated;
+            truncate += try bw.writeSplat(data[index..], remaining_splat);
+        }
+        while (truncate >= data[index].len) {
+            if (index + 1 < data.len) {
+                truncate -= data[index].len;
+                index += 1;
+            } else {
+                const last = data[data.len - 1];
+                remaining_splat -= @divExact(truncate, last.len);
+                while (remaining_splat > 0) {
+                    const n = try bw.writeSplat(data[data.len - 1 ..][0..1], remaining_splat);
+                    remaining_splat -= @divExact(n, last.len);
+                }
+                return;
+            }
         }
     }
 }
@@ -443,7 +477,7 @@ pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) Write
 
 /// Writes the same slice many times, allowing short writes.
 ///
-/// Does maximum of one underlying `Writer.VTable.writeVec`.
+/// Does maximum of one underlying `Writer.VTable.writeSplat`.
 pub fn splatBytes(bw: *BufferedWriter, bytes: []const u8, n: usize) Writer.Error!usize {
     return passthruWriteSplat(bw, &.{bytes}, n);
 }
@@ -621,7 +655,7 @@ pub const WriteFileOptions = struct {
     /// size here will save one syscall.
     limit: Writer.Limit = .unlimited,
     /// Headers and trailers must be passed together so that in case `len` is
-    /// zero, they can be forwarded directly to `Writer.VTable.writeVec`.
+    /// zero, they can be forwarded directly to `Writer.VTable.writeSplat`.
     ///
     /// The parameter is mutable because this function needs to mutate the
     /// fields in order to handle partial writes from `Writer.VTable.writeFile`.

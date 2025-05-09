@@ -185,18 +185,6 @@ pub fn Blake2s(comptime out_bits: usize) type {
                 r.* ^= v[i] ^ v[i + 8];
             }
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
