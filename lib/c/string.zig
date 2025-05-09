@@ -81,7 +81,8 @@ test strchrnul {
 
 fn strchr(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
     const result = strchrnul(s, c);
-    return if (result[0] != 0) result else null;
+    const needle: u8 = @intCast(c);
+    return if (result[0] == needle) result else null;
 }
 
 test strchr {
@@ -89,7 +90,7 @@ test strchr {
     try std.testing.expect(strchr(foo, 'd') == foo);
     try std.testing.expect(strchr(foo, 'o') == (foo + 4));
     try std.testing.expect(strchr(foo, 'z') == null);
-    try std.testing.expect(strchr(foo, 0) == null);
+    try std.testing.expect(strchr(foo, 0) == (foo + 5));
 }
 
 fn index(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
