@@ -1743,7 +1743,7 @@ pub const Mutable = struct {
             // Note, we check for x < 0 using the underflow flag from the previous operation.
             if (underflow) {
                 // While we didn't properly set the signedness of x, this operation should 'flow' it back to positive.
-                llaccum(.add, x.limbs[k..x.len], y.limbs[0..y.len]);
+                _ = llaccum(.add, x.limbs[k..x.len], y.limbs[0..y.len]);
                 q.limbs[k] -= 1;
             }
         }
@@ -3378,11 +3378,11 @@ fn llmulaccKaratsuba(
     const p2 = tmp[0..llnormalize(tmp[0..p2_limbs])];
 
     // Add p2 * B to the result.
-    llaccum(op, r[split..], p2);
+    _ = llaccum(op, r[split..], p2);
 
     // Add p2 * B^2 to the result if required.
     if (limbs_after_split2 > 0) {
-        llaccum(op, r[split * 2 ..], p2[0..@min(p2.len, limbs_after_split2)]);
+        _ = llaccum(op, r[split * 2 ..], p2[0..@min(p2.len, limbs_after_split2)]);
     }
 
     // Compute p0.
@@ -3393,10 +3393,10 @@ fn llmulaccKaratsuba(
     const p0 = tmp[0..llnormalize(tmp[0..p0_limbs])];
 
     // Add p0 to the result.
-    llaccum(op, r, p0);
+    _ = llaccum(op, r, p0);
 
     // Add p0 * B to the result. In this case, we may not need all of it.
-    llaccum(op, r[split..], p0[0..@min(limbs_after_split, p0.len)]);
+    _ = llaccum(op, r[split..], p0[0..@min(limbs_after_split, p0.len)]);
 
     // Finally, compute and add p1.
     // From now on we only need `limbs_after_split` limbs for a0 and b0, since the result of the
@@ -3407,12 +3407,12 @@ fn llmulaccKaratsuba(
     const j0_sign: i8 = switch (llcmp(a0x, a1)) {
         .lt => -1,
         .eq => 0,
-        .gt => 1
+        .gt => 1,
     };
     const j1_sign: i8 = switch (llcmp(b1, b0x)) {
         .lt => -1,
         .eq => 0,
-        .gt => 1
+        .gt => 1,
     };
 
     if (j0_sign * j1_sign == 0) {
@@ -3462,16 +3462,364 @@ fn llmulaccKaratsuba(
     }
 }
 
-/// r = r (op) a.
-/// The result is computed modulo `r.len`.
-fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
-    if (op == .sub) {
-        _ = llsubcarry(r, r, a);
-        return;
+// Provides assembly for `llaccum` for x86_64
+fn getllaccumAsm(comptime op: AccOp) []const u8 {
+    assert(builtin.target.cpu.arch == .x86_64 and @sizeOf(Limb) == 8 and builtin.target.ofmt != .macho);
+    @setEvalBranchQuota(3000);
+
+    const addsub_small =
+        // also clears CF
+        \\ xor %%rbx, %%rbx
+        \\ loop%=:
+        \\   mov (%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, (%[r], %%rbx, 8)
+        \\
+        \\   inc %%rbx
+        \\   dec %[n]
+        \\   jnz loop%=
+        \\
+        \\ carry%=:
+        \\   mov %[n2], %[n]
+        \\ carryloop%=:
+        \\   jnc end%=
+        \\   dec %[n]
+        \\   js end%=
+        \\   $opq $0, (%[r], %%rbx, 8)
+        \\
+        \\   inc %%rbx
+        \\   jmp carryloop%=
+        \\
+        \\ end%=:
+        \\  setc %[carry]
+    ;
+
+    const addsub =
+        \\ movb %[n:b], %%dl
+        \\ xor %%rbx, %%rbx
+        \\ and $3, %%dl
+        \\ shr $2, %[n]
+        \\ clc
+        \\ jz unrolled%=
+        \\ loop%=:
+        \\   mov 0*8(%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, 0*8(%[r], %%rbx, 8)
+        \\   mov 1*8(%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, 1*8(%[r], %%rbx, 8)
+        \\   mov 2*8(%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, 2*8(%[r], %%rbx, 8)
+        \\   mov 3*8(%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, 3*8(%[r], %%rbx, 8)
+        \\
+        \\   lea 4(%%rbx), %%rbx
+        \\   dec %[n]
+        \\   jnz loop%=
+        \\
+        \\ unrolled%=:
+        \\   movb %%dl, %[n:b]
+        \\   dec %[n]
+        \\   js carry%=
+        \\
+        \\   mov (%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, (%[r], %%rbx, 8)
+        \\   lea 1(%%rbx), %%rbx
+        \\
+        \\   dec %[n]
+        \\   js carry%=
+        \\
+        \\   mov (%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, (%[r], %%rbx, 8)
+        \\   lea 1(%%rbx), %%rbx
+        \\
+        \\   dec %[n]
+        \\   js carry%=
+        \\
+        \\   mov (%[a], %%rbx, 8), %%r9
+        \\   $op %%r9, (%[r], %%rbx, 8)
+        \\   lea 1(%%rbx), %%rbx
+        \\
+        \\ carry%=:
+        \\   mov %[n2], %[n]
+        \\ carryloop%=:
+        \\   jnc end%=
+        \\   dec %[n]
+        \\   js end%=
+        // "$opq" => adcq or sbbq in AT&T syntax
+        \\   $opq $0, (%[r], %%rbx, 8)
+        \\
+        \\   lea 1(%%rbx), %%rbx
+        \\   jmp carryloop%=
+        \\
+        \\ end%=:
+        \\  setc %[carry]
+    ;
+
+    const opcode = switch (op) {
+        .add => "adc",
+        .sub => "sbb",
+    };
+    const code = if (builtin.mode == .ReleaseSmall) addsub_small else addsub;
+    var buffer: [code.len]u8 = undefined;
+    @memcpy(&buffer, code);
+
+    for (0..buffer.len) |i| {
+        if (std.mem.startsWith(u8, buffer[i..], "$op"))
+            @memcpy(buffer[i..][0..3], opcode);
     }
 
-    assert(r.len != 0 and a.len != 0);
+    return &buffer;
+}
+
+fn getllmulLimbAsm(comptime op: AccOp) []const u8 {
+    assert(builtin.target.cpu.arch == .x86_64 and @sizeOf(Limb) == 8 and builtin.target.ofmt != .macho);
+    @setEvalBranchQuota(10000);
+
+    const mullimb =
+        \\ mov %[n], %%rcx
+        \\ and $3, %[n]
+        \\ shr $2, %%rcx
+        \\ lea (,%[n]), %%rbx
+        \\ xor %r10, %r10
+        // TODO: more effecient way to handle this ?
+        \\ not     %[n:b]
+        // clears CF
+        \\ test    $3, %[n:b]
+        \\ je      unrolled.3.%=
+        \\ not     %[n:b]
+        \\ shl     $6, %[n:b]
+        \\ sar     $6, %[n:b]
+        // clears CF
+        \\ test    %[n:b], %[n:b]
+        \\ js      unrolled.2.%=
+        \\ jne     unrolled.1.%=
+        \\ jmp     unrolled.0.%=
+        \\ unrolled.3.%=:
+        \\   mulx -3*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adc %%r10, %%r11
+        \\   adc $0, %[carry]
+        \\   $op %%r11, -3*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.2.%=:
+        \\   mulx -2*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adc %[carry], %%r9
+        \\   adc $0, %%r10
+        \\   $op %%r9, -2*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.1.%=:
+        \\   mulx -1*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adc %%r10, %%r11
+        \\   adc $0, %[carry]
+        \\   $op %%r11, -1*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.0.%=:
+        \\   jrcxz end%=
+        \\
+        \\ loop%=:
+        \\   mulx 0*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adc %[carry], %%r9
+        \\   adc $0, %%r10
+        \\   $op %%r9, 0*8(%[acc], %%rbx, 8)
+        \\
+        \\   mulx 1*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adc %%r10, %%r11
+        \\   adc $0, %[carry]
+        \\   $op %%r11, 1*8(%[acc], %%rbx, 8)
+        \\
+        \\   mulx 2*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adc %[carry], %%r9
+        \\   adc $0, %%r10
+        \\   $op %%r9, 2*8(%[acc], %%rbx, 8)
+        \\
+        \\   mulx 3*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adc %%r10, %%r11
+        \\   adc $0, %[carry]
+        \\   $op %%r11, 3*8(%[acc], %%rbx, 8)
+        \\
+        \\
+        \\   lea 4(%%rbx), %%rbx
+        \\   dec %%rcx
+        \\   jnz loop%=
+        \\
+        \\ end%=:
+        \\   adc $0, %[carry]
+    ;
+    const mullimb_small =
+        \\ mov %[n], %%rcx
+        // also clears CF and OF
+        \\ xor %%rbx, %%rbx
+        \\
+        \\ loop%=:
+        \\   mulx (%[y], %%rbx, 8), %%r9, %%r10
+        \\   adc %[carry], %%r9
+        \\   adc $0, %%r10
+        \\   $op %%r9, (%[acc], %%rbx, 8)
+        \\
+        \\   mov %%r10, %[carry]
+        \\   lea 1(%%rbx), %%rbx
+        \\   dec %%rcx
+        \\   jnz loop%=
+        \\
+        \\ end%=:
+        \\   adc $0, %[carry]
+    ;
+
+    const mullimb_adx =
+        \\ mov %[n], %%rcx
+        \\ and $3, %[n]
+        \\ shr $2, %%rcx
+        \\ lea (,%[n]), %%rbx
+        \\
+        \\ xor %r10, %r10
+        // TODO: more effecient way to handle this ?
+        \\ not     %[n:b]
+        // clears CF and OF
+        \\ test    $3, %[n:b]
+        \\ je      unrolled.3.%=
+        \\ not     %[n:b]
+        \\ shl     $6, %[n:b]
+        \\ sar     $6, %[n:b]
+        // clears CF and OF
+        \\ test    %[n:b], %[n:b]
+        \\ js      unrolled.2.%=
+        \\ jne     unrolled.1.%=
+        \\ jmp     unrolled.0.%=
+        \\
+        \\ unrolled.3.%=:
+        \\   mulx -3*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adcx %%r10, %%r11
+        \\   adox -3*8(%[acc], %%rbx, 8), %%r11
+        \\   mov %%r11, -3*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.2.%=:
+        \\   mulx -2*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adcx %[carry], %%r9
+        \\   adox -2*8(%[acc], %%rbx, 8), %%r9
+        \\   mov %%r9, -2*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.1.%=:
+        \\   mulx -1*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adcx %%r10, %%r11
+        \\   adox -1*8(%[acc], %%rbx, 8), %%r11
+        \\   mov %%r11, -1*8(%[acc], %%rbx, 8)
+        \\
+        \\ unrolled.0.%=:
+        \\  jrcxz end%=
+        \\
+        \\ loop%=:
+        \\   mulx 0*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adcx %[carry], %%r9
+        \\   adox 0*8(%[acc], %%rbx, 8), %%r9
+        \\   mov %%r9, 0*8(%[acc], %%rbx, 8)
+        \\
+        \\
+        \\   mulx 1*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adcx %%r10, %%r11
+        \\   adox 1*8(%[acc], %%rbx, 8), %%r11
+        \\   mov %%r11, 1*8(%[acc], %%rbx, 8)
+        \\
+        \\
+        \\   mulx 2*8(%[y], %%rbx, 8), %%r9, %%r10
+        \\   adcx %[carry], %%r9
+        \\   adox 2*8(%[acc], %%rbx, 8), %%r9
+        \\   mov %%r9, 2*8(%[acc], %%rbx, 8)
+        \\
+        \\
+        \\   mulx 3*8(%[y], %%rbx, 8), %%r11, %[carry]
+        \\   adcx %%r10, %%r11
+        \\   adox 3*8(%[acc], %%rbx, 8), %%r11
+        \\   mov %%r11, 3*8(%[acc], %%rbx, 8)
+        \\
+        \\   lea 4(%%rbx), %%rbx
+        \\   lea -1(%%rcx), %%rcx
+        \\   jrcxz end%=
+        \\   jmp loop%=
+        \\
+        \\ end%=:
+        // rcx is 0
+        \\   adcx %%rcx, %[carry]
+        \\   adox %%rcx, %[carry]
+    ;
+    const mullimb_adx_small =
+        \\ mov %[n], %%rcx
+        // clears CF and OF
+        \\ xor %%rbx, %%rbx
+        \\
+        \\ loop%=:
+        \\   mulx (%[y], %%rbx, 8), %%r9, %%r10
+        \\   adcx %[carry], %%r9
+        \\   adox (%[acc], %%rbx, 8), %%r9
+        \\   mov %%r9, (%[acc], %%rbx, 8)
+        \\
+        \\   mov %%r10, %[carry]
+        \\   lea 1(%%rbx), %%rbx
+        \\   lea -1(%%rcx), %%rcx
+        \\   jrcxz end%=
+        \\   jmp loop%=
+        \\
+        \\ end%=:
+        // rcx is 0
+        \\   adcx %%rcx, %[carry]
+        \\   adox %%rcx, %[carry]
+    ;
+    const code = blk: {
+        if (op == .add and std.Target.x86.featureSetHas(builtin.cpu.features, .adx)) {
+            break :blk if (builtin.mode == .ReleaseSmall) mullimb_adx_small else mullimb_adx;
+        }
+        break :blk if (builtin.mode == .ReleaseSmall) mullimb_small else mullimb;
+    };
+
+    if (mem.indexOf(u8, code, "$op") == null) return code;
+
+    const opcode = switch (op) {
+        .add => "add",
+        .sub => "sub",
+    };
+
+    var buffer: [code.len]u8 = undefined;
+    @memcpy(&buffer, code);
+
+    for (0..buffer.len) |i| {
+        if (std.mem.startsWith(u8, buffer[i..], "$op"))
+            @memcpy(buffer[i..][0..3], opcode);
+    }
+    return &buffer;
+}
+
+/// r = r (op) a.
+/// The result is computed modulo `r.len`.
+fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
+    assert(!slicesOverlap(r, a) or @intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
     assert(r.len >= a.len);
+
+    if (a.len == 0) return false;
+
+    if (builtin.target.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_c and @sizeOf(Limb) == 8 and builtin.target.ofmt != .macho) {
+        var carry: bool = false;
+        // since we use `n` as a counter, this variable will be modified by the
+        // assembly. Putting it as an output avoid the need to restore it at the end
+        // (inputs are assumed to not change)
+        var tmp = a.len;
+
+        asm volatile (getllaccumAsm(op)
+            : [carry] "=&{dl}" (carry),
+              [n] "+r" (tmp),
+            : [n2] "r" (r.len - a.len),
+              [r] "r" (@intFromPtr(r.ptr)),
+              [a] "r" (@intFromPtr(a.ptr)),
+            : "rbx", "r9", "cc", "memory"
+        );
+
+        return carry;
+    }
+
+    return llaccumGeneric(op, r, a);
+}
+
+fn llaccumGeneric(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
+    assert(r.len >= a.len);
+
+    if (a.len == 0) return false;
+    if (op == .sub)
+        return llsubcarry(r, r, a) != 0;
 
     var i: usize = 0;
     var carry: Limb = 0;
@@ -3489,6 +3837,8 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
         r[i] = ov[0];
         carry = ov[1];
     }
+
+    return carry != 0;
 }
 
 /// Returns .lt, .eq, .gt if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
@@ -3534,6 +3884,38 @@ fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb)
 /// The result is computed modulo `r.len`.
 /// Returns whether the operation overflowed.
 fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
+    assert(!slicesOverlap(acc, y) or @intFromPtr(acc.ptr) <= @intFromPtr(y.ptr));
+
+    if (y.len == 0) return false;
+    if (xi == 0) return false;
+
+    if (builtin.target.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_c and @sizeOf(Limb) == 8 and builtin.target.ofmt != .macho) {
+        var carry: Limb = 0;
+        // since we use `n` as a counter, this variable will be modified by the
+        // assembly. Putting it as an output avoid the need to restore it at the end
+        // (inputs are assumed to not change)
+        var tmp = @min(acc.len, y.len);
+
+        asm volatile (getllmulLimbAsm(op)
+            : [carry] "+r" (carry),
+              [n] "+r" (tmp),
+              // rdx is necessary for mulx
+            : [xi] "{rdx}" (xi),
+              [acc] "r" (@intFromPtr(acc.ptr)),
+              [y] "r" (@intFromPtr(y.ptr)),
+            : "rcx", "rbx", "r9", "r10", "r11", "cc", "memory"
+        );
+
+        if (carry != 0 and acc.len > y.len)
+            carry = @intFromBool(llaccum(op, acc[y.len..], &.{carry}));
+
+        return carry != 0;
+    }
+
+    return llmulLimbGeneric(op, acc, y, xi);
+}
+
+fn llmulLimbGeneric(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
     if (xi == 0) {
         return false;
     }
@@ -3546,15 +3928,23 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
         .add => {
             var carry: Limb = 0;
             var j: usize = 0;
+
             while (j < a_lo.len) : (j += 1) {
-                a_lo[j] = addMulLimbWithCarry(a_lo[j], y[j], xi, &carry);
+                const mul = math.mulWide(Limb, xi, y[j]) + carry;
+                const mul_lo: Limb = @truncate(mul);
+                const mul_hi: Limb = @truncate(mul >> @bitSizeOf(Limb));
+
+                const overflows: u1 = @intFromBool(a_lo[j] > math.maxInt(Limb) - mul_lo);
+
+                a_lo[j] +%= mul_lo;
+                carry = mul_hi + overflows;
             }
 
             j = 0;
             while ((carry != 0) and (j < a_hi.len)) : (j += 1) {
-                const ov = @addWithOverflow(a_hi[j], carry);
-                a_hi[j] = ov[0];
-                carry = ov[1];
+                const ov = @intFromBool(carry > math.maxInt(Limb) - a_hi[j]);
+                a_hi[j] +%= carry;
+                carry = ov;
             }
 
             return carry != 0;
@@ -3562,15 +3952,23 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
         .sub => {
             var borrow: Limb = 0;
             var j: usize = 0;
+
             while (j < a_lo.len) : (j += 1) {
-                a_lo[j] = subMulLimbWithBorrow(a_lo[j], y[j], xi, &borrow);
+                const mul = math.mulWide(Limb, xi, y[j]) + borrow;
+                const mul_lo: Limb = @truncate(mul);
+                const mul_hi: Limb = @truncate(mul >> @bitSizeOf(Limb));
+
+                const overflows: u1 = @intFromBool(mul_lo > a_lo[j]);
+
+                a_lo[j] -%= mul_lo;
+                borrow = mul_hi + overflows;
             }
 
             j = 0;
             while ((borrow != 0) and (j < a_hi.len)) : (j += 1) {
-                const ov = @subWithOverflow(a_hi[j], borrow);
-                a_hi[j] = ov[0];
-                borrow = ov[1];
+                const ov = @intFromBool(borrow > a_hi[j]);
+                a_hi[j] -%= borrow;
+                borrow = ov;
             }
 
             return borrow != 0;
@@ -3596,6 +3994,8 @@ fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= a.len);
+    assert(!slicesOverlap(r, a) or @intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
+    assert(!slicesOverlap(r, b) or @intFromPtr(r.ptr) <= @intFromPtr(b.ptr));
 
     var i: usize = 0;
     var borrow: Limb = 0;
@@ -3627,6 +4027,8 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= a.len);
+    assert(!slicesOverlap(r, a) or @intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
+    assert(!slicesOverlap(r, b) or @intFromPtr(r.ptr) <= @intFromPtr(b.ptr));
 
     var i: usize = 0;
     var carry: Limb = 0;
@@ -4501,4 +4903,366 @@ fn testOneShiftCaseAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: 
         try std.testing.expectEqual(expected.len, len);
         try std.testing.expectEqualSlices(Limb, expected, r[base .. base + len]);
     }
+}
+
+test "llaccum empty y" {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint: Limb = maxInt(Limb);
+
+    // zig fmt: off
+    try testAccum(.add, &.{},                &.{}, &.{},                false);
+    try testAccum(.add, &.{0},               &.{}, &.{0},               false);
+    try testAccum(.add, &.{maxint} ,         &.{}, &.{maxint},          false);
+    try testAccum(.add, &.{0, 0},            &.{}, &.{0, 0},            false);
+    try testAccum(.add, &.{0, 48764},        &.{}, &.{0, 48764},        false);
+    try testAccum(.add, &.{maxint, 0, 1, 0}, &.{}, &.{maxint, 0, 1, 0}, false);
+
+    try testAccum(.sub, &.{},                &.{}, &.{},                false);
+    try testAccum(.sub, &.{0},               &.{}, &.{0},               false);
+    try testAccum(.sub, &.{maxint} ,         &.{}, &.{maxint},          false);
+    try testAccum(.sub, &.{0, 0},            &.{}, &.{0, 0},            false);
+    try testAccum(.sub, &.{0, 48764},        &.{}, &.{0, 48764},        false);
+    try testAccum(.sub, &.{maxint, 0, 1, 0}, &.{}, &.{maxint, 0, 1, 0}, false);
+    // zig fmt: on
+    // TODO: more than 4
+    // TODO: more multiples of 4
+}
+
+test "llaccum y full of 0" {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint: Limb = maxInt(Limb);
+
+    // zig fmt: off
+    try testAccum(.add, &.{0},               &.{0},             &.{0},               false);
+    try testAccum(.add, &.{maxint} ,         &.{0},             &.{maxint},          false);
+    try testAccum(.add, &.{0, 0},            &.{0},             &.{0, 0},            false);
+    try testAccum(.add, &.{0, 0},            &.{0, 0},          &.{0, 0},            false);
+    try testAccum(.add, &.{0, 48764},        &.{0},             &.{0, 48764},        false);
+    try testAccum(.add, &.{0, 11111},        &.{0, 0},          &.{0, 11111},        false);
+    try testAccum(.add, &.{maxint, 0, 1, 0}, &.{0},             &.{maxint, 0, 1, 0}, false);
+    try testAccum(.add, &.{maxint, 0, 1, 0}, &.{0, 0},          &.{maxint, 0, 1, 0}, false);
+    try testAccum(.add, &.{maxint, 0, 1, 0}, &.{0, 0, 0},       &.{maxint, 0, 1, 0}, false);
+    try testAccum(.add, &.{maxint, 0, 1, 0}, &.{0, 0, 0, 0},    &.{maxint, 0, 1, 0}, false);
+
+    // we test multiple of 4 and non multiple of 4 for both acc and y
+    inline for (1..13) |i| {
+        inline for (1..i) |j| {
+            try testAccum(.add, &(.{maxint} ** i),   &(.{0} ** j), &(.{maxint} ** i),   false);
+            try testAccum(.sub, &(.{maxint} ** i),   &(.{0} ** j), &(.{maxint} ** i),   false);
+        }
+    }
+
+    try testAccum(.sub, &.{0},               &.{0},             &.{0},               false);
+    try testAccum(.sub, &.{maxint} ,         &.{0},             &.{maxint},          false);
+    try testAccum(.sub, &.{0, 0},            &.{0},             &.{0, 0},            false);
+    try testAccum(.sub, &.{0, 0},            &.{0, 0},          &.{0, 0},            false);
+    try testAccum(.sub, &.{0, 48764},        &.{0},             &.{0, 48764},        false);
+    try testAccum(.sub, &.{0, 11111},        &.{0, 0},          &.{0, 11111},        false);
+    try testAccum(.sub, &.{maxint, 0, 1, 0}, &.{0},             &.{maxint, 0, 1, 0}, false);
+    try testAccum(.sub, &.{maxint, 0, 1, 0}, &.{0, 0},          &.{maxint, 0, 1, 0}, false);
+    try testAccum(.sub, &.{maxint, 0, 1, 0}, &.{0, 0, 0},       &.{maxint, 0, 1, 0}, false);
+    try testAccum(.sub, &.{maxint, 0, 1, 0}, &.{0, 0, 0, 0},    &.{maxint, 0, 1, 0}, false);
+    // zig fmt: on
+}
+
+test llaccum {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    // we make sure to make no use of comptime_int, since it uses BigInts
+    const maxint: Limb = maxInt(Limb);
+
+    // zig fmt: off
+    // no carry, one limb
+    try testAccum(.add, &.{1},     &.{1},  &.{2},     false);
+    try testAccum(.add, &.{10},    &.{1},  &.{11},    false);
+    try testAccum(.add, &.{1},     &.{10}, &.{11},    false);
+    try testAccum(.add, &.{48797}, &.{10}, &.{48807}, false);
+
+    // no carry, multiple limbs
+    try testAccum(.add, &.{1, 0},     &.{1},         &.{2, 0},              false);
+    try testAccum(.add, &.{10, 0},    &.{1},         &.{11, 0},             false);
+    try testAccum(.add, &.{1, 0},     &.{10},        &.{11, 0},             false);
+    try testAccum(.add, &.{48797, 0}, &.{10},        &.{48807, 0},          false);
+    try testAccum(.add, &.{1, 1},     &.{1},         &.{2, 1},              false);
+    try testAccum(.add, &.{100, 1},   &.{1, 1},      &.{101, 2},            false);
+    try testAccum(.add, &.{100, 1},   &.{0, 1},      &.{100, 2},            false);
+    try testAccum(.add, &.{100, 1},   &.{500, 1247}, &.{600, 1248},         false);
+    try testAccum(.add, &(.{1} ** 4), &(.{1} ** 4),  &(.{2} ** 4),          false);
+    try testAccum(.add, &(.{1} ** 5), &(.{1} ** 5),  &(.{2} ** 5),          false);
+    try testAccum(.add, &(.{1} ** 6), &(.{1} ** 6),  &(.{2} ** 6),          false);
+    try testAccum(.add, &(.{1} ** 7), &(.{1} ** 7),  &(.{2} ** 7),          false);
+    try testAccum(.add, &(.{1} ** 8), &(.{1} ** 8),  &(.{2} ** 8),          false);
+    try testAccum(.add, &(.{1} ** 4), &.{1},         &(.{2} ++ .{1} ** 3),  false);
+    try testAccum(.add, &(.{1} ** 5), &.{1},         &(.{2} ++ .{1} ** 4),  false);
+    try testAccum(.add, &(.{1} ** 6), &.{1},         &(.{2} ++ .{1} ** 5),  false);
+    try testAccum(.add, &(.{1} ** 7), &.{1},         &(.{2} ++ .{1} ** 6),  false);
+    try testAccum(.add, &(.{1} ** 8), &.{1},         &(.{2} ++ .{1} ** 7),  false);
+
+    // carry, one limb
+    try testAccum(.add, &.{maxint}, &.{1},      &.{0},          true);
+    try testAccum(.add, &.{maxint}, &.{10},     &.{9},          true);
+    try testAccum(.add, &.{maxint}, &.{maxint}, &.{maxint - 1}, true);
+
+    // carry and carry propagation, multiple limbs
+    try testAccum(.add, &.{maxint, 0},             &.{1},              &.{0, 1},               false);
+    try testAccum(.add, &(.{maxint} ** 1),         &.{1},              &(.{0} ** 1),           true);
+    try testAccum(.add, &(.{maxint} ** 2),         &.{1},              &(.{0} ** 2),           true);
+    try testAccum(.add, &(.{maxint} ** 3),         &.{1},              &(.{0} ** 3),           true);
+    try testAccum(.add, &(.{maxint} ** 4),         &.{1},              &(.{0} ** 4),           true);
+    try testAccum(.add, &(.{maxint} ** 5),         &.{1},              &(.{0} ** 5),           true);
+    try testAccum(.add, &(.{maxint} ** 6),         &.{1},              &(.{0} ** 6),           true);
+    try testAccum(.add, &(.{maxint} ** 7),         &.{1},              &(.{0} ** 7),           true);
+    try testAccum(.add, &(.{maxint} ** 8),         &.{1},              &(.{0} ** 8),           true);
+    try testAccum(.add, &.{0, maxint},             &.{0, 1},           &.{0, 0},               true);
+    try testAccum(.add, &.{10, 0},                 &.{maxint},         &.{9, 1},               false);
+    try testAccum(.add, &.{1024, maxint},          &.{maxint},         &.{1023, 0},            true);
+    try testAccum(.add, &.{maxint, maxint},        &.{maxint},         &.{maxint - 1, 0},      true);
+    try testAccum(.add, &.{maxint, maxint},        &.{maxint, maxint}, &.{maxint - 1, maxint}, true);
+    try testAccum(.add, &(.{maxint} ** 5 ++ .{0}), &.{1},              &(.{0} ** 5 ++ .{1}),   false);
+    try testAccum(.add, &(.{maxint} ** 5),         &.{1},              &(.{0} ** 5),           true);
+
+    // sub
+    // no carry, one limb
+    try testAccum(.sub, &.{1},     &.{1},  &.{0},     false);
+    try testAccum(.sub, &.{10},    &.{1},  &.{9},     false);
+    try testAccum(.sub, &.{25},    &.{10}, &.{15},    false);
+    try testAccum(.sub, &.{48797}, &.{10}, &.{48787}, false);
+
+    // no carry, multiple limbs
+    try testAccum(.sub, &.{1, 0},      &.{1},      &.{0, 0},      false);
+    try testAccum(.sub, &.{10, 0},     &.{1},      &.{9, 0},      false);
+    try testAccum(.sub, &.{25, 0},     &.{10},     &.{15, 0},     false);
+    try testAccum(.sub, &.{48797, 0},  &.{10},     &.{48787, 0},  false);
+    try testAccum(.sub, &.{1, 1},      &.{1},      &.{0, 1},      false);
+    try testAccum(.sub, &.{1, 1},      &.{0, 1},   &.{1, 0},      false);
+    try testAccum(.sub, &.{1, 1},      &.{1, 1},   &.{0, 0},      false);
+    try testAccum(.sub, &.{100, 1},    &.{1, 1},   &.{99, 0},     false);
+    try testAccum(.sub, &.{100, 1},    &.{0, 1},   &.{100, 0},    false);
+    try testAccum(.sub, &.{500, 1247}, &.{100, 1}, &.{400, 1246}, false);
+
+    // carry, one limb
+    try testAccum(.sub, &.{0},          &.{1},      &.{maxint},     true);
+    try testAccum(.sub, &.{1},          &.{2},      &.{maxint},     true);
+    try testAccum(.sub, &.{0},          &.{2},      &.{maxint - 1}, true);
+    try testAccum(.sub, &.{maxint - 1}, &.{maxint}, &.{maxint},     true);
+    try testAccum(.sub, &.{10},         &.{maxint}, &.{11},         true);
+
+    // carry and carry propagation, multiple limbs
+    try testAccum(.sub, &.{0, 0},          &.{1},      &.{maxint, maxint},        true);
+    try testAccum(.sub, &.{0, 1},          &.{1},      &.{maxint, 0},             false);
+    try testAccum(.sub, &.{0, 0},          &.{0, 1},   &.{0, maxint},             true);
+    try testAccum(.sub, &.{10, 1},         &.{maxint}, &.{11, 0},                 false);
+    try testAccum(.sub, &.{1024, maxint},  &.{maxint}, &.{1025, maxint - 1},      false);
+    try testAccum(.sub, &.{0, 0, 0, 0, 1}, &.{1},      &(.{maxint} ** 4 ++ .{0}), false);
+    try testAccum(.sub, &(.{0} ** 4),      &.{1},      &(.{maxint} ** 4),         true);
+    try testAccum(.sub, &(.{0} ** 5),      &.{1},      &(.{maxint} ** 5),         true);
+    try testAccum(.sub, &(.{0} ** 6),      &.{1},      &(.{maxint} ** 6),         true);
+    try testAccum(.sub, &(.{0} ** 7),      &.{1},      &(.{maxint} ** 7),         true);
+    try testAccum(.sub, &(.{0} ** 8),      &.{1},      &(.{maxint} ** 8),         true);
+    try testAccum(.sub, &(.{0} ** 9),      &.{1},      &(.{maxint} ** 9),         true);
+    // zig fmt: on
+}
+
+test "llaccum aliasing" {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint = maxInt(Limb);
+
+    const buffer = try testing_allocator.alloc(Limb, 30);
+    defer testing_allocator.free(buffer);
+
+    const zeros = buffer[0..10];
+    const ones = buffer[10..20];
+    const maxints = buffer[20..];
+    @memset(zeros, 0);
+    @memset(ones, 1);
+    @memset(maxints, maxint);
+
+    try std.testing.expectEqual(false, llaccum(.add, zeros, zeros));
+    try std.testing.expect(mem.allEqual(Limb, zeros, 0));
+    try std.testing.expect(mem.allEqual(Limb, ones, 1));
+    try std.testing.expect(mem.allEqual(Limb, maxints, maxint));
+
+    try std.testing.expectEqual(false, llaccum(.add, ones, ones));
+    try std.testing.expect(mem.allEqual(Limb, zeros, 0));
+    try std.testing.expect(mem.allEqual(Limb, ones, 2));
+    try std.testing.expect(mem.allEqual(Limb, maxints, maxint));
+    @memset(ones, 1);
+
+    try std.testing.expectEqual(false, llaccum(.sub, ones, ones));
+    try std.testing.expect(mem.allEqual(Limb, zeros, 0));
+    try std.testing.expect(mem.allEqual(Limb, ones, 0));
+    try std.testing.expect(mem.allEqual(Limb, maxints, maxint));
+    @memset(ones, 1);
+
+    try std.testing.expectEqual(false, llaccum(.add, zeros, buffer[5..15]));
+    try std.testing.expect(mem.allEqual(Limb, zeros[0..5], 0));
+    try std.testing.expect(mem.allEqual(Limb, ones, 1));
+    try std.testing.expect(mem.allEqual(Limb, maxints, maxint));
+    try std.testing.expectEqualSlices(Limb, &(.{0} ** 5 ++ .{1} ** 5), zeros);
+    @memset(zeros, 0);
+
+    try std.testing.expectEqual(true, llaccum(.add, ones, buffer[15..25]));
+    try std.testing.expect(mem.allEqual(Limb, zeros, 0));
+    try std.testing.expect(mem.allEqual(Limb, ones[0..5], 2));
+    try std.testing.expectEqual(ones[5], 0);
+    try std.testing.expect(mem.allEqual(Limb, ones[6..], 1));
+    try std.testing.expect(mem.allEqual(Limb, maxints, maxint));
+}
+
+test "llmulLimb zero and empty slice" {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint = maxInt(Limb);
+
+    inline for (&[2]AccOp{ .add, .sub }) |op| {
+        // zig fmt: off
+        inline for (0..13) |i| {
+            try testMulLimb(op, &(.{0} ** i), &.{}, 0,      &(.{0} ** i), false);
+            try testMulLimb(op, &(.{0} ** i), &.{}, 10,     &(.{0} ** i), false);
+            try testMulLimb(op, &(.{0} ** i), &.{}, maxint, &(.{0} ** i), false);
+        }
+        try testMulLimb(op, &.{1},                              &.{},     0,       &.{1},                                 false);
+        try testMulLimb(op, &.{1, 1, 1, 1, 1},                  &.{},     0,       &.{1, 1, 1, 1, 1},                     false);
+        try testMulLimb(op, &.{1, 1, 1, 1, 1},                  &.{},     10,      &.{1, 1, 1, 1, 1},                     false);
+        try testMulLimb(op, &.{1, 1, 1, 1, 1},                  &.{},     maxint,  &.{1, 1, 1, 1, 1},                     false);
+        try testMulLimb(op, &.{15, 16, 89},                     &.{0, 0}, 0,       &.{15, 16, 89},                        false);
+        try testMulLimb(op, &.{15, 16, 89},                     &.{0, 0}, 1589,    &.{15, 16, 89},                        false);
+        try testMulLimb(op, &.{15, 16, 89},                     &.{0, 0}, maxint,  &.{15, 16, 89},                        false);
+        try testMulLimb(op, &.{15, 16, 89, maxint, 7899, 5889}, &.{0, 0}, 0,       &.{15, 16, 89, maxint, 7899, 5889},    false);
+        try testMulLimb(op, &.{15, 16, 89, maxint, 7899, 5889}, &.{0, 0}, 4897,    &.{15, 16, 89, maxint, 7899, 5889},    false);
+        try testMulLimb(op, &.{15, 16, 89, maxint, 7899, 5889}, &.{0, 0}, 1235,    &.{15, 16, 89, maxint, 7899, 5889},    false);
+
+        const slice = .{789, 123, 255, maxint - 12456, 879, 5839, 5346};
+
+        inline for(0..7) |i| {
+            try testMulLimb(op, &slice, &(.{0} ** i), maxint, &slice, false);
+        }
+        // zig fmt: on
+    }
+}
+
+test llmulLimb {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint = maxInt(Limb);
+
+    for (&[_]Limb{ 1, 2, 20, 4978, 1235, 1024, 11111, maxint - 1546, maxint }) |d| {
+        try testMulLimb(.add, &.{0}, &.{d}, 1, &.{d}, false);
+        try testMulLimb(.add, &.{0}, &.{1}, d, &.{d}, false);
+    }
+    // zig fmt: off
+    try testMulLimb(.add, &.{10},           &.{278},    123,    &.{34204},         false);
+    try testMulLimb(.add, &.{maxint - 125}, &.{25},     5,      &.{maxint},        false);
+    try testMulLimb(.add, &.{1, 0},         &.{maxint}, 1,      &.{0, 1},          false);
+    try testMulLimb(.add, &.{1, 1},         &.{maxint}, 1,      &.{0, 2},          false);
+    try testMulLimb(.add, &.{0, 0},         &.{maxint}, maxint, &.{1, maxint - 1}, false);
+    try testMulLimb(.add, &.{maxint, 0},    &.{maxint}, maxint, &.{0, maxint},     false);
+    try testMulLimb(.add, &.{maxint, 1},    &.{maxint}, maxint, &.{0, 0},          true);
+    try testMulLimb(.add, &.{maxint, 1, 3}, &.{maxint}, maxint, &.{0, 0, 4},       false);
+
+
+    try testMulLimb(.add, &.{1, 1, 1, 1},                 &.{1, 1, 1, 1},                   maxint, &.{0, 1, 1, 1},                          true);
+    try testMulLimb(.add, &.{1, 1, 1, 1, 1},              &.{1, 1, 1, 1},                   maxint, &.{0, 1, 1, 1, 2},                       false);
+    try testMulLimb(.add, &.{1, 1, 1, 1, 1},              &.{1234, 4567, 5534, 23, 1},      10,     &.{12341, 45671, 55341, 231, 11},        false);
+    try testMulLimb(.add, &.{1, 45, 64, 78, 100, maxint}, &.{1234, 4567, 5534, 23, 1, 128}, 10,     &.{12341, 45715, 55404, 308, 110, 1279}, true);
+
+
+    for (&[_]Limb {1, 2, 20, 4978, 1235, 1024, 11111, maxint - 1546, maxint}) |d| {
+        try testMulLimb(.sub, &.{d}, &.{d}, 1, &.{0}, false);
+        try testMulLimb(.sub, &.{d}, &.{1}, d, &.{0}, false);
+    }
+    try testMulLimb(.sub, &.{2780},           &.{10},     123,    &.{1550},             false);
+    try testMulLimb(.sub, &.{maxint},         &.{25},     5,      &.{maxint - 125},     false);
+    try testMulLimb(.sub, &.{155, 1},         &.{12},     13,     &.{maxint, 0},        false);
+    try testMulLimb(.sub, &.{1, 1},           &.{maxint}, 1,      &.{2, 0},             false);
+    try testMulLimb(.sub, &.{0, 0},           &.{maxint}, maxint, &.{maxint, 1},        true);
+    try testMulLimb(.sub, &.{maxint, maxint}, &.{maxint}, 1,      &.{0, maxint},        false);
+    try testMulLimb(.sub, &.{maxint, 1},      &.{maxint}, maxint, &.{maxint - 1, 3},    true);
+    try testMulLimb(.sub, &.{maxint, 1, 3},   &.{maxint}, maxint, &.{maxint - 1, 3, 2}, false);
+
+
+    try testMulLimb(.sub, &.{0, 0, 0, 0},              &.{1}, 1, &.{maxint, maxint, maxint, maxint},   true);
+
+    try testMulLimb(.sub, &.{0, 0, 0, 0},              &.{1, 1, 1, 1},       1,      &.{maxint, maxint - 1, maxint - 1, maxint - 1},                                   true);
+    try testMulLimb(.sub, &.{123, 456, 789, 123, 456}, &(.{maxint} ** 4),    maxint, &.{122, 457, 789, 123, 457},                                                      true);
+    try testMulLimb(.sub, &.{0, 0, 0, 0, 0},           &(.{maxint} ** 5),    1,      &.{1, 0, 0, 0, 0},                                                                true);
+    try testMulLimb(.sub, &.{0, 0, 0, 0, 0},           &(.{maxint} ** 5),    maxint, &.{maxint, 0, 0, 0, 0},                                                           true);
+    try testMulLimb(.sub, &(.{maxint} ** 6),           &.{1, 2, 3, 4, 5, 6}, 10,     &.{maxint - 10, maxint - 20, maxint - 30, maxint - 40, maxint - 50, maxint - 60}, false);
+    // zig fmt: on
+}
+
+test "llmulLimb aliasing" {
+    if (@sizeOf(Limb) < 2) return error.SkipZigTest;
+    const maxint = maxInt(Limb);
+
+    var data = [_]Limb{ 1, 1, 1, 1, 1, 1 };
+    {
+        const overflows = llmulLimb(.add, data[0..5], data[2..], 2);
+        try std.testing.expectEqual(false, overflows);
+        try std.testing.expectEqual(true, mem.allEqual(Limb, data[0..4], 3));
+        try std.testing.expectEqual(1, data[4]);
+        try std.testing.expectEqual(true, mem.allEqual(Limb, data[5..], 1));
+        @memset(&data, 1);
+    }
+
+    {
+        const overflows = llmulLimb(.sub, data[0..5], data[2..], 2);
+        try std.testing.expectEqual(false, overflows);
+        try std.testing.expectEqualSlices(Limb, &.{ maxint, maxint - 1, maxint - 1, maxint - 1, 0 }, data[0..5]);
+        try std.testing.expectEqual(true, mem.allEqual(Limb, data[5..], 1));
+        @memset(&data, 1);
+    }
+
+    // TODO: more tests
+}
+
+fn testMulLimb(comptime op: AccOp, a: []const Limb, b: []const Limb, d: Limb, expected: []const Limb, should_overflow: bool) !void {
+    errdefer std.testing.print("\nwhile running: testMulLimb({}, {any}, {any}, {}, {any}, {})\n\n", .{ op, a, b, d, expected, should_overflow });
+    assert(a.len == expected.len);
+
+    const acc = try testing_allocator.alloc(Limb, a.len + 10);
+    const y = try testing_allocator.alloc(Limb, b.len + 10);
+    defer testing_allocator.free(acc);
+    defer testing_allocator.free(y);
+
+    @memset(acc, maxInt(Limb));
+    @memset(y, maxInt(Limb));
+
+    const acc_slice = acc[5..][0..a.len];
+    const y_slice = y[5..][0..b.len];
+
+    @memcpy(acc_slice, a);
+    @memcpy(y_slice, b);
+
+    const overflows = llmulLimb(op, acc_slice, y_slice, d);
+
+    try std.testing.expectEqualSlices(Limb, expected, acc_slice);
+    try std.testing.expectEqual(should_overflow, overflows);
+
+    try std.testing.expect(mem.allEqual(Limb, acc[0..5], maxInt(Limb)));
+    try std.testing.expect(mem.allEqual(Limb, acc[5 + a.len ..], maxInt(Limb)));
+}
+
+fn testAccum(comptime op: AccOp, a: []const Limb, b: []const Limb, expected: []const Limb, should_overflow: bool) !void {
+    errdefer std.testing.print("\nwhile running: testAccum({}, {any}, {any}, {any}, {})\n\n", .{ op, a, b, expected, should_overflow });
+    assert(a.len == expected.len);
+
+    const acc = try testing_allocator.alloc(Limb, a.len + 10);
+    const y = try testing_allocator.alloc(Limb, b.len + 10);
+    defer testing_allocator.free(acc);
+    defer testing_allocator.free(y);
+
+    @memset(acc, maxInt(Limb));
+    @memset(y, maxInt(Limb));
+
+    const acc_slice = acc[5..][0..a.len];
+    const y_slice = y[5..][0..b.len];
+
+    @memcpy(acc_slice, a);
+    @memcpy(y_slice, b);
+
+    const overflows = llaccum(op, acc_slice, y_slice);
+
+    try std.testing.expectEqualSlices(Limb, expected, acc_slice);
+    try std.testing.expectEqual(should_overflow, overflows);
+
+    try std.testing.expect(mem.allEqual(Limb, acc[0..5], maxInt(Limb)));
+    try std.testing.expect(mem.allEqual(Limb, acc[5 + a.len ..], maxInt(Limb)));
 }
