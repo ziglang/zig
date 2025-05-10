@@ -88,6 +88,30 @@ pub fn calcTwosCompLimbCount(bit_count: usize) usize {
     return @max(std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable, 1);
 }
 
+/// Computes the number of limbs required to store the quotient of the division `a` / `b`
+/// `a` and `b` must be normalized.
+/// if `a` is zero, than `a_len` must be 1
+/// The result is either correct or one more than needed.
+///
+/// Note that we always have `calcDivQLen(a.len, b.len) >= calcDivQLenExact(a, b)`
+pub fn calcDivQLen(a_len: usize, b_len: usize) usize {
+    assert(a_len >= b_len);
+    assert(b_len >= 1);
+    return a_len - b_len + 1;
+}
+
+/// Computes the number of limbs required to store the quotient of the division `a` / `b`
+/// `a` and `b` must be normalized, and `b` must be non-zero
+pub fn calcDivQLenExact(a: []const Limb, b: []const Limb) usize {
+    assert(a.len >= b.len);
+    assert(b.len >= 1);
+    assert(!(b.len == 1 and b[0] == 0)); // b must be non-zero
+
+    const need_one_more = llcmp(a[a.len - b.len ..], b).compare(.gte);
+    const needed_len = a.len - b.len + @intFromBool(need_one_more);
+    return @max(needed_len, 1);
+}
+
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     // ov1[0] = a + *carry
@@ -963,10 +987,10 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
     ) void {
         const sep = a.limbs.len + 2;
-        var x = a.toMutable(limbs_buffer[0..sep]);
-        var y = b.toMutable(limbs_buffer[sep..]);
+        const x = a.toMutable(limbs_buffer[0..sep]);
+        const y = b.toMutable(limbs_buffer[sep..]);
 
-        div(q, r, &x, &y);
+        div(q, r, x, y);
 
         // Note, `div` performs truncating division, which satisfies
         // @divTrunc(a, b) * b + @rem(a, b) = a
@@ -1090,10 +1114,10 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
     ) void {
         const sep = a.limbs.len + 2;
-        var x = a.toMutable(limbs_buffer[0..sep]);
-        var y = b.toMutable(limbs_buffer[sep..]);
+        const x = a.toMutable(limbs_buffer[0..sep]);
+        const y = b.toMutable(limbs_buffer[sep..]);
 
-        div(q, r, &x, &y);
+        div(q, r, x, y);
     }
 
     /// r = a << shift, in other words, r = a * 2^shift
@@ -1540,220 +1564,73 @@ pub const Mutable = struct {
     }
 
     // Truncates by default.
-    fn div(q: *Mutable, r: *Mutable, x: *Mutable, y: *Mutable) void {
-        assert(!y.eqlZero()); // division by zero
-        assert(q != r); // illegal aliasing
+    // Requires no aliasing between all variables
+    // a must have the capacity to store a one limb shift
+    fn div(q: *Mutable, r: *Mutable, a: Mutable, b: Mutable) void {
+        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+            assert(!b.eqlZero()); // division by zero
+            assert(q != r); // illegal aliasing
+            assert(r.limbs.len >= b.len);
+        }
 
-        const q_positive = (x.positive == y.positive);
-        const r_positive = x.positive;
+        const q_positive = (a.positive == b.positive);
+        const r_positive = a.positive;
 
-        if (x.toConst().orderAbs(y.toConst()) == .lt) {
-            // q may alias x so handle r first.
-            r.copy(x.toConst());
+        const order = a.toConst().orderAbs(b.toConst());
+        if (order == .lt) {
+            r.copy(a.toConst());
             r.positive = r_positive;
 
             q.set(0);
             return;
         }
+        if (order == .eq) {
+            @branchHint(.unlikely);
 
-        // Handle trailing zero-words of divisor/dividend. These are not handled in the following
-        // algorithms.
-        // Note, there must be a non-zero limb for either.
-        // const x_trailing = std.mem.indexOfScalar(Limb, x.limbs[0..x.len], 0).?;
-        // const y_trailing = std.mem.indexOfScalar(Limb, y.limbs[0..y.len], 0).?;
-
-        const x_trailing = for (x.limbs[0..x.len], 0..) |xi, i| {
-            if (xi != 0) break i;
-        } else unreachable;
-
-        const y_trailing = for (y.limbs[0..y.len], 0..) |yi, i| {
-            if (yi != 0) break i;
-        } else unreachable;
-
-        const xy_trailing = @min(x_trailing, y_trailing);
-
-        if (y.len - xy_trailing == 1) {
-            const divisor = y.limbs[y.len - 1];
-
-            // Optimization for small divisor. By using a half limb we can avoid requiring DoubleLimb
-            // divisions in the hot code path. This may often require compiler_rt software-emulation.
-            if (divisor < maxInt(HalfLimb)) {
-                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @as(HalfLimb, @intCast(divisor)));
-            } else {
-                lldiv1(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], divisor);
-            }
-
-            q.normalize(x.len - xy_trailing);
+            r.set(0);
+            q.set(1);
             q.positive = q_positive;
 
-            r.len = 1;
-            r.positive = r_positive;
+            return;
+        }
+
+        // normalize `b`
+        const norm_shift = @clz(b.limbs[b.len - 1]);
+        const a_len = a.len + @intFromBool(norm_shift > @clz(a.limbs[a.len - 1]));
+
+        // a must have the capacity to store the left shift
+        const a_limbs = a.limbs[0..a_len];
+        const b_limbs = b.limbs[0..b.len];
+
+        // note, in theory, `b` doesn't need to be allocated by the caller since it is untouched at the end,
+        // but `divFloor` and `divTrunc` take a `Const` so we can't shift `b` in place
+        _ = llshl(a_limbs, a.limbs[0..a.len], norm_shift);
+        _ = llshl(b_limbs, b_limbs, norm_shift);
+        defer _ = llshr(b.limbs, b.limbs[0..b.len], norm_shift);
+
+        if (b.len == 1)
+            lldiv1(q.limbs, a_limbs, b_limbs[0])
+        else if (a_len == 2) {
+            assert(q.limbs.len >= 1);
+            // TODO: better algo without computing the reciprocal ?
+            const reciprocal = reciprocalWord3by2(b_limbs[1], b_limbs[0]);
+            const result = div3by2(0, a_limbs[1], a_limbs[0], b.limbs[1], b.limbs[0], reciprocal);
+
+            q.limbs[0] = result.q;
+            a_limbs[0] = result.r[0];
+            a_limbs[1] = result.r[1];
         } else {
-            // Shrink x, y such that the trailing zero limbs shared between are removed.
-            var x0 = Mutable{
-                .limbs = x.limbs[xy_trailing..],
-                .len = x.len - xy_trailing,
-                .positive = true,
-            };
-
-            var y0 = Mutable{
-                .limbs = y.limbs[xy_trailing..],
-                .len = y.len - xy_trailing,
-                .positive = true,
-            };
-
-            divmod(q, r, &x0, &y0);
-            q.positive = q_positive;
-
-            r.positive = r_positive;
+            basecaseDivRem(q.limbs, a_limbs, b_limbs);
         }
 
-        if (xy_trailing != 0 and r.limbs[r.len - 1] != 0) {
-            // Manually shift here since we know its limb aligned.
-            mem.copyBackwards(Limb, r.limbs[xy_trailing..], r.limbs[0..r.len]);
-            @memset(r.limbs[0..xy_trailing], 0);
-            r.len += xy_trailing;
-        }
-    }
+        // we have r < b, so there is at most b.len() limbs
+        const r_limbs = a_limbs[0..b.len];
+        const r_len = llshr(r.limbs, r_limbs, norm_shift);
 
-    /// Handbook of Applied Cryptography, 14.20
-    ///
-    /// x = qy + r where 0 <= r < y
-    /// y is modified but returned intact.
-    fn divmod(
-        q: *Mutable,
-        r: *Mutable,
-        x: *Mutable,
-        y: *Mutable,
-    ) void {
-        // 0.
-        // Normalize so that y[t] > b/2
-        const lz = @clz(y.limbs[y.len - 1]);
-        const norm_shift = if (lz == 0 and y.toConst().isOdd())
-            limb_bits // Force an extra limb so that y is even.
-        else
-            lz;
-
-        x.shiftLeft(x.toConst(), norm_shift);
-        y.shiftLeft(y.toConst(), norm_shift);
-
-        const n = x.len - 1;
-        const t = y.len - 1;
-        const shift = n - t;
-
-        // 1.
-        // for 0 <= j <= n - t, set q[j] to 0
-        q.len = shift + 1;
-        q.positive = true;
-        @memset(q.limbs[0..q.len], 0);
-
-        // 2.
-        // while x >= y * b^(n - t):
-        //    x -= y * b^(n - t)
-        //    q[n - t] += 1
-        // Note, this algorithm is performed only once if y[t] > base/2 and y is even, which we
-        // enforced in step 0. This means we can replace the while with an if.
-        // Note, multiplication by b^(n - t) comes down to shifting to the right by n - t limbs.
-        // We can also replace x >= y * b^(n - t) by x/b^(n - t) >= y, and use shifts for that.
-        {
-            // x >= y * b^(n - t) can be replaced by x/b^(n - t) >= y.
-
-            // 'divide' x by b^(n - t)
-            var tmp = Mutable{
-                .limbs = x.limbs[shift..],
-                .len = x.len - shift,
-                .positive = true,
-            };
-
-            if (tmp.toConst().order(y.toConst()) != .lt) {
-                // Perform x -= y * b^(n - t)
-                // Note, we can subtract y from x[n - t..] and get the result without shifting.
-                // We can also re-use tmp which already contains the relevant part of x. Note that
-                // this also edits x.
-                // Due to the check above, this cannot underflow.
-                tmp.sub(tmp.toConst(), y.toConst());
-
-                // tmp.sub normalized tmp, but we need to normalize x now.
-                x.limbs.len = tmp.limbs.len + shift;
-
-                q.limbs[shift] += 1;
-            }
-        }
-
-        // 3.
-        // for i from n down to t + 1, do
-        var i = n;
-        while (i >= t + 1) : (i -= 1) {
-            const k = i - t - 1;
-            // 3.1.
-            // if x_i == y_t:
-            //   q[i - t - 1] = b - 1
-            // else:
-            //   q[i - t - 1] = (x[i] * b + x[i - 1]) / y[t]
-            if (x.limbs[i] == y.limbs[t]) {
-                q.limbs[k] = maxInt(Limb);
-            } else {
-                const q0 = (@as(DoubleLimb, x.limbs[i]) << limb_bits) | @as(DoubleLimb, x.limbs[i - 1]);
-                const n0 = @as(DoubleLimb, y.limbs[t]);
-                q.limbs[k] = @as(Limb, @intCast(q0 / n0));
-            }
-
-            // 3.2
-            // while q[i - t - 1] * (y[t] * b + y[t - 1] > x[i] * b * b + x[i - 1] + x[i - 2]:
-            //   q[i - t - 1] -= 1
-            // Note, if y[t] > b / 2 this part is repeated no more than twice.
-
-            // Extract from y.
-            const y0 = if (t > 0) y.limbs[t - 1] else 0;
-            const y1 = y.limbs[t];
-
-            // Extract from x.
-            // Note, big endian.
-            const tmp0 = [_]Limb{
-                x.limbs[i],
-                if (i >= 1) x.limbs[i - 1] else 0,
-                if (i >= 2) x.limbs[i - 2] else 0,
-            };
-
-            while (true) {
-                // Ad-hoc 2x1 multiplication with q[i - t - 1].
-                // Note, big endian.
-                var tmp1 = [_]Limb{ 0, undefined, undefined };
-                tmp1[2] = addMulLimbWithCarry(0, y0, q.limbs[k], &tmp1[0]);
-                tmp1[1] = addMulLimbWithCarry(0, y1, q.limbs[k], &tmp1[0]);
-
-                // Big-endian compare
-                if (mem.order(Limb, &tmp1, &tmp0) != .gt)
-                    break;
-
-                q.limbs[k] -= 1;
-            }
-
-            // 3.3.
-            // x -= q[i - t - 1] * y * b^(i - t - 1)
-            // Note, we multiply by a single limb here.
-            // The shift doesn't need to be performed if we add the result of the first multiplication
-            // to x[i - t - 1].
-            const underflow = llmulLimb(.sub, x.limbs[k..x.len], y.limbs[0..y.len], q.limbs[k]);
-
-            // 3.4.
-            // if x < 0:
-            //   x += y * b^(i - t - 1)
-            //   q[i - t - 1] -= 1
-            // Note, we check for x < 0 using the underflow flag from the previous operation.
-            if (underflow) {
-                // While we didn't properly set the signedness of x, this operation should 'flow' it back to positive.
-                _ = llaccum(.add, x.limbs[k..x.len], y.limbs[0..y.len]);
-                q.limbs[k] -= 1;
-            }
-        }
-
-        x.normalize(x.len);
-        q.normalize(q.len);
-
-        // De-normalize r and y.
-        r.shiftRight(x.toConst(), norm_shift);
-        y.shiftRight(y.toConst(), norm_shift);
+        r.normalize(r_len);
+        q.normalize(@min(q.limbs.len, calcDivQLen(a.len, b.len)));
+        r.positive = r_positive;
+        q.positive = q_positive;
     }
 
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
@@ -4055,53 +3932,295 @@ fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
     r[a.len] = lladdcarry(r, a, b);
 }
 
-/// Knuth 4.3.1, Exercise 16.
-fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
-    assert(a.len > 1 or a[0] >= b);
-    assert(quo.len >= a.len);
+/// Algorithm BasecaseDivRem from "Modern Computer Arithmetic" by Richard P. Brent and Paul Zimmermann
+/// modified to use Algorithm 5 from "Improved division by invariant integers"
+/// by Niels Möller and Torbjörn Granlund
+///
+/// `q` = `a` / `b` rem `r`
+///
+/// Normalization and unnormalization steps are handled by the caller.
+/// `r` is written in `a[0..b.len]` (`a[b.len..]` is NOT zeroed out).
+/// `q` is written in `q[0..a.len - b.len + 1]`, but may needs to be normalized afterwards using `llnormalize`.
+/// The most significant limbs of `a` (input) can be zeroes.
+///
+/// requires:
+/// - `b.len` >= 2
+/// - `a.len` >= 3
+/// - `b` must be normalized (most significant bit of `b[b.len - 1]` must be set)
+/// - `q.len >= calcDivQLenExact(a, b)` (the quotient must be able to fit in `q`)
+///   a valid bound for q can be obtained more cheaply using `calcDivQLen`
+/// - no overlap between q, a and b
+// note: it is probably possible to make a and q overlap, by having q = a[m..a.len+1]
+// but not sure if it is worth it
+fn basecaseDivRem(q: []Limb, a: []Limb, b: []const Limb) void {
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+        assert(!slicesOverlap(q, a));
+        assert(!slicesOverlap(q, b));
+        assert(!slicesOverlap(a, b));
+        assert(b.len >= 2);
+        assert(a.len >= 3);
+        assert(q.len >= calcDivQLenExact(a, b));
+        // b must be normalized
+        assert(@clz(b[b.len - 1]) == 0);
+    }
 
-    rem.* = 0;
-    for (a, 0..) |_, ri| {
-        const i = a.len - ri - 1;
-        const pdiv = ((@as(DoubleLimb, rem.*) << limb_bits) | a[i]);
+    const n = b.len;
+    const m = a.len - n;
 
-        if (pdiv == 0) {
-            quo[i] = 0;
-            rem.* = 0;
-        } else if (pdiv < b) {
-            quo[i] = 0;
-            rem.* = @as(Limb, @truncate(pdiv));
-        } else if (pdiv == b) {
-            quo[i] = 1;
-            rem.* = 0;
-        } else {
-            quo[i] = @as(Limb, @truncate(@divTrunc(pdiv, b)));
-            rem.* = @as(Limb, @truncate(pdiv - (quo[i] *% b)));
+    // Step 1.
+    if (llcmp(a[m..], b).compare(.gte)) {
+        q[m] = 1;
+        _ = llaccum(.sub, a[m..], b);
+    } else {
+        if (q.len >= m + 1)
+            q[m] = 0;
+    }
+
+    // reciprocal of the two highest limbs of b
+    // used for fast division
+    const binv = reciprocalWord3by2(b[n - 1], b[n - 2]);
+
+    for (0..m) |i| {
+        const j = m - 1 - i;
+
+        // `div3by2` requires the quotient `q` to fit in a single Limb
+        // this requires <a[n+j], a[n+j-1]>  <  <b[n-1], b[n-2]>
+        // (with <x, y> = (x << limb_bits) + y)
+        // but at each loop iteration, we only have <a[n+j], a[n+j-1]>  <=  <b[n-1], b[n-2]>
+        // therefore, a special case must be made in case of equality
+        //
+        // note that having <a[n+j], a[n+j-1]>  >  <b[n-1], b[n-2]> is impossible since it would mean
+        // q[j+1] (from the last iteration, or from Step 1.) is incorrect (as it would be at least 1 too small)
+        if (a[n + j] == b[n - 1] and a[n + j - 1] == b[n - 2]) {
+            @branchHint(.unlikely);
+            q[j] = maxInt(Limb);
+            const underflows = llmulLimb(.sub, a[j .. j + n + 1], b, q[j]);
+
+            assert(!underflows);
+
+            continue;
+        }
+
+        // Step 3.
+        // modified to divide 3 words by 2 words
+        // q is therefore at most one off, with low probability
+        q[j] = div3by2(a[n + j], a[n + j - 1], a[n + j - 2], b[n - 1], b[n - 2], binv).q;
+
+        // Step 5.
+        // note: It is possible to avoid 2 iteration from this function by using the remainder from Step 3.
+        const a_is_negative = llmulLimb(.sub, a[j .. j + n + 1], b, q[j]);
+
+        // Step 6.
+        if (a_is_negative) {
+            @branchHint(.unlikely);
+            q[j] -= 1;
+            const overflows = llaccum(.add, a[j .. j + n + 1], b);
+
+            assert(overflows);
         }
     }
 }
 
-fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
-    assert(a.len > 1 or a[0] >= b);
-    assert(quo.len >= a.len);
-
-    rem.* = 0;
-    for (a, 0..) |_, ri| {
-        const i = a.len - ri - 1;
-        const ai_high = a[i] >> half_limb_bits;
-        const ai_low = a[i] & ((1 << half_limb_bits) - 1);
-
-        // Split the division into two divisions acting on half a limb each. Carry remainder.
-        const ai_high_with_carry = (rem.* << half_limb_bits) | ai_high;
-        const ai_high_quo = ai_high_with_carry / b;
-        rem.* = ai_high_with_carry % b;
-
-        const ai_low_with_carry = (rem.* << half_limb_bits) | ai_low;
-        const ai_low_quo = ai_low_with_carry / b;
-        rem.* = ai_low_with_carry % b;
-
-        quo[i] = (ai_high_quo << half_limb_bits) | ai_low_quo;
+/// Algorithm 7 from "Improved division by invariant integers"
+/// by Niels Möller and Torbjörn Granlund
+///
+/// Performs `q` = `a` / `b` rem `r`   with `b` a single word
+/// `r` is written in `a[0]`
+///
+/// Requires:
+/// - b to be normalized (its most significant bit must be set)
+/// - the quotient must be able to fit in `q`
+fn lldiv1(q: []Limb, a: []Limb, b: Limb) void {
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+        assert(q.len >= calcDivQLenExact(a, &.{b}));
+        // b must be normalized
+        assert(@clz(b) == 0);
     }
+
+    const n = a.len;
+
+    const v = reciprocalWord(b);
+    var r: Limb = 0;
+
+    // in the event where q has exactly the required len
+    // and the first iteration of the loop returns 0, q cannot fit that 0
+    // the first iteration of the loop is therefore done beforehand,
+    // with a bound check on q
+    {
+        const result = div2by1(r, a[n - 1], b, v);
+
+        // q has already been asserted to be large enough if result.q is non-zero
+        if (q.len >= a.len)
+            q[n - 1] = result.q;
+        r = result.r;
+    }
+
+    for (0..n - 1) |i| {
+        const j = n - 2 - i;
+        const result = div2by1(r, a[j], b, v);
+
+        q[j] = result.q;
+        r = result.r;
+    }
+    a[0] = r;
+}
+
+/// Algorithm 2 of "Improved division by invariant integers"
+/// by Niels Möller and Torbjörn Granlund
+///
+/// Computes `q` and `r` verifying `U = q*d + r` (`q` = `U` / `d` and `r` = `U` % `d`)
+/// with `d` = <`d1`, `d0`> (`d1` being the most significant part of `d`)
+/// and similarly `U` = <`U2`, `U1`, `U0`>
+///
+/// `d` must be normalized (most significant bit set)
+/// `v` is computed from `d` using `reciprocal_word_3by2`
+///
+/// `r` is returned in big endian (`r[0]` is the high part of `r` and `r[1]` is its low one)
+fn div3by2(U2: Limb, U1: Limb, U0: Limb, d1: Limb, d0: Limb, v: Limb) struct { q: Limb, r: [2]Limb } {
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+        assert(@clz(d1) == 0);
+        assert(order2(U2, U1, d1, d0) == .lt);
+        assert(v == reciprocalWord3by2(d1, d0));
+    }
+
+    var q1, var q0 = umul(v, U2);
+    q1, q0 = add2(q1, q0, U2, U1);
+    var r1 = U1 -% q1 *% d1;
+
+    const t1, const t0 = umul(d0, q1);
+    r1, var r0 = sub2(r1, U0, d1, d0);
+    r1, r0 = sub2(r1, r0, t1, t0);
+
+    q1 +%= 1;
+
+    // branch free, as advised by the paper
+    // not sure if it is necessary / worth it
+    const gt: u1 = @intFromBool(r1 >= q0);
+    q1 -%= gt;
+    r1, r0 = add2(r1, r0, d1 * gt, d0 * gt);
+
+    if (order2(r1, r0, d1, d0).compare(.gte)) {
+        @branchHint(.unlikely);
+        q1 +%= 1;
+        r1, r0 = sub2(r1, r0, d1, d0);
+    }
+
+    return .{ .q = q1, .r = [2]Limb{ r1, r0 } };
+}
+
+/// Algorithm 4 of "Improved division by invariant integers"
+/// by Niels Möller and Torbjörn Granlund
+///
+/// Performs `q` = <`U1`, `U0`> / `d` rem `r`
+/// (with <U1, U0> = (U1 << @bitSizeOf(T)) + U0)
+///
+/// `v` is the precomputed reciprocal of `d` (obtained with `reciprocalWord`)
+/// `q` must fit in a single word (therefore `U1` < `d`)
+fn div2by1(U1: Limb, U0: Limb, d: Limb, v: Limb) struct { q: Limb, r: Limb } {
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+        assert(U1 < d);
+        // d is must be normalized
+        assert(@clz(d) == 0);
+        assert(v == reciprocalWord(d));
+    }
+
+    var q1, var q0 = umul(v, U1);
+    q1, q0 = add2(q1, q0, U1, U0);
+
+    q1 +%= 1;
+    var r = U0 -% q1 *% d;
+
+    const cond: u1 = @intFromBool(r > q0);
+    q1 -%= cond;
+    r +%= d * cond;
+
+    if (r >= d) {
+        @branchHint(.unlikely);
+        q1 += 1;
+        r -= d;
+    }
+
+    return .{ .q = q1, .r = r };
+}
+
+// returns as big endian
+fn umul(a: Limb, b: Limb) [2]Limb {
+    const r = math.mulWide(Limb, a, b);
+    return [2]Limb{ @truncate(r >> @bitSizeOf(Limb)), @truncate(r) };
+}
+
+// returns as big endian
+fn add2(ahi: Limb, alo: Limb, bhi: Limb, blo: Limb) [2]Limb {
+    const rlo = @addWithOverflow(alo, blo);
+    const rhi = @addWithOverflow(ahi, rlo[1]);
+    return [2]Limb{ rhi[0] +% bhi, rlo[0] };
+}
+
+// returns as big endian
+fn sub2(ahi: Limb, alo: Limb, bhi: Limb, blo: Limb) [2]Limb {
+    const rlo = @subWithOverflow(alo, blo);
+    const rhi = @subWithOverflow(ahi, rlo[1]);
+    return [2]Limb{ rhi[0] -% bhi, rlo[0] };
+}
+
+fn order2(ahi: Limb, alo: Limb, bhi: Limb, blo: Limb) math.Order {
+    const ord1 = math.order(ahi, bhi);
+    if (ord1 != .eq)
+        return ord1;
+    return math.order(alo, blo);
+}
+
+/// Algorithm 6 of "Improved division by invariant integers"
+/// by Niels Möller and Torbjörn Granlund
+///
+/// Computes (B^3 - 1) / d - B, with B = 2^@bitSizeOf(T) and d = d1 * B + d0
+/// `d` (therefore `d1`) must be normalized
+fn reciprocalWord3by2(d1: Limb, d0: Limb) Limb {
+    assert(@clz(d1) == 0);
+
+    var v = reciprocalWord(d1);
+    var p = d1 *% v;
+    p +%= d0;
+    if (p < d0) {
+        v -%= 1;
+        if (p >= d1) {
+            v -%= 1;
+            p -%= d1;
+        }
+        p -%= d1;
+    }
+    const t1, const t0 = umul(v, d0);
+    p +%= t1;
+    if (p < t1) {
+        v -%= 1;
+        if (order2(p, t0, d1, d0).compare(.gte)) {
+            v -%= 1;
+        }
+    }
+
+    return v;
+}
+
+/// Computes (B^2 - 1) / d - B, with B = 2^@bitSizeOf(T)
+/// d must be normalized (most significant bit set)
+fn reciprocalWord(d: Limb) Limb {
+    assert(@clz(d) == 0);
+    // same as computing <B - 1 - d, B - 1> / d
+    // which is the same as <~d, B - 1> / d
+    if (@import("builtin").cpu.arch == .x86_64 and @sizeOf(Limb) == 8) {
+        var rem: Limb = undefined;
+        // we avoid calling __udivti3
+        return asm (
+            \\divq %[v]
+            : [_] "={rax}" (-> Limb),
+              [_] "={rdx}" (rem),
+            : [v] "r" (d),
+              [_] "{rax}" (maxInt(Limb)),
+              [_] "{rdx}" (~d),
+        );
+    }
+
+    return @truncate(((@as(DoubleLimb, ~d) << @bitSizeOf(Limb)) | maxInt(Limb)) / d);
 }
 
 /// Performs r = a << shift and returns the amount of limbs affected
