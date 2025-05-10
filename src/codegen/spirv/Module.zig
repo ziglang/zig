@@ -96,7 +96,8 @@ pub const EntryPoint = struct {
     /// The name of the kernel to be exported.
     name: []const u8,
     /// Calling Convention
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode.Extended,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -164,8 +165,6 @@ cache: struct {
     void_type: ?IdRef = null,
     int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .empty,
     float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .empty,
-    // This cache is required so that @Vector(X, u1) in direct representation has the
-    // same ID as @Vector(X, bool) in indirect representation.
     vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
     array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
 
@@ -314,11 +313,18 @@ fn entryPoints(self: *Module) !Section {
 
         const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.execution_model,
+            .execution_model = entry_point.exec_model,
             .entry_point = entry_point_id,
             .name = entry_point.name,
             .interface = interface.items,
         });
+
+        if (entry_point.exec_mode) |exec_mode| {
+            try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+                .entry_point = entry_point_id,
+                .mode = exec_mode,
+            });
+        }
     }
 
     return entry_points;
@@ -352,6 +358,11 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
                 .vector16 => try self.addCapability(.Vector16),
                 // Shader
                 .shader => try self.addCapability(.Shader),
+                .variable_pointers => {
+                    try self.addExtension("SPV_KHR_variable_pointers");
+                    try self.addCapability(.VariablePointersStorageBuffer);
+                    try self.addCapability(.VariablePointers);
+                },
                 .physical_storage_buffer => {
                     try self.addExtension("SPV_KHR_physical_storage_buffer");
                     try self.addCapability(.PhysicalStorageBufferAddresses);
@@ -366,20 +377,20 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Emit memory model
     const addressing_model: spec.AddressingModel = blk: {
         if (self.hasFeature(.shader)) {
-            break :blk switch (self.target.cpu.arch) {
-                .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
-                .spirv64 => .PhysicalStorageBuffer64,
-                else => unreachable,
-            };
-        } else if (self.hasFeature(.kernel)) {
-            break :blk switch (self.target.cpu.arch) {
-                .spirv32 => .Physical32,
-                .spirv64 => .Physical64,
-                else => unreachable,
-            };
+            if (self.hasFeature(.physical_storage_buffer)) {
+                assert(self.target.cpu.arch == .spirv64);
+                break :blk .PhysicalStorageBuffer64;
+            }
+            assert(self.target.cpu.arch == .spirv);
+            break :blk .Logical;
         }
 
-        unreachable;
+        assert(self.hasFeature(.kernel));
+        break :blk switch (self.target.cpu.arch) {
+            .spirv32 => .Physical32,
+            .spirv64 => .Physical64,
+            else => unreachable,
+        };
     };
     try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
@@ -746,12 +757,14 @@ pub fn declareEntryPoint(
     self: *Module,
     decl_index: Decl.Index,
     name: []const u8,
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode.Extended,
 ) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
         .name = try self.arena.allocator().dupe(u8, name),
-        .execution_model = execution_model,
+        .exec_model = exec_model,
+        .exec_mode = exec_mode,
     });
 }
 

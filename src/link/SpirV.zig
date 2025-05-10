@@ -162,7 +162,7 @@ pub fn updateExports(
     if (ip.isFunctionType(nav_ty)) {
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
-        const execution_model: spec.ExecutionModel = switch (target.os.tag) {
+        const exec_model: spec.ExecutionModel = switch (target.os.tag) {
             .vulkan, .opengl => switch (cc) {
                 .spirv_vertex => .Vertex,
                 .spirv_fragment => .Fragment,
@@ -179,13 +179,36 @@ pub fn updateExports(
             },
             else => unreachable,
         };
+        const exec_mode: ?spec.ExecutionMode.Extended = switch (cc) {
+            inline .spirv_device,
+            .spirv_fragment,
+            .spirv_kernel,
+            .spirv_vertex,
+            => |opt| if (opt.mode) |mode| switch (mode) {
+                .pixel_center_integer => .PixelCenterInteger,
+                .origin_upper_left => .OriginUpperLeft,
+                .origin_lower_left => .OriginLowerLeft,
+                .early_fragment_tests => .EarlyFragmentTests,
+                .depth_replacing => .DepthReplacing,
+                .depth_greater => .DepthGreater,
+                .depth_less => .DepthLess,
+                .depth_unchanged => .DepthUnchanged,
+                .local_size => |dim| .{ .LocalSize = .{
+                    .x_size = dim.x,
+                    .y_size = dim.y,
+                    .z_size = dim.z,
+                } },
+            } else null,
+            else => unreachable,
+        };
 
         for (export_indices) |export_idx| {
             const exp = export_idx.ptr(zcu);
             try self.object.spv.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
-                execution_model,
+                exec_model,
+                exec_mode,
             );
         }
     }

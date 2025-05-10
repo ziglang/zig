@@ -30538,6 +30538,10 @@ fn callconvCoerceAllowed(
     switch (src_cc) {
         inline else => |src_data, tag| {
             const dest_data = @field(dest_cc, @tagName(tag));
+            if (@TypeOf(src_data) == std.builtin.CallingConvention.SpirvOptions) {
+                if (std.meta.eql(src_data.mode, dest_data.mode)) return true;
+                return false;
+            }
             if (@TypeOf(src_data) != void) {
                 const default_stack_align = target.stackAlignment();
                 const src_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;

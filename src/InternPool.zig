@@ -4795,10 +4795,12 @@ pub const Index = enum(u32) {
         type_function: struct {
             const @"data.flags.has_comptime_bits" = opaque {};
             const @"data.flags.has_noalias_bits" = opaque {};
+            const @"data.flags.has_cc_extra" = opaque {};
             const @"data.params_len" = opaque {};
             data: *Tag.TypeFunction,
             @"trailing.comptime_bits.len": *@"data.flags.has_comptime_bits",
             @"trailing.noalias_bits.len": *@"data.flags.has_noalias_bits",
+            @"trailing.cc_extra.len": *@"data.flags.has_cc_extra",
             @"trailing.param_types.len": *@"data.params_len",
             trailing: struct { comptime_bits: []u32, noalias_bits: []u32, param_types: []Index },
         },
@@ -5675,6 +5677,7 @@ pub const Tag = enum(u8) {
             .trailing = struct {
                 param_comptime_bits: ?[]u32,
                 param_noalias_bits: ?[]u32,
+                param_cc_extra: ?[]u32,
                 param_type: []Index,
             },
             .config = .{
@@ -5682,6 +5685,8 @@ pub const Tag = enum(u8) {
                 .@"trailing.param_comptime_bits.?.len" = .@"(payload.params_len + 31) / 32",
                 .@"trailing.param_noalias_bits.?" = .@"payload.flags.has_noalias_bits",
                 .@"trailing.param_noalias_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_cc_extra.?" = .@"payload.flags.has_cc_extra",
+                .@"trailing.param_cc_extra.?.len" = .@"(payload.params_len + 31) / 32",
                 .@"trailing.param_type.len" = .@"payload.params_len",
             },
         },
@@ -5884,20 +5889,22 @@ pub const Tag = enum(u8) {
     /// Trailing:
     /// 0. comptime_bits: u32, // if has_comptime_bits
     /// 1. noalias_bits: u32, // if has_noalias_bits
-    /// 2. param_type: Index for each params_len
+    /// 2. cc_extra: PackedU64, // if has_cc_extra
+    /// 3. param_type: Index for each params_len
     pub const TypeFunction = struct {
         params_len: u32,
         return_type: Index,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            cc: PackedCallingConvention,
+            cc: std.builtin.CallingConvention.Tag,
             is_var_args: bool,
             is_generic: bool,
             has_comptime_bits: bool,
             has_noalias_bits: bool,
+            has_cc_extra: bool,
             is_noinline: bool,
-            _: u9 = 0,
+            _: u18 = 0,
         };
     };
 
@@ -7327,6 +7334,12 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         trail_index += 1;
         break :b x;
     };
+    const cc_extra: ?PackedU64 = if (!type_function.data.flags.has_cc_extra) null else b: {
+        const a = extra.view().items(.@"0")[trail_index];
+        const b = extra.view().items(.@"0")[trail_index + 1];
+        trail_index += 2;
+        break :b .{ .a = a, .b = b };
+    };
     return .{
         .param_types = .{
             .tid = tid,
@@ -7336,7 +7349,7 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         .return_type = type_function.data.return_type,
         .comptime_bits = comptime_bits,
         .noalias_bits = noalias_bits,
-        .cc = type_function.data.flags.cc.unpack(),
+        .cc = unpackCallingConventionExtra(type_function.data.flags.cc, cc_extra),
         .is_var_args = type_function.data.flags.is_var_args,
         .is_noinline = type_function.data.flags.is_noinline,
         .is_generic = type_function.data.flags.is_generic,
@@ -8949,20 +8962,23 @@ pub fn getFuncType(
     // arrays. This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
     const params_len: u32 = @intCast(key.param_types.len);
+    const cc_extra = packCallingConventionExtra(key.cc orelse .auto);
 
     try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeFunction).@"struct".fields.len +
         @intFromBool(key.comptime_bits != 0) +
         @intFromBool(key.noalias_bits != 0) +
-        params_len);
+        if (cc_extra != null) @sizeOf(PackedU64) else 0 +
+            params_len);
 
     const func_type_extra_index = addExtraAssumeCapacity(extra, Tag.TypeFunction{
         .params_len = params_len,
         .return_type = key.return_type,
         .flags = .{
-            .cc = .pack(key.cc orelse .auto),
+            .cc = key.cc orelse .auto,
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
+            .has_cc_extra = cc_extra != null,
             .is_generic = key.is_generic,
             .is_noinline = key.is_noinline,
         },
@@ -8970,6 +8986,7 @@ pub fn getFuncType(
 
     if (key.comptime_bits != 0) extra.appendAssumeCapacity(.{key.comptime_bits});
     if (key.noalias_bits != 0) extra.appendAssumeCapacity(.{key.noalias_bits});
+    if (cc_extra != null) _ = addExtraAssumeCapacity(extra, cc_extra.?);
     extra.appendSliceAssumeCapacity(.{@ptrCast(key.param_types)});
     errdefer extra.mutate.len = prev_extra_len;
 
@@ -9167,6 +9184,7 @@ pub fn getFuncDeclIes(
     // arrays. This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
     const params_len: u32 = @intCast(key.param_types.len);
+    const cc_extra = packCallingConventionExtra(key.cc orelse .auto);
 
     try extra.ensureUnusedCapacity(@typeInfo(Tag.FuncDecl).@"struct".fields.len +
         1 + // inferred_error_set
@@ -9174,7 +9192,8 @@ pub fn getFuncDeclIes(
         @typeInfo(Tag.TypeFunction).@"struct".fields.len +
         @intFromBool(key.comptime_bits != 0) +
         @intFromBool(key.noalias_bits != 0) +
-        params_len);
+        if (cc_extra != null) @sizeOf(PackedU64) else 0 +
+            params_len);
 
     const func_index = Index.Unwrapped.wrap(.{
         .tid = tid,
@@ -9217,16 +9236,18 @@ pub fn getFuncDeclIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = .pack(key.cc orelse .auto),
+            .cc = key.cc orelse .auto,
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
+            .has_cc_extra = cc_extra != null,
             .is_generic = key.is_generic,
             .is_noinline = key.is_noinline,
         },
     });
     if (key.comptime_bits != 0) extra.appendAssumeCapacity(.{key.comptime_bits});
     if (key.noalias_bits != 0) extra.appendAssumeCapacity(.{key.noalias_bits});
+    if (cc_extra != null) _ = addExtraAssumeCapacity(extra, cc_extra.?);
     extra.appendSliceAssumeCapacity(.{@ptrCast(key.param_types)});
 
     items.appendSliceAssumeCapacity(.{
@@ -9463,6 +9484,7 @@ pub fn getFuncInstanceIes(
     // arrays. This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
     const params_len: u32 = @intCast(arg.param_types.len);
+    const cc_extra = packCallingConventionExtra(generic_owner_ty.cc);
 
     try extra.ensureUnusedCapacity(@typeInfo(Tag.FuncInstance).@"struct".fields.len +
         1 + // inferred_error_set
@@ -9470,7 +9492,8 @@ pub fn getFuncInstanceIes(
         @typeInfo(Tag.ErrorUnionType).@"struct".fields.len +
         @typeInfo(Tag.TypeFunction).@"struct".fields.len +
         @intFromBool(arg.noalias_bits != 0) +
-        params_len);
+        if (cc_extra != null) @sizeOf(PackedU64) else 0 +
+            params_len);
 
     const func_index = Index.Unwrapped.wrap(.{
         .tid = tid,
@@ -9513,16 +9536,18 @@ pub fn getFuncInstanceIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = .pack(generic_owner_ty.cc),
+            .cc = generic_owner_ty.cc,
             .is_var_args = false,
             .has_comptime_bits = false,
             .has_noalias_bits = arg.noalias_bits != 0,
+            .has_cc_extra = cc_extra != null,
             .is_generic = false,
             .is_noinline = arg.is_noinline,
         },
     });
     // no comptime_bits because has_comptime_bits is false
     if (arg.noalias_bits != 0) extra.appendAssumeCapacity(.{arg.noalias_bits});
+    if (cc_extra != null) _ = addExtraAssumeCapacity(extra, cc_extra.?);
     extra.appendSliceAssumeCapacity(.{@ptrCast(arg.param_types)});
 
     items.appendSliceAssumeCapacity(.{
@@ -10996,7 +11021,8 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                     break :b @sizeOf(Tag.TypeFunction) +
                         (@sizeOf(Index) * info.params_len) +
                         (@as(u32, 4) * @intFromBool(info.flags.has_comptime_bits)) +
-                        (@as(u32, 4) * @intFromBool(info.flags.has_noalias_bits));
+                        (@as(u32, 4) * @intFromBool(info.flags.has_noalias_bits)) +
+                        (@as(u32, 8) * @intFromBool(info.flags.has_cc_extra));
                 },
 
                 .undef => 0,
@@ -12658,80 +12684,74 @@ pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) 
     return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
 }
 
-const PackedCallingConvention = packed struct(u18) {
-    tag: std.builtin.CallingConvention.Tag,
-    /// May be ignored depending on `tag`.
-    incoming_stack_alignment: Alignment,
-    /// Interpretation depends on `tag`.
-    extra: u4,
+fn packCallingConventionExtra(cc: std.builtin.CallingConvention) ?PackedU64 {
+    return switch (cc) {
+        inline else => |pl| switch (@TypeOf(pl)) {
+            void => null,
+            std.builtin.CallingConvention.CommonOptions,
+            => .init(pl.incoming_stack_alignment orelse 0),
+            std.builtin.CallingConvention.X86RegparmOptions,
+            => .init((pl.incoming_stack_alignment orelse 0) | (@as(u64, pl.register_params) << 60)),
+            std.builtin.CallingConvention.ArmInterruptOptions,
+            => .init((pl.incoming_stack_alignment orelse 0) | (@as(u64, @intFromEnum(pl.type)) << 60)),
+            std.builtin.CallingConvention.MipsInterruptOptions,
+            => .init((pl.incoming_stack_alignment orelse 0) | (@as(u64, @intFromEnum(pl.mode)) << 60)),
+            std.builtin.CallingConvention.RiscvInterruptOptions,
+            => .init((pl.incoming_stack_alignment orelse 0) | (@as(u64, @intFromEnum(pl.mode)) << 60)),
+            std.builtin.CallingConvention.SpirvOptions,
+            => if (pl.mode) |mode| switch (mode) {
+                .local_size => |dim| .init(@intFromEnum(mode) |
+                    (@as(u64, dim.x) << 8) |
+                    (@as(u64, dim.y) << 24) |
+                    (@as(u64, dim.z) << 40)),
+                else => .init(@intFromEnum(mode)),
+            } else null,
+            else => comptime unreachable,
+        },
+    };
+}
 
-    fn pack(cc: std.builtin.CallingConvention) PackedCallingConvention {
-        return switch (cc) {
-            inline else => |pl, tag| switch (@TypeOf(pl)) {
-                void => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .none, // unused
-                    .extra = 0, // unused
-                },
+fn unpackCallingConventionExtra(cc: std.builtin.CallingConvention.Tag, extra: ?PackedU64) std.builtin.CallingConvention {
+    return switch (cc) {
+        inline else => |tag| @unionInit(
+            std.builtin.CallingConvention,
+            @tagName(tag),
+            switch (@FieldType(std.builtin.CallingConvention, @tagName(tag))) {
+                void => {},
                 std.builtin.CallingConvention.CommonOptions => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = 0, // unused
+                    .incoming_stack_alignment = extra.?.get(),
                 },
                 std.builtin.CallingConvention.X86RegparmOptions => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = pl.register_params,
+                    .incoming_stack_alignment = extra.?.get() & 0xFFFF_FFFF_FFFF_FFF0,
+                    .register_params = @intCast(extra.?.get() >> 60),
                 },
                 std.builtin.CallingConvention.ArmInterruptOptions => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = @intFromEnum(pl.type),
+                    .incoming_stack_alignment = extra.?.get() & 0xFFFF_FFFF_FFFF_FFF0,
+                    .type = @enumFromInt(extra.?.get() >> 60),
                 },
                 std.builtin.CallingConvention.MipsInterruptOptions => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = @intFromEnum(pl.mode),
+                    .incoming_stack_alignment = extra.?.get() & 0xFFFF_FFFF_FFFF_FFF0,
+                    .mode = @enumFromInt(extra.?.get() >> 60),
                 },
                 std.builtin.CallingConvention.RiscvInterruptOptions => .{
-                    .tag = tag,
-                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = @intFromEnum(pl.mode),
+                    .incoming_stack_alignment = extra.?.get() & 0xFFFF_FFFF_FFFF_FFF0,
+                    .mode = @enumFromInt(extra.?.get() >> 60),
+                },
+                std.builtin.CallingConvention.SpirvOptions => .{
+                    .mode = if (extra != null) switch (@as(
+                        @typeInfo(std.builtin.CallingConvention.SpirvOptions.ExecutionMode).@"union".tag_type.?,
+                        @enumFromInt(extra.?.get() & 0xFF),
+                    )) {
+                        .local_size => .{ .local_size = .{
+                            .x = @truncate((extra.?.get() >> 8) & 0xFFFF),
+                            .y = @truncate((extra.?.get() >> 24) & 0xFFFF),
+                            .z = @truncate((extra.?.get() >> 40) & 0xFFFF),
+                        } },
+                        inline else => |mode_tag| mode_tag,
+                    } else null,
                 },
                 else => comptime unreachable,
             },
-        };
-    }
-
-    fn unpack(cc: PackedCallingConvention) std.builtin.CallingConvention {
-        return switch (cc.tag) {
-            inline else => |tag| @unionInit(
-                std.builtin.CallingConvention,
-                @tagName(tag),
-                switch (@FieldType(std.builtin.CallingConvention, @tagName(tag))) {
-                    void => {},
-                    std.builtin.CallingConvention.CommonOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                    },
-                    std.builtin.CallingConvention.X86RegparmOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .register_params = @intCast(cc.extra),
-                    },
-                    std.builtin.CallingConvention.ArmInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .type = @enumFromInt(cc.extra),
-                    },
-                    std.builtin.CallingConvention.MipsInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .mode = @enumFromInt(cc.extra),
-                    },
-                    std.builtin.CallingConvention.RiscvInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .mode = @enumFromInt(cc.extra),
-                    },
-                    else => comptime unreachable,
-                },
-            ),
-        };
-    }
-};
+        ),
+    };
+}

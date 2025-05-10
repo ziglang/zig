@@ -2001,7 +2001,7 @@ pub const Cpu = struct {
             .global, .local, .shared => is_gpu,
             .constant => is_gpu and (context == null or context == .constant),
             .param => is_nvptx,
-            .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
+            .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
         };
     }
 };
@@ -3388,7 +3388,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .xtensa => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
-        .spirv, .spirv32, .spirv64 => .spirv_device,
+        .spirv, .spirv32, .spirv64 => .{ .spirv_device = .{} },
     };
 }
 
