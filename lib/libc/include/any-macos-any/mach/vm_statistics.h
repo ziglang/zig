@@ -341,6 +341,12 @@ enum virtual_memory_guard_exception_codes {
 /* current accounting postmark */
 #define __VM_LEDGER_ACCOUNTING_POSTMARK 2019032600
 
+/*
+ *  When making a new VM_LEDGER_TAG_* or VM_LEDGER_FLAG_*, update tests
+ *  vm_parameter_validation_[user|kern] and their expected results; they
+ *  deliberately call VM functions with invalid ledger values and you may
+ *  be turning one of those invalid tags/flags valid.
+ */
 /* discrete values: */
 #define VM_LEDGER_TAG_NONE      0x00000000
 #define VM_LEDGER_TAG_DEFAULT   0x00000001
