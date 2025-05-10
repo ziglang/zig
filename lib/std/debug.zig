@@ -16,6 +16,7 @@ const native_endian = native_arch.endian();
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
+pub const ElfSymTab = @import("debug/ElfSymTab.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
@@ -867,38 +868,7 @@ pub const StackIterator = struct {
     fn next_unwind(it: *StackIterator) !usize {
         const unwind_state = &it.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
-        switch (native_os) {
-            .macos, .ios, .watchos, .tvos, .visionos => {
-                // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
-                // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-                if (module.unwind_info) |unwind_info| {
-                    if (SelfInfo.unwindFrameMachO(
-                        unwind_state.debug_info.allocator,
-                        module.base_address,
-                        &unwind_state.dwarf_context,
-                        &it.ma,
-                        unwind_info,
-                        module.eh_frame,
-                    )) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        if (err != error.RequiresDWARFUnwind) return err;
-                    }
-                } else return error.MissingUnwindInfo;
-            },
-            else => {},
-        }
-
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(
-                unwind_state.debug_info.allocator,
-                di,
-                module.base_address,
-                &unwind_state.dwarf_context,
-                &it.ma,
-                null,
-            );
-        } else return error.MissingDebugInfo;
+        return module.unwindFrame(unwind_state.debug_info.allocator, &unwind_state.dwarf_context, &it.ma) catch return error.MissingDebugInfo;
     }
 
     fn next_internal(it: *StackIterator) ?usize {
@@ -1088,7 +1058,7 @@ fn printUnwindError(debug_info: *SelfInfo, out_stream: anytype, address: usize, 
 
 pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
+        error.MissingDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
     };
 
