@@ -34,6 +34,7 @@ pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
+pub const SimpleSinglyLinkedList = SinglyLinkedList.Simple;
 pub const StaticBitSet = bit_set.StaticBitSet;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
