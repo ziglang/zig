@@ -481,6 +481,7 @@
 
 zig_extern void *memcpy (void *zig_restrict, void const *zig_restrict, size_t);
 zig_extern void *memset (void *, int, size_t);
+zig_extern void *memmove (void *, void const *, size_t);
 
 /* ================ Bool and 8/16/32/64-bit Integer Support ================= */
 

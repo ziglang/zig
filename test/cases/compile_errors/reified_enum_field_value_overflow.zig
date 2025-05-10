@@ -1,5 +1,5 @@
 comptime {
-    const E = @Type(.{ .@"enum" = .{
+    const E = @Enum(.{
         .tag_type = u1,
         .fields = &.{
             .{ .name = "f0", .value = 0 },
@@ -8,7 +8,7 @@ comptime {
         },
         .decls = &.{},
         .is_exhaustive = true,
-    } });
+    });
     _ = E;
 }
 

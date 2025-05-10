@@ -340,7 +340,7 @@ test "shuffleVectorIndex" {
 pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) type {
     switch (@typeInfo(SelfType)) {
         .pointer => |ptr| {
-            return @Type(.{ .pointer = .{
+            return @Pointer(.{
                 .size = .c,
                 .is_const = ptr.is_const,
                 .is_volatile = ptr.is_volatile,
@@ -349,7 +349,7 @@ pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) ty
                 .child = ElementType,
                 .is_allowzero = true,
                 .sentinel_ptr = null,
-            } });
+            });
         },
         else => |info| @compileError("Invalid self type \"" ++ @tagName(info) ++ "\" for flexible array getter: " ++ @typeName(SelfType)),
     }

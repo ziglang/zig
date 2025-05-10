@@ -5550,7 +5550,7 @@ test bitOr {
 }
 
 inline fn shr(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: @Int(.unsigned, @bitSizeOf(Type)) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     return lhs >> if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
 }
@@ -5560,7 +5560,7 @@ test shr {
 }
 
 inline fn shrExact(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: @Int(.unsigned, @bitSizeOf(Type)) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
     return @shrExact(lhs >> final_rhs << final_rhs, final_rhs);
@@ -5571,7 +5571,7 @@ test shrExact {
 }
 
 inline fn shl(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: @Int(.unsigned, @bitSizeOf(Type)) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     return lhs << if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
 }
@@ -5582,7 +5582,7 @@ test shl {
 
 inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
     @setRuntimeSafety(false);
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: @Int(.unsigned, @bitSizeOf(Type)) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
     return @shlExact(lhs << final_rhs >> final_rhs, final_rhs);

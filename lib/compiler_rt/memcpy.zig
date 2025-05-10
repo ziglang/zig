@@ -159,7 +159,7 @@ inline fn copyFixedLength(
     else if (len > @sizeOf(usize))
         @Vector(len, u8)
     else
-        @Type(.{ .int = .{ .signedness = .unsigned, .bits = len * 8 } });
+        @Int(.unsigned, len * 8);
 
     const loop_count = @divExact(len, @sizeOf(T));
 
