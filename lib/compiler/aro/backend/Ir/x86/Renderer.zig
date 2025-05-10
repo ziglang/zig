@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const Interner = @import("../../Interner.zig");
 const Ir = @import("../../Ir.zig");
 const BaseRenderer = Ir.Renderer;
-const zig = @import("zig");
+const zig = undefined; // upstream, this imports a module; we don't provide that module
 const abi = zig.arch.x86_64.abi;
 const bits = zig.arch.x86_64.bits;
 
