@@ -444,12 +444,18 @@ pub const Block = struct {
     pub const Inlining = struct {
         call_block: *Block,
         call_src: LazySrcLoc,
-        has_comptime_args: bool,
         func: InternPool.Index,
-        comptime_result: Air.Inst.Ref,
-        merges: Merges,
+
         /// Populated lazily by `refFrame`.
         ref_frame: Zcu.InlineReferenceFrame.Index.Optional = .none,
+
+        /// If `true`, the following fields are `undefined`. This doesn't represent a true inline
+        /// call, but rather a generic call analyzing the instantiation's generic type bodies.
+        is_generic_instantiation: bool,
+
+        has_comptime_args: bool,
+        comptime_result: Air.Inst.Ref,
+        merges: Merges,
 
         fn refFrame(inlining: *Inlining, zcu: *Zcu) Allocator.Error!Zcu.InlineReferenceFrame.Index {
             if (inlining.ref_frame == .none) {
@@ -2604,12 +2610,12 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
     if (block) |start_block| {
         var block_it = start_block;
         while (block_it.inlining) |inlining| {
-            try sema.errNote(
-                inlining.call_src,
-                err_msg,
-                "called from here",
-                .{},
-            );
+            const note_str = note: {
+                if (inlining.is_generic_instantiation) break :note "generic function instantiated here";
+                if (inlining.call_block.isComptime()) break :note "called at comptime here";
+                break :note "called inline here";
+            };
+            try sema.errNote(inlining.call_src, err_msg, "{s}", .{note_str});
             block_it = inlining.call_block;
         }
     }
@@ -7736,9 +7742,10 @@ fn analyzeCall(
         .call_block = block,
         .call_src = call_src,
         .func = func_val.?.toIntern(),
-        .has_comptime_args = false, // unused by error reporting
-        .comptime_result = .none, // unused by error reporting
-        .merges = undefined, // unused because we'll never `return`
+        .is_generic_instantiation = true, // this allows the following fields to be `undefined`
+        .has_comptime_args = undefined,
+        .comptime_result = undefined,
+        .merges = undefined,
     } else undefined;
 
     // This is the block in which we evaluate generic function components: that is, generic parameter
@@ -8216,10 +8223,11 @@ fn analyzeCall(
     var inlining: Block.Inlining = .{
         .call_block = block,
         .call_src = call_src,
+        .func = func_val.?.toIntern(),
+        .is_generic_instantiation = false,
         .has_comptime_args = for (args) |a| {
             if (try sema.isComptimeKnown(a)) break true;
         } else false,
-        .func = func_val.?.toIntern(),
         .comptime_result = undefined,
         .merges = .{
             .block_inst = block_inst,
@@ -8250,7 +8258,10 @@ fn analyzeCall(
     if (!inlining.has_comptime_args) {
         var block_it = block;
         while (block_it.inlining) |parent_inlining| {
-            if (!parent_inlining.has_comptime_args and parent_inlining.func == func_val.?.toIntern()) {
+            if (!parent_inlining.is_generic_instantiation and
+                !parent_inlining.has_comptime_args and
+                parent_inlining.func == func_val.?.toIntern())
+            {
                 return sema.fail(block, call_src, "inline call is recursive", .{});
             }
             block_it = parent_inlining.call_block;
@@ -19454,6 +19465,7 @@ fn analyzeRet(
     };
 
     if (block.inlining) |inlining| {
+        assert(!inlining.is_generic_instantiation); // can't `return` in a generic param/ret ty expr
         if (block.isComptime()) {
             const ret_val = try sema.resolveConstValue(block, operand_src, operand, null);
             inlining.comptime_result = operand;
