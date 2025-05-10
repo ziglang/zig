@@ -6,7 +6,7 @@ const Toolchain = @import("../Toolchain.zig");
 const Driver = @import("../Driver.zig");
 const Distro = @import("../Driver/Distro.zig");
 const target_util = @import("../target.zig");
-const system_defaults = @import("system_defaults");
+const system_defaults = undefined; // upstream, this imports a module; we don't provide that module
 
 const Linux = @This();
 

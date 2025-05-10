@@ -1,7 +1,7 @@
 const std = @import("std");
 const Toolchain = @import("../Toolchain.zig");
 const target_util = @import("../target.zig");
-const system_defaults = @import("system_defaults");
+const system_defaults = undefined; // upstream, this imports a module; we don't provide that module
 const GCCVersion = @import("GCCVersion.zig");
 const Multilib = @import("Multilib.zig");
 

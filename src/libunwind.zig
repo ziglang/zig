@@ -50,7 +50,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         return error.SubCompilationFailed;
     };
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
             .root_src_path = "",
@@ -76,8 +75,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,

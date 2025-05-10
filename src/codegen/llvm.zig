@@ -1135,7 +1135,7 @@ pub const Object = struct {
         const func = zcu.funcInfo(func_index);
         const nav = ip.getNav(func.owner_nav);
         const file_scope = zcu.navFileScopeIndex(func.owner_nav);
-        const owner_mod = zcu.fileByIndex(file_scope).mod;
+        const owner_mod = zcu.fileByIndex(file_scope).mod.?;
         const fn_ty = Type.fromInterned(func.ty);
         const fn_info = zcu.typeToFunc(fn_ty).?;
         const target = owner_mod.resolved_target.result;
@@ -1728,7 +1728,7 @@ pub const Object = struct {
             try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
             dir_path: {
                 const sub_path = std.fs.path.dirname(file.sub_file_path) orelse "";
-                const dir_path = try file.mod.root.joinString(gpa, sub_path);
+                const dir_path = try file.mod.?.root.joinString(gpa, sub_path);
                 defer gpa.free(dir_path);
                 if (std.fs.path.isAbsolute(dir_path))
                     break :dir_path try o.builder.metadataString(dir_path);
@@ -2634,11 +2634,9 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
 
-        const std_mod = zcu.std_mod;
-        const std_file_imported = pt.importPkg(std_mod) catch unreachable;
-
+        const std_file_index = zcu.module_roots.get(zcu.std_mod).?.unwrap().?;
         const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
-        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
+        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_index));
         const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
         const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
@@ -2671,7 +2669,7 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const gpa = o.gpa;
         const nav = ip.getNav(nav_index);
-        const owner_mod = zcu.navFileScope(nav_index).mod;
+        const owner_mod = zcu.navFileScope(nav_index).mod.?;
         const ty: Type = .fromInterned(nav.typeOf(ip));
         const gop = try o.nav_map.getOrPut(gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
@@ -3001,7 +2999,7 @@ pub const Object = struct {
         if (is_extern) {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
-            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.single_threaded)
+            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
             if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
             if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
@@ -4499,7 +4497,7 @@ pub const NavGen = struct {
     err_msg: ?*Zcu.ErrorMsg,
 
     fn ownerModule(ng: NavGen) *Package.Module {
-        return ng.object.pt.zcu.navFileScope(ng.nav_index).mod;
+        return ng.object.pt.zcu.navFileScope(ng.nav_index).mod.?;
     }
 
     fn todo(ng: *NavGen, comptime format: []const u8, args: anytype) Error {
@@ -4542,7 +4540,7 @@ pub const NavGen = struct {
             }, &o.builder);
 
             const file_scope = zcu.navFileScopeIndex(nav_index);
-            const mod = zcu.fileByIndex(file_scope).mod;
+            const mod = zcu.fileByIndex(file_scope).mod.?;
             if (is_threadlocal and !mod.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
 
@@ -5097,7 +5095,7 @@ pub const FuncGen = struct {
             const func = zcu.funcInfo(inline_func);
             const nav = ip.getNav(func.owner_nav);
             const file_scope = zcu.navFileScopeIndex(func.owner_nav);
-            const mod = zcu.fileByIndex(file_scope).mod;
+            const mod = zcu.fileByIndex(file_scope).mod.?;
 
             self.file = try o.getDebugFile(file_scope);
 

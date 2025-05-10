@@ -1208,7 +1208,6 @@ fn buildSharedLib(
     });
 
     const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
             .root_src_path = "",
@@ -1230,8 +1229,6 @@ fn buildSharedLib(
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const c_source_files = [1]Compilation.CSourceFile{

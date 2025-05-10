@@ -93,20 +93,53 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
     len: u32,
 }) = .{},
 
+/// Key is the digest returned by `Builtin.hash`; value is the corresponding module.
+builtin_modules: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, *Package.Module) = .empty,
+
+/// Populated as soon as the `Compilation` is created. Guaranteed to contain all modules, even builtin ones.
+/// Modules whose root file is not a Zig or ZON file have the value `.none`.
+module_roots: std.AutoArrayHashMapUnmanaged(*Package.Module, File.Index.Optional) = .empty,
+
 /// The set of all the Zig source files in the Zig Compilation Unit. Tracked in
 /// order to iterate over it and check which source files have been modified on
 /// the file system when an update is requested, as well as to cache `@import`
 /// results.
 ///
-/// Keys are fully resolved file paths. This table owns the keys and values.
+/// Always accessed through `ImportTableAdapter`, where keys are fully resolved
+/// file paths in order to ensure files are properly deduplicated. This table owns
+/// the keys and values.
 ///
 /// Protected by Compilation's mutex.
 ///
 /// Not serialized. This state is reconstructed during the first call to
 /// `Compilation.update` of the process for a given `Compilation`.
-///
-/// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
+import_table: std.ArrayHashMapUnmanaged(
+    File.Index,
+    void,
+    struct {
+        pub const hash = @compileError("all accesses should be through ImportTableAdapter");
+        pub const eql = @compileError("all accesses should be through ImportTableAdapter");
+    },
+    true, // This is necessary! Without it, the map tries to use its Context to rehash. #21918
+) = .empty,
+
+/// The set of all files in `import_table` which are "alive" this update, meaning
+/// they are reachable by traversing imports starting from an analysis root. This
+/// is usually all files in `import_table`, but some could be omitted if an incremental
+/// update removes an import, or if a module specified on the CLI is never imported.
+/// Reconstructed on every update, after AstGen and before Sema.
+/// Value is why the file is alive.
+alive_files: std.AutoArrayHashMapUnmanaged(File.Index, File.Reference) = .empty,
+
+/// If this is populated, a "file exists in multiple modules" error should be emitted.
+/// This causes file errors to not be shown, because we don't really know which files
+/// should be alive (because the user has messed up their imports somewhere!).
+/// Cleared and recomputed every update, after AstGen and before Sema.
+multi_module_err: ?struct {
+    file: File.Index,
+    modules: [2]*Package.Module,
+    refs: [2]File.Reference,
+} = null,
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
@@ -147,9 +180,37 @@ compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 }) = .empty,
 compile_log_lines: std.ArrayListUnmanaged(CompileLogLine) = .empty,
 free_compile_log_lines: std.ArrayListUnmanaged(CompileLogLine.Index) = .empty,
-/// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
+/// This tracks files which triggered errors when generating AST/ZIR/ZOIR.
+/// If not `null`, the value is a retryable error (the file status is guaranteed
+/// to be `.retryable_failure`). Otherwise, the file status is `.astgen_failure`
+/// or `.success`, and there are ZIR/ZOIR errors which should be printed.
+/// We just store a `[]u8` instead of a full `*ErrorMsg`, because the source
+/// location is always the entire file. The `[]u8` memory is owned by the map
+/// and allocated into `gpa`.
+failed_files: std.AutoArrayHashMapUnmanaged(File.Index, ?[]u8) = .empty,
+/// AstGen is not aware of modules, and so cannot determine whether an import
+/// string makes sense. That is the job of a traversal after AstGen.
+///
+/// There are three ways in which an import can fail:
+///
+/// * It is an import of a file which does not exist. This case is not handled
+///   by this field, but with a `failed_files` entry on the *imported* file.
+/// * It is an import of a module which does not exist in the current module's
+///   dependency table. This is tracked by this field.
+/// * It is an import which reaches outside of the current module's root
+///   directory. This is tracked by this field.
+///
+/// This is a flat array containing all invalid module imports and imports
+/// outside of a module root. It is cleared and recomputed on every update. The
+/// errors here are non-fatal, i.e. do not block semantic analysis.
+///
+/// Allocated into gpa.
+failed_imports: std.ArrayListUnmanaged(struct {
+    file_index: File.Index,
+    import_string: Zir.NullTerminatedString,
+    import_token: Ast.TokenIndex,
+    kind: enum { module_not_found, file_outside_module_root },
+}) = .empty,
 failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
@@ -231,6 +292,19 @@ builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 generation: u32 = 0,
 
 pub const PerThread = @import("Zcu/PerThread.zig");
+
+pub const ImportTableAdapter = struct {
+    zcu: *const Zcu,
+    pub fn hash(ctx: ImportTableAdapter, path: []const u8) u32 {
+        _ = ctx;
+        return @truncate(std.hash.Wyhash.hash(0, path));
+    }
+    pub fn eql(ctx: ImportTableAdapter, a_path: []const u8, b_file: File.Index, b_index: usize) bool {
+        _ = b_index;
+        const b_path = ctx.zcu.fileByIndex(b_file).abs_path;
+        return mem.eql(u8, a_path, b_path);
+    }
+};
 
 /// Names of declarations in `std.builtin` whose values are memoized in a `BuiltinDecl.Memoized`.
 /// The name must exactly match the declaration name, as comptime logic is used to compute the namespace accesses.
@@ -693,29 +767,36 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    /// Relative to the owning package's root source directory.
-    /// Memory is stored in gpa, owned by File.
-    sub_file_path: []const u8,
-
     status: enum {
         /// We have not yet attempted to load this file.
         /// `stat` is not populated and may be `undefined`.
         never_loaded,
         /// A filesystem access failed. It should be retried on the next update.
-        /// There is a `failed_files` entry containing a non-`null` message.
+        /// There is guaranteed to be a `failed_files` entry with at least one message.
+        /// ZIR/ZOIR errors should not be emitted as `zir`/`zoir` is not up-to-date.
         /// `stat` is not populated and may be `undefined`.
         retryable_failure,
-        /// Parsing/AstGen/ZonGen of this file has failed.
-        /// There is an error in `zir` or `zoir`.
-        /// There is a `failed_files` entry (with a `null` message).
+        /// This file has failed parsing, AstGen, or ZonGen.
+        /// There is guaranteed to be a `failed_files` entry, which may or may not have messages.
+        /// ZIR/ZOIR errors *should* be emitted as `zir`/`zoir` is up-to-date.
         /// `stat` is populated.
         astgen_failure,
         /// Parsing and AstGen/ZonGen of this file has succeeded.
+        /// There may still be a `failed_files` entry, e.g. for non-fatal AstGen errors.
         /// `stat` is populated.
         success,
     },
     /// Whether this is populated depends on `status`.
     stat: Cache.File.Stat,
+
+    /// Whether this file is the generated file of a "builtin" module. This matters because those
+    /// files are generated and stored in-nemory rather than being read off-disk. The rest of the
+    /// pipeline generally shouldn't care about this.
+    is_builtin: bool,
+    /// The absolute path to this file. We need this to deduplicate files when imported from different
+    /// relative locations (perhaps also from different modules). Owned by this `File`, allocated into
+    /// `gpa`. On targets where absolute paths do not exist, such as WASI, this is still cwd-relative.
+    abs_path: []const u8,
 
     source: ?[:0]const u8,
     tree: ?Ast,
@@ -723,11 +804,23 @@ pub const File = struct {
     zoir: ?Zoir,
 
     /// Module that this file is a part of, managed externally.
-    mod: *Package.Module,
-    /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
-    multi_pkg: bool = false,
-    /// List of references to this file, used for multi-package errors.
-    references: std.ArrayListUnmanaged(File.Reference) = .empty,
+    /// This is initially `null`. After AstGen, a pass is run to determine which module each
+    /// file belongs to, at which point this field is set. It is never set to `null` again;
+    /// this is so that if the file starts belonging to a different module instead, we can
+    /// tell, and invalidate dependencies as needed (see `module_changed`).
+    /// During semantic analysis, this is always non-`null` for alive files (i.e. those which
+    /// have imports targeting them).
+    mod: ?*Package.Module,
+    /// Relative to the root directory of `mod`. If `mod == null`, this field is `undefined`.
+    /// This memory is managed externally and must not be directly freed.
+    /// Its lifetime is at least equal to that of this `File`.
+    sub_file_path: []const u8,
+
+    /// If this file's module identity changes on an incremental update, this flag is set to signal
+    /// to `Zcu.updateZirRefs` that all references to this file must be invalidated. This matters
+    /// because changing your module changes things like your optimization mode and codegen flags,
+    /// so everything needs to be re-done. `updateZirRefs` is responsible for resetting this flag.
+    module_changed: bool,
 
     /// The ZIR for this file from the last update with no file failures. As such, this ZIR is never
     /// failed (although it may have compile errors).
@@ -738,7 +831,7 @@ pub const File = struct {
     ///
     /// In other words, if `TrackedInst`s are tied to ZIR other than what's in the `zir` field, this
     /// field is populated with that old ZIR.
-    prev_zir: ?*Zir = null,
+    prev_zir: ?*Zir,
 
     /// This field serves a similar purpose to `prev_zir`, but for ZOIR. However, since we do not
     /// need to map old ZOIR to new ZOIR -- instead only invalidating dependencies if the ZOIR
@@ -746,27 +839,32 @@ pub const File = struct {
     ///
     /// When `zoir` is updated, this field is set to `true`. In `updateZirRefs`, if this is `true`,
     /// we invalidate the corresponding `zon_file` dependency, and reset it to `false`.
-    zoir_invalidated: bool = false,
+    zoir_invalidated: bool,
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
-        /// The file is imported directly (i.e. not as a package) with @import.
+        analysis_root: *Package.Module,
         import: struct {
-            file: File.Index,
-            token: Ast.TokenIndex,
+            importer: Zcu.File.Index,
+            tok: Ast.TokenIndex,
+            /// If the file is imported as the root of a module, this is that module.
+            /// `null` means the file was imported directly by path.
+            module: ?*Package.Module,
         },
-        /// The file is the root of a module.
-        root: *Package.Module,
     };
 
     pub fn getMode(self: File) Ast.Mode {
-        if (std.mem.endsWith(u8, self.sub_file_path, ".zon")) {
+        // We never create a `File` whose path doesn't give a mode.
+        return modeFromPath(self.abs_path).?;
+    }
+
+    pub fn modeFromPath(path: []const u8) ?Ast.Mode {
+        if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, self.sub_file_path, ".zig")) {
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
             return .zig;
         } else {
-            // `Module.importFile` rejects all other extensions
-            unreachable;
+            return null;
         }
     }
 
@@ -811,7 +909,7 @@ pub const File = struct {
 
         // Keep track of inode, file size, mtime, hash so we can detect which files
         // have been modified when an incremental update is requested.
-        var f = try file.mod.root.openFile(file.sub_file_path, .{});
+        var f = try file.mod.?.root.openFile(file.sub_file_path, .{});
         defer f.close();
 
         const stat = try f.stat();
@@ -851,20 +949,6 @@ pub const File = struct {
         return &file.tree.?;
     }
 
-    pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
-        if (file.zoir) |*zoir| return zoir;
-
-        const tree = file.tree.?;
-        assert(tree.mode == .zon);
-
-        file.zoir = try ZonGen.generate(zcu.gpa, tree, .{});
-        if (file.zoir.?.hasCompileErrors()) {
-            try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
-            return error.AnalysisFail;
-        }
-        return &file.zoir.?;
-    }
-
     pub fn fullyQualifiedNameLen(file: File) usize {
         const ext = std.fs.path.extension(file.sub_file_path);
         return file.sub_file_path.len - ext.len;
@@ -898,76 +982,60 @@ pub const File = struct {
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
-    pub fn fullPath(file: File, ally: Allocator) ![]u8 {
-        return file.mod.root.joinString(ally, file.sub_file_path);
-    }
-
-    pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
-        const loc = std.zig.findLineColumn(file.source.bytes, src);
-        std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
-    }
-
-    /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, zcu: *Zcu, ref: File.Reference) !void {
-        // Don't add the same module root twice. Note that since we always add module roots at the
-        // front of the references array (see below), this loop is actually O(1) on valid code.
-        if (ref == .root) {
-            for (file.references.items) |other| {
-                switch (other) {
-                    .root => |r| if (ref.root == r) return,
-                    else => break, // reached the end of the "is-root" references
-                }
-            }
+    /// Similar to the `abs_path` field, but converts to a cwd-relative path if the abs path is
+    /// within the cwd. When printing the path to a file, always print this path. The returned slice
+    /// is a slice of `file.abs_path`, so the memory is owned by the `File` and has the same lifetime
+    /// as the `File`.
+    pub fn displayPath(file: File, zcu: *const Zcu) []const u8 {
+        const cwd_maybe_sep = zcu.comp.cwd;
+        const cwd = std.mem.trimRight(u8, cwd_maybe_sep, &.{std.fs.path.sep});
+        if (file.abs_path.len > cwd.len + 1 and
+            mem.startsWith(u8, file.abs_path, cwd) and
+            file.abs_path[cwd.len] == std.fs.path.sep)
+        {
+            return file.abs_path[cwd.len + 1 ..];
         }
-
-        switch (ref) {
-            // We put root references at the front of the list both to make the above loop fast and
-            // to make multi-module errors more helpful (since "root-of" notes are generally more
-            // informative than "imported-from" notes). This path is hit very rarely, so the speed
-            // of the insert operation doesn't matter too much.
-            .root => try file.references.insert(zcu.gpa, 0, ref),
-
-            // Other references we'll just put at the end.
-            else => try file.references.append(zcu.gpa, ref),
-        }
-
-        const mod = switch (ref) {
-            .import => |import| zcu.fileByIndex(import.file).mod,
-            .root => |mod| mod,
-        };
-        if (mod != file.mod) file.multi_pkg = true;
-    }
-
-    /// Mark this file and every file referenced by it as multi_pkg and report an
-    /// astgen_failure error for them. AstGen must have completed in its entirety.
-    pub fn recursiveMarkMultiPkg(file: *File, pt: Zcu.PerThread) void {
-        file.multi_pkg = true;
-        file.status = .astgen_failure;
-
-        // We can only mark children as failed if the ZIR is loaded, which may not
-        // be the case if there were other astgen failures in this file
-        if (file.zir == null) return;
-
-        const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
-        if (imports_index == 0) return;
-        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
-
-        var extra_index = extra.end;
-        for (0..extra.data.imports_len) |_| {
-            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
-            extra_index = item.end;
-
-            const import_path = file.zir.?.nullTerminatedString(item.data.name);
-            if (mem.eql(u8, import_path, "builtin")) continue;
-
-            const res = pt.importFile(file, import_path) catch continue;
-            if (!res.is_pkg and !res.file.multi_pkg) {
-                res.file.recursiveMarkMultiPkg(pt);
-            }
-        }
+        return file.abs_path;
     }
 
     pub const Index = InternPool.FileIndex;
+
+    pub fn errorBundleWholeFileSrc(
+        file: *File,
+        zcu: *const Zcu,
+        eb: *std.zig.ErrorBundle.Wip,
+    ) !std.zig.ErrorBundle.SourceLocationIndex {
+        return eb.addSourceLocation(.{
+            .src_path = try eb.addString(file.displayPath(zcu)),
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+            .line = 0,
+            .column = 0,
+            .source_line = 0,
+        });
+    }
+    pub fn errorBundleTokenSrc(
+        file: *File,
+        tok: Ast.TokenIndex,
+        zcu: *const Zcu,
+        eb: *std.zig.ErrorBundle.Wip,
+    ) !std.zig.ErrorBundle.SourceLocationIndex {
+        const source = try file.getSource(zcu.gpa);
+        const tree = try file.getTree(zcu.gpa);
+        const start = tree.tokenStart(tok);
+        const end = start + tree.tokenSlice(tok).len;
+        const loc = std.zig.findLineColumn(source.bytes, start);
+        return eb.addSourceLocation(.{
+            .src_path = try eb.addString(file.displayPath(zcu)),
+            .span_start = start,
+            .span_main = start,
+            .span_end = @intCast(end),
+            .line = @intCast(loc.line),
+            .column = @intCast(loc.column),
+            .source_line = try eb.addString(loc.source_line),
+        });
+    }
 };
 
 /// Represents the contents of a file loaded with `@embedFile`.
@@ -1067,7 +1135,6 @@ pub const SrcLoc = struct {
     pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .entire_file => return Span{ .start = 0, .end = 1, .main = 0 },
 
             .byte_abs => |byte_index| return Span{ .start = byte_index, .end = byte_index + 1, .main = byte_index },
 
@@ -2061,9 +2128,6 @@ pub const LazySrcLoc = struct {
         /// value is being set to this tag.
         /// `base_node_inst` is unused.
         unneeded,
-        /// Means the source location points to an entire file; not any particular
-        /// location within the file. `file_scope` union field will be active.
-        entire_file,
         /// The source location points to a byte offset within a source file,
         /// offset from 0. The source file is determined contextually.
         byte_abs: u32,
@@ -2482,10 +2546,7 @@ pub const LazySrcLoc = struct {
 
     /// Like `upgrade`, but returns `null` if the source location has been lost across incremental updates.
     pub fn upgradeOrLost(lazy: LazySrcLoc, zcu: *Zcu) ?SrcLoc {
-        const file, const base_node: Ast.Node.Index = if (lazy.offset == .entire_file) .{
-            zcu.fileByIndex(lazy.base_node_inst.resolveFile(&zcu.intern_pool)),
-            .root,
-        } else resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
+        const file, const base_node: Ast.Node.Index = resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
         return .{
             .file_scope = file,
             .base_node = base_node,
@@ -2507,8 +2568,8 @@ pub const LazySrcLoc = struct {
         if (lhs_src.file_scope != rhs_src.file_scope) {
             return std.mem.order(
                 u8,
-                lhs_src.file_scope.sub_file_path,
-                rhs_src.file_scope.sub_file_path,
+                lhs_src.file_scope.abs_path,
+                rhs_src.file_scope.abs_path,
             ).compare(.lt);
         }
 
@@ -2544,13 +2605,13 @@ pub fn deinit(zcu: *Zcu) void {
 
         if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
-        for (zcu.import_table.keys()) |key| {
-            gpa.free(key);
-        }
-        for (zcu.import_table.values()) |file_index| {
+        zcu.builtin_modules.deinit(gpa);
+        zcu.module_roots.deinit(gpa);
+        for (zcu.import_table.keys()) |file_index| {
             pt.destroyFile(file_index);
         }
         zcu.import_table.deinit(gpa);
+        zcu.alive_files.deinit(gpa);
 
         for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
             gpa.free(path);
@@ -2571,9 +2632,10 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.failed_types.deinit(gpa);
 
         for (zcu.failed_files.values()) |value| {
-            if (value) |msg| msg.destroy(gpa);
+            if (value) |msg| gpa.free(msg);
         }
         zcu.failed_files.deinit(gpa);
+        zcu.failed_imports.deinit(gpa);
 
         for (zcu.failed_exports.values()) |value| {
             value.destroy(gpa);
@@ -3365,27 +3427,21 @@ pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav_id: InternPool.Nav.Index) !void
     zcu.nav_val_analysis_queued.putAssumeCapacityNoClobber(nav_id, {});
 }
 
-pub const ImportFileResult = struct {
-    file: *File,
-    file_index: File.Index,
+pub const ImportResult = struct {
+    /// Whether `file` has been newly created; in other words, whether this is the first import of
+    /// this file. This should only be `true` when importing files during AstGen. After that, all
+    /// files should have already been discovered.
     is_new: bool,
-    is_pkg: bool,
-};
 
-pub fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
-    const want_local_cache = mod == zcu.main_mod;
-    var path_hash: Cache.HashHelper = .{};
-    path_hash.addBytes(build_options.version);
-    path_hash.add(builtin.zig_backend);
-    if (!want_local_cache) {
-        path_hash.addOptionalBytes(mod.root.root_dir.path);
-        path_hash.addBytes(mod.root.sub_path);
-    }
-    path_hash.addBytes(sub_file_path);
-    var bin: Cache.BinDigest = undefined;
-    path_hash.hasher.final(&bin);
-    return bin;
-}
+    /// `file.mod` is not populated by this function, so if `is_new`, then it is `undefined`.
+    file: *Zcu.File,
+    file_index: File.Index,
+
+    /// If this import was a simple file path, this is `null`; the imported file should exist within
+    /// the importer's module. Otherwise, it's the module which the import resolved to. This module
+    /// could match the module of `cur_file`, since a module can depend on itself.
+    module: ?*Package.Module,
+};
 
 /// Delete all the Export objects that are caused by this `AnalUnit`. Re-analysis of
 /// this `AnalUnit` will cause them to be re-created (or not).
@@ -3864,15 +3920,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
 
     try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
     for (zcu.analysis_roots.slice()) |mod| {
-        // Logic ripped from `Zcu.PerThread.importPkg`.
-        // TODO: this is silly, `Module` should just store a reference to its root `File`.
-        const resolved_path = try std.fs.path.resolve(gpa, &.{
-            mod.root.root_dir.path orelse ".",
-            mod.root.sub_path,
-            mod.root_src_path,
-        });
-        defer gpa.free(resolved_path);
-        const file = zcu.import_table.get(resolved_path).?;
+        const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
         type_queue.putAssumeCapacityNoClobber(root_ty, null);
@@ -4150,7 +4198,7 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
         .@"comptime" => |cu_id| {
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
-                const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
+                const file_path = zcu.fileByIndex(resolved.file).displayPath(zcu);
                 return writer.print("comptime(inst=('{s}', %{}) [{}])", .{ file_path, @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
@@ -4175,7 +4223,7 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            const file_path = zcu.fileByIndex(info.file).displayPath(zcu);
             return writer.print("inst('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
@@ -4192,7 +4240,7 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             else => unreachable,
         },
         .zon_file => |file| {
-            const file_path = zcu.fileByIndex(file).sub_file_path;
+            const file_path = zcu.fileByIndex(file).displayPath(zcu);
             return writer.print("zon_file('{s}')", .{file_path});
         },
         .embed_file => |ef_idx| {
@@ -4207,14 +4255,14 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("namespace(<lost>)");
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            const file_path = zcu.fileByIndex(info.file).displayPath(zcu);
             return writer.print("namespace('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
                 return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            const file_path = zcu.fileByIndex(info.file).displayPath(zcu);
             return writer.print("namespace('{s}', %{d}, '{}')", .{ file_path, @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
@@ -4431,4 +4479,115 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
     }
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
     return error.CodegenFail;
+}
+
+/// Asserts that `zcu.multi_module_err != null`.
+pub fn addFileInMultipleModulesError(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+) !void {
+    const gpa = zcu.gpa;
+
+    const info = zcu.multi_module_err.?;
+    const file = info.file;
+
+    // error: file exists in modules 'root.foo' and 'root.bar'
+    // note: files must belong to only one module
+    // note: file is imported here
+    // note: which is imported here
+    // note: which is the root of module 'root.foo' imported here
+    // note: file is the root of module 'root.bar' imported here
+
+    const file_src = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb);
+    const root_msg = try eb.printString("file exists in modules '{s}' and '{s}'", .{
+        info.modules[0].fully_qualified_name,
+        info.modules[1].fully_qualified_name,
+    });
+
+    var notes: std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex) = .empty;
+    defer notes.deinit(gpa);
+
+    try notes.append(gpa, try eb.addErrorMessage(.{
+        .msg = try eb.addString("files must belong to only one module"),
+        .src_loc = file_src,
+    }));
+
+    try zcu.explainWhyFileIsInModule(eb, &notes, file, info.modules[0], info.refs[0]);
+    try zcu.explainWhyFileIsInModule(eb, &notes, file, info.modules[1], info.refs[1]);
+
+    try eb.addRootErrorMessage(.{
+        .msg = root_msg,
+        .src_loc = file_src,
+        .notes_len = @intCast(notes.items.len),
+    });
+    const notes_start = try eb.reserveNotes(@intCast(notes.items.len));
+    const notes_slice: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+    @memcpy(notes_slice, notes.items);
+}
+
+fn explainWhyFileIsInModule(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+    notes_out: *std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex),
+    file: File.Index,
+    in_module: *Package.Module,
+    ref: File.Reference,
+) !void {
+    const gpa = zcu.gpa;
+
+    // error: file is the root of module 'foo'
+    //
+    // error: file is imported here by the root of module 'foo'
+    //
+    // error: file is imported here
+    // note: which is imported here
+    // note: which is imported here by the root of module 'foo'
+
+    var import = switch (ref) {
+        .analysis_root => |mod| {
+            assert(mod == in_module);
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("file is the root of module '{s}'", .{mod.fully_qualified_name}),
+                .src_loc = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb),
+            }));
+            return;
+        },
+        .import => |import| if (import.module) |mod| {
+            assert(mod == in_module);
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("file is the root of module '{s}'", .{mod.fully_qualified_name}),
+                .src_loc = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb),
+            }));
+            return;
+        } else import,
+    };
+
+    var is_first = true;
+    while (true) {
+        const thing: []const u8 = if (is_first) "file" else "which";
+        is_first = false;
+
+        const import_src = try zcu.fileByIndex(import.importer).errorBundleTokenSrc(import.tok, zcu, eb);
+
+        const importer_ref = zcu.alive_files.get(import.importer).?;
+        const importer_root: ?*Package.Module = switch (importer_ref) {
+            .analysis_root => |mod| mod,
+            .import => |i| i.module,
+        };
+
+        if (importer_root) |m| {
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("{s} is imported here by the root of module '{s}'", .{ thing, m.fully_qualified_name }),
+                .src_loc = import_src,
+            }));
+            return;
+        }
+
+        try notes_out.append(gpa, try eb.addErrorMessage(.{
+            .msg = try eb.printString("{s} is imported here", .{thing}),
+            .src_loc = import_src,
+        }));
+
+        import = importer_ref.import;
+    }
 }

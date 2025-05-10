@@ -1,3 +1,4 @@
+/// Keep in sync with `DevEnv` in `build.zig`.
 pub const Env = enum {
     /// zig1 features
     bootstrap,

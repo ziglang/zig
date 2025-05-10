@@ -220,7 +220,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 &.{ arch_define, family_define };
 
             const root_mod = try Module.create(arena, .{
-                .global_cache_directory = comp.global_cache_directory,
                 .paths = .{
                     .root = .{ .root_dir = comp.zig_lib_directory },
                     .root_src_path = "",
@@ -242,8 +241,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .global = config,
                 .cc_argv = cc_argv,
                 .parent = null,
-                .builtin_mod = null,
-                .builtin_modules = null, // there is only one module in this compilation
             });
 
             const sub_compilation = try Compilation.create(comp.gpa, arena, .{

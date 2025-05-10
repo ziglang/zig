@@ -1723,6 +1723,19 @@ pub const FileIndex = enum(u32) {
             .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
         };
     }
+    pub fn toOptional(i: FileIndex) Optional {
+        return @enumFromInt(@intFromEnum(i));
+    }
+    pub const Optional = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+        pub fn unwrap(opt: Optional) ?FileIndex {
+            return switch (opt) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(opt)),
+            };
+        }
+    };
 };
 
 const File = struct {

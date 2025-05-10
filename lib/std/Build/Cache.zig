@@ -276,11 +276,13 @@ pub const HashHelper = struct {
     }
 
     pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
+        return binToHex(oneShotBin(bytes));
+    }
+
+    pub fn oneShotBin(bytes: []const u8) BinDigest {
         var hasher: Hasher = hasher_init;
         hasher.update(bytes);
-        var bin_digest: BinDigest = undefined;
-        hasher.final(&bin_digest);
-        return binToHex(bin_digest);
+        return hasher.finalResult();
     }
 };
 

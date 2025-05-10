@@ -333,7 +333,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_type = Type.fromInterned(func.ty);
     const file_scope = zcu.navFileScope(func.owner_nav);
-    const target = &file_scope.mod.resolved_target.result;
+    const target = &file_scope.mod.?.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
