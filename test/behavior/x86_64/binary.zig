@@ -5282,6 +5282,14 @@ test addWrap {
     try test_add_wrap.testIntVectors();
 }
 
+inline fn addSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs +| rhs;
+}
+test addSat {
+    const test_add_sat = binary(addSat, .{});
+    try test_add_sat.testInts();
+}
+
 inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
     @setRuntimeSafety(false);
     return switch (@typeInfo(Scalar(Type))) {
