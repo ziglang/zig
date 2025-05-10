@@ -1,6 +1,6 @@
 const Foo = @Type(.{
     .@"fn" = .{
-        .calling_convention = .Unspecified,
+        .calling_convention = .auto,
         .is_generic = true,
         .is_var_args = false,
         .return_type = u0,
