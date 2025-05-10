@@ -749,7 +749,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
 
             pub fn next(self: *Iterator) ?Entry {
                 return if (self.inner.next()) |index|
-                    Entry{
+                    .{
                         .key = Indexer.keyForIndex(index),
                         .value = &self.values[index],
                     }
@@ -771,6 +771,19 @@ test EnumMap {
     try testing.expectEqual(null, some.get(.red));
     try testing.expectEqual(0xff, some.get(.green));
     try testing.expectEqual(0x80, some.get(.blue));
+}
+
+test "EnumMap iterator for one field" {
+    const Enum0 = std.meta.FieldEnum(struct { x: u32 });
+    const Enum1 = enum { x };
+
+    var a = std.EnumMap(Enum0, u32).initFull(123);
+    var it0 = a.iterator();
+    try testing.expectEqual(it0.next().?.key, Enum0.x);
+
+    var b = std.EnumMap(Enum1, u32).initFull(123);
+    var it1 = b.iterator();
+    try testing.expectEqual(it1.next().?.key, Enum1.x);
 }
 
 /// A multiset of enum elements up to a count of usize. Backed
@@ -1249,7 +1262,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
             key: Key,
 
             /// A pointer to the value in the array associated
-            /// with this key. Modifications through this
+            /// with this key.  Modifications through this
             /// pointer will modify the underlying data.
             value: *Value,
         };
