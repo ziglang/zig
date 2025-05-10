@@ -3910,6 +3910,7 @@ fn createModule(
             .result = target,
             .is_native_os = target_query.isNativeOs(),
             .is_native_abi = target_query.isNativeAbi(),
+            .is_explicit_dynamic_linker = !target_query.dynamic_linker.eql(.none),
         };
     };
 
@@ -5041,6 +5042,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .result = std.zig.resolveTargetQueryOrFatal(target_query),
                     .is_native_os = false,
                     .is_native_abi = false,
+                    .is_explicit_dynamic_linker = false,
                 };
             }
         }
@@ -5048,6 +5050,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .result = std.zig.resolveTargetQueryOrFatal(.{}),
             .is_native_os = true,
             .is_native_abi = true,
+            .is_explicit_dynamic_linker = false,
         };
     };
 
@@ -5465,6 +5468,7 @@ fn jitCmd(
         .result = std.zig.resolveTargetQueryOrFatal(target_query),
         .is_native_os = true,
         .is_native_abi = true,
+        .is_explicit_dynamic_linker = false,
     };
 
     const exe_basename = try std.zig.binNameAlloc(arena, .{

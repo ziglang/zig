@@ -88,6 +88,7 @@ pub const ResolvedTarget = struct {
     result: std.Target,
     is_native_os: bool,
     is_native_abi: bool,
+    is_explicit_dynamic_linker: bool,
     llvm_cpu_features: ?[*:0]const u8 = null,
 };
 
@@ -365,6 +366,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .result = target,
             .is_native_os = resolved_target.is_native_os,
             .is_native_abi = resolved_target.is_native_abi,
+            .is_explicit_dynamic_linker = resolved_target.is_explicit_dynamic_linker,
             .llvm_cpu_features = llvm_cpu_features,
         },
         .optimize_mode = optimize_mode,
@@ -441,6 +443,7 @@ pub fn createBuiltin(arena: Allocator, opts: Builtin, dirs: Compilation.Director
             // These values are not in `opts`, but do not matter because `builtin.zig` contains no runtime code.
             .is_native_os = false,
             .is_native_abi = false,
+            .is_explicit_dynamic_linker = false,
             .llvm_cpu_features = null,
         },
         .optimize_mode = opts.optimize_mode,
