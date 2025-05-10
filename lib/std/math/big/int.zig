@@ -1617,8 +1617,9 @@ pub const Mutable = struct {
             const result = div3by2(0, a_limbs[1], a_limbs[0], b.limbs[1], b.limbs[0], reciprocal);
 
             q.limbs[0] = result.q;
-            a_limbs[0] = result.r[0];
-            a_limbs[1] = result.r[1];
+            // result.r[0] is the high part of r and result.r[1] its low part
+            a_limbs[1] = result.r[0];
+            a_limbs[0] = result.r[1];
         } else {
             basecaseDivRem(q.limbs, a_limbs, b_limbs);
         }
