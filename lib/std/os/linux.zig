@@ -9285,8 +9285,8 @@ test "inet sockets" {
     // - [x] sendto
     // - [x] recvfrom
     // - [x] shutdown
-    // - [ ] setsockopt
-    // - [ ] getsockopt
+    // - [x] setsockopt
+    // - [x] getsockopt
     // - [ ] sendmsg
     // - [ ] recvmsg
     // - [ ] accept4
@@ -9297,6 +9297,18 @@ test "inet sockets" {
     var rc = socket(AF.INET, SOCK.STREAM, 0);
     try std.testing.expectEqual(.SUCCESS, E.init(rc));
     const fd: fd_t = @intCast(rc);
+
+    const test_sndbuf: c_int = 4096;
+    rc = setsockopt(fd, SOL.SOCKET, SO.SNDBUF, std.mem.asBytes(&test_sndbuf).ptr, std.mem.asBytes(&test_sndbuf).len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    var sndbuf: c_int = undefined;
+    var sndbuf_len: socklen_t = std.mem.asBytes(&sndbuf).len;
+    rc = getsockopt(fd, SOL.SOCKET, SO.SNDBUF, std.mem.asBytes(&sndbuf).ptr, &sndbuf_len);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+    try std.testing.expectEqual(test_sndbuf * 2, sndbuf);
 
     var addr: sockaddr.storage = undefined;
     var len: u32 = @sizeOf(@TypeOf(addr));
