@@ -364,7 +364,7 @@ const Eval = struct {
                 error_bundle.renderToStdErr(color.renderOptions());
                 eval.fatal("update '{s}': more errors than expected", .{update.name});
             }
-            eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
+            try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
             expected_idx += 1;
 
             for (error_bundle.getNotes(err_idx)) |note_idx| {
@@ -373,7 +373,7 @@ const Eval = struct {
                     error_bundle.renderToStdErr(color.renderOptions());
                     eval.fatal("update '{s}': more error notes than expected", .{update.name});
                 }
-                eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
+                try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
                 expected_idx += 1;
             }
         }
@@ -392,13 +392,21 @@ const Eval = struct {
         expected: Case.ExpectedError,
         is_note: bool,
         err_idx: std.zig.ErrorBundle.MessageIndex,
-    ) void {
+    ) Allocator.Error!void {
         const err = eb.getErrorMessage(err_idx);
         if (err.src_loc == .none) @panic("TODO error message with no source location");
         if (err.count != 1) @panic("TODO error message with count>1");
         const msg = eb.nullTerminatedString(err.msg);
         const src = eb.getSourceLocation(err.src_loc);
-        const filename = eb.nullTerminatedString(src.src_path);
+        const raw_filename = eb.nullTerminatedString(src.src_path);
+
+        // We need to replace backslashes for consistency between platforms.
+        const filename = name: {
+            if (std.mem.indexOfScalar(u8, raw_filename, '\\') == null) break :name raw_filename;
+            const copied = try eval.arena.dupe(u8, raw_filename);
+            std.mem.replaceScalar(u8, copied, '\\', '/');
+            break :name copied;
+        };
 
         if (expected.is_note != is_note or
             !std.mem.eql(u8, expected.filename, filename) or
