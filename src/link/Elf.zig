@@ -1533,8 +1533,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = comp.config.link_libc and
-        link_mode == .dynamic and is_exe_or_dyn_lib;
+    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = self.getTarget();
     const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1616,9 +1615,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
-            if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(target.dynamic_linker.get());
-            }
+        }
+        if (have_dynamic_linker) {
+            man.hash.addOptionalBytes(target.dynamic_linker.get());
         }
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
@@ -1908,12 +1907,14 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
+        }
 
-            if (have_dynamic_linker) {
-                if (target.dynamic_linker.get()) |dynamic_linker| {
-                    try argv.append("-dynamic-linker");
-                    try argv.append(dynamic_linker);
-                }
+        if (have_dynamic_linker and
+            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
+        {
+            if (target.dynamic_linker.get()) |dynamic_linker| {
+                try argv.append("-dynamic-linker");
+                try argv.append(dynamic_linker);
             }
         }
 
