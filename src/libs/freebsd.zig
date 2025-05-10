@@ -668,6 +668,25 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         try stubs_writer.writeAll(".data\n");
 
+        // FreeBSD's `libc.so.7` contains strong references to `__progname` and `environ` which are
+        // defined in the statically-linked startup code. Those references cause the linker to put
+        // the symbols in the dynamic symbol table. We need to create dummy references to them here
+        // to get the same effect.
+        if (std.mem.eql(u8, lib.name, "c")) {
+            try stubs_writer.print(
+                \\.balign {d}
+                \\.globl __progname
+                \\.globl environ
+                \\{s} __progname
+                \\{s} environ
+                \\
+            , .{
+                target.ptrBitWidth() / 8,
+                wordDirective(target),
+                wordDirective(target),
+            });
+        }
+
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
         var sizes = try arena.alloc(u16, metadata.all_versions.len);
