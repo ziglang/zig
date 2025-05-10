@@ -9423,7 +9423,7 @@ test "inet sockets" {
     try std.testing.expectEqual(0, rc);
 }
 
-test "unix sockets" {
+test "unix sockets sendmsg and recvmsg" {
     // socket functions tested:
     // - [ ] socket
     // - [ ] bind
@@ -9451,6 +9451,7 @@ test "unix sockets" {
     var rc = socketpair(AF.UNIX, SOCK.SEQPACKET, 0, &socks);
     try std.testing.expectEqual(.SUCCESS, E.init(rc));
 
+    // test sendmsg
     const data = "foo";
     const send_iov: [1]iovec_const = .{.{
         .base = data,
@@ -9468,6 +9469,7 @@ test "unix sockets" {
     try std.testing.expectEqual(.SUCCESS, E.init(rc));
     try std.testing.expectEqual(data.len, rc);
 
+    // test recvmsg
     var recv_data: [data.len]u8 = undefined;
     var recv_iov: [1]iovec = .{.{
         .base = &recv_data,
@@ -9487,6 +9489,134 @@ test "unix sockets" {
     try std.testing.expectEqual(data.len, rc);
     try std.testing.expectEqual(data.len, recv_iov[0].len);
     try std.testing.expectEqualSlices(u8, data, &recv_data);
+
+    rc = close(socks[0]);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+
+    rc = close(socks[1]);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(0, rc);
+}
+
+test "unix sockets sendmmsg and recvmmsg" {
+    // socket functions tested:
+    // - [ ] socket
+    // - [ ] bind
+    // - [ ] connect
+    // - [ ] listen
+    // - [ ] accept
+    // - [ ] getsockname
+    // - [ ] getpeername
+    // - [x] socketpair
+    // - [ ] send
+    // - [ ] recv
+    // - [ ] sendto
+    // - [ ] recvfrom
+    // - [ ] shutdown
+    // - [ ] setsockopt
+    // - [ ] getsockopt
+    // - [ ] sendmsg
+    // - [ ] recvmsg
+    // - [ ] accept4
+    // - [x] recvmmsg
+    // - [x] sendmmsg
+
+    // create a socket "fd" to be the server
+    var socks: [2]socket_t = undefined;
+    var rc = socketpair(AF.UNIX, SOCK.SEQPACKET, 0, &socks);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+
+    // test sendmmsg
+    const data: [2][]const u8 = .{ "foo", "bar" };
+    const send_iov: [2][1]iovec_const = .{
+        .{.{
+            .base = data[0].ptr,
+            .len = data[0].len,
+        }},
+        .{.{
+            .base = data[1].ptr,
+            .len = data[1].len,
+        }},
+    };
+    var send_hdr: [2]mmsghdr_const = .{
+        .{
+            .hdr = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &send_iov[0],
+                .iovlen = send_iov[0].len,
+                .control = null,
+                .controllen = 0,
+                .flags = 0,
+            },
+            .len = 0,
+        },
+        .{
+            .hdr = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &send_iov[1],
+                .iovlen = send_iov[1].len,
+                .control = null,
+                .controllen = 0,
+                .flags = 0,
+            },
+            .len = 0,
+        },
+    };
+    rc = sendmmsg(socks[0], &send_hdr, 2, 0);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(data.len, rc);
+    for (data, send_hdr) |data_el, hdr| {
+        try std.testing.expectEqual(data_el.len, hdr.len);
+    }
+
+    // test recvmmsg
+    var recv_data: struct { [data[0].len]u8, [data[1].len]u8 } = undefined;
+    var recv_iov: [2][1]iovec = .{
+        .{.{
+            .base = &recv_data[0],
+            .len = recv_data[0].len,
+        }},
+        .{.{
+            .base = &recv_data[1],
+            .len = recv_data[1].len,
+        }},
+    };
+    var recv_hdr: [2]mmsghdr = .{
+        .{
+            .hdr = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &recv_iov[0],
+                .iovlen = recv_iov[0].len,
+                .control = null,
+                .controllen = 0,
+                .flags = 0,
+            },
+            .len = 0,
+        },
+        .{
+            .hdr = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &recv_iov[1],
+                .iovlen = recv_iov[1].len,
+                .control = null,
+                .controllen = 0,
+                .flags = 0,
+            },
+            .len = 0,
+        },
+    };
+    rc = recvmmsg(socks[1], &recv_hdr, recv_hdr.len, 0, null);
+    try std.testing.expectEqual(.SUCCESS, E.init(rc));
+    try std.testing.expectEqual(recv_hdr.len, rc);
+    inline for (data, recv_iov, &recv_data) |data_el, iov, *recv_data_el| {
+        try std.testing.expectEqual(data_el.len, iov[0].len);
+        try std.testing.expectEqualSlices(u8, data_el, recv_data_el);
+    }
 
     rc = close(socks[0]);
     try std.testing.expectEqual(.SUCCESS, E.init(rc));
