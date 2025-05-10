@@ -16,15 +16,11 @@ comptime {
     @export(&strncpy, .{ .name = "strncpy", .linkage = common.linkage, .visibility = common.visibility });
     @export(&memccpy, .{ .name = "memccpy", .linkage = common.linkage, .visibility = common.visibility });
     @export(&mempcpy, .{ .name = "mempcpy", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&memset, .{ .name = "memset", .linkage = common.linkage, .visibility = common.visibility });
     @export(&memmem, .{ .name = "memmem", .linkage = common.linkage, .visibility = common.visibility });
     { // TODO: Conditional export for armeabi?
         @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
         @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
         @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memset, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memset, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
     }
     @export(&memchr, .{ .name = "memchr", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .weak, .visibility = .hidden });
@@ -155,18 +151,10 @@ test strrchr {
     try std.testing.expect(strrchr(foo, 0) == (foo + 5));
 }
 
-// NOTE: This is a wrapper because the compiler_rt implementation has a
-// differnet function signature (c is u8)
-fn memset(dest: *anyopaque, c: c_int, n: usize) callconv(.c) *anyopaque {
-    @setRuntimeSafety(false);
-    const buf: [*]u8 = @ptrCast(dest);
-    const v: u8 = @intCast(c);
-    @memset(buf[0..n], v);
-    return dest;
-}
-
 fn __aeabi_memclr(dest: *anyopaque, n: usize) callconv(.c) *anyopaque {
-    return memset(dest, 0, n);
+    const buf: [*]u8 = @ptrCast(dest);
+    @memset(buf[0..n], 0);
+    return dest;
 }
 
 fn memccpy(noalias dest: *anyopaque, noalias src: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*anyopaque {
@@ -259,7 +247,9 @@ test strcpy {
 fn stpncpy(noalias dest: [*:0]c_char, noalias src: [*:0]const c_char, n: usize) callconv(.c) [*:0]c_char {
     const dlen = strnlen(src, n);
     const end = mempcpy(@ptrCast(dest), @ptrCast(src), dlen);
-    return @ptrCast(memset(end, 0, n - dlen));
+    const remaining: [*]u8 = @ptrCast(end);
+    @memset(remaining[0 .. n - dlen], 0);
+    return @ptrCast(end);
 }
 
 test stpncpy {
