@@ -1,11 +1,12 @@
 //! To get started, run this tool with no args and read the help message.
 //!
-//! The build systems of musl-libc and glibc require specifying a single target
+//! The build systems of glibc, musl, and FreeBSD require specifying a single target
 //! architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
 //! every target. So the process to create libc headers that Zig ships is to use
 //! this tool.
-//! First, use the musl/glibc build systems to create installations of all the
-//! targets in the `glibc_targets`/`musl_targets` variables.
+//!
+//! First, use the glibc, musl, and FreeBSD build systems to create installations of all the
+//! targets in the `glibc_targets`, `musl_targets`, and `freebsd_targets` variables.
 //! Next, run this tool to create a new directory which puts .h files into
 //! <arch> subdirectories, with `generic` being files that apply to all architectures.
 //! You'll then have to manually update Zig source repo with these new files.
@@ -76,6 +77,16 @@ const musl_targets = [_]LibCTarget{
     .{ .arch = .x86_64, .abi = .muslx32 },
 };
 
+const freebsd_targets = [_]LibCTarget{
+    .{ .arch = .arm, .abi = .eabihf },
+    .{ .arch = .aarch64, .abi = .none },
+    .{ .arch = .powerpc, .abi = .eabihf },
+    .{ .arch = .powerpc64, .abi = .none },
+    .{ .arch = .riscv64, .abi = .none },
+    .{ .arch = .x86, .abi = .none },
+    .{ .arch = .x86_64, .abi = .none },
+};
+
 const DestTarget = struct {
     arch: Arch,
     os: OsTag,
@@ -118,6 +129,7 @@ const PathTable = std.StringHashMap(*TargetToHash);
 const LibCVendor = enum {
     musl,
     glibc,
+    freebsd,
 };
 
 pub fn main() !void {
@@ -164,6 +176,7 @@ pub fn main() !void {
     const libc_targets = switch (vendor) {
         .glibc => &glibc_targets,
         .musl => &musl_targets,
+        .freebsd => &freebsd_targets,
     };
 
     var path_table = PathTable.init(allocator);
@@ -177,16 +190,27 @@ pub fn main() !void {
         const libc_dir = switch (vendor) {
             .glibc => try std.zig.target.glibcRuntimeTriple(allocator, libc_target.arch, .linux, libc_target.abi),
             .musl => std.zig.target.muslArchName(libc_target.arch, libc_target.abi),
+            .freebsd => switch (libc_target.arch) {
+                .arm => "armv7",
+                .aarch64 => "aarch64",
+                .powerpc => "powerpc",
+                .powerpc64 => "powerpc64",
+                .powerpc64le => "powerpc64le",
+                .riscv64 => "riscv64",
+                .x86 => "i386",
+                .x86_64 => "amd64",
+                else => unreachable,
+            },
         };
         const dest_target = DestTarget{
             .arch = libc_target.arch,
-            .os = .linux,
+            .os = if (vendor == .freebsd) .freebsd else .linux,
             .abi = libc_target.abi,
         };
 
         search: for (search_paths.items) |search_path| {
             const sub_path = switch (vendor) {
-                .glibc => &[_][]const u8{ search_path, libc_dir, "usr", "include" },
+                .glibc, .freebsd => &[_][]const u8{ search_path, libc_dir, "usr", "include" },
                 .musl => &[_][]const u8{ search_path, libc_dir, "usr", "local", "musl", "include" },
             };
             const target_include_dir = try std.fs.path.join(allocator, sub_path);
@@ -207,7 +231,7 @@ pub fn main() !void {
                     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
                         .directory => try dir_stack.append(full_path),
-                        .file => {
+                        .file, .sym_link => {
                             const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
                             const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
@@ -315,6 +339,6 @@ fn usageAndExit(arg0: []const u8) noreturn {
     std.debug.print("--search-path can be used any number of times.\n", .{});
     std.debug.print("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
     std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
-    std.debug.print("--abi is either musl or glibc\n", .{});
+    std.debug.print("--abi is either glibc, musl, or freebsd\n", .{});
     std.process.exit(1);
 }

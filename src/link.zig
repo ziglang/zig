@@ -6,7 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;

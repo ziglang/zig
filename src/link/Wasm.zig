@@ -44,7 +44,7 @@ const dev = @import("../dev.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
-const wasi_libc = @import("../wasi_libc.zig");
+const wasi_libc = @import("../libs/wasi_libc.zig");
 const Value = @import("../Value.zig");
 
 base: link.File,
