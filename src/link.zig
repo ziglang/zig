@@ -597,7 +597,7 @@ pub const File = struct {
                     .mode = determineMode(use_lld, output_mode, link_mode),
                 });
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -670,7 +670,7 @@ pub const File = struct {
                     }
                 }
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -697,7 +697,6 @@ pub const File = struct {
             .plan9 => unreachable,
             .spirv => unreachable,
             .c => unreachable,
-            .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
@@ -766,7 +765,7 @@ pub const File = struct {
         }
 
         switch (base.tag) {
-            .spirv, .nvptx => {},
+            .spirv => {},
             .goff, .xcoff => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -901,7 +900,6 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
             inline else => |tag| {
@@ -921,7 +919,6 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
             inline else => |tag| {
@@ -935,7 +932,6 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
             inline else => |tag| {
@@ -953,7 +949,6 @@ pub const File = struct {
         switch (base.tag) {
             .plan9,
             .spirv,
-            .nvptx,
             .goff,
             .xcoff,
             => {},
@@ -1251,7 +1246,6 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
-        nvptx,
         goff,
         xcoff,
 
@@ -1264,7 +1258,6 @@ pub const File = struct {
                 .wasm => Wasm,
                 .spirv => SpirV,
                 .plan9 => Plan9,
-                .nvptx => NvPtx,
                 .goff => Goff,
                 .xcoff => Xcoff,
             };
@@ -1279,7 +1272,6 @@ pub const File = struct {
                 .plan9 => .plan9,
                 .c => .c,
                 .spirv => .spirv,
-                .nvptx => .nvptx,
                 .goff => .goff,
                 .xcoff => .xcoff,
                 .hex => @panic("TODO implement hex object format"),
@@ -1386,7 +1378,6 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
-    pub const NvPtx = @import("link/NvPtx.zig");
     pub const Goff = @import("link/Goff.zig");
     pub const Xcoff = @import("link/Xcoff.zig");
     pub const Dwarf = @import("link/Dwarf.zig");

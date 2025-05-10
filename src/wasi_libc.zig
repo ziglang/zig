@@ -1044,7 +1044,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdlib/qsort_nr.c",
     "musl/src/string/bcmp.c",
     "musl/src/string/bcopy.c",
-    "musl/src/string/bzero.c",
     "musl/src/string/explicit_bzero.c",
     "musl/src/string/index.c",
     "musl/src/string/memccpy.c",

@@ -1840,7 +1840,6 @@ const src_files = [_][]const u8{
     "musl/src/string/arm/__aeabi_memset.s",
     "musl/src/string/bcmp.c",
     "musl/src/string/bcopy.c",
-    "musl/src/string/bzero.c",
     "musl/src/string/explicit_bzero.c",
     "musl/src/string/i386/memset.s",
     "musl/src/string/index.c",
