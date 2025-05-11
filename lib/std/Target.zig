@@ -522,7 +522,19 @@ pub const Os = struct {
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
+                        .min = blk: {
+                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                if (libc.os_ver) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
@@ -695,7 +707,6 @@ pub const Os = struct {
     /// since this is the stable syscall interface.
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
-            .freebsd,
             .aix,
             .netbsd,
             .driverkit,
@@ -714,6 +725,7 @@ pub const Os = struct {
 
             .linux,
             .windows,
+            .freebsd,
             .freestanding,
             .fuchsia,
             .ps3,
@@ -2049,6 +2061,13 @@ pub inline fn isMuslLibC(target: Target) bool {
 pub inline fn isDarwinLibC(target: Target) bool {
     return switch (target.abi) {
         .none, .macabi, .simulator => target.os.tag.isDarwin(),
+        else => false,
+    };
+}
+
+pub inline fn isFreeBSDLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .eabihf => target.os.tag == .freebsd,
         else => false,
     };
 }
