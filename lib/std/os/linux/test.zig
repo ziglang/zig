@@ -8,6 +8,8 @@ const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23809
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 

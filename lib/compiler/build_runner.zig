@@ -241,8 +241,9 @@ pub fn main() !void {
                 // but it is handled by the parent process. The build runner
                 // only sees this flag.
                 graph.system_package_mode = true;
-            } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
+                // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
+                builder.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -1279,9 +1280,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
         \\                               foreign-architecture programs on Linux hosts
         \\                               (default: no)
-        \\  --glibc-runtimes [path]      Enhances QEMU integration by providing glibc built
-        \\                               for multiple foreign architectures, allowing
-        \\                               execution of non-native programs that link with glibc.
+        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
+        \\                               (e.g. glibc or musl) built for multiple foreign
+        \\                               architectures, allowing execution of non-native
+        \\                               programs that link with libc.
         \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
         \\                               ARM64 macOS hosts. (default: no)
         \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
