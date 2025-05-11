@@ -1252,7 +1252,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
     return fbs.pos;
 }
 
-/// Converts values in the range [0, 100) to a base 10 string.
+/// Converts values in the range [0, 100] to a base 10 string.
 pub fn digits2(value: u8) [2]u8 {
     if (builtin.mode == .ReleaseSmall) {
         return .{ @intCast('0' + value / 10), @intCast('0' + value % 10) };
