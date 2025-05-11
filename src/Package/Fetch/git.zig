@@ -313,7 +313,7 @@ pub const Repository = struct {
                 unused: u3,
                 type: u4,
             } = @bitCast(std.fmt.parseUnsigned(u16, iterator.data[iterator.pos..mode_end], 8) catch return error.InvalidTree);
-            const @"type" = std.meta.intToEnum(Entry.Type, mode.type) catch return error.InvalidTree;
+            const @"type" = std.enums.fromInt(Entry.Type, mode.type) orelse return error.InvalidTree;
             const executable = switch (mode.permission) {
                 0 => if (@"type" == .file) return error.InvalidTree else false,
                 0o644 => if (@"type" != .file) return error.InvalidTree else false,
@@ -1144,7 +1144,7 @@ const EntryHeader = union(Type) {
         const rest_len = if (initial.has_next) try readSizeVarInt(reader) else 0;
         var uncompressed_length: u64 = initial.len;
         uncompressed_length |= std.math.shlExact(u64, rest_len, 4) catch return error.InvalidFormat;
-        const @"type" = std.meta.intToEnum(EntryHeader.Type, initial.type) catch return error.InvalidFormat;
+        const @"type" = std.enums.fromInt(EntryHeader.Type, initial.type) orelse return error.InvalidFormat;
         return switch (@"type") {
             inline .commit, .tree, .blob, .tag => |tag| @unionInit(EntryHeader, @tagName(tag), .{
                 .uncompressed_length = uncompressed_length,
