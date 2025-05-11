@@ -2870,7 +2870,7 @@ const NavGen = struct {
         };
 
         try self.spv.declareDeclDeps(spv_decl_index, decl_deps.items);
-        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode);
+        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode, null);
     }
 
     fn genNav(self: *NavGen, do_codegen: bool) !void {
@@ -2976,10 +2976,6 @@ const NavGen = struct {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .Position } });
                 } else if (nav.fqn.eqlSlice("point_size", ip)) {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointSize } });
-                } else if (nav.fqn.eqlSlice("vertex_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .VertexId } });
-                } else if (nav.fqn.eqlSlice("instance_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InstanceId } });
                 } else if (nav.fqn.eqlSlice("invocation_id", ip)) {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InvocationId } });
                 } else if (nav.fqn.eqlSlice("frag_coord", ip)) {
@@ -2988,8 +2984,6 @@ const NavGen = struct {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointCoord } });
                 } else if (nav.fqn.eqlSlice("front_facing", ip)) {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FrontFacing } });
-                } else if (nav.fqn.eqlSlice("sample_mask", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .SampleMask } });
                 } else if (nav.fqn.eqlSlice("sample_mask", ip)) {
                     try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .SampleMask } });
                 } else if (nav.fqn.eqlSlice("frag_depth", ip)) {
