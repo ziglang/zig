@@ -857,58 +857,12 @@ test eql {
     try testing.expect(!eql(CU{ .a = {} }, .b));
 }
 
-test intToEnum {
-    const E1 = enum {
-        A,
-    };
-    const E2 = enum {
-        A,
-        B,
-    };
-    const E3 = enum(i8) { A, _ };
-
-    var zero: u8 = 0;
-    var one: u16 = 1;
-    _ = &zero;
-    _ = &one;
-    try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
-    try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
-    try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @as(E3, @enumFromInt(127)));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @as(E3, @enumFromInt(-128)));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
-}
-
+/// Deprecated: use `std.enums.fromInt` instead and handle null.
 pub const IntToEnumError = error{InvalidEnumTag};
 
+/// Deprecated: use `std.enums.fromInt` instead and handle null instead of an error.
 pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
-    const enum_info = @typeInfo(EnumTag).@"enum";
-
-    if (!enum_info.is_exhaustive) {
-        if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @as(EnumTag, @enumFromInt(tag));
-        }
-        return error.InvalidEnumTag;
-    }
-
-    // We don't directly iterate over the fields of EnumTag, as that
-    // would require an inline loop. Instead, we create an array of
-    // values that is comptime-know, but can be iterated at runtime
-    // without requiring an inline loop. This generates better
-    // machine code.
-    const values = comptime blk: {
-        var result: [enum_info.fields.len]enum_info.tag_type = undefined;
-        for (&result, enum_info.fields) |*dst, src| {
-            dst.* = src.value;
-        }
-        break :blk result;
-    };
-    for (values) |v| {
-        if (v == tag_int) return @enumFromInt(tag_int);
-    }
-    return error.InvalidEnumTag;
+    return std.enums.fromInt(EnumTag, tag_int) orelse return error.InvalidEnumTag;
 }
 
 /// Given a type and a name, return the field index according to source order.

@@ -3814,7 +3814,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .@"enum" => switch (interpret_mode) {
             .direct => {
                 const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
-                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+                return std.enums.fromInt(T, int) orelse error.TypeMismatch;
             },
             .by_name => {
                 const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;
