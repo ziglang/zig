@@ -92,11 +92,12 @@ pub const Decl = struct {
 /// This models a kernel entry point.
 pub const EntryPoint = struct {
     /// The declaration that should be exported.
-    decl_index: Decl.Index,
+    decl_index: ?Decl.Index = null,
     /// The name of the kernel to be exported.
-    name: []const u8,
+    name: ?[]const u8 = null,
     /// Calling Convention
-    execution_model: spec.ExecutionModel,
+    exec_model: ?spec.ExecutionModel = null,
+    exec_mode: ?spec.ExecutionMode = null,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -184,7 +185,7 @@ decls: std.ArrayListUnmanaged(Decl) = .empty,
 decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
-entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
+entry_points: std.AutoArrayHashMapUnmanaged(IdRef, EntryPoint) = .empty,
 
 pub fn init(gpa: Allocator, target: std.Target) Module {
     const version_minor: u8 = blk: {
@@ -304,19 +305,30 @@ fn entryPoints(self: *Module) !Section {
     var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
     defer seen.deinit(self.gpa);
 
-    for (self.entry_points.items) |entry_point| {
+    for (self.entry_points.keys(), self.entry_points.values()) |entry_point_id, entry_point| {
         interface.items.len = 0;
         seen.setRangeValue(.{ .start = 0, .end = self.decls.items.len }, false);
 
-        try self.addEntryPointDeps(entry_point.decl_index, &seen, &interface);
-
-        const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
+        try self.addEntryPointDeps(entry_point.decl_index.?, &seen, &interface);
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.execution_model,
+            .execution_model = entry_point.exec_model.?,
             .entry_point = entry_point_id,
-            .name = entry_point.name,
+            .name = entry_point.name.?,
             .interface = interface.items,
         });
+
+        if (entry_point.exec_mode == null and entry_point.exec_model == .Fragment) {
+            switch (self.target.os.tag) {
+                .vulkan, .opengl => |tag| {
+                    try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+                        .entry_point = entry_point_id,
+                        .mode = if (tag == .vulkan) .OriginUpperLeft else .OriginLowerLeft,
+                    });
+                },
+                .opencl => {},
+                else => unreachable,
+            }
+        }
     }
 
     return entry_points;
@@ -749,13 +761,15 @@ pub fn declareEntryPoint(
     self: *Module,
     decl_index: Decl.Index,
     name: []const u8,
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode,
 ) !void {
-    try self.entry_points.append(self.gpa, .{
-        .decl_index = decl_index,
-        .name = try self.arena.allocator().dupe(u8, name),
-        .execution_model = execution_model,
-    });
+    const gop = try self.entry_points.getOrPut(self.gpa, self.declPtr(decl_index).result_id);
+    gop.value_ptr.decl_index = decl_index;
+    gop.value_ptr.name = try self.arena.allocator().dupe(u8, name);
+    gop.value_ptr.exec_model = exec_model;
+    // Might've been set by assembler
+    if (!gop.found_existing) gop.value_ptr.exec_mode = exec_mode;
 }
 
 pub fn debugName(self: *Module, target: IdResult, name: []const u8) !void {
