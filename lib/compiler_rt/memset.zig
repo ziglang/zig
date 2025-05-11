@@ -6,10 +6,6 @@ comptime {
     if (builtin.object_format != .c) {
         @export(&memset, .{ .name = "memset", .linkage = common.linkage, .visibility = common.visibility });
         @export(&__memset, .{ .name = "__memset", .linkage = common.linkage, .visibility = common.visibility });
-        // NOTE: Symbols for musl-libc implementation
-        @export(&memset, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memset, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

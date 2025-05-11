@@ -17,20 +17,17 @@ comptime {
     @export(&memccpy, .{ .name = "memccpy", .linkage = common.linkage, .visibility = common.visibility });
     @export(&mempcpy, .{ .name = "mempcpy", .linkage = common.linkage, .visibility = common.visibility });
     @export(&memmem, .{ .name = "memmem", .linkage = common.linkage, .visibility = common.visibility });
-    { // TODO: Conditional export for armeabi?
-        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
-    }
     @export(&memchr, .{ .name = "memchr", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .weak, .visibility = .hidden });
     @export(&strchrnul, .{ .name = "strchrnul", .linkage = .weak, .visibility = common.visibility });
     @export(&memrchr, .{ .name = "memrchr", .linkage = .weak, .visibility = common.visibility });
-    @export(&memrchr, .{ .name = "__memrchr", .linkage = .weak, .visibility = .hidden });
     @export(&stpcpy, .{ .name = "stpcpy", .linkage = .weak, .visibility = common.visibility });
-    @export(&stpcpy, .{ .name = "__stpcpy", .linkage = .weak, .visibility = .hidden });
     @export(&stpncpy, .{ .name = "stpncpy", .linkage = .weak, .visibility = common.visibility });
-    @export(&stpncpy, .{ .name = "__stpncpy", .linkage = .weak, .visibility = .hidden });
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        @export(&stpncpy, .{ .name = "__stpncpy", .linkage = .weak, .visibility = .hidden });
+        @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .weak, .visibility = .hidden });
+        @export(&memrchr, .{ .name = "__memrchr", .linkage = .weak, .visibility = .hidden });
+        @export(&stpcpy, .{ .name = "__stpcpy", .linkage = .weak, .visibility = .hidden });
+    }
 }
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
@@ -74,10 +71,10 @@ fn strnlen(s: [*:0]const c_char, n: usize) callconv(.c) usize {
 }
 
 fn strchrnul(s: [*:0]const c_char, c: c_int) callconv(.c) [*:0]const c_char {
-    const needle: u8 = @intCast(c);
+    const needle: c_char = @intCast(c);
     if (needle == 0) return s + strlen(s);
 
-    var it: [*:0]const u8 = @ptrCast(s);
+    var it: [*:0]const c_char = @ptrCast(s);
     while (it[0] != 0 and it[0] != needle) : (it += 1) {}
     return @ptrCast(it);
 }
@@ -92,7 +89,7 @@ test strchrnul {
 
 fn strchr(s: [*:0]const c_char, c: c_int) callconv(.c) ?[*:0]const c_char {
     const result = strchrnul(s, c);
-    const needle: u8 = @intCast(c);
+    const needle: c_char = @intCast(c);
     return if (result[0] == needle) result else null;
 }
 
@@ -105,13 +102,13 @@ test strchr {
 }
 
 fn memchr(m: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*const anyopaque {
-    const needle: u8 = @intCast(c);
-    const s: [*:0]const u8 = @ptrCast(m);
-    var idx: usize = 0;
-    while (idx < n) : (idx += 1) {
-        if (s[idx] == needle) return @ptrCast(s + idx);
+    const needle: c_char = @intCast(c);
+    const s: [*]const c_char = @ptrCast(m);
+    if (std.mem.indexOfScalar(c_char, s[0..n], needle)) |idx| {
+        return @ptrCast(s + idx);
+    } else {
+        return null;
     }
-    return null;
 }
 
 test memchr {
@@ -122,14 +119,13 @@ test memchr {
 }
 
 fn memrchr(m: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*const anyopaque {
-    const needle: u8 = @intCast(c);
-    const s: [*:0]const u8 = @ptrCast(m);
-    var idx: usize = n;
-    while (idx > 0) {
-        idx -= 1;
-        if (s[idx] == needle) return @ptrCast(s + idx);
+    const needle: c_char = @intCast(c);
+    const s: [*]const c_char = @ptrCast(m);
+    if (std.mem.lastIndexOfScalar(c_char, s[0..n], needle)) |idx| {
+        return @ptrCast(s + idx);
+    } else {
+        return null;
     }
-    return null;
 }
 
 test memrchr {
@@ -152,16 +148,16 @@ test strrchr {
 }
 
 fn __aeabi_memclr(dest: *anyopaque, n: usize) callconv(.c) *anyopaque {
-    const buf: [*]u8 = @ptrCast(dest);
+    const buf: [*]c_char = @ptrCast(dest);
     @memset(buf[0..n], 0);
     return dest;
 }
 
 fn memccpy(noalias dest: *anyopaque, noalias src: *const anyopaque, c: c_int, n: usize) callconv(.c) ?*anyopaque {
     @setRuntimeSafety(false);
-    const d: [*]u8 = @ptrCast(dest);
-    const s: [*]const u8 = @ptrCast(src);
-    const needle: u8 = @intCast(c);
+    const d: [*]c_char = @ptrCast(dest);
+    const s: [*]const c_char = @ptrCast(src);
+    const needle: c_char = @intCast(c);
     var idx: usize = 0;
     while (idx < n) : (idx += 1) {
         d[idx] = s[idx];
@@ -201,10 +197,10 @@ test mempcpy {
 }
 
 fn memmem(haystack: *const anyopaque, haystack_len: usize, needle: *const anyopaque, needle_len: usize) callconv(.c) ?*const anyopaque {
-    const h: [*]const u8 = @ptrCast(haystack);
-    const n: [*]const u8 = @ptrCast(needle);
+    const h: [*]const c_char = @ptrCast(haystack);
+    const n: [*]const c_char = @ptrCast(needle);
 
-    if (std.mem.indexOf(u8, h[0..haystack_len], n[0..needle_len])) |idx| {
+    if (std.mem.indexOf(c_char, h[0..haystack_len], n[0..needle_len])) |idx| {
         return @ptrCast(h + idx);
     } else {
         return null;
@@ -212,8 +208,8 @@ fn memmem(haystack: *const anyopaque, haystack_len: usize, needle: *const anyopa
 }
 
 fn stpcpy(noalias dest: [*:0]c_char, noalias src: [*:0]const c_char) callconv(.c) [*:0]c_char {
-    var d: [*]u8 = @ptrCast(dest);
-    var s: [*]const u8 = @ptrCast(src);
+    var d: [*]c_char = @ptrCast(dest);
+    var s: [*]const c_char = @ptrCast(src);
     // QUESTION: is std.mem.span -> @memset more efficient here?
     while (true) {
         d[0] = s[0];
