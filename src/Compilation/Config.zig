@@ -335,6 +335,13 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
         if (options.link_libc) |x| break :b x;
+        switch (target.os.tag) {
+            // These targets don't require libc, but we don't yet have a syscall layer for them,
+            // so we default to linking libc for now.
+            .freebsd,
+            => break :b true,
+            else => {},
+        }
         if (options.ensure_libc_on_non_freestanding and target.os.tag != .freestanding)
             break :b true;
 
