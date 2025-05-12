@@ -339,6 +339,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             // These targets don't require libc, but we don't yet have a syscall layer for them,
             // so we default to linking libc for now.
             .freebsd,
+            .netbsd,
             => break :b true,
             else => {},
         }
