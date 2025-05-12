@@ -588,6 +588,7 @@ set(ZIG_STAGE2_SOURCES
     src/dev.zig
     src/libs/freebsd.zig
     src/libs/glibc.zig
+    src/libs/netbsd.zig
     src/introspect.zig
     src/libs/libcxx.zig
     src/libs/libtsan.zig
