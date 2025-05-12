@@ -1849,7 +1849,7 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
                 var sentinel: ?Node.Index = null;
                 if (p.eatToken(.identifier)) |ident| {
                     const ident_slice = p.source[p.tokenStart(ident)..p.tokenStart(ident + 1)];
-                    if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
+                    if (!std.mem.eql(u8, std.mem.trimEnd(u8, ident_slice, &std.ascii.whitespace), "c")) {
                         p.tok_i -= 1;
                     }
                 } else if (p.eatToken(.colon)) |_| {
