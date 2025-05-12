@@ -1844,7 +1844,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         } else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        for (options.include_paths) |include_path| these_tests.addIncludePath(b.path(include_path));
+        for (options.include_paths) |include_path| these_tests.root_module.addIncludePath(b.path(include_path));
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}{s}", .{
             options.name,
