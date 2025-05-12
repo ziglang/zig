@@ -1,13 +1,13 @@
 //! To get started, run this tool with no args and read the help message.
 //!
-//! The build systems of glibc, musl, and FreeBSD require specifying a single target
+//! The build systems of glibc, musl, FreeBSD, and NetBSD require specifying a single target
 //! architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
 //! every target. So the process to create libc headers that Zig ships is to use
 //! this tool.
 //!
-//! First, use the glibc, musl, and FreeBSD build systems to create installations of all the
-//! targets in the `glibc_targets`, `musl_targets`, and `freebsd_targets` variables.
-//! Next, run this tool to create a new directory which puts .h files into
+//! First, use the glibc, musl, FreeBSD, and NetBSD build systems to create installations of all the
+//! targets in the `glibc_targets`, `musl_targets`, `freebsd_targets`, and `netbsd_targets`
+//! variables. Next, run this tool to create a new directory which puts .h files into
 //! <arch> subdirectories, with `generic` being files that apply to all architectures.
 //! You'll then have to manually update Zig source repo with these new files.
 
@@ -87,6 +87,21 @@ const freebsd_targets = [_]LibCTarget{
     .{ .arch = .x86_64, .abi = .none },
 };
 
+const netbsd_targets = [_]LibCTarget{
+    .{ .arch = .arm, .abi = .eabi },
+    .{ .arch = .arm, .abi = .eabihf },
+    .{ .arch = .aarch64, .abi = .none },
+    .{ .arch = .m68k, .abi = .none },
+    .{ .arch = .mips, .abi = .eabi },
+    .{ .arch = .mips, .abi = .eabihf },
+    .{ .arch = .powerpc, .abi = .eabi },
+    .{ .arch = .powerpc, .abi = .eabihf },
+    .{ .arch = .sparc, .abi = .none },
+    .{ .arch = .sparc64, .abi = .none },
+    .{ .arch = .x86, .abi = .none },
+    .{ .arch = .x86_64, .abi = .none },
+};
+
 const DestTarget = struct {
     arch: Arch,
     os: OsTag,
@@ -130,6 +145,7 @@ const LibCVendor = enum {
     musl,
     glibc,
     freebsd,
+    netbsd,
 };
 
 pub fn main() !void {
@@ -177,6 +193,7 @@ pub fn main() !void {
         .glibc => &glibc_targets,
         .musl => &musl_targets,
         .freebsd => &freebsd_targets,
+        .netbsd => &netbsd_targets,
     };
 
     var path_table = PathTable.init(allocator);
@@ -192,25 +209,49 @@ pub fn main() !void {
             .musl => std.zig.target.muslArchName(libc_target.arch, libc_target.abi),
             .freebsd => switch (libc_target.arch) {
                 .arm => "armv7",
-                .aarch64 => "aarch64",
-                .powerpc => "powerpc",
-                .powerpc64 => "powerpc64",
-                .powerpc64le => "powerpc64le",
-                .riscv64 => "riscv64",
                 .x86 => "i386",
                 .x86_64 => "amd64",
+
+                .aarch64,
+                .powerpc,
+                .powerpc64,
+                .riscv64,
+                => |a| @tagName(a),
+
+                else => unreachable,
+            },
+            .netbsd => switch (libc_target.arch) {
+                .arm => if (libc_target.abi == .eabihf) "evbarmv7hf" else "evbarmv7",
+                .aarch64 => "evbarm64",
+                .m68k => "mac68k",
+                .mips => if (libc_target.abi == .eabihf) "evbmips" else "evbmipssf",
+                .powerpc => if (libc_target.abi == .eabihf) "evbppc" else "evbppcsf",
+                .x86 => "i386",
+                .x86_64 => "amd64",
+
+                .sparc,
+                .sparc64,
+                => |a| @tagName(a),
+
                 else => unreachable,
             },
         };
         const dest_target = DestTarget{
             .arch = libc_target.arch,
-            .os = if (vendor == .freebsd) .freebsd else .linux,
+            .os = switch (vendor) {
+                .musl, .glibc => .linux,
+                .freebsd => .freebsd,
+                .netbsd => .netbsd,
+            },
             .abi = libc_target.abi,
         };
 
         search: for (search_paths.items) |search_path| {
             const sub_path = switch (vendor) {
-                .glibc, .freebsd => &[_][]const u8{ search_path, libc_dir, "usr", "include" },
+                .glibc,
+                .freebsd,
+                .netbsd,
+                => &[_][]const u8{ search_path, libc_dir, "usr", "include" },
                 .musl => &[_][]const u8{ search_path, libc_dir, "usr", "local", "musl", "include" },
             };
             const target_include_dir = try std.fs.path.join(allocator, sub_path);
@@ -339,6 +380,6 @@ fn usageAndExit(arg0: []const u8) noreturn {
     std.debug.print("--search-path can be used any number of times.\n", .{});
     std.debug.print("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
     std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
-    std.debug.print("--abi is either glibc, musl, or freebsd\n", .{});
+    std.debug.print("--abi is either glibc, musl, freebsd, or netbsd\n", .{});
     std.process.exit(1);
 }
