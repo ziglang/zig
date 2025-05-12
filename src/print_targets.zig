@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const target = @import("target.zig");
 const assert = std.debug.assert;
-const glibc = @import("glibc.zig");
+const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
 const fatal = @import("main.zig").fatal;
 

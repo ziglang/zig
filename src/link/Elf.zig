@@ -2058,11 +2058,18 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         try argv.append(lib_path);
                     }
                     try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-                } else if (target.abi.isMusl()) {
+                } else if (target.isMuslLibC()) {
                     try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",
                     }));
+                } else if (target.isFreeBSDLibC()) {
+                    for (freebsd.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                            comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
                 } else {
                     diags.flags.missing_libc = true;
                 }
@@ -5279,9 +5286,10 @@ const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
 const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
-const glibc = @import("../glibc.zig");
+const glibc = @import("../libs/glibc.zig");
+const musl = @import("../libs/musl.zig");
+const freebsd = @import("../libs/freebsd.zig");
 const link = @import("../link.zig");
-const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");

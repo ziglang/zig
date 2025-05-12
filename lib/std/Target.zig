@@ -522,7 +522,19 @@ pub const Os = struct {
                 },
                 .freebsd => .{
                     .semver = .{
-                        .min = .{ .major = 13, .minor = 4, .patch = 0 },
+                        .min = blk: {
+                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                if (libc.os_ver) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                         .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
@@ -695,7 +707,6 @@ pub const Os = struct {
     /// since this is the stable syscall interface.
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
-            .freebsd,
             .aix,
             .netbsd,
             .driverkit,
@@ -714,6 +725,7 @@ pub const Os = struct {
 
             .linux,
             .windows,
+            .freebsd,
             .freestanding,
             .fuchsia,
             .ps3,
@@ -838,7 +850,6 @@ pub const Abi = enum {
             .aix => if (arch == .powerpc) .eabihf else .none,
             .haiku => switch (arch) {
                 .arm,
-                .thumb,
                 .powerpc,
                 => .eabihf,
                 else => .none,
@@ -877,22 +888,13 @@ pub const Abi = enum {
             },
             .freebsd => switch (arch) {
                 .arm,
-                .armeb,
-                .thumb,
-                .thumbeb,
                 .powerpc,
                 => .eabihf,
-                // Soft float tends to be more common for MIPS.
-                .mips,
-                .mipsel,
-                => .eabi,
                 else => .none,
             },
             .netbsd => switch (arch) {
                 .arm,
                 .armeb,
-                .thumb,
-                .thumbeb,
                 .powerpc,
                 => .eabihf,
                 // Soft float tends to be more common for MIPS.
@@ -903,7 +905,6 @@ pub const Abi = enum {
             },
             .openbsd => switch (arch) {
                 .arm,
-                .thumb,
                 => .eabi,
                 .powerpc,
                 => .eabihf,
@@ -2064,6 +2065,13 @@ pub inline fn isDarwinLibC(target: Target) bool {
     };
 }
 
+pub inline fn isFreeBSDLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .eabihf => target.os.tag == .freebsd,
+        else => false,
+    };
+}
+
 pub inline fn isWasiLibC(target: Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
 }
@@ -2205,7 +2213,6 @@ pub const DynamicLinker = struct {
 
             .haiku => switch (cpu.arch) {
                 .arm,
-                .thumb,
                 .aarch64,
                 .m68k,
                 .powerpc,
@@ -2234,9 +2241,7 @@ pub const DynamicLinker = struct {
 
             .linux => if (abi.isAndroid())
                 switch (cpu.arch) {
-                    .arm,
-                    .thumb,
-                    => if (abi == .androideabi) init("/system/bin/linker") else none,
+                    .arm => if (abi == .androideabi) init("/system/bin/linker") else none,
 
                     .aarch64,
                     .riscv64,
@@ -2454,19 +2459,11 @@ pub const DynamicLinker = struct {
 
             .freebsd => switch (cpu.arch) {
                 .arm,
-                .armeb,
-                .thumb,
-                .thumbeb,
                 .aarch64,
-                .mips,
-                .mipsel,
-                .mips64,
-                .mips64el,
                 .powerpc,
                 .powerpc64,
                 .powerpc64le,
                 .riscv64,
-                .sparc64,
                 .x86,
                 .x86_64,
                 => initFmt("{s}/libexec/ld-elf.so.1", .{
@@ -2481,8 +2478,6 @@ pub const DynamicLinker = struct {
             .netbsd => switch (cpu.arch) {
                 .arm,
                 .armeb,
-                .thumb,
-                .thumbeb,
                 .aarch64,
                 .aarch64_be,
                 .m68k,
@@ -2491,6 +2486,8 @@ pub const DynamicLinker = struct {
                 .mips64,
                 .mips64el,
                 .powerpc,
+                .powerpc64,
+                .riscv32,
                 .riscv64,
                 .sparc,
                 .sparc64,
@@ -2502,7 +2499,6 @@ pub const DynamicLinker = struct {
 
             .openbsd => switch (cpu.arch) {
                 .arm,
-                .thumb,
                 .aarch64,
                 .mips64,
                 .mips64el,
@@ -2530,11 +2526,16 @@ pub const DynamicLinker = struct {
             },
 
             .illumos,
+            => switch (cpu.arch) {
+                .x86,
+                .x86_64,
+                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
+                else => none,
+            },
+
             .solaris,
             => switch (cpu.arch) {
-                .sparc,
                 .sparc64,
-                .x86,
                 .x86_64,
                 => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
                 else => none,
