@@ -5921,6 +5921,14 @@ pub fn addCCArgs(
                         // symbols would be inconsistent with header declarations.
                         min_ver.major * 100_000,
                     }));
+                } else if (target.isNetBSDLibC()) {
+                    const min_ver = target.os.version_range.semver.min;
+                    try argv.append(try std.fmt.allocPrint(arena, "-D__NetBSD_Version__={d}", .{
+                        // We don't currently respect the patch component. This wouldn't be particularly helpful because
+                        // our abilists file only tracks major and minor NetBSD releases, so the link-time stub symbols
+                        // would be inconsistent with header declarations.
+                        (min_ver.major * 100_000_000) + (min_ver.minor * 1_000_000),
+                    }));
                 }
             }
 
