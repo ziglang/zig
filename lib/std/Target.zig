@@ -708,7 +708,6 @@ pub const Os = struct {
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
             .aix,
-            .netbsd,
             .driverkit,
             .macos,
             .ios,
@@ -726,6 +725,7 @@ pub const Os = struct {
             .linux,
             .windows,
             .freebsd,
+            .netbsd,
             .freestanding,
             .fuchsia,
             .ps3,
