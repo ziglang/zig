@@ -441,7 +441,12 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
-        printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
+
+        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
+            context.mcontext.ss.pc
+        else
+            it.unwind_state.?.dwarf_context.pc;
+        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
 
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
@@ -1483,8 +1488,9 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            dumpStackTraceFromBase(ctx);
+            const ctx: *align(8) posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            var new_ctx: posix.ucontext_t = ctx.*;
+            dumpStackTraceFromBase(&new_ctx);
         },
         else => {},
     }
