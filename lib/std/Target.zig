@@ -2072,6 +2072,13 @@ pub inline fn isFreeBSDLibC(target: Target) bool {
     };
 }
 
+pub inline fn isNetBSDLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .eabi, .eabihf => target.os.tag == .netbsd,
+        else => false,
+    };
+}
+
 pub inline fn isWasiLibC(target: Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
 }
