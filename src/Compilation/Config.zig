@@ -362,7 +362,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (explicitly_exe_or_dyn_lib and link_libc and
             (target_util.osRequiresLibC(target) or
                 // For these libcs, Zig can only provide dynamic libc when cross-compiling.
-                ((target.isGnuLibC() or target.isFreeBSDLibC()) and !options.resolved_target.is_native_abi)))
+                ((target.isGnuLibC() or target.isFreeBSDLibC() or target.isNetBSDLibC()) and
+                    !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -386,7 +387,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             // When targeting systems where the kernel and libc are developed alongside each other,
             // dynamic linking is the better default; static libc may contain code that requires
             // the very latest kernel version.
-            if (target.isFreeBSDLibC()) {
+            if (target.isFreeBSDLibC() or target.isNetBSDLibC()) {
                 break :b .dynamic;
             }
         }
