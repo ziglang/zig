@@ -347,7 +347,7 @@ pub const RuntimeServices = extern struct {
         self: *RuntimeServices,
         reset_type: ResetType,
         reset_status: Status,
-        data: ?[]const u8,
+        data: ?[]align(2) const u8,
     ) noreturn {
         self._resetSystem(
             reset_type,
