@@ -1443,6 +1443,21 @@ pub const Pool = struct {
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
 
+            .vector_8_i8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i8,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_16_i8_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i8,
@@ -1563,6 +1578,21 @@ pub const Pool = struct {
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
+            .vector_4_i16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i16,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_8_i16_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i16,
@@ -1589,6 +1619,21 @@ pub const Pool = struct {
                         .name = .{ .index = .array },
                         .ctype = vector_ctype,
                         .alignas = AlignAs.fromAbiAlignment(Type.i16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_u16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u16,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u16.abiAlignment(zcu)),
                     },
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
