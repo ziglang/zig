@@ -36,7 +36,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name ++ "",
+            .name = enum_field.name,
             .type = Data,
             .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,

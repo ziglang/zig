@@ -537,7 +537,7 @@ pub fn FieldEnum(comptime T: type) type {
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (field_infos, 0..) |field, i| {
         enumFields[i] = .{
-            .name = field.name ++ "",
+            .name = field.name,
             .value = i,
         };
     }
@@ -609,7 +609,7 @@ pub fn DeclEnum(comptime T: type) type {
     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos, 0..) |field, i| {
-        enumDecls[i] = .{ .name = field.name ++ "", .value = i };
+        enumDecls[i] = .{ .name = field.name, .value = i };
     }
     return @Type(.{
         .@"enum" = .{
