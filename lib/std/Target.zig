@@ -420,21 +420,21 @@ pub const Os = struct {
                 },
                 .fuchsia => .{
                     .semver = .{
-                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 21, .minor = 1, .patch = 0 },
+                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 26, .minor = 0, .patch = 0 },
                     },
                 },
                 .hermit => .{
                     .semver = .{
-                        .min = .{ .major = 0, .minor = 4, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 10, .patch = 0 },
+                        .min = .{ .major = 0, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 11, .patch = 0 },
                     },
                 },
 
                 .aix => .{
                     .semver = .{
                         .min = .{ .major = 7, .minor = 2, .patch = 5 },
-                        .max = .{ .major = 7, .minor = 3, .patch = 2 },
+                        .max = .{ .major = 7, .minor = 3, .patch = 3 },
                     },
                 },
                 .hurd => .{
@@ -517,7 +517,7 @@ pub const Os = struct {
                 .dragonfly => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 1 },
                     },
                 },
                 .freebsd => .{
@@ -546,45 +546,45 @@ pub const Os = struct {
                 },
                 .openbsd => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 5, .patch = 0 },
-                        .max = .{ .major = 7, .minor = 6, .patch = 0 },
+                        .min = .{ .major = 7, .minor = 6, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 7, .patch = 0 },
                     },
                 },
 
                 .driverkit => .{
                     .semver = .{
                         .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 4, .patch = 0 },
                     },
                 },
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 3, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 4, .patch = 1 },
                     },
                 },
                 .ios => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 1 },
+                        .min = .{ .major = 15, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
-                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 15, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 3, .patch = 1 },
+                        .max = .{ .major = 2, .minor = 4, .patch = 1 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
-                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 3, .patch = 1 },
+                        .min = .{ .major = 7, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
 
@@ -617,8 +617,8 @@ pub const Os = struct {
 
                 .amdhsa => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 0, .patch = 2 },
-                        .max = .{ .major = 6, .minor = 3, .patch = 0 },
+                        .min = .{ .major = 5, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
                     },
                 },
                 .amdpal => .{
@@ -630,7 +630,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 12, .minor = 9, .patch = 0 },
                     },
                 },
                 .nvcl,
@@ -650,7 +650,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 4, .patch = 309 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 313 },
                     },
                 },
             };
