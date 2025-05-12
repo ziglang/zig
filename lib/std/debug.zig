@@ -1489,8 +1489,24 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *align(8) posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
+            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
             var new_ctx: posix.ucontext_t = ctx.*;
+            if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
+                // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
+                // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
+                // contents to the right place so that the `mcontext` pointer will be correct after the
+                // `relocateContext` call below.
+                new_ctx.__mcontext_data = @as(*align(1) extern struct {
+                    onstack: c_int,
+                    sigmask: std.c.sigset_t,
+                    stack: std.c.stack_t,
+                    link: ?*std.c.ucontext_t,
+                    mcsize: u64,
+                    mcontext: *std.c.mcontext_t,
+                    __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
+                }, @ptrCast(ctx)).__mcontext_data;
+            }
             relocateContext(&new_ctx);
             dumpStackTraceFromBase(&new_ctx);
         },
