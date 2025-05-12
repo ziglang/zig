@@ -442,6 +442,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
 
+        // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
         const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             context.mcontext.ss.pc
         else
@@ -1488,9 +1489,8 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *align(8) posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            var new_ctx: posix.ucontext_t = ctx.*;
-            dumpStackTraceFromBase(&new_ctx);
+            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            dumpStackTraceFromBase(ctx);
         },
         else => {},
     }
