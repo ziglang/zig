@@ -37,7 +37,9 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    /// Delete after next zig1.wasm update
+    pub const memcpyLenMismatch = copyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
@@ -84,7 +86,9 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    /// Delete after next zig1.wasm update
+    pub const memcpyLenMismatch = copyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
@@ -131,7 +135,9 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    /// Delete after next zig1.wasm update
+    pub const memcpyLenMismatch = copyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };

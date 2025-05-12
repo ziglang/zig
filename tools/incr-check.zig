@@ -341,9 +341,9 @@ const Eval = struct {
     }
 
     fn checkErrorOutcome(eval: *Eval, update: Case.Update, error_bundle: std.zig.ErrorBundle) !void {
-        const expected_errors = switch (update.outcome) {
+        const expected = switch (update.outcome) {
             .unknown => return,
-            .compile_errors => |expected_errors| expected_errors,
+            .compile_errors => |ce| ce,
             .stdout, .exit_code => {
                 const color: std.zig.Color = .auto;
                 error_bundle.renderToStdErr(color.renderOptions());
@@ -354,23 +354,29 @@ const Eval = struct {
         var expected_idx: usize = 0;
 
         for (error_bundle.getMessages()) |err_idx| {
-            if (expected_idx == expected_errors.len) {
+            if (expected_idx == expected.errors.len) {
                 const color: std.zig.Color = .auto;
                 error_bundle.renderToStdErr(color.renderOptions());
                 eval.fatal("update '{s}': more errors than expected", .{update.name});
             }
-            eval.checkOneError(update, error_bundle, expected_errors[expected_idx], false, err_idx);
+            eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
             expected_idx += 1;
 
             for (error_bundle.getNotes(err_idx)) |note_idx| {
-                if (expected_idx == expected_errors.len) {
+                if (expected_idx == expected.errors.len) {
                     const color: std.zig.Color = .auto;
                     error_bundle.renderToStdErr(color.renderOptions());
                     eval.fatal("update '{s}': more error notes than expected", .{update.name});
                 }
-                eval.checkOneError(update, error_bundle, expected_errors[expected_idx], true, note_idx);
+                eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
                 expected_idx += 1;
             }
+        }
+
+        if (!std.mem.eql(u8, error_bundle.getCompileLogOutput(), expected.compile_log_output)) {
+            const color: std.zig.Color = .auto;
+            error_bundle.renderToStdErr(color.renderOptions());
+            eval.fatal("update '{s}': unexpected compile log output", .{update.name});
         }
     }
 
@@ -634,7 +640,10 @@ const Case = struct {
 
     const Outcome = union(enum) {
         unknown,
-        compile_errors: []const ExpectedError,
+        compile_errors: struct {
+            errors: []const ExpectedError,
+            compile_log_output: []const u8,
+        },
         stdout: []const u8,
         exit_code: u8,
     };
@@ -661,7 +670,7 @@ const Case = struct {
             if (std.mem.startsWith(u8, line, "#")) {
                 var line_it = std.mem.splitScalar(u8, line, '=');
                 const key = line_it.first()[1..];
-                const val = std.mem.trimRight(u8, line_it.rest(), "\r"); // windows moment
+                const val = std.mem.trimEnd(u8, line_it.rest(), "\r"); // windows moment
                 if (val.len == 0) {
                     fatal("line {d}: missing value", .{line_n});
                 } else if (std.mem.eql(u8, key, "target")) {
@@ -711,7 +720,7 @@ const Case = struct {
 
                     while (true) {
                         const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
-                        const next_line = std.mem.trimRight(u8, next_line_raw, "\r");
+                        const next_line = std.mem.trimEnd(u8, next_line_raw, "\r");
                         if (std.mem.startsWith(u8, next_line, "#")) break;
 
                         _ = it.next();
@@ -750,7 +759,7 @@ const Case = struct {
                         if (!std.mem.startsWith(u8, next_line, "#")) break;
                         var new_line_it = std.mem.splitScalar(u8, next_line, '=');
                         const new_key = new_line_it.first()[1..];
-                        const new_val = std.mem.trimRight(u8, new_line_it.rest(), "\r");
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
                         if (new_val.len == 0) break;
                         if (!std.mem.eql(u8, new_key, "expect_error")) break;
 
@@ -759,7 +768,29 @@ const Case = struct {
                         try errors.append(arena, parseExpectedError(new_val, line_n));
                     }
 
-                    last_update.outcome = .{ .compile_errors = errors.items };
+                    var compile_log_output: std.ArrayListUnmanaged(u8) = .empty;
+                    while (true) {
+                        const next_line = it.peek() orelse break;
+                        if (!std.mem.startsWith(u8, next_line, "#")) break;
+                        var new_line_it = std.mem.splitScalar(u8, next_line, '=');
+                        const new_key = new_line_it.first()[1..];
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
+                        if (new_val.len == 0) break;
+                        if (!std.mem.eql(u8, new_key, "expect_compile_log")) break;
+
+                        _ = it.next();
+                        line_n += 1;
+                        try compile_log_output.ensureUnusedCapacity(arena, new_val.len + 1);
+                        compile_log_output.appendSliceAssumeCapacity(new_val);
+                        compile_log_output.appendAssumeCapacity('\n');
+                    }
+
+                    last_update.outcome = .{ .compile_errors = .{
+                        .errors = errors.items,
+                        .compile_log_output = compile_log_output.items,
+                    } };
+                } else if (std.mem.eql(u8, key, "expect_compile_log")) {
+                    fatal("line {d}: 'expect_compile_log' must immediately follow 'expect_error'", .{line_n});
                 } else {
                     fatal("line {d}: unrecognized key '{s}'", .{ line_n, key });
                 }

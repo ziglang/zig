@@ -98,6 +98,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -208,7 +209,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps4 => "ps4",
         .ps5 => "ps5",
-        .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",
@@ -259,7 +259,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
@@ -400,39 +399,35 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
-            "E-m:l-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
+            "E-m:l-p1:32:32-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
         else
             "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
-        .x86 => switch (target.os.tag) {
-            .elfiamcu => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:32-f64:32-f128:32-n8:16:32-a:0:32-S32",
-            .windows => switch (target.abi) {
-                .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
-                .gnu => if (target.ofmt == .coff)
-                    "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-                else
-                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
-                else => blk: {
-                    const msvc = switch (target.abi) {
-                        .none, .msvc => true,
-                        else => false,
-                    };
-
-                    break :blk if (target.ofmt == .coff)
-                        if (msvc)
-                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                        else
-                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-                    else if (msvc)
-                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                    else
-                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
-                },
-            },
-            else => if (target.ofmt == .macho)
-                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+        .x86 => if (target.os.tag == .windows) switch (target.abi) {
+            .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+            .gnu => if (target.ofmt == .coff)
+                "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
             else
-                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
-        },
+                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+            else => blk: {
+                const msvc = switch (target.abi) {
+                    .none, .msvc => true,
+                    else => false,
+                };
+
+                break :blk if (target.ofmt == .coff)
+                    if (msvc)
+                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                    else
+                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                else if (msvc)
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                else
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
+            },
+        } else if (target.ofmt == .macho)
+            "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+        else
+            "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
         .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
             "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
         else switch (target.abi) {
@@ -460,6 +455,7 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -4941,6 +4937,7 @@ pub const FuncGen = struct {
                 .memset         => try self.airMemset(inst, false),
                 .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
+                .memmove        => try self.airMemmove(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
                 .clz            => try self.airClzCtz(inst, .ctlz),
@@ -7458,6 +7455,10 @@ pub const FuncGen = struct {
                         name_start = i + 1;
                         state = .input;
                     },
+                    '=' => {
+                        try rendered_template.appendSlice("${:uid}");
+                        state = .start;
+                    },
                     else => {
                         try rendered_template.append('%');
                         try rendered_template.append(byte);
@@ -9927,6 +9928,32 @@ pub const FuncGen = struct {
         return .none;
     }
 
+    fn airMemmove(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const dest_ptr_ty = self.typeOf(bin_op.lhs);
+        const src_slice = try self.resolveInst(bin_op.rhs);
+        const src_ptr_ty = self.typeOf(bin_op.rhs);
+        const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ptr_ty);
+        const len = try self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
+        const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
+        const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
+            dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        _ = try self.wip.callMemMove(
+            dest_ptr,
+            dest_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            src_ptr,
+            src_ptr_ty.ptrAlignment(zcu).toLlvm(),
+            len,
+            access_kind,
+        );
+        return .none;
+    }
+
     fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = o.pt;
@@ -11538,6 +11565,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
+        .or1k_sysv,
         .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
@@ -11702,7 +11730,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
-        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu) == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
@@ -11787,18 +11815,9 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                 return o.builder.structType(.normal, types[0..types_len]);
             },
         },
-        .wasm_mvp => {
-            if (isScalar(zcu, return_type)) {
-                return o.lowerType(return_type);
-            }
-            const classes = wasm_c_abi.classifyType(return_type, zcu);
-            if (classes[0] == .indirect or classes[0] == .none) {
-                return .void;
-            }
-
-            assert(classes[0] == .direct and classes[1] == .none);
-            const scalar_type = wasm_c_abi.scalarType(return_type, zcu);
-            return o.builder.intType(@intCast(scalar_type.abiSize(zcu) * 8));
+        .wasm_mvp => switch (wasm_c_abi.classifyType(return_type, zcu)) {
+            .direct => |scalar_ty| return o.lowerType(scalar_ty),
+            .indirect => return .void,
         },
         // TODO investigate other callconvs
         else => return o.lowerType(return_type),
@@ -12052,17 +12071,28 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
-            .wasm_mvp => {
-                it.zig_index += 1;
-                it.llvm_index += 1;
-                if (isScalar(zcu, ty)) {
-                    return .byval;
-                }
-                const classes = wasm_c_abi.classifyType(ty, zcu);
-                if (classes[0] == .indirect) {
+            .wasm_mvp => switch (wasm_c_abi.classifyType(ty, zcu)) {
+                .direct => |scalar_ty| {
+                    if (isScalar(zcu, ty)) {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        return .byval;
+                    } else {
+                        var types_buffer: [8]Builder.Type = undefined;
+                        types_buffer[0] = try it.object.lowerType(scalar_ty);
+                        it.types_buffer = types_buffer;
+                        it.types_len = 1;
+                        it.llvm_index += 1;
+                        it.zig_index += 1;
+                        return .multiple_llvm_types;
+                    }
+                },
+                .indirect => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    it.byval_attr = true;
                     return .byref;
-                }
-                return .abi_sized_int;
+                },
             },
             // TODO investigate other callconvs
             else => {
@@ -12735,6 +12765,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
+        .or1k,
         .propeller,
         => unreachable,
     }

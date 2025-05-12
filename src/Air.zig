@@ -730,6 +730,18 @@ pub const Inst = struct {
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
         memcpy,
+        /// Given dest pointer and source pointer, copy elements from source to dest.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The dest element type may be any type.
+        /// Source pointer must have same element type as dest element type.
+        /// Dest slice may have any alignment; source pointer may have any alignment.
+        /// The two memory regions may overlap.
+        /// Result type is always void.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        /// If the length is compile-time known (due to the destination or
+        /// source being a pointer-to-array), then it is guaranteed to be
+        /// greater than zero.
+        memmove,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
@@ -1533,6 +1545,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
@@ -1696,6 +1709,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .cmpxchg_weak,
         .cmpxchg_strong,
         .atomic_store_unordered,

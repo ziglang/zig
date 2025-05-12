@@ -1574,7 +1574,12 @@ fn analyzeBodyInner(
                 continue;
             },
             .memcpy => {
-                try sema.zirMemcpy(block, inst);
+                try sema.zirMemcpy(block, inst, .memcpy, true);
+                i += 1;
+                continue;
+            },
+            .memmove => {
+                try sema.zirMemcpy(block, inst, .memmove, false);
                 i += 1;
                 continue;
             },
@@ -3663,7 +3668,10 @@ fn indexablePtrLenOrNone(
     const zcu = pt.zcu;
     const operand_ty = sema.typeOf(operand);
     try checkMemOperand(sema, block, src, operand_ty);
-    if (operand_ty.ptrSize(zcu) == .many) return .none;
+    switch (operand_ty.ptrSize(zcu)) {
+        .many, .c => return .none,
+        .one, .slice => {},
+    }
     const field_name = try zcu.intern_pool.getOrPutString(sema.gpa, pt.tid, "len", .no_embedded_nulls);
     return sema.fieldVal(block, src, operand, field_name, src);
 }
@@ -5884,10 +5892,12 @@ fn zirCompileLog(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
-    var managed = zcu.compile_log_text.toManaged(sema.gpa);
-    defer pt.zcu.compile_log_text = managed.moveToUnmanaged();
-    const writer = managed.writer();
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(gpa);
+
+    const writer = buf.writer(gpa);
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
@@ -5906,13 +5916,37 @@ fn zirCompileLog(
             try writer.print("@as({}, [runtime value])", .{arg_ty.fmt(pt)});
         }
     }
-    try writer.print("\n", .{});
 
-    const gop = try zcu.compile_log_sources.getOrPut(sema.gpa, sema.owner);
-    if (!gop.found_existing) gop.value_ptr.* = .{
-        .base_node_inst = block.src_base_inst,
-        .node_offset = src_node,
+    const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
+
+    const line_idx: Zcu.CompileLogLine.Index = if (zcu.free_compile_log_lines.pop()) |idx| idx: {
+        zcu.compile_log_lines.items[@intFromEnum(idx)] = .{
+            .next = .none,
+            .data = line_data,
+        };
+        break :idx idx;
+    } else idx: {
+        try zcu.compile_log_lines.append(gpa, .{
+            .next = .none,
+            .data = line_data,
+        });
+        break :idx @enumFromInt(zcu.compile_log_lines.items.len - 1);
     };
+
+    const gop = try zcu.compile_logs.getOrPut(gpa, sema.owner);
+    if (gop.found_existing) {
+        const prev_line = gop.value_ptr.last_line.get(zcu);
+        assert(prev_line.next == .none);
+        prev_line.next = line_idx.toOptional();
+        gop.value_ptr.last_line = line_idx;
+    } else {
+        gop.value_ptr.* = .{
+            .base_node_inst = block.src_base_inst,
+            .node_offset = src_node,
+            .first_line = line_idx,
+            .last_line = line_idx,
+        };
+    }
     return .void_value;
 }
 
@@ -22583,8 +22617,16 @@ fn ptrFromIntVal(
     const addr = try operand_val.toUnsignedIntSema(pt);
     if (!ptr_ty.isAllowzeroPtr(zcu) and addr == 0)
         return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{ptr_ty.fmt(pt)});
-    if (addr != 0 and ptr_align != .none and !ptr_align.check(addr))
-        return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
+    if (addr != 0 and ptr_align != .none) {
+        const masked_addr = if (ptr_ty.childType(zcu).fnPtrMaskOrNull(zcu)) |mask|
+            addr & mask
+        else
+            addr;
+
+        if (!ptr_align.check(masked_addr)) {
+            return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
+        }
+    }
 
     return switch (ptr_ty.zigTypeTag(zcu)) {
         .optional => Value.fromInterned(try pt.intern(.{ .opt = .{
@@ -23100,7 +23142,12 @@ fn ptrCastFull(
 
         if (dest_align.compare(.gt, src_align)) {
             if (try ptr_val.getUnsignedIntSema(pt)) |addr| {
-                if (!dest_align.check(addr)) {
+                const masked_addr = if (Type.fromInterned(dest_info.child).fnPtrMaskOrNull(zcu)) |mask|
+                    addr & mask
+                else
+                    addr;
+
+                if (!dest_align.check(masked_addr)) {
                     return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{
                         addr,
                         dest_align.toByteUnits().?,
@@ -25583,7 +25630,13 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
     return block.addBitCast(new_ty, non_slice_ptr);
 }
 
-fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirMemcpy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+    check_aliasing: bool,
+) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = block.nodeOffset(inst_data.src_node);
@@ -25599,12 +25652,12 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const zcu = pt.zcu;
 
     if (dest_ty.isConstPtr(zcu)) {
-        return sema.fail(block, dest_src, "cannot memcpy to constant pointer", .{});
+        return sema.fail(block, dest_src, "cannot copy to constant pointer", .{});
     }
 
     if (dest_len == .none and src_len == .none) {
         const msg = msg: {
-            const msg = try sema.errMsg(src, "unknown @memcpy length", .{});
+            const msg = try sema.errMsg(src, "unknown copy length", .{});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(dest_src, msg, "destination type '{}' provides no length", .{
                 dest_ty.fmt(pt),
@@ -25650,7 +25703,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
                 if (!(try sema.valuesEqual(dest_len_val, src_len_val, Type.usize))) {
                     const msg = msg: {
-                        const msg = try sema.errMsg(src, "non-matching @memcpy lengths", .{});
+                        const msg = try sema.errMsg(src, "non-matching copy lengths", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(dest_src, msg, "length {} here", .{
                             dest_len_val.fmtValueSema(pt, sema),
@@ -25670,7 +25723,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
+            try sema.addSafetyCheck(block, src, ok, .copy_len_mismatch);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25707,12 +25760,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         const len_u64 = try len_val.?.toUnsignedIntSema(pt);
 
-        if (Value.doPointersOverlap(
-            raw_src_ptr,
-            raw_dest_ptr,
-            len_u64,
-            zcu,
-        )) return sema.fail(block, src, "'@memcpy' arguments alias", .{});
+        if (check_aliasing) {
+            if (Value.doPointersOverlap(
+                raw_src_ptr,
+                raw_dest_ptr,
+                len_u64,
+                zcu,
+            )) return sema.fail(block, src, "'@memcpy' arguments alias", .{});
+        }
 
         if (!sema.isComptimeMutablePtr(dest_ptr_val)) break :rs dest_src;
 
@@ -25784,7 +25839,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     try sema.validateRuntimeValue(block, src_src, src_ptr);
 
     // Aliasing safety check.
-    if (block.wantSafety()) {
+    if (check_aliasing and block.wantSafety()) {
         const len = if (len_val) |v|
             Air.internedToRef(v.toIntern())
         else if (dest_len != .none)
@@ -25827,7 +25882,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     }
 
     _ = try block.addInst(.{
-        .tag = .memcpy,
+        .tag = air_tag,
         .data = .{ .bin_op = .{
             .lhs = new_dest_ptr,
             .rhs = new_src_ptr,
@@ -27942,12 +27997,17 @@ fn structFieldPtrByIndex(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
-        const val = try struct_ptr_val.ptrField(field_index, pt);
-        return Air.internedToRef(val.toIntern());
+    const struct_type = zcu.typeToStruct(struct_ty).?;
+    const field_is_comptime = struct_type.fieldIsComptime(ip, field_index);
+
+    // Comptime fields are handled later
+    if (!field_is_comptime) {
+        if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
+            const val = try struct_ptr_val.ptrField(field_index, pt);
+            return Air.internedToRef(val.toIntern());
+        }
     }
 
-    const struct_type = zcu.typeToStruct(struct_ty).?;
     const field_ty = struct_type.field_types.get(ip)[field_index];
     const struct_ptr_ty = sema.typeOf(struct_ptr);
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(zcu);
@@ -27967,6 +28027,7 @@ fn structFieldPtrByIndex(
         try Type.fromInterned(struct_ptr_ty_info.child).abiAlignmentSema(pt);
 
     if (struct_type.layout == .@"packed") {
+        assert(!field_is_comptime);
         switch (struct_ty.packedStructFieldPtrInfo(struct_ptr_ty, field_index, pt)) {
             .bit_ptr => |packed_offset| {
                 ptr_ty_data.flags.alignment = parent_align;
@@ -27977,6 +28038,7 @@ fn structFieldPtrByIndex(
             },
         }
     } else if (struct_type.layout == .@"extern") {
+        assert(!field_is_comptime);
         // For extern structs, field alignment might be bigger than type's
         // natural alignment. Eg, in `extern struct { x: u32, y: u16 }` the
         // second field is aligned as u32.
@@ -28000,7 +28062,7 @@ fn structFieldPtrByIndex(
 
     const ptr_field_ty = try pt.ptrTypeSema(ptr_ty_data);
 
-    if (struct_type.fieldIsComptime(ip, field_index)) {
+    if (field_is_comptime) {
         try struct_ty.resolveStructFieldInits(pt);
         const val = try pt.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
@@ -28399,6 +28461,14 @@ fn elemPtrOneLayerOnly(
             try sema.checkLogicalPtrOperation(block, src, indexable_ty);
             const result_ty = try indexable_ty.elemPtrType(null, pt);
 
+            try sema.validateRuntimeElemAccess(block, elem_index_src, result_ty, indexable_ty, indexable_src);
+            try sema.validateRuntimeValue(block, indexable_src, indexable);
+
+            if (!try result_ty.childType(zcu).hasRuntimeBitsIgnoreComptimeSema(pt)) {
+                // zero-bit child type; just bitcast the pointer
+                return block.addBitCast(result_ty, indexable);
+            }
+
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
         .one => {
@@ -28539,7 +28609,8 @@ fn tupleFieldPtr(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
-    const tuple_ty = tuple_ptr_ty.childType(zcu);
+    const tuple_ptr_info = tuple_ptr_ty.ptrInfo(zcu);
+    const tuple_ty: Type = .fromInterned(tuple_ptr_info.child);
     try tuple_ty.resolveFields(pt);
     const field_count = tuple_ty.structFieldCount(zcu);
 
@@ -28557,9 +28628,16 @@ fn tupleFieldPtr(
     const ptr_field_ty = try pt.ptrTypeSema(.{
         .child = field_ty.toIntern(),
         .flags = .{
-            .is_const = !tuple_ptr_ty.ptrIsMutable(zcu),
-            .is_volatile = tuple_ptr_ty.isVolatilePtr(zcu),
-            .address_space = tuple_ptr_ty.ptrAddressSpace(zcu),
+            .is_const = tuple_ptr_info.flags.is_const,
+            .is_volatile = tuple_ptr_info.flags.is_volatile,
+            .address_space = tuple_ptr_info.flags.address_space,
+            .alignment = a: {
+                if (tuple_ptr_info.flags.alignment == .none) break :a .none;
+                // The tuple pointer isn't naturally aligned, so the field pointer might be underaligned.
+                const tuple_align = tuple_ptr_info.flags.alignment;
+                const field_align = try field_ty.abiAlignmentSema(pt);
+                break :a tuple_align.min(field_align);
+            },
         },
     });
 
@@ -28870,6 +28948,11 @@ fn elemPtrSlice(
         };
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
         try sema.addSafetyCheckIndexOob(block, src, elem_index, len_inst, cmp_op);
+    }
+    if (!try slice_ty.childType(zcu).hasRuntimeBitsIgnoreComptimeSema(pt)) {
+        // zero-bit child type; just extract the pointer and bitcast it
+        const slice_ptr = try block.addTyOp(.slice_ptr, slice_ty.slicePtrFieldType(zcu), slice);
+        return block.addBitCast(elem_ptr_ty, slice_ptr);
     }
     return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
@@ -34911,7 +34994,15 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
         offsets[i] = @intCast(aligns[i].forward(offset));
         offset = offsets[i] + sizes[i];
     }
-    struct_type.setLayoutResolved(ip, @intCast(big_align.forward(offset)), big_align);
+    const size = std.math.cast(u32, big_align.forward(offset)) orelse {
+        const msg = try sema.errMsg(
+            ty.srcLoc(zcu),
+            "struct layout requires size {d}, this compiler implementation supports up to {d}",
+            .{ big_align.forward(offset), std.math.maxInt(u32) },
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    };
+    struct_type.setLayoutResolved(ip, size, big_align);
     _ = try ty.comptimeOnlySema(pt);
 }
 
@@ -35186,7 +35277,15 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
         break :layout .{ size, max_align.max(tag_align), padding };
     } else .{ max_align.forward(max_size), max_align, 0 };
 
-    union_type.setHaveLayout(ip, @intCast(size), padding, alignment);
+    const casted_size = std.math.cast(u32, size) orelse {
+        const msg = try sema.errMsg(
+            ty.srcLoc(pt.zcu),
+            "union layout requires size {d}, this compiler implementation supports up to {d}",
+            .{ size, std.math.maxInt(u32) },
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    };
+    union_type.setHaveLayout(ip, casted_size, padding, alignment);
 
     if (union_type.flagsUnordered(ip).assumed_runtime_bits and !(try ty.hasRuntimeBitsSema(pt))) {
         const msg = try sema.errMsg(
@@ -38050,7 +38149,7 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         .@"panic.shiftRhsTooBig",
         .@"panic.invalidEnumValue",
         .@"panic.forLenMismatch",
-        .@"panic.memcpyLenMismatch",
+        .@"panic.copyLenMismatch",
         .@"panic.memcpyAlias",
         .@"panic.noreturnReturned",
         => try pt.funcType(.{

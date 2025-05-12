@@ -523,6 +523,7 @@ pub const getauxval = if (extern_getauxval) struct {
 }.getauxval else getauxvalImpl;
 
 fn getauxvalImpl(index: usize) callconv(.c) usize {
+    @disableInstrumentation();
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -906,7 +907,7 @@ pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
     return syscall4(.mknodat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, dev);
 }
 
-pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: ?[*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(.mount, @intFromPtr(special), @intFromPtr(dir), @intFromPtr(fstype), flags, data);
 }
 
@@ -1745,8 +1746,9 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig >= 1);
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
+    assert(sig > 0);
+    assert(sig < NSIG);
     assert(sig != SIG.KILL);
     assert(sig != SIG.STOP);
 
@@ -1755,14 +1757,15 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
+        // Zig needs to install our arch restorer function with any signal handler, so
+        // must copy the Sigaction struct
         const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
         ksa = k_sigaction{
             .handler = new.handler.handler,
             .flags = new.flags | SA.RESTORER,
-            .mask = undefined,
+            .mask = new.mask,
             .restorer = @ptrCast(restorer_fn),
         };
-        @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
@@ -1777,8 +1780,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
-        old.flags = @as(c_uint, @truncate(oldksa.flags));
-        @memcpy(@as([*]u8, @ptrCast(&old.mask))[0..mask_size], @as([*]const u8, @ptrCast(&oldksa.mask)));
+        old.flags = oldksa.flags;
+        old.mask = oldksa.mask;
     }
 
     return 0;
@@ -1786,25 +1789,48 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).int.bits;
 
-pub const sigset_t = [1024 / 32]u32;
+/// Defined as one greater than the largest defined signal number.
+pub const NSIG = if (is_mips) 128 else 65;
+
+/// Linux kernel's sigset_t.  This is logically 64-bit on most
+/// architectures, but 128-bit on MIPS.  Contrast with the 1024-bit
+/// sigset_t exported by the glibc and musl library ABIs.
+pub const sigset_t = [(NSIG - 1 + 7) / @bitSizeOf(SigsetElement)]SigsetElement;
+
+const SigsetElement = c_ulong;
 
 const sigset_len = @typeInfo(sigset_t).array.len;
 
-/// Empty set to initialize sigset_t instances from.
-pub const empty_sigset: sigset_t = [_]u32{0} ** sigset_len;
+/// Zig's SIGRTMIN, but is a function for compatibility with glibc
+pub fn sigrtmin() u8 {
+    // Default is 32 in the kernel UAPI: https://github.com/torvalds/linux/blob/78109c591b806e41987e0b83390e61d675d1f724/include/uapi/asm-generic/signal.h#L50
+    // AFAICT, all architectures that override this also set it to 32:
+    // https://github.com/search?q=repo%3Atorvalds%2Flinux+sigrtmin+path%3Auapi&type=code
+    return 32;
+}
 
-pub const filled_sigset: sigset_t = [_]u32{0x7fff_ffff} ++ [_]u32{0} ** (sigset_len - 1);
+/// Zig's SIGRTMAX, but is a function for compatibility with glibc
+pub fn sigrtmax() u8 {
+    return NSIG - 1;
+}
 
-pub const all_mask: sigset_t = [_]u32{0xffff_ffff} ** sigset_len;
+/// Zig's version of sigemptyset.  Returns initialized sigset_t.
+pub fn sigemptyset() sigset_t {
+    return [_]SigsetElement{0} ** sigset_len;
+}
 
-fn sigset_bit_index(sig: usize) struct { word: usize, mask: u32 } {
+/// Zig's version of sigfillset.  Returns initalized sigset_t.
+pub fn sigfillset() sigset_t {
+    return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+}
+
+fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
     assert(sig > 0);
     assert(sig < NSIG);
     const bit = sig - 1;
-    const shift = @as(u5, @truncate(bit % 32));
     return .{
-        .word = bit / 32,
-        .mask = @as(u32, 1) << shift,
+        .word = bit / @bitSizeOf(SigsetElement),
+        .mask = @as(SigsetElement, 1) << @truncate(bit % @bitSizeOf(SigsetElement)),
     };
 }
 
@@ -2016,7 +2042,7 @@ pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usi
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.accept, &[4]usize{ fd, addr, len, 0 });
+        return socketcall(SC.accept, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), 0 });
     }
     return accept4(fd, addr, len, 0);
 }
@@ -3487,6 +3513,7 @@ pub const SIG = if (is_mips) struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
+    // https://github.com/torvalds/linux/blob/ca91b9500108d4cf083a635c2e11c884d5dd20ea/arch/mips/include/uapi/asm/signal.h#L25
     pub const HUP = 1;
     pub const INT = 2;
     pub const QUIT = 3;
@@ -3494,33 +3521,32 @@ pub const SIG = if (is_mips) struct {
     pub const TRAP = 5;
     pub const ABRT = 6;
     pub const IOT = ABRT;
-    pub const BUS = 7;
+    pub const EMT = 7;
     pub const FPE = 8;
     pub const KILL = 9;
-    pub const USR1 = 10;
+    pub const BUS = 10;
     pub const SEGV = 11;
-    pub const USR2 = 12;
+    pub const SYS = 12;
     pub const PIPE = 13;
     pub const ALRM = 14;
     pub const TERM = 15;
-    pub const STKFLT = 16;
-    pub const CHLD = 17;
-    pub const CONT = 18;
-    pub const STOP = 19;
-    pub const TSTP = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const URG = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const IO = 29;
-    pub const POLL = 29;
-    pub const PWR = 30;
-    pub const SYS = 31;
-    pub const UNUSED = SIG.SYS;
+    pub const USR1 = 16;
+    pub const USR2 = 17;
+    pub const CHLD = 18;
+    pub const PWR = 19;
+    pub const WINCH = 20;
+    pub const URG = 21;
+    pub const IO = 22;
+    pub const POLL = IO;
+    pub const STOP = 23;
+    pub const TSTP = 24;
+    pub const CONT = 25;
+    pub const TTIN = 26;
+    pub const TTOU = 27;
+    pub const VTALRM = 28;
+    pub const PROF = 29;
+    pub const XCPU = 30;
+    pub const XFZ = 31;
 
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
@@ -5479,38 +5505,33 @@ pub const TFD = switch (native_arch) {
     },
 };
 
-/// NSIG is the total number of signals defined.
-/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
-pub const NSIG = if (is_mips) 128 else 65;
-
 const k_sigaction_funcs = struct {
     const handler = ?*align(1) const fn (i32) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
 };
 
+/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes restorer.
 pub const k_sigaction = switch (native_arch) {
-    .mips, .mipsel => extern struct {
+    .mips, .mipsel, .mips64, .mips64el => extern struct {
         flags: c_uint,
         handler: k_sigaction_funcs.handler,
-        mask: [4]c_ulong,
-        restorer: k_sigaction_funcs.restorer,
-    },
-    .mips64, .mips64el => extern struct {
-        flags: c_uint,
-        handler: k_sigaction_funcs.handler,
-        mask: [2]c_ulong,
+        mask: sigset_t,
         restorer: k_sigaction_funcs.restorer,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
         restorer: k_sigaction_funcs.restorer,
-        mask: [2]c_uint,
+        mask: sigset_t,
     },
 };
 
+/// Kernel Sigaction wrapper for the actual ABI `k_sigaction`.  The Zig
+/// linux.zig wrapper library still does some pre-processing on
+/// sigaction() calls (to add the `restorer` field).
+///
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = extern struct {
+pub const Sigaction = struct {
     pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
     pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
@@ -5519,8 +5540,10 @@ pub const Sigaction = extern struct {
         sigaction: ?sigaction_fn,
     },
     mask: sigset_t,
-    flags: c_uint,
-    restorer: ?*const fn () callconv(.c) void = null,
+    flags: switch (native_arch) {
+        .mips, .mipsel, .mips64, .mips64el => c_uint,
+        else => c_ulong,
+    },
 };
 
 pub const SFD = struct {

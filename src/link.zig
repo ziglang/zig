@@ -6,7 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
@@ -192,7 +192,7 @@ pub const Diags = struct {
                 current_err.?.* = .{ .msg = duped_msg };
             } else if (current_err != null) {
                 const context_prefix = ">>> ";
-                var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
+                var trimmed = mem.trimEnd(u8, line, &std.ascii.whitespace);
                 if (mem.startsWith(u8, trimmed, context_prefix)) {
                     trimmed = trimmed[context_prefix.len..];
                 }
@@ -556,9 +556,9 @@ pub const File = struct {
         const comp = base.comp;
         const gpa = comp.gpa;
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9, .wasm => {
+            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -597,7 +597,7 @@ pub const File = struct {
                     .mode = determineMode(use_lld, output_mode, link_mode),
                 });
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -650,8 +650,8 @@ pub const File = struct {
                     }
                 }
             },
-            .coff, .macho, .plan9, .wasm => if (base.file) |f| {
-                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker });
+            .coff, .macho, .plan9, .wasm, .goff, .xcoff => if (base.file) |f| {
+                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 if (base.zcu_object_sub_path != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -670,7 +670,7 @@ pub const File = struct {
                     }
                 }
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -697,7 +697,6 @@ pub const File = struct {
             .plan9 => unreachable,
             .spirv => unreachable,
             .c => unreachable,
-            .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
@@ -766,7 +765,8 @@ pub const File = struct {
         }
 
         switch (base.tag) {
-            .spirv, .nvptx => {},
+            .spirv => {},
+            .goff, .xcoff => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
@@ -900,8 +900,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
@@ -919,8 +919,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
@@ -932,8 +932,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
@@ -949,7 +949,8 @@ pub const File = struct {
         switch (base.tag) {
             .plan9,
             .spirv,
-            .nvptx,
+            .goff,
+            .xcoff,
             => {},
 
             inline else => |tag| {
@@ -1245,7 +1246,8 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
-        nvptx,
+        goff,
+        xcoff,
 
         pub fn Type(comptime tag: Tag) type {
             return switch (tag) {
@@ -1256,7 +1258,8 @@ pub const File = struct {
                 .wasm => Wasm,
                 .spirv => SpirV,
                 .plan9 => Plan9,
-                .nvptx => NvPtx,
+                .goff => Goff,
+                .xcoff => Xcoff,
             };
         }
 
@@ -1269,9 +1272,8 @@ pub const File = struct {
                 .plan9 => .plan9,
                 .c => .c,
                 .spirv => .spirv,
-                .nvptx => .nvptx,
-                .goff => @panic("TODO implement goff object format"),
-                .xcoff => @panic("TODO implement xcoff object format"),
+                .goff => .goff,
+                .xcoff => .xcoff,
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
             };
@@ -1376,7 +1378,8 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
-    pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Goff = @import("link/Goff.zig");
+    pub const Xcoff = @import("link/Xcoff.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
 

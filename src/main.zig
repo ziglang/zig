@@ -28,11 +28,11 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
-const mingw = @import("mingw.zig");
+const mingw = @import("libs/mingw.zig");
 const dev = @import("dev.zig");
 
 test {
@@ -278,6 +278,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "test")) {
         dev.check(.test_command);
         return buildOutputType(gpa, arena, args, .zig_test);
+    } else if (mem.eql(u8, cmd, "test-obj")) {
+        dev.check(.test_command);
+        return buildOutputType(gpa, arena, args, .zig_test_obj);
     } else if (mem.eql(u8, cmd, "run")) {
         dev.check(.run_command);
         return buildOutputType(gpa, arena, args, .run);
@@ -523,7 +526,9 @@ const usage_build_generic =
     \\  -fno-stack-protector      Disable stack protection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
-    \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
+    \\  -fsanitize-c[=mode]       Enable C undefined behavior detection in unsafe builds
+    \\    trap                    Insert trap instructions on undefined behavior
+    \\    full                    (Default) Insert runtime calls on undefined behavior
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fsanitize-thread         Enable Thread Sanitizer
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
@@ -764,6 +769,7 @@ const ArgMode = union(enum) {
     cpp,
     translate_c,
     zig_test,
+    zig_test_obj,
     run,
 };
 
@@ -975,7 +981,10 @@ fn buildOutputType(
         .dynamic_linker = null,
         .modules = .{},
         .opts = .{
-            .is_test = arg_mode == .zig_test,
+            .is_test = switch (arg_mode) {
+                .zig_test, .zig_test_obj => true,
+                .build, .cc, .cpp, .translate_c, .run => false,
+            },
             // Populated while parsing CLI args.
             .output_mode = undefined,
             // Populated in the call to `createModule` for the root module.
@@ -1030,7 +1039,7 @@ fn buildOutputType(
     var n_jobs: ?u32 = null;
 
     switch (arg_mode) {
-        .build, .translate_c, .zig_test, .run => {
+        .build, .translate_c, .zig_test, .zig_test_obj, .run => {
             switch (arg_mode) {
                 .build => |m| {
                     create_module.opts.output_mode = m;
@@ -1041,6 +1050,9 @@ fn buildOutputType(
                 },
                 .zig_test, .run => {
                     create_module.opts.output_mode = .Exe;
+                },
+                .zig_test_obj => {
+                    create_module.opts.output_mode = .Obj;
                 },
                 else => unreachable,
             }
@@ -1454,9 +1466,18 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-omit-frame-pointer")) {
                         mod_opts.omit_frame_pointer = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
-                        mod_opts.sanitize_c = true;
+                        mod_opts.sanitize_c = .full;
+                    } else if (mem.startsWith(u8, arg, "-fsanitize-c=")) {
+                        const mode = arg["-fsanitize-c=".len..];
+                        if (mem.eql(u8, mode, "trap")) {
+                            mod_opts.sanitize_c = .trap;
+                        } else if (mem.eql(u8, mode, "full")) {
+                            mod_opts.sanitize_c = .full;
+                        } else {
+                            fatal("Invalid -fsanitize-c mode: '{s}'. Must be 'trap' or 'full'.", .{mode});
+                        }
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
-                        mod_opts.sanitize_c = false;
+                        mod_opts.sanitize_c = .off;
                     } else if (mem.eql(u8, arg, "-fvalgrind")) {
                         mod_opts.valgrind = true;
                     } else if (mem.eql(u8, arg, "-fno-valgrind")) {
@@ -2226,13 +2247,56 @@ fn buildOutputType(
                         var recognized_any = false;
                         while (san_it.next()) |sub_arg| {
                             if (mem.eql(u8, sub_arg, "undefined")) {
-                                mod_opts.sanitize_c = enable;
+                                mod_opts.sanitize_c = if (enable) .full else .off;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "thread")) {
                                 mod_opts.sanitize_thread = enable;
                                 recognized_any = true;
                             } else if (mem.eql(u8, sub_arg, "fuzzer") or mem.eql(u8, sub_arg, "fuzzer-no-link")) {
                                 mod_opts.fuzz = enable;
+                                recognized_any = true;
+                            }
+                        }
+                        if (!recognized_any) {
+                            try cc_argv.appendSlice(arena, it.other_args);
+                        }
+                    },
+                    .sanitize_trap, .no_sanitize_trap => |t| {
+                        const enable = t == .sanitize_trap;
+                        var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
+                        var recognized_any = false;
+                        while (san_it.next()) |sub_arg| {
+                            // This logic doesn't match Clang 1:1, but it's probably good enough, and avoids
+                            // significantly complicating the resolution of the options.
+                            if (mem.eql(u8, sub_arg, "undefined")) {
+                                if (mod_opts.sanitize_c) |sc| switch (sc) {
+                                    .off => if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    },
+                                    .trap => if (!enable) {
+                                        mod_opts.sanitize_c = .full;
+                                    },
+                                    .full => if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    },
+                                } else {
+                                    if (enable) {
+                                        mod_opts.sanitize_c = .trap;
+                                    } else {
+                                        // This means we were passed `-fno-sanitize-trap=undefined` and nothing else. In
+                                        // this case, ideally, we should use whatever value `sanitize_c` resolves to by
+                                        // default, except change `trap` to `full`. However, we don't yet know what
+                                        // `sanitize_c` will resolve to! So we either have to pick `off` or `full`.
+                                        //
+                                        // `full` has the potential to be problematic if `optimize_mode` turns out to
+                                        // be `ReleaseFast`/`ReleaseSmall` because the user will get a slower and larger
+                                        // binary than expected. On the other hand, if `optimize_mode` turns out to be
+                                        // `Debug`/`ReleaseSafe`, `off` would mean UBSan would unexpectedly be disabled.
+                                        //
+                                        // `off` seems very slightly less bad, so let's go with that.
+                                        mod_opts.sanitize_c = .off;
+                                    }
+                                }
                                 recognized_any = true;
                             }
                         }
@@ -2337,6 +2401,16 @@ fn buildOutputType(
                             // Note that we don't support `platform`.
                             fatal("unsupported -rtlib option '{s}'", .{it.only_arg});
                         }
+                    },
+                    .static => {
+                        create_module.opts.link_mode = .static;
+                        lib_preferred_mode = .static;
+                        lib_search_strategy = .no_fallback;
+                    },
+                    .dynamic => {
+                        create_module.opts.link_mode = .dynamic;
+                        lib_preferred_mode = .dynamic;
+                        lib_search_strategy = .mode_first;
                     },
                 }
             }
@@ -2746,7 +2820,7 @@ fn buildOutputType(
             }
 
             if (mod_opts.sanitize_c) |wsc| {
-                if (wsc and mod_opts.optimize_mode == .ReleaseFast) {
+                if (wsc != .off and mod_opts.optimize_mode == .ReleaseFast) {
                     mod_opts.optimize_mode = .ReleaseSafe;
                 }
             }
@@ -2834,6 +2908,10 @@ fn buildOutputType(
         },
     }
 
+    if (arg_mode == .zig_test_obj and !test_no_exec and listen == .none) {
+        fatal("test-obj requires --test-no-exec", .{});
+    }
+
     if (arg_mode == .translate_c and create_module.c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
     }
@@ -2891,6 +2969,13 @@ fn buildOutputType(
             create_module.opts.any_non_single_threaded = true;
         if (mod_opts.sanitize_thread == true)
             create_module.opts.any_sanitize_thread = true;
+        if (mod_opts.sanitize_c) |sc| switch (sc) {
+            .off => {},
+            .trap => if (create_module.opts.any_sanitize_c == .off) {
+                create_module.opts.any_sanitize_c = .trap;
+            },
+            .full => create_module.opts.any_sanitize_c = .full,
+        };
         if (mod_opts.fuzz == true)
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
@@ -2903,10 +2988,10 @@ fn buildOutputType(
             create_module.opts.any_error_tracing = true;
 
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
-        const name = if (arg_mode == .zig_test)
-            "test"
-        else
-            fs.path.stem(fs.path.basename(src_path));
+        const name = switch (arg_mode) {
+            .zig_test => "test",
+            .build, .cc, .cpp, .translate_c, .zig_test_obj, .run => fs.path.stem(fs.path.basename(src_path)),
+        };
 
         try create_module.modules.put(arena, name, .{
             .paths = .{
@@ -2935,7 +3020,7 @@ fn buildOutputType(
         rc_source_files_owner_index = create_module.rc_source_files.items.len;
     }
 
-    if (!create_module.opts.have_zcu and arg_mode == .zig_test) {
+    if (!create_module.opts.have_zcu and create_module.opts.is_test) {
         fatal("`zig test` expects a zig source file argument", .{});
     }
 
@@ -3037,16 +3122,36 @@ fn buildOutputType(
         break :m null;
     };
 
-    const root_mod = if (arg_mode == .zig_test) root_mod: {
-        const test_mod = if (test_runner_path) |test_runner| test_mod: {
-            const test_mod = try Package.Module.create(arena, .{
+    const root_mod = switch (arg_mode) {
+        .zig_test, .zig_test_obj => root_mod: {
+            const test_mod = if (test_runner_path) |test_runner| test_mod: {
+                const test_mod = try Package.Module.create(arena, .{
+                    .global_cache_directory = global_cache_directory,
+                    .paths = .{
+                        .root = .{
+                            .root_dir = Cache.Directory.cwd(),
+                            .sub_path = fs.path.dirname(test_runner) orelse "",
+                        },
+                        .root_src_path = fs.path.basename(test_runner),
+                    },
+                    .fully_qualified_name = "root",
+                    .cc_argv = &.{},
+                    .inherited = .{},
+                    .global = create_module.resolved_options,
+                    .parent = main_mod,
+                    .builtin_mod = main_mod.getBuiltinDependency(),
+                    .builtin_modules = null, // `builtin_mod` is specified
+                });
+                test_mod.deps = try main_mod.deps.clone(arena);
+                break :test_mod test_mod;
+            } else try Package.Module.create(arena, .{
                 .global_cache_directory = global_cache_directory,
                 .paths = .{
                     .root = .{
-                        .root_dir = Cache.Directory.cwd(),
-                        .sub_path = fs.path.dirname(test_runner) orelse "",
+                        .root_dir = zig_lib_directory,
+                        .sub_path = "compiler",
                     },
-                    .root_src_path = fs.path.basename(test_runner),
+                    .root_src_path = "test_runner.zig",
                 },
                 .fully_qualified_name = "root",
                 .cc_argv = &.{},
@@ -3056,30 +3161,21 @@ fn buildOutputType(
                 .builtin_mod = main_mod.getBuiltinDependency(),
                 .builtin_modules = null, // `builtin_mod` is specified
             });
-            test_mod.deps = try main_mod.deps.clone(arena);
-            break :test_mod test_mod;
-        } else try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
-            .paths = .{
-                .root = .{
-                    .root_dir = zig_lib_directory,
-                    .sub_path = "compiler",
-                },
-                .root_src_path = "test_runner.zig",
-            },
-            .fully_qualified_name = "root",
-            .cc_argv = &.{},
-            .inherited = .{},
-            .global = create_module.resolved_options,
-            .parent = main_mod,
-            .builtin_mod = main_mod.getBuiltinDependency(),
-            .builtin_modules = null, // `builtin_mod` is specified
-        });
 
-        break :root_mod test_mod;
-    } else main_mod;
+            break :root_mod test_mod;
+        },
+        else => main_mod,
+    };
 
     const target = main_mod.resolved_target.result;
+
+    if (target.cpu.arch == .arc or target.cpu.arch.isNvptx()) {
+        if (emit_bin != .no and create_module.resolved_options.use_llvm) {
+            fatal("cannot emit {s} binary with the LLVM backend; only '-femit-asm' is supported", .{
+                @tagName(target.cpu.arch),
+            });
+        }
+    }
 
     if (target.os.tag == .windows and major_subsystem_version == null and minor_subsystem_version == null) {
         major_subsystem_version, minor_subsystem_version = switch (target.os.version_range.windows.min) {
@@ -3196,7 +3292,7 @@ fn buildOutputType(
             .directory = blk: {
                 switch (arg_mode) {
                     .run, .zig_test => break :blk null,
-                    else => {
+                    .build, .cc, .cpp, .translate_c, .zig_test_obj => {
                         if (output_to_cache) {
                             break :blk null;
                         } else {
@@ -4059,7 +4155,7 @@ fn createModule(
             };
         }
 
-        if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
+        if (target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
             any_name_queries_remaining)
         {
             if (create_module.libc_installation == null) {
@@ -4070,11 +4166,10 @@ fn createModule(
                 }) catch |err| {
                     fatal("unable to find native libc installation: {s}", .{@errorName(err)});
                 };
-
-                try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
             }
+            try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
         }
 
         // Destructively mutates but does not transfer ownership of `unresolved_link_inputs`.
@@ -4088,7 +4183,6 @@ fn createModule(
             color,
         ) catch |err| fatal("failed to resolve link inputs: {s}", .{@errorName(err)});
 
-        if (create_module.windows_libs.count() != 0) create_module.opts.any_dyn_libs = true;
         if (!create_module.opts.any_dyn_libs) for (create_module.link_inputs.items) |item| switch (item) {
             .dso, .dso_exact => {
                 create_module.opts.any_dyn_libs = true;
@@ -4111,6 +4205,7 @@ fn createModule(
             error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
+            error.LibCRequiresLibUnwind => fatal("libc of the specified target requires linking libunwind", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
             error.OsRequiresLibC => fatal("the target OS requires using libc as the stable syscall interface", .{}),
             error.LibCppRequiresLibC => fatal("libc++ requires linking libc", .{}),
@@ -5909,6 +6004,8 @@ pub const ClangArgIterator = struct {
         gdwarf64,
         sanitize,
         no_sanitize,
+        sanitize_trap,
+        no_sanitize_trap,
         linker_script,
         dry_run,
         verbose,
@@ -5955,6 +6052,8 @@ pub const ClangArgIterator = struct {
         san_cov,
         no_san_cov,
         rtlib,
+        static,
+        dynamic,
     };
 
     const Args = struct {
@@ -7694,6 +7793,13 @@ fn handleModArg(
         create_module.opts.any_non_single_threaded = true;
     if (mod_opts.sanitize_thread == true)
         create_module.opts.any_sanitize_thread = true;
+    if (mod_opts.sanitize_c) |sc| switch (sc) {
+        .off => {},
+        .trap => if (create_module.opts.any_sanitize_c == .off) {
+            create_module.opts.any_sanitize_c = .trap;
+        },
+        .full => create_module.opts.any_sanitize_c = .full,
+    };
     if (mod_opts.fuzz == true)
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {

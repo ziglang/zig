@@ -1065,6 +1065,7 @@ const NavGen = struct {
 
     fn derivePtr(self: *NavGen, derivation: Value.PointerDeriveStep) Error!IdRef {
         const pt = self.pt;
+        const zcu = pt.zcu;
         switch (derivation) {
             .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
@@ -1104,23 +1105,36 @@ const NavGen = struct {
             .offset_and_cast => |oac| {
                 const parent_ptr_id = try self.derivePtr(oac.parent.*);
                 const parent_ptr_ty = try oac.parent.ptrType(pt);
-                disallow: {
-                    if (oac.byte_offset != 0) break :disallow;
-                    // Allow changing the pointer type child only to restructure arrays.
-                    // e.g. [3][2]T to T is fine, as is [2]T -> [2][1]T.
-                    const result_ty_id = try self.resolveType(oac.new_ptr_ty, .direct);
-                    const result_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_ptr_id,
-                        .operand = parent_ptr_id,
-                    });
-                    return result_ptr_id;
+                const result_ty_id = try self.resolveType(oac.new_ptr_ty, .direct);
+
+                if (oac.byte_offset != 0) {
+                    const child_size = oac.new_ptr_ty.childType(zcu).abiSize(zcu);
+                    if (oac.byte_offset % child_size != 0) {
+                        return self.fail("cannot perform pointer cast: '{}' to '{}'", .{
+                            parent_ptr_ty.fmt(pt),
+                            oac.new_ptr_ty.fmt(pt),
+                        });
+                    }
+
+                    // Vector element ptr accesses are derived as offset_and_cast.
+                    // We can just use OpAccessChain.
+                    assert(parent_ptr_ty.childType(zcu).zigTypeTag(zcu) == .vector);
+                    return self.accessChain(
+                        result_ty_id,
+                        parent_ptr_id,
+                        &.{@intCast(@divExact(oac.byte_offset, child_size))},
+                    );
                 }
-                return self.fail("cannot perform pointer cast: '{}' to '{}'", .{
-                    parent_ptr_ty.fmt(pt),
-                    oac.new_ptr_ty.fmt(pt),
+
+                // Allow changing the pointer type child only to restructure arrays.
+                // e.g. [3][2]T to T is fine, as is [2]T -> [2][1]T.
+                const result_ptr_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = result_ty_id,
+                    .id_result = result_ptr_id,
+                    .operand = parent_ptr_id,
                 });
+                return result_ptr_id;
             },
         }
     }
@@ -3344,6 +3358,7 @@ const NavGen = struct {
             .slice          => try self.airSlice(inst),
             .aggregate_init => try self.airAggregateInit(inst),
             .memcpy         => return self.airMemcpy(inst),
+            .memmove        => return self.airMemmove(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
@@ -4912,6 +4927,11 @@ const NavGen = struct {
             .source = src_ptr,
             .size = len,
         });
+    }
+
+    fn airMemmove(self: *NavGen, inst: Air.Inst.Index) !void {
+        _ = inst;
+        return self.fail("TODO implement airMemcpy for spirv", .{});
     }
 
     fn airSliceField(self: *NavGen, inst: Air.Inst.Index, field: u32) !?IdRef {

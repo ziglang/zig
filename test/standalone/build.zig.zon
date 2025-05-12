@@ -5,6 +5,9 @@
         .simple = .{
             .path = "simple",
         },
+        .test_obj_link_run = .{
+            .path = "test_obj_link_run",
+        },
         .test_runner_path = .{
             .path = "test_runner_path",
         },
@@ -104,6 +107,9 @@
         },
         .libcxx = .{
             .path = "libcxx",
+        },
+        .libfuzzer = .{
+            .path = "libfuzzer",
         },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",

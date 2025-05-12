@@ -32,7 +32,7 @@ any_non_single_threaded: bool,
 /// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
-any_sanitize_c: bool,
+any_sanitize_c: std.zig.SanitizeC,
 any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
@@ -86,7 +86,7 @@ pub const Options = struct {
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
-    any_sanitize_c: bool = false,
+    any_sanitize_c: std.zig.SanitizeC = .off,
     any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
@@ -129,6 +129,7 @@ pub const ResolveError = error{
     LldCannotIncrementallyLink,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
+    LibCRequiresLibUnwind,
     LibCppRequiresLibUnwind,
     OsRequiresLibC,
     LibCppRequiresLibC,
@@ -312,8 +313,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const link_libunwind = b: {
-        if (link_libcpp and target_util.libcNeedsLibUnwind(target)) {
+    var link_libunwind = b: {
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
             if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
             break :b true;
         }
@@ -334,6 +335,13 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
         if (options.link_libc) |x| break :b x;
+        switch (target.os.tag) {
+            // These targets don't require libc, but we don't yet have a syscall layer for them,
+            // so we default to linking libc for now.
+            .freebsd,
+            => break :b true,
+            else => {},
+        }
         if (options.ensure_libc_on_non_freestanding and target.os.tag != .freestanding)
             break :b true;
 
@@ -352,7 +360,9 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target.isGnuLibC() or target_util.osRequiresLibC(target)))
+            (target_util.osRequiresLibC(target) or
+                // For these libcs, Zig can only provide dynamic libc when cross-compiling.
+                ((target.isGnuLibC() or target.isFreeBSDLibC()) and !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -367,17 +377,30 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.link_mode) |link_mode| break :b link_mode;
 
-        if (explicitly_exe_or_dyn_lib and link_libc and
-            options.resolved_target.is_native_abi and target.abi.isMusl())
-        {
-            // If targeting the system's native ABI and the system's libc is
-            // musl, link dynamically by default.
-            break :b .dynamic;
+        if (explicitly_exe_or_dyn_lib and link_libc) {
+            // When using the native glibc/musl ABI, dynamic linking is usually what people want.
+            if (options.resolved_target.is_native_abi and (target.isGnuLibC() or target.isMuslLibC())) {
+                break :b .dynamic;
+            }
+
+            // When targeting systems where the kernel and libc are developed alongside each other,
+            // dynamic linking is the better default; static libc may contain code that requires
+            // the very latest kernel version.
+            if (target.isFreeBSDLibC()) {
+                break :b .dynamic;
+            }
         }
 
         // Static is generally a better default. Fight me.
         break :b .static;
     };
+
+    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
+    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+
+        link_libunwind = true;
+    }
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
@@ -426,7 +449,7 @@ pub fn resolve(options: Options) ResolveError!Config {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
+            .spirv, .hex, .raw, .plan9 => .strip,
         };
     };
 

@@ -749,7 +749,7 @@ fn maybeIgnoreSigpipe() void {
             // Set handler to a noop function instead of `SIG.IGN` to prevent
             // leaking signal disposition to a child process.
             .handler = .{ .handler = noopSigHandler },
-            .mask = posix.empty_sigset,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
         posix.sigaction(posix.SIG.PIPE, &act, null);

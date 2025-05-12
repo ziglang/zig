@@ -79,7 +79,8 @@ enable_wine: bool = false,
 /// this will be the directory $glibc-build-dir/install/glibcs
 /// Given the example of the aarch64 target, this is the directory
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
+/// Also works for dynamic musl.
+libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -390,7 +391,7 @@ fn createChildOnly(
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
+        .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),
@@ -1019,6 +1020,10 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    /// Emits an object file instead of a test binary.
+    /// The object must be linked separately.
+    /// Usually used in conjunction with a custom `test_runner`.
+    emit_object: bool = false,
 
     /// Prefer populating this field (using e.g. `createModule`) instead of populating
     /// the following fields (`root_source_file` etc). In a future release, those fields
@@ -1067,7 +1072,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     }
     return .create(b, .{
         .name = options.name,
-        .kind = .@"test",
+        .kind = if (options.emit_object) .test_obj else .@"test",
         .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file orelse @panic("`root_module` and `root_source_file` cannot both be null"),
             .target = options.target orelse b.graph.host,
