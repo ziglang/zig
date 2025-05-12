@@ -30,13 +30,27 @@ const expect = std.testing.expect;
 ///  - pow(+inf, y)   = +0 for y < 0
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
-pub fn pow(comptime T: type, x: T, y: T) T {
+pub fn pow(comptime T: type, x: T, y: T) if (T == comptime_float) f128 else T {
     if (@typeInfo(T) == .int) {
         return math.powi(T, x, y) catch unreachable;
     }
 
-    if (@typeInfo(T) != .float) {
-        @compileError("pow not implemented for comptime_float");
+    if (@typeInfo(T) != .float and @typeInfo(T) != .comptime_float) {
+        @compileError("pow not implemented for " ++ @typeName(T));
+    }
+    
+    if (T == comptime_float) {
+        const x_f128: f128 = @floatCast(x);
+        const y_f128: f128 = @floatCast(y);
+        
+        if (math.isNan(x_f128) or math.isNan(y_f128)) {
+            @compileError("comptime_float cannot have NaN value");
+        }
+        if (math.isInf(x_f128) or math.isInf(y_f128)) {
+            @compileError("comptime_float cannot have Inf value");
+        }
+        
+        return pow(f128, x_f128, y_f128);
     }
 
     // pow(x, +-0) = 1      for all x
@@ -237,6 +251,14 @@ test pow {
     try expect(math.approxEqAbs(f128, pow(f128, 1.5, 3.3), 3.811546, epsilon));
     try expect(math.approxEqAbs(f128, pow(f128, 37.45, 3.3), 155736.7160616, epsilon));
     try expect(math.approxEqAbs(f128, pow(f128, 89.123, 3.3), 2722490.231436, epsilon));
+
+    try expect(@TypeOf(pow(comptime_float, 0.0, 3.3)) == f128);
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.0, 3.3), 0.0, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.8923, 3.3), 0.686572, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.2, 3.3), 0.004936, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 1.5, 3.3), 3.811546, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 37.45, 3.3), 155736.7160616, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 89.123, 3.3), 2722490.231436, epsilon));
 }
 
 test "special" {
