@@ -260,7 +260,7 @@ pub const RuntimeServices = extern struct {
             &size,
             null,
         )) {
-            .success, .buffer_too_small => return .{ size, attrs },
+            .buffer_too_small => return .{ size, attrs },
             .not_found => return null,
             .device_error => return Error.DeviceError,
             .unsupported => return Error.Unsupported,
@@ -347,13 +347,13 @@ pub const RuntimeServices = extern struct {
         self: *RuntimeServices,
         reset_type: ResetType,
         reset_status: Status,
-        data: []const u8,
+        data: ?[]const u8,
     ) noreturn {
         self._resetSystem(
             reset_type,
             reset_status,
-            data.len,
-            @alignCast(@ptrCast(data.ptr)),
+            if (data) |d| d.len else 0,
+            if (data) |d| @alignCast(@ptrCast(d.ptr)) else null,
         );
     }
 
@@ -502,7 +502,7 @@ pub const RuntimeServices = extern struct {
                 null,
                 &self.guid,
             )) {
-                .success, .buffer_too_small => return len,
+                .buffer_too_small => return len,
                 .not_found => return null,
                 .device_error => return Error.DeviceError,
                 .unsupported => return Error.Unsupported,

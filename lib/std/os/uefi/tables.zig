@@ -22,10 +22,6 @@ pub const TimerDelay = enum(u32) {
 };
 
 pub const MemoryType = enum(u32) {
-    pub const InvalidValue = math.IntFittingRange(
-        0,
-        @intFromEnum(MemoryType.invalid_end) - @intFromEnum(MemoryType.invalid_start),
-    );
     pub const OemValue = math.IntFittingRange(
         0,
         @intFromEnum(MemoryType.oem_end) - @intFromEnum(MemoryType.oem_start),
@@ -68,19 +64,6 @@ pub const MemoryType = enum(u32) {
     vendor_end = 0xFFFFFFFF,
     _,
 
-    pub fn invalid(value: InvalidValue) MemoryType {
-        const invalid_start = @intFromEnum(MemoryType.invalid_start);
-        return @enumFromInt(invalid_start + value);
-    }
-
-    pub fn getInvalid(memtype: MemoryType) ?InvalidValue {
-        const as_int = @intFromEnum(memtype);
-        const invalid_start = @intFromEnum(MemoryType.invalid_start);
-        if (as_int < invalid_start) return null;
-        if (as_int > @intFromEnum(MemoryType.invalid_end)) return null;
-        return @truncate(as_int - invalid_start);
-    }
-
     pub fn oem(value: OemValue) MemoryType {
         const oem_start = @intFromEnum(MemoryType.oem_start);
         return @enumFromInt(oem_start + value);
@@ -105,6 +88,22 @@ pub const MemoryType = enum(u32) {
         if (as_int < @intFromEnum(MemoryType.vendor_end)) return null;
         if (as_int > @intFromEnum(MemoryType.vendor_end)) return null;
         return @truncate(as_int - vendor_start);
+    }
+
+    pub fn format(
+        memtype: MemoryType,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (memtype.getOem()) |oemval|
+            try writer.print("OEM({X})", .{oemval})
+        else if (memtype.getVendor()) |vendorval|
+            try writer.print("Vendor({X})", .{vendorval})
+        else if (std.enums.tagName(MemoryType, memtype)) |name|
+            try writer.print("{s}", .{name})
+        else
+            try writer.print("INVALID({X})", .{@intFromEnum(memtype)});
     }
 };
 
