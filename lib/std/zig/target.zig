@@ -221,6 +221,16 @@ pub fn freebsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
     };
 }
 
+pub fn netbsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .armeb => "arm",
+        .aarch64_be => "aarch64",
+        .mipsel => "mips",
+        .mips64el => "mips64",
+        else => @tagName(arch),
+    };
+}
+
 pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
     const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
 
