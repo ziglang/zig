@@ -243,6 +243,8 @@ test nameCast {
 /// is exhaustive but not dense, a mapping will be constructed from enum values
 /// to dense indices.  This type does no dynamic allocation and
 /// can be copied by value.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn EnumSet(comptime E: type) type {
     return struct {
         const Self = @This();
@@ -434,6 +436,8 @@ pub fn EnumSet(comptime E: type) type {
 /// If the enum is exhaustive but not dense, a mapping will be constructed from
 /// enum values to dense indices.  This type does no dynamic
 /// allocation and can be copied by value.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn EnumMap(comptime E: type, comptime V: type) type {
     return struct {
         const Self = @This();
@@ -682,6 +686,8 @@ pub fn EnumMultiset(comptime E: type) type {
 /// A multiset of enum elements up to CountSize. Backed by an
 /// EnumArray. This type does no dynamic allocation and can be
 /// copied by value.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
     return struct {
         const Self = @This();

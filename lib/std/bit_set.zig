@@ -51,6 +51,8 @@ pub fn StaticBitSet(comptime size: usize) type {
 /// A bit set with static size, which is backed by a single integer.
 /// This set is good for sets with a small size, but may generate
 /// inefficient code for larger sets, especially in debug mode.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn IntegerBitSet(comptime size: u16) type {
     return packed struct {
         const Self = @This();
@@ -328,6 +330,8 @@ pub fn IntegerBitSet(comptime size: u16) type {
 /// A bit set with static size, which is backed by an array of usize.
 /// This set is good for sets with a larger size, but may use
 /// more bytes than necessary if your set is small.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     const mask_info: std.builtin.Type = @typeInfo(MaskIntType);
 
