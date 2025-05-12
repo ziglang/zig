@@ -346,6 +346,7 @@ fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMe
         "-std=c++17",
         "-fno-rtti",
         "-fno-exceptions",
+        "-w", // Disable all warnings.
     });
 
     if (target.abi.isAndroid() and target.os.version_range.linux.android >= 29) {
