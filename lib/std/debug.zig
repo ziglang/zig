@@ -1489,8 +1489,10 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            dumpStackTraceFromBase(ctx);
+            const ctx: *align(8) posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            var new_ctx: posix.ucontext_t = ctx.*;
+            relocateContext(&new_ctx);
+            dumpStackTraceFromBase(&new_ctx);
         },
         else => {},
     }

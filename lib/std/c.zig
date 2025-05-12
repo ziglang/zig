@@ -6680,6 +6680,7 @@ pub const ucontext_t = switch (native_os) {
         link: ?*ucontext_t,
         mcsize: u64,
         mcontext: *mcontext_t,
+        __mcontext_data: mcontext_t,
     },
     .freebsd => extern struct {
         sigmask: sigset_t,
