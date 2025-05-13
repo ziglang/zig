@@ -732,11 +732,25 @@ pub fn Serializer(Writer: type) type {
             val: []const u8,
             options: StringOptions,
         ) Writer.Error!void {
-            if (!options.escape_unicode and std.unicode.utf8ValidateSlice(val)) {
-                try std.fmt.format(self.writer, "\"{s}\"", .{val});
-            } else {
-                try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
-            }
+            try self.writer.writeByte('"');
+            for (val) |byte| switch (byte) {
+                '\n' => try self.writer.writeAll("\\n"),
+                '\r' => try self.writer.writeAll("\\r"),
+                '\t' => try self.writer.writeAll("\\t"),
+                '\\' => try self.writer.writeAll("\\\\"),
+                '"' => try self.writer.writeAll("\\\""),
+                // if normal ascii, just write it
+                ' ', '!', '#'...'&', '('...'[', ']'...'~' => try self.writer.writeByte(byte),
+                else => {
+                    if (options.escape_unicode) {
+                        try self.writer.writeAll("\\x");
+                        try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, self.writer);
+                    } else {
+                        try self.writer.writeByte(byte);
+                    }
+                },
+            };
+            try self.writer.writeByte('"');
         }
 
         /// Options for formatting multiline strings.
@@ -1665,13 +1679,26 @@ test "std.zon stringify strings" {
     defer buf.deinit();
     var sz = serializer(buf.writer(), .{});
 
-    // Minimal case
+    // Minimal case escape_unicode = true
     try sz.string("abc⚡\n", .{ .escape_unicode = true });
     try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
     buf.clearRetainingCapacity();
 
+    try sz.string(
+        \\a"b\c⚡
+    , .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\xe2\\x9a\\xa1\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    // Minimal case escape_unicode = false
     try sz.string("abc⚡\n", .{});
-    try std.testing.expectEqualStrings("\"abc⚡\n\"", buf.items);
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string(
+        \\a"b\c⚡
+    , .{});
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c⚡\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.tuple("abc⚡\n", .{});
@@ -1693,7 +1720,7 @@ test "std.zon stringify strings" {
     buf.clearRetainingCapacity();
 
     try sz.value("abc⚡\n", .{ .escape_unicode = false });
-    try std.testing.expectEqualStrings("\"abc⚡\n\"", buf.items);
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value("⚡", .{ .escape_unicode = false });
