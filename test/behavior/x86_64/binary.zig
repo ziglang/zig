@@ -5103,6 +5103,7 @@ inline fn subSat(comptime Type: type, lhs: Type, rhs: Type) Type {
 test subSat {
     const test_sub_sat = binary(subSat, .{});
     try test_sub_sat.testInts();
+    try test_sub_sat.testIntVectors();
 }
 
 inline fn mulUnsafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
