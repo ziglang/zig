@@ -189,9 +189,9 @@ fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !Final
     if (slice.items(.is_terminal)[node_index]) {
         const export_flags = slice.items(.export_flags)[node_index];
         const vmaddr_offset = slice.items(.vmaddr_offset)[node_index];
-        try leb.writeULEB128(writer, export_flags);
-        try leb.writeULEB128(writer, vmaddr_offset);
-        try leb.writeULEB128(writer, stream.bytes_written);
+        try leb.writeUleb128(writer, export_flags);
+        try leb.writeUleb128(writer, vmaddr_offset);
+        try leb.writeUleb128(writer, stream.bytes_written);
     } else {
         node_size += 1; // 0x0 for non-terminal nodes
     }
@@ -201,7 +201,7 @@ fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !Final
         const edge = &self.edges.items[edge_index];
         const next_node_offset = slice.items(.trie_offset)[edge.node];
         node_size += @intCast(edge.label.len + 1);
-        try leb.writeULEB128(writer, next_node_offset);
+        try leb.writeUleb128(writer, next_node_offset);
     }
 
     const trie_offset = slice.items(.trie_offset)[node_index];
@@ -251,13 +251,13 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
         // TODO Implement for special flags.
         assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
             export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-        try leb.writeULEB128(info_stream.writer(), export_flags);
-        try leb.writeULEB128(info_stream.writer(), vmaddr_offset);
+        try leb.writeUleb128(info_stream.writer(), export_flags);
+        try leb.writeUleb128(info_stream.writer(), vmaddr_offset);
 
         // Encode the size of the terminal node info.
         var size_buf: [@sizeOf(u64)]u8 = undefined;
         var size_stream = std.io.fixedBufferStream(&size_buf);
-        try leb.writeULEB128(size_stream.writer(), info_stream.pos);
+        try leb.writeUleb128(size_stream.writer(), info_stream.pos);
 
         // Now, write them to the output stream.
         try writer.writeAll(size_buf[0..size_stream.pos]);
@@ -274,7 +274,7 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
         // Write edge label and offset to next node in trie.
         try writer.writeAll(edge.label);
         try writer.writeByte(0);
-        try leb.writeULEB128(writer, slice.items(.trie_offset)[edge.node]);
+        try leb.writeUleb128(writer, slice.items(.trie_offset)[edge.node]);
     }
 }
 

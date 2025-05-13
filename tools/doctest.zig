@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
