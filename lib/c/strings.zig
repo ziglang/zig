@@ -1,8 +1,14 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const common = @import("common.zig");
+const string = @import("string.zig");
 
 comptime {
-    @export(&bzero, .{ .name = "bzero", .linkage = common.linkage, .visibility = common.visibility });
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        @export(&bzero, .{ .name = "bzero", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&string.strchr, .{ .name = "index", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&string.strrchr, .{ .name = "rindex", .linkage = common.linkage, .visibility = common.visibility });
+    }
 }
 
 fn bzero(s: *anyopaque, n: usize) callconv(.c) void {
