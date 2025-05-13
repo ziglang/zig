@@ -159,12 +159,12 @@ pub const ar_hdr = extern struct {
     ar_fmag: [2]u8,
 
     fn date(self: ar_hdr) !u64 {
-        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u64, value, 10);
     }
 
     fn size(self: ar_hdr) !u32 {
-        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u32, value, 10);
     }
 
@@ -178,7 +178,7 @@ pub const ar_hdr = extern struct {
     fn nameLength(self: ar_hdr) !?u32 {
         const value = &self.ar_name;
         if (!mem.startsWith(u8, value, "#1/")) return null;
-        const trimmed = mem.trimRight(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
+        const trimmed = mem.trimEnd(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
         return try std.fmt.parseInt(u32, trimmed, 10);
     }
 };

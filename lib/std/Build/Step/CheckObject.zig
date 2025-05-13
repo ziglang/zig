@@ -2445,7 +2445,7 @@ const WasmDumper = struct {
         switch (check.kind) {
             .headers => {
                 while (reader.readByte()) |current_byte| {
-                    const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
+                    const section = std.enums.fromInt(std.wasm.Section, current_byte) orelse {
                         return step.fail("Found invalid section id '{d}'", .{current_byte});
                     };
 
@@ -2551,7 +2551,7 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
 
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, try reader.readByte()) catch {
+                    const kind = std.enums.fromInt(std.wasm.ExternalKind, try reader.readByte()) orelse {
                         return step.fail("invalid import kind", .{});
                     };
 
@@ -2613,7 +2613,7 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
                     const kind_byte = try std.leb.readUleb128(u8, reader);
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch {
+                    const kind = std.enums.fromInt(std.wasm.ExternalKind, kind_byte) orelse {
                         return step.fail("invalid export kind value '{d}'", .{kind_byte});
                     };
                     const index = try std.leb.readUleb128(u32, reader);
@@ -2664,7 +2664,7 @@ const WasmDumper = struct {
 
     fn parseDumpType(step: *Step, comptime E: type, reader: anytype, writer: anytype) !E {
         const byte = try reader.readByte();
-        const tag = std.meta.intToEnum(E, byte) catch {
+        const tag = std.enums.fromInt(E, byte) orelse {
             return step.fail("invalid wasm type value '{d}'", .{byte});
         };
         try writer.print("type {s}\n", .{@tagName(tag)});
@@ -2683,7 +2683,7 @@ const WasmDumper = struct {
 
     fn parseDumpInit(step: *Step, reader: anytype, writer: anytype) !void {
         const byte = try reader.readByte();
-        const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch {
+        const opcode = std.enums.fromInt(std.wasm.Opcode, byte) orelse {
             return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
         switch (opcode) {

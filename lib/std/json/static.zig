@@ -595,7 +595,7 @@ pub fn innerParseFromValue(
 
             switch (source) {
                 .float => return error.InvalidEnumTag,
-                .integer => |i| return std.meta.intToEnum(T, i),
+                .integer => |i| return std.enums.fromInt(T, i) orelse return error.InvalidEnumTag,
                 .number_string, .string => |s| return sliceToEnum(T, s),
                 else => return error.UnexpectedToken,
             }
@@ -780,7 +780,7 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
     // Check for a numeric value.
     if (!isNumberFormattedLikeAnInteger(slice)) return error.InvalidEnumTag;
     const n = std.fmt.parseInt(@typeInfo(T).@"enum".tag_type, slice, 10) catch return error.InvalidEnumTag;
-    return std.meta.intToEnum(T, n);
+    return std.enums.fromInt(T, n) orelse return error.InvalidEnumTag;
 }
 
 fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
