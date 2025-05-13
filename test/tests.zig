@@ -11,6 +11,7 @@ const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
+const llvm_ir = @import("llvm_ir.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/TranslateC.zig");
@@ -18,6 +19,7 @@ pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
+pub const LlvmIrContext = @import("src/LlvmIr.zig");
 
 const TestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -1825,7 +1827,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .zig_lib_dir = b.path("lib"),
         });
         these_tests.linkage = test_target.linkage;
-        if (options.no_builtin) these_tests.no_builtin = true;
+        if (options.no_builtin) these_tests.root_module.no_builtin = false;
         if (options.build_options) |build_options| {
             these_tests.root_module.addOptions("build_options", build_options);
         }
@@ -2124,4 +2126,23 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
 
         test_step.dependOn(&run.step);
     }
+}
+
+pub fn addLlvmIrTests(b: *std.Build, options: LlvmIrContext.Options) ?*Step {
+    const step = b.step("test-llvm-ir", "Run the LLVM IR tests");
+
+    if (!options.enable_llvm) {
+        step.dependOn(&b.addFail("test-llvm-ir requires -Denable-llvm").step);
+        return null;
+    }
+
+    var context: LlvmIrContext = .{
+        .b = b,
+        .options = options,
+        .root_step = step,
+    };
+
+    llvm_ir.addCases(&context);
+
+    return step;
 }
