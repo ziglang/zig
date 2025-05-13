@@ -5097,6 +5097,14 @@ test subWrap {
     try test_sub_wrap.testIntVectors();
 }
 
+inline fn subSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs -| rhs;
+}
+test subSat {
+    const test_sub_sat = binary(subSat, .{});
+    try test_sub_sat.testInts();
+}
+
 inline fn mulUnsafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
     @setRuntimeSafety(false);
     return @as(DoubleBits(Type), lhs) * rhs;
