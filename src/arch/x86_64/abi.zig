@@ -148,38 +148,64 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             result[0] = .integer;
             return result;
         },
-        .float => switch (ty.floatBits(target.*)) {
+        .float => if (std.Target.x86.featureSetHas(target.cpu.features, .soft_float)) {
+            @memset(result[0 .. std.math.divCeil(u16, ty.floatBits(target.*), 64) catch unreachable], .integer);
+            return result;
+        } else switch (ty.floatBits(target.*)) {
             16 => {
-                if (ctx == .field) {
-                    result[0] = .memory;
-                } else {
+                result[0] = if (ctx == .field)
+                    .memory
+                else if (std.Target.x86.featureSetHasAll(target.cpu.features, .{ .sse, .sse2 }))
                     // TODO clang doesn't allow __fp16 as .ret or .arg
-                    result[0] = .sse;
-                }
+                    .sse
+                else
+                    .integer;
                 return result;
             },
             32 => {
-                result[0] = .float;
+                if (std.Target.x86.featureSetHas(target.cpu.features, .sse)) {
+                    result[0] = .float;
+                } else if (std.Target.x86.featureSetHas(target.cpu.features, .x87)) {
+                    result[0] = .x87;
+                    result[1] = .x87up;
+                } else {
+                    @memset(result[0..2], .integer);
+                }
                 return result;
             },
             64 => {
-                result[0] = .sse;
+                if (std.Target.x86.featureSetHas(target.cpu.features, .sse2)) {
+                    result[0] = .sse;
+                } else if (std.Target.x86.featureSetHas(target.cpu.features, .x87)) {
+                    result[0] = .x87;
+                    result[1] = .x87up;
+                } else {
+                    @memset(result[0..2], .integer);
+                }
                 return result;
             },
             128 => {
-                // "Arguments of types __float128, _Decimal128 and __m128 are
-                // split into two halves.  The least significant ones belong
-                // to class SSE, the most significant one to class SSEUP."
-                result[0] = .sse;
-                result[1] = .sseup;
+                if (std.Target.x86.featureSetHas(target.cpu.features, .sse)) {
+                    // "Arguments of types __float128, _Decimal128 and __m128 are
+                    // split into two halves.  The least significant ones belong
+                    // to class SSE, the most significant one to class SSEUP."
+                    result[0] = .sse;
+                    result[1] = .sseup;
+                } else {
+                    @memset(result[0..2], .integer);
+                }
                 return result;
             },
             80 => {
-                // "The 64-bit mantissa of arguments of type long double
-                // belongs to classX87, the 16-bit exponent plus 6 bytes
-                // of padding belongs to class X87UP."
-                result[0] = .x87;
-                result[1] = .x87up;
+                if (std.Target.x86.featureSetHas(target.cpu.features, .x87)) {
+                    // "The 64-bit mantissa of arguments of type long double
+                    // belongs to classX87, the 16-bit exponent plus 6 bytes
+                    // of padding belongs to class X87UP."
+                    result[0] = .x87;
+                    result[1] = .x87up;
+                } else {
+                    @memset(result[0..2], .integer);
+                }
                 return result;
             },
             else => unreachable,
