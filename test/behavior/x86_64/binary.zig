@@ -5134,6 +5134,14 @@ test mulWrap {
     try test_mul_wrap.testIntVectors();
 }
 
+inline fn mulSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs *| rhs;
+}
+test mulSat {
+    const test_mul_sat = binary(mulSat, .{});
+    try test_mul_sat.testInts();
+}
+
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
     return lhs * rhs;
 }
