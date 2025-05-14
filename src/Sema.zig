@@ -5340,19 +5340,20 @@ fn zirValidatePtrArrayInit(
         else => unreachable,
     };
 
+    // In case of a sentinel-terminated array, the sentinel will not have been
+    // populated by any ZIR instructions at comptime; we need to do that here.
+    if (array_ty.sentinel(zcu)) |sentinel_val| {
+        const array_len_ref = try pt.intRef(Type.usize, array_len);
+        const sentinel_ptr = try sema.elemPtrArray(block, init_src, init_src, array_ptr, init_src, array_len_ref, true, true);
+        const sentinel = Air.internedToRef(sentinel_val.toIntern());
+        try sema.storePtr2(block, init_src, sentinel_ptr, init_src, sentinel, init_src, .store);
+    }
+
     if (block.isComptime() and
         (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
     {
-        // In this case the comptime machinery will have evaluated the store instructions
-        // at comptime so we have almost nothing to do here. However, in case of a
-        // sentinel-terminated array, the sentinel will not have been populated by
-        // any ZIR instructions at comptime; we need to do that here.
-        if (array_ty.sentinel(zcu)) |sentinel_val| {
-            const array_len_ref = try pt.intRef(Type.usize, array_len);
-            const sentinel_ptr = try sema.elemPtrArray(block, init_src, init_src, array_ptr, init_src, array_len_ref, true, true);
-            const sentinel = Air.internedToRef(sentinel_val.toIntern());
-            try sema.storePtr2(block, init_src, sentinel_ptr, init_src, sentinel, init_src, .store);
-        }
+        // In this case the comptime machinery will have evaluated the store
+        // instructions at comptime so we have nothing to do here
         return;
     }
 
