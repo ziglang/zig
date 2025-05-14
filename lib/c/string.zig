@@ -25,10 +25,7 @@ comptime {
             // NOTE: These symbols are only depended on by other parts of the
             // musl c-sources. They should be removed once libzigc is further
             // along, and these functions have been re-implemented in zig.
-            @export(&stpncpy, .{ .name = "__stpncpy", .linkage = .internal, .visibility = .default });
-            @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .internal, .visibility = .default });
-            @export(&memrchr, .{ .name = "__memrchr", .linkage = .internal, .visibility = .default });
-            @export(&stpcpy, .{ .name = "__stpcpy", .linkage = .internal, .visibility = .default });
+            @export(&strchrnul, .{ .name = "__strchrnul", .linkage = .strong, .visibility = .hidden });
         }
     }
 
@@ -82,9 +79,9 @@ fn strchrnul(s: [*:0]const c_char, c: c_int) callconv(.c) [*:0]const c_char {
     const needle: c_char = @intCast(c);
     if (needle == 0) return s + strlen(s);
 
-    var it: [*:0]const c_char = @ptrCast(s);
+    var it: [*:0]const c_char = s;
     while (it[0] != 0 and it[0] != needle) : (it += 1) {}
-    return @ptrCast(it);
+    return it;
 }
 
 test strchrnul {
@@ -216,12 +213,12 @@ fn memmem(haystack: *const anyopaque, haystack_len: usize, needle: *const anyopa
 }
 
 fn stpcpy(noalias dest: [*:0]c_char, noalias src: [*:0]const c_char) callconv(.c) [*:0]c_char {
-    var d: [*]c_char = @ptrCast(dest);
-    var s: [*]const c_char = @ptrCast(src);
+    var d: [*:0]c_char = dest;
+    var s: [*:0]const c_char = src;
     // QUESTION: is std.mem.span -> @memset more efficient here?
     while (true) {
         d[0] = s[0];
-        if (s[0] == 0) return @ptrCast(d);
+        if (s[0] == 0) return d;
         d += 1;
         s += 1;
     }
