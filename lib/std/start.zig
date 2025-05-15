@@ -26,7 +26,9 @@ comptime {
     // decls there get run.
     _ = root;
 
-    if (simplified_logic) {
+    if (builtin.cpu.arch == .spork8) {
+        // always freestanding, even exes
+    } else if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
                 if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {

@@ -598,6 +598,7 @@ pub const File = struct {
                 });
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .spork8 => dev.check(.spork8_linker),
         }
     }
 
@@ -671,6 +672,7 @@ pub const File = struct {
                 }
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .spork8 => dev.check(.spork8_linker),
         }
     }
 
@@ -1245,6 +1247,7 @@ pub const File = struct {
         c,
         wasm,
         spirv,
+        spork8,
         plan9,
         goff,
         xcoff,
@@ -1260,6 +1263,7 @@ pub const File = struct {
                 .plan9 => Plan9,
                 .goff => Goff,
                 .xcoff => Xcoff,
+                .spork8 => Spork8,
             };
         }
 
@@ -1274,6 +1278,7 @@ pub const File = struct {
                 .spirv => .spirv,
                 .goff => .goff,
                 .xcoff => .xcoff,
+                .spork8 => .spork8,
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
             };
@@ -1373,6 +1378,7 @@ pub const File = struct {
 
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
+    pub const Spork8 = @import("link/Spork8.zig");
     pub const Plan9 = @import("link/Plan9.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");

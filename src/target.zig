@@ -133,6 +133,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         // LLVM does not support these object formats:
         .c,
         .plan9,
+        .spork8,
         => return false,
 
         .coff,
@@ -200,6 +201,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .kalimba,
         .or1k,
         .propeller,
+        .spork8,
         => false,
     };
 }
@@ -323,6 +325,7 @@ pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool
         else => {},
     }
     switch (target.cpu.arch) {
+        .spork8 => return false,
         .spirv, .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
         .amdgcn => return false,
@@ -336,12 +339,13 @@ pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool
 }
 
 pub fn canBuildLibUbsanRt(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+    return switch (target.cpu.arch) {
+        .spork8 => false,
+        .spirv, .spirv32, .spirv64 => false,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
-        .nvptx, .nvptx64 => return false,
-        else => return true,
-    }
+        .nvptx, .nvptx64 => false,
+        else => true,
+    };
 }
 
 pub fn hasRedZone(target: std.Target) bool {
@@ -804,6 +808,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,
+        .spork8 => .stage2_spork8,
         else => .other,
     };
 }

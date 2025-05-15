@@ -34,6 +34,10 @@ pub const Env = enum {
     /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
     wasm,
 
+    /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target spork8-* --listen=-`
+    spork8,
+
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
             .full => true,
@@ -73,6 +77,7 @@ pub const Env = enum {
                 .riscv64_backend,
                 .sparc64_backend,
                 .spirv64_backend,
+                .spork8_backend,
                 .lld_linker,
                 .coff_linker,
                 .elf_linker,
@@ -83,6 +88,7 @@ pub const Env = enum {
                 .plan9_linker,
                 .goff_linker,
                 .xcoff_linker,
+                .spork8_linker,
                 => true,
                 .cc_command,
                 .translate_c_command,
@@ -158,6 +164,14 @@ pub const Env = enum {
                 => true,
                 else => Env.sema.supports(feature),
             },
+            .spork8 => switch (feature) {
+                .stdio_listen,
+                .incremental,
+                .spork8_backend,
+                .spork8_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
         };
     }
 
@@ -219,6 +233,7 @@ pub const Feature = enum {
     riscv64_backend,
     sparc64_backend,
     spirv64_backend,
+    spork8_backend,
 
     lld_linker,
     coff_linker,
@@ -230,6 +245,7 @@ pub const Feature = enum {
     plan9_linker,
     goff_linker,
     xcoff_linker,
+    spork8_linker,
 };
 
 /// Makes the code following the call to this function unreachable if `feature` is disabled.

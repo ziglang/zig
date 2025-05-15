@@ -223,6 +223,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
+        .spork8 => return std.fmt.allocPrint(allocator, "{s}.spork8", .{root_name}),
         .plan9 => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{

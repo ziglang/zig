@@ -3675,6 +3675,8 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
+        .spork8 => 8,
+
         .avr,
         .msp430,
         => 16,
@@ -4366,6 +4368,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
         .stage2_spirv64 => switch (cc) {
             .spirv_device, .spirv_kernel => true,
             .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
+            else => false,
+        },
+        .stage2_spork8 => switch (cc) {
+            .naked => true,
             else => false,
         },
     };

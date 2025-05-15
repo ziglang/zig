@@ -100,6 +100,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .kalimba,
         .or1k,
         .propeller,
+        .spork8,
         => unreachable, // Gated by hasLlvmSupport().
     };
 
@@ -457,6 +458,7 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .kalimba,
         .or1k,
         .propeller,
+        .spork8,
         => unreachable, // Gated by hasLlvmSupport().
     };
 }
