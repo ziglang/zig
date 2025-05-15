@@ -3681,32 +3681,27 @@ pub fn addModuleErrorMsg(
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
-            if (ref_traces.items.len < max_references) skip: {
-                const src = ref.src.upgrade(zcu);
-                const source = try src.file_scope.getSource(gpa);
-                const span = try src.span(gpa);
-                const loc = std.zig.findLineColumn(source.bytes, span.main);
-                const rt_file_path = try src.file_scope.fullPath(gpa);
-                defer gpa.free(rt_file_path);
-                const name = switch (ref.referencer.unwrap()) {
+            if (ref_traces.items.len < max_references) {
+                var last_call_src = ref.src;
+                var opt_inline_frame = ref.inline_frame;
+                while (opt_inline_frame.unwrap()) |inline_frame| {
+                    const f = inline_frame.ptr(zcu).*;
+                    const func_nav = ip.indexToKey(f.callee).func.owner_nav;
+                    const func_name = ip.getNav(func_nav).name.toSlice(ip);
+                    try addReferenceTraceFrame(zcu, eb, &ref_traces, func_name, last_call_src, true);
+                    last_call_src = f.call_src;
+                    opt_inline_frame = f.parent;
+                }
+                const root_name: ?[]const u8 = switch (ref.referencer.unwrap()) {
                     .@"comptime" => "comptime",
                     .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
                     .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
-                    .memoized_state => break :skip,
+                    .memoized_state => null,
                 };
-                try ref_traces.append(gpa, .{
-                    .decl_name = try eb.addString(name),
-                    .src_loc = try eb.addSourceLocation(.{
-                        .src_path = try eb.addString(rt_file_path),
-                        .span_start = span.start,
-                        .span_main = span.main,
-                        .span_end = span.end,
-                        .line = @intCast(loc.line),
-                        .column = @intCast(loc.column),
-                        .source_line = 0,
-                    }),
-                });
+                if (root_name) |n| {
+                    try addReferenceTraceFrame(zcu, eb, &ref_traces, n, last_call_src, false);
+                }
             }
             referenced_by = ref.referencer;
         }
@@ -3784,6 +3779,35 @@ pub fn addModuleErrorMsg(
     for (notes_start.., notes.keys()) |i, note| {
         eb.extra.items[i] = @intFromEnum(try eb.addErrorMessage(note));
     }
+}
+
+fn addReferenceTraceFrame(
+    zcu: *Zcu,
+    eb: *ErrorBundle.Wip,
+    ref_traces: *std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace),
+    name: []const u8,
+    lazy_src: Zcu.LazySrcLoc,
+    inlined: bool,
+) !void {
+    const gpa = zcu.gpa;
+    const src = lazy_src.upgrade(zcu);
+    const source = try src.file_scope.getSource(gpa);
+    const span = try src.span(gpa);
+    const loc = std.zig.findLineColumn(source.bytes, span.main);
+    const rt_file_path = try src.file_scope.fullPath(gpa);
+    defer gpa.free(rt_file_path);
+    try ref_traces.append(gpa, .{
+        .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
+        .src_loc = try eb.addSourceLocation(.{
+            .src_path = try eb.addString(rt_file_path),
+            .span_start = span.start,
+            .span_main = span.main,
+            .span_end = span.end,
+            .line = @intCast(loc.line),
+            .column = @intCast(loc.column),
+            .source_line = 0,
+        }),
+    });
 }
 
 pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
