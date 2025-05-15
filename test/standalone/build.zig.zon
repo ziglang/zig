@@ -201,6 +201,9 @@
         .config_header = .{
             .path = "config_header",
         },
+        .entry_point = .{
+            .path = "entry_point",
+        },
     },
     .paths = .{
         "build.zig",
