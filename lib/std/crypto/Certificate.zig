@@ -223,10 +223,6 @@ pub const Parsed = struct {
         return p.slice(p.pub_key_slice);
     }
 
-    pub fn pubKeySigAlgo(p: Parsed) []const u8 {
-        return p.slice(p.pub_key_signature_algorithm_slice);
-    }
-
     pub fn message(p: Parsed) []const u8 {
         return p.slice(p.message_slice);
     }
