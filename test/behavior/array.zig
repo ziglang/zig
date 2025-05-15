@@ -678,7 +678,7 @@ test "runtime initialized sentinel-terminated array literal with result type" {
     var c: u16 = 300;
     _ = &c;
     const f: [1: 0x9999]u16 = .{c};
-    const g = @as(*const [4]u8, @ptrCast(&f));
+    const g: *const [4]u8 = @ptrCast(&f);
     try std.testing.expect(g[2] == 0x99);
     try std.testing.expect(g[3] == 0x99);
 }
