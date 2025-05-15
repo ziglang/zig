@@ -31,7 +31,8 @@
 #include <sys/types.h> // for pid_t
 #include <sys/uio.h> // for iovec
 #include <elf.h> // for NT_PRSTATUS
-#if (defined(__aarch64__) || SANITIZER_RISCV64 || SANITIZER_LOONGARCH64) && \
+#if (defined(__aarch64__) || defined(__powerpc64__) || \
+     SANITIZER_RISCV64 || SANITIZER_LOONGARCH64) &&    \
      !SANITIZER_ANDROID
 // GLIBC 2.20+ sys/user does not include asm/ptrace.h
 # include <asm/ptrace.h>

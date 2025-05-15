@@ -54,6 +54,10 @@ typedef int     vm_purgable_t;
 
 /*
  *	Enumeration of valid values for vm_purgable_t.
+ *
+ *  When making a new VM_PURGABLE_*, update tests vm_parameter_validation_[user|kern]
+ *  and their expected results; they deliberately call VM functions with invalid
+ *  values and you may be turning one of those invalid bits valid.
  */
 #define VM_PURGABLE_SET_STATE   ((vm_purgable_t) 0)     /* set state of purgeable object */
 #define VM_PURGABLE_GET_STATE   ((vm_purgable_t) 1)     /* get state of purgeable object */

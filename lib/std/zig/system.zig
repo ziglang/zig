@@ -1182,13 +1182,13 @@ fn detectAbiAndDynamicLinker(
                 // We detected shebang, now parse entire line.
 
                 // Trim leading "#!", spaces and tabs.
-                const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
+                const trimmed_line = mem.trimStart(u8, content[2..], &.{ ' ', '\t' });
 
                 // This line can have:
                 // * Interpreter path only,
                 // * Interpreter path and arguments, all separated by space, tab or NUL character.
                 // And optionally newline at the end.
-                const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
+                const path_maybe_args = mem.trimEnd(u8, trimmed_line, "\n");
 
                 // Separate path and args.
                 const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;

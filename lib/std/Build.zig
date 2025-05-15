@@ -79,7 +79,8 @@ enable_wine: bool = false,
 /// this will be the directory $glibc-build-dir/install/glibcs
 /// Given the example of the aarch64 target, this is the directory
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
+/// Also works for dynamic musl.
+libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -390,7 +391,7 @@ fn createChildOnly(
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
+        .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),

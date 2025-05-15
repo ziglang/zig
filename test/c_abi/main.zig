@@ -13,7 +13,7 @@ const expectEqual = std.testing.expectEqual;
 const have_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isArm() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPowerPC32();
 
-const have_f128 = builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin();
+const have_f128 = builtin.cpu.arch.isWasm() or (builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin());
 const have_f80 = builtin.cpu.arch.isX86();
 
 extern fn run_c_tests() void;
@@ -339,6 +339,56 @@ test "C ABI struct u64 u64" {
     c_struct_u64_u64_8(0, 1, 2, 3, 4, 5, 6, 7, .{ .a = 39, .b = 40 });
 }
 
+const Struct_f32 = extern struct {
+    a: f32,
+};
+
+export fn zig_ret_struct_f32() Struct_f32 {
+    return .{ .a = 2.5 };
+}
+
+export fn zig_struct_f32(s: Struct_f32) void {
+    expect(s.a == 2.5) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_f32() Struct_f32;
+
+extern fn c_struct_f32(Struct_f32) void;
+
+test "C ABI struct f32" {
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+
+    const s = c_ret_struct_f32();
+    try expect(s.a == 2.5);
+    c_struct_f32(.{ .a = 2.5 });
+}
+
+const Struct_f64 = extern struct {
+    a: f64,
+};
+
+export fn zig_ret_struct_f64() Struct_f64 {
+    return .{ .a = 2.5 };
+}
+
+export fn zig_struct_f64(s: Struct_f64) void {
+    expect(s.a == 2.5) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_f64() Struct_f64;
+
+extern fn c_struct_f64(Struct_f64) void;
+
+test "C ABI struct f64" {
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+
+    const s = c_ret_struct_f64();
+    try expect(s.a == 2.5);
+    c_struct_f64(.{ .a = 2.5 });
+}
+
 const Struct_f32f32_f32 = extern struct {
     a: extern struct { b: f32, c: f32 },
     d: f32,
@@ -432,6 +482,34 @@ test "C ABI struct{u32,union{u32,struct{u32,u32}}}" {
     try expect(s.b.c.d == 2);
     try expect(s.b.c.e == 3);
     c_struct_u32_union_u32_u32u32(.{ .a = 1, .b = .{ .c = .{ .d = 2, .e = 3 } } });
+}
+
+const Struct_i32_i32 = extern struct {
+    a: i32,
+    b: i32,
+};
+extern fn c_mut_struct_i32_i32(Struct_i32_i32) Struct_i32_i32;
+extern fn c_struct_i32_i32(Struct_i32_i32) void;
+
+test "C ABI struct i32 i32" {
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
+
+    const s: Struct_i32_i32 = .{
+        .a = 1,
+        .b = 2,
+    };
+    const mut_res = c_mut_struct_i32_i32(s);
+    try expect(s.a == 1);
+    try expect(s.b == 2);
+    try expect(mut_res.a == 101);
+    try expect(mut_res.b == 252);
+    c_struct_i32_i32(s);
+}
+
+export fn zig_struct_i32_i32(s: Struct_i32_i32) void {
+    expect(s.a == 1) catch @panic("test failure: zig_struct_i32_i32 1");
+    expect(s.b == 2) catch @panic("test failure: zig_struct_i32_i32 2");
 }
 
 const BigStruct = extern struct {
@@ -5591,64 +5669,56 @@ test "f80 extra struct" {
     try expect(a.b == 24);
 }
 
-comptime {
-    skip: {
-        if (builtin.target.cpu.arch.isWasm()) break :skip;
+export fn zig_f128(x: f128) f128 {
+    expect(x == 12) catch @panic("test failure");
+    return 34;
+}
+extern fn c_f128(f128) f128;
+test "f128 bare" {
+    if (!have_f128) return error.SkipZigTest;
 
-        _ = struct {
-            export fn zig_f128(x: f128) f128 {
-                expect(x == 12) catch @panic("test failure");
-                return 34;
-            }
-            extern fn c_f128(f128) f128;
-            test "f128 bare" {
-                if (!have_f128) return error.SkipZigTest;
+    const a = c_f128(12.34);
+    try expect(@as(f64, @floatCast(a)) == 56.78);
+}
 
-                const a = c_f128(12.34);
-                try expect(@as(f64, @floatCast(a)) == 56.78);
-            }
+const f128_struct = extern struct {
+    a: f128,
+};
+export fn zig_f128_struct(a: f128_struct) f128_struct {
+    expect(a.a == 12345) catch @panic("test failure");
+    return .{ .a = 98765 };
+}
+extern fn c_f128_struct(f128_struct) f128_struct;
+test "f128 struct" {
+    if (!have_f128) return error.SkipZigTest;
 
-            const f128_struct = extern struct {
-                a: f128,
-            };
-            export fn zig_f128_struct(a: f128_struct) f128_struct {
-                expect(a.a == 12345) catch @panic("test failure");
-                return .{ .a = 98765 };
-            }
-            extern fn c_f128_struct(f128_struct) f128_struct;
-            test "f128 struct" {
-                if (!have_f128) return error.SkipZigTest;
+    const a = c_f128_struct(.{ .a = 12.34 });
+    try expect(@as(f64, @floatCast(a.a)) == 56.78);
 
-                const a = c_f128_struct(.{ .a = 12.34 });
-                try expect(@as(f64, @floatCast(a.a)) == 56.78);
+    const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
+    try expect(@as(f64, @floatCast(b.a)) == 56.78);
+    try expect(@as(f64, @floatCast(b.b)) == 43.21);
+}
 
-                const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
-                try expect(@as(f64, @floatCast(b.a)) == 56.78);
-                try expect(@as(f64, @floatCast(b.b)) == 43.21);
-            }
+const f128_f128_struct = extern struct {
+    a: f128,
+    b: f128,
+};
+export fn zig_f128_f128_struct(a: f128_f128_struct) f128_f128_struct {
+    expect(a.a == 13) catch @panic("test failure");
+    expect(a.b == 57) catch @panic("test failure");
+    return .{ .a = 24, .b = 68 };
+}
+extern fn c_f128_f128_struct(f128_f128_struct) f128_f128_struct;
+test "f128 f128 struct" {
+    if (!have_f128) return error.SkipZigTest;
 
-            const f128_f128_struct = extern struct {
-                a: f128,
-                b: f128,
-            };
-            export fn zig_f128_f128_struct(a: f128_f128_struct) f128_f128_struct {
-                expect(a.a == 13) catch @panic("test failure");
-                expect(a.b == 57) catch @panic("test failure");
-                return .{ .a = 24, .b = 68 };
-            }
-            extern fn c_f128_f128_struct(f128_f128_struct) f128_f128_struct;
-            test "f128 f128 struct" {
-                if (!have_f128) return error.SkipZigTest;
+    const a = c_f128_struct(.{ .a = 12.34 });
+    try expect(@as(f64, @floatCast(a.a)) == 56.78);
 
-                const a = c_f128_struct(.{ .a = 12.34 });
-                try expect(@as(f64, @floatCast(a.a)) == 56.78);
-
-                const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
-                try expect(@as(f64, @floatCast(b.a)) == 56.78);
-                try expect(@as(f64, @floatCast(b.b)) == 43.21);
-            }
-        };
-    }
+    const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
+    try expect(@as(f64, @floatCast(b.a)) == 56.78);
+    try expect(@as(f64, @floatCast(b.b)) == 43.21);
 }
 
 // The stdcall attribute on C functions is ignored when compiled on non-x86

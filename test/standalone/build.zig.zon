@@ -108,6 +108,9 @@
         .libcxx = .{
             .path = "libcxx",
         },
+        .libfuzzer = .{
+            .path = "libfuzzer",
+        },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
         },

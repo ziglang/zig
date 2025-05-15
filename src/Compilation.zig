@@ -21,12 +21,13 @@ const tracy = @import("tracy.zig");
 const trace = tracy.trace;
 const build_options = @import("build_options");
 const LibCInstallation = std.zig.LibCInstallation;
-const glibc = @import("glibc.zig");
-const musl = @import("musl.zig");
-const mingw = @import("mingw.zig");
-const libunwind = @import("libunwind.zig");
-const libcxx = @import("libcxx.zig");
-const wasi_libc = @import("wasi_libc.zig");
+const glibc = @import("libs/glibc.zig");
+const musl = @import("libs/musl.zig");
+const freebsd = @import("libs/freebsd.zig");
+const mingw = @import("libs/mingw.zig");
+const libunwind = @import("libs/libunwind.zig");
+const libcxx = @import("libs/libcxx.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Zcu = @import("Zcu.zig");
@@ -34,7 +35,7 @@ const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
-const libtsan = @import("libtsan.zig");
+const libtsan = @import("libs/libtsan.zig");
 const Zir = std.zig.Zir;
 const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
@@ -248,6 +249,7 @@ compiler_rt_obj: ?CrtFile = null,
 fuzzer_lib: ?CrtFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
+freebsd_so_files: ?freebsd.BuiltSharedObjects = null,
 wasi_emulated_libs: []const wasi_libc.CrtFile,
 
 /// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
@@ -258,8 +260,6 @@ crt_files: std.StringHashMapUnmanaged(CrtFile) = .empty,
 /// How many lines of reference trace should be included per compile error.
 /// Null means only show snippet on first error.
 reference_trace: ?u32 = null,
-
-libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 
 /// This mutex guards all `Compilation` mutable state.
 /// Disabled in single-threaded mode because the thread pool spawns in the same thread.
@@ -296,12 +296,14 @@ const QueuedJobs = struct {
     update_builtin_zig: bool,
     musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = @splat(false),
     glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = @splat(false),
+    freebsd_crt_file: [@typeInfo(freebsd.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of WASI libc static objects
     wasi_libc_crt_file: [@typeInfo(wasi_libc.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of the mingw-w64 static objects
     mingw_crt_file: [@typeInfo(mingw.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// all of the glibc shared objects
     glibc_shared_objects: bool = false,
+    freebsd_shared_objects: bool = false,
     /// libunwind.a, usually needed when linking libc
     libunwind: bool = false,
     libcxx: bool = false,
@@ -791,6 +793,8 @@ pub const MiscTask = enum {
     glibc_crt_file,
     glibc_shared_objects,
     musl_crt_file,
+    freebsd_crt_file,
+    freebsd_shared_objects,
     mingw_crt_file,
     windows_import_lib,
     libunwind,
@@ -824,6 +828,9 @@ pub const MiscTask = enum {
     @"glibc Scrt1.o",
     @"glibc libc_nonshared.a",
     @"glibc shared object",
+
+    @"freebsd libc Scrt1.o",
+    @"freebsd libc shared object",
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
@@ -1171,7 +1178,6 @@ pub const CreateOptions = struct {
     force_load_objc: bool = false,
     /// Whether local symbols should be discarded from the symbol table.
     discard_local_symbols: bool = false,
-    libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
     /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
     /// paths when consolidating CodeView streams into a single PDB file.
     pdb_source_path: ?[]const u8 = null,
@@ -1555,7 +1561,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .incremental = options.incremental,
-            .libcxx_abi_version = options.libcxx_abi_version,
             .root_name = root_name,
             .sysroot = sysroot,
             .windows_libs = windows_libs,
@@ -1878,6 +1883,16 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
                     comp.remaining_prelink_tasks += 1;
+                } else if (target.isFreeBSDLibC()) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+
+                    if (freebsd.needsCrt0(comp.config.output_mode)) |f| {
+                        comp.queued_jobs.freebsd_crt_file[@intFromEnum(f)] = true;
+                        comp.remaining_prelink_tasks += 1;
+                    }
+
+                    comp.queued_jobs.freebsd_shared_objects = true;
+                    comp.remaining_prelink_tasks += freebsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
@@ -2030,6 +2045,10 @@ pub fn destroy(comp: *Compilation) void {
 
     if (comp.glibc_so_files) |*glibc_file| {
         glibc_file.deinit(gpa);
+    }
+
+    if (comp.freebsd_so_files) |*freebsd_file| {
+        freebsd_file.deinit(gpa);
     }
 
     for (comp.c_object_table.keys()) |key| {
@@ -3843,6 +3862,10 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
+    if (comp.queued_jobs.freebsd_shared_objects) {
+        comp.link_task_wait_group.spawnManager(buildFreeBSDSharedObjects, .{ comp, main_progress_node });
+    }
+
     if (comp.queued_jobs.libunwind) {
         comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
     }
@@ -3874,6 +3897,13 @@ fn performAllTheWorkInner(
         if (comp.queued_jobs.glibc_crt_file[i]) {
             const tag: glibc.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
+        }
+    }
+
+    for (0..@typeInfo(freebsd.CrtFile).@"enum".fields.len) |i| {
+        if (comp.queued_jobs.freebsd_crt_file[i]) {
+            const tag: freebsd.CrtFile = @enumFromInt(i);
+            comp.link_task_wait_group.spawnManager(buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4880,6 +4910,29 @@ fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) voi
     }
 }
 
+fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node: std.Progress.Node) void {
+    if (freebsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.freebsd_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.freebsd_crt_file, "unable to build FreeBSD {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
+        }),
+    }
+}
+
+fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    if (freebsd.buildSharedObjects(comp, prog_node)) |_| {
+        // The job should no longer be queued up since it succeeded.
+        comp.queued_jobs.freebsd_shared_objects = false;
+    } else |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.freebsd_shared_objects, "unable to build FreeBSD libc shared objects: {s}", .{
+            @errorName(err),
+        }),
+    }
+}
+
 fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
     if (mingw.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.mingw_crt_file[@intFromEnum(crt_file)] = false;
@@ -5178,11 +5231,13 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         // Just to save disk space, we delete the files that are never needed again.
-        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) });
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| switch (err) {
+            error.FileNotFound => {}, // the file wasn't created due to an error we reported
+            else => log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) }),
         };
-        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| switch (err) {
+            error.FileNotFound => {}, // the file wasn't created due to an error we reported
+            else => log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) }),
         };
         if (std.process.can_spawn) {
             var child = std.process.Child.init(argv.items, arena);
@@ -5720,7 +5775,10 @@ pub fn addCCArgs(
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
         // Clang's integrated Arm assembler doesn't support `-mabi` yet...
-        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp))) {
+        // Clang's FreeBSD driver doesn't support `-mabi` on PPC64 (ELFv2 is used anyway).
+        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp)) and
+            !(target.cpu.arch.isPowerPC64() and target.os.tag == .freebsd))
+        {
             try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
         }
     }
@@ -5854,6 +5912,15 @@ pub fn addCCArgs(
                     try argv.append(
                         try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
                     );
+                } else if (target.isFreeBSDLibC()) {
+                    // https://docs.freebsd.org/en/books/porters-handbook/versions
+                    const min_ver = target.os.version_range.semver.min;
+                    try argv.append(try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{
+                        // We don't currently respect the minor and patch components. This wouldn't be particularly
+                        // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
+                        // symbols would be inconsistent with header declarations.
+                        min_ver.major * 100_000,
+                    }));
                 }
             }
 

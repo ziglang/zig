@@ -20,6 +20,10 @@
  * 
  * @APPLE_LICENSE_HEADER_END@
  */
+
+#ifndef _MACHO_X86_64_RELOC_H_
+#define _MACHO_X86_64_RELOC_H_
+
 /*
  * Relocations for x86_64 are a bit different than for other architectures in
  * Mach-O: Scattered relocations are not used.  Almost all relocations produced
@@ -183,3 +187,5 @@ enum reloc_type_x86_64
 	X86_64_RELOC_SIGNED_4,		// for signed 32-bit displacement with a -4 addend
 	X86_64_RELOC_TLV,		// for thread local variables
 };
+
+#endif /* #ifndef _MACHO_X86_64_RELOC_H_ */

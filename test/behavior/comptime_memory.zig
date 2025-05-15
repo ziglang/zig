@@ -515,3 +515,66 @@ fn fieldPtrTest() u32 {
 test "pointer in aggregate field can mutate comptime state" {
     try comptime std.testing.expect(fieldPtrTest() == 2);
 }
+
+test "comptime store of extern struct with void field" {
+    comptime {
+        var x: extern struct { a: u8, b: void } = undefined;
+        x = .{ .a = 123, .b = {} };
+        std.debug.assert(x.a == 123);
+    }
+}
+
+test "comptime store of extern struct with void field into array" {
+    comptime {
+        var x: [3]extern struct { a: u8, b: void } = undefined;
+        x[1] = .{ .a = 123, .b = {} };
+        std.debug.assert(x[1].a == 123);
+    }
+}
+
+test "comptime store of packed struct with void field" {
+    comptime {
+        var x: packed struct { a: u8, b: void } = undefined;
+        x = .{ .a = 123, .b = {} };
+        std.debug.assert(x.a == 123);
+    }
+}
+
+test "comptime store of packed struct with void field into array" {
+    comptime {
+        var x: [3]packed struct { a: u8, b: void } = undefined;
+        x[1] = .{ .a = 123, .b = {} };
+        std.debug.assert(x[1].a == 123);
+    }
+}
+
+test "comptime store of reinterpreted zero-bit type" {
+    const S = struct {
+        fn doTheTest(comptime T: type) void {
+            comptime var buf: T = undefined;
+            const ptr: *void = @ptrCast(&buf);
+            ptr.* = {};
+        }
+    };
+    S.doTheTest(void);
+    S.doTheTest(u0);
+    S.doTheTest([0]u8);
+    S.doTheTest([1]u0);
+    S.doTheTest([5]u0);
+    S.doTheTest([5]void);
+    S.doTheTest(packed struct(u0) {});
+}
+
+test "comptime store to extern struct reinterpreted as byte array" {
+    const T = extern struct {
+        x: u32,
+        y: f32,
+        z: [2]void,
+    };
+    comptime var val: T = undefined;
+
+    const bytes: *[@sizeOf(T)]u8 = @ptrCast(&val);
+    @memset(bytes, 0);
+
+    comptime std.debug.assert(val.x == 0);
+}

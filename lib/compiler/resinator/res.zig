@@ -173,9 +173,9 @@ pub const Language = packed struct(u16) {
         _ = options;
         const language_id = language.asInt();
         const language_name = language_name: {
-            if (std.meta.intToEnum(lang.LanguageId, language_id)) |lang_enum_val| {
+            if (std.enums.fromInt(lang.LanguageId, language_id)) |lang_enum_val| {
                 break :language_name @tagName(lang_enum_val);
-            } else |_| {}
+            }
             if (language_id == lang.LOCALE_CUSTOM_UNSPECIFIED) {
                 break :language_name "LOCALE_CUSTOM_UNSPECIFIED";
             }

@@ -150,11 +150,16 @@ pub const Ristretto255 = struct {
         return .{ .p = p.p.add(q.p) };
     }
 
+    /// Subtract two Ristretto255 elements.
+    pub inline fn sub(p: Ristretto255, q: Ristretto255) Ristretto255 {
+        return .{ .p = p.p.sub(q.p) };
+    }
+
     /// Multiply a Ristretto255 element with a scalar.
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
     pub inline fn mul(p: Ristretto255, s: [encoded_length]u8) (IdentityElementError || WeakPublicKeyError)!Ristretto255 {
-        return Ristretto255{ .p = try p.p.mul(s) };
+        return .{ .p = try p.p.mul(s) };
     }
 
     /// Return true if two Ristretto255 elements are equivalent

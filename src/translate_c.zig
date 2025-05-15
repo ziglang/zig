@@ -403,22 +403,26 @@ fn transFnDecl(c: *Context, scope: *Scope, fn_decl: *const clang.FunctionDecl) E
 
         switch (fn_type.getTypeClass()) {
             .Attributed => {
-                const attr_type = @as(*const clang.AttributedType, @ptrCast(fn_type));
+                const attr_type: *const clang.AttributedType = @ptrCast(fn_type);
                 fn_qt = attr_type.getEquivalentType();
             },
             .Paren => {
-                const paren_type = @as(*const clang.ParenType, @ptrCast(fn_type));
+                const paren_type: *const clang.ParenType = @ptrCast(fn_type);
                 fn_qt = paren_type.getInnerType();
+            },
+            .MacroQualified => {
+                const macroqualified_ty: *const clang.MacroQualifiedType = @ptrCast(fn_type);
+                fn_qt = macroqualified_ty.getModifiedType();
             },
             else => break fn_type,
         }
     };
-    const fn_ty = @as(*const clang.FunctionType, @ptrCast(fn_type));
+    const fn_ty: *const clang.FunctionType = @ptrCast(fn_type);
     const return_qt = fn_ty.getReturnType();
 
     const proto_node = switch (fn_type.getTypeClass()) {
         .FunctionProto => blk: {
-            const fn_proto_type = @as(*const clang.FunctionProtoType, @ptrCast(fn_type));
+            const fn_proto_type: *const clang.FunctionProtoType = @ptrCast(fn_type);
             if (has_body and fn_proto_type.isVariadic()) {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
@@ -434,7 +438,7 @@ fn transFnDecl(c: *Context, scope: *Scope, fn_decl: *const clang.FunctionDecl) E
             };
         },
         .FunctionNoProto => blk: {
-            const fn_no_proto_type = @as(*const clang.FunctionType, @ptrCast(fn_type));
+            const fn_no_proto_type: *const clang.FunctionType = @ptrCast(fn_type);
             break :blk transFnNoProto(c, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
@@ -490,7 +494,7 @@ fn transFnDecl(c: *Context, scope: *Scope, fn_decl: *const clang.FunctionDecl) E
         param_id += 1;
     }
 
-    const casted_body = @as(*const clang.CompoundStmt, @ptrCast(body_stmt));
+    const casted_body: *const clang.CompoundStmt = @ptrCast(body_stmt);
     transCompoundStmtInline(c, casted_body, &block_scope) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,

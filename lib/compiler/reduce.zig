@@ -403,7 +403,7 @@ fn parse(gpa: Allocator, file_path: []const u8) !Ast {
         file_path,
         std.math.maxInt(u32),
         null,
-        1,
+        .fromByteUnits(1),
         0,
     ) catch |err| {
         fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });

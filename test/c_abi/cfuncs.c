@@ -227,6 +227,38 @@ void c_struct_u64_u64_8(size_t, size_t, size_t, size_t, size_t, size_t, size_t, 
     assert_or_panic(s.b == 40);
 }
 
+struct Struct_f32 {
+    float a;
+};
+
+struct Struct_f32 zig_ret_struct_f32(void);
+
+void zig_struct_f32(struct Struct_f32);
+
+struct Struct_f32 c_ret_struct_f32(void) {
+    return (struct Struct_f32){ 2.5f };
+}
+
+void c_struct_f32(struct Struct_f32 s) {
+    assert_or_panic(s.a == 2.5f);
+}
+
+struct Struct_f64 {
+    double a;
+};
+
+struct Struct_f64 zig_ret_struct_f64(void);
+
+void zig_struct_f64(struct Struct_f64);
+
+struct Struct_f64 c_ret_struct_f64(void) {
+    return (struct Struct_f64){ 2.5 };
+}
+
+void c_struct_f64(struct Struct_f64 s) {
+    assert_or_panic(s.a == 2.5);
+}
+
 struct Struct_f32f32_f32 {
     struct {
         float b, c;
@@ -295,6 +327,13 @@ void c_struct_u32_union_u32_u32u32(struct Struct_u32_Union_u32_u32u32 s) {
     assert_or_panic(s.b.c.d == 2);
     assert_or_panic(s.b.c.e == 3);
 }
+
+struct Struct_i32_i32 {
+    int32_t a;
+    int32_t b;
+};
+
+void zig_struct_i32_i32(struct Struct_i32_i32);
 
 struct BigStruct {
     uint64_t a;
@@ -2675,6 +2714,18 @@ void run_c_tests(void) {
 
 #if !defined(ZIG_RISCV64)
     {
+        struct Struct_f32 s = zig_ret_struct_f32();
+        assert_or_panic(s.a == 2.5f);
+        zig_struct_f32((struct Struct_f32){ 2.5f });
+    }
+
+    {
+        struct Struct_f64 s = zig_ret_struct_f64();
+        assert_or_panic(s.a == 2.5);
+        zig_struct_f64((struct Struct_f64){ 2.5 });
+    }
+
+    {
         struct Struct_f32f32_f32 s = zig_ret_struct_f32f32_f32();
         assert_or_panic(s.a.b == 1.0f);
         assert_or_panic(s.a.c == 2.0f);
@@ -2698,6 +2749,10 @@ void run_c_tests(void) {
         assert_or_panic(s.b.c.d == 2);
         assert_or_panic(s.b.c.e == 3);
         zig_struct_u32_union_u32_u32u32(s);
+    }
+    {
+        struct Struct_i32_i32 s = {1, 2};
+        zig_struct_i32_i32(s);
     }
 #endif
 
@@ -5022,6 +5077,21 @@ double complex c_cmultd(double complex a, double complex b) {
     assert_or_panic(cimag(b) == -1.5);
 
     return 1.5 + I * 13.5;
+}
+
+struct Struct_i32_i32 c_mut_struct_i32_i32(struct Struct_i32_i32 s) {
+    assert_or_panic(s.a == 1);
+    assert_or_panic(s.b == 2);
+    s.a += 100;
+    s.b += 250;
+    assert_or_panic(s.a == 101);
+    assert_or_panic(s.b == 252);
+    return s;
+}
+
+void c_struct_i32_i32(struct Struct_i32_i32 s) {
+    assert_or_panic(s.a == 1);
+    assert_or_panic(s.b == 2);
 }
 
 void c_big_struct(struct BigStruct x) {

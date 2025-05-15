@@ -86,6 +86,10 @@
 #    include <sys/sysmacros.h>
 #  endif
 
+#  if SANITIZER_LINUX && defined(__powerpc64__)
+#    include <asm/ptrace.h>
+#  endif
+
 #  if SANITIZER_FREEBSD
 #    include <machine/atomic.h>
 #    include <sys/exec.h>

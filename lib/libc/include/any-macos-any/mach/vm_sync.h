@@ -67,6 +67,10 @@ typedef unsigned                vm_sync_t;
 
 /*
  *	Synchronization flags, defined as bits within the vm_sync_t type
+ *
+ *  When making a new VM_SYNC_*, update tests vm_parameter_validation_[user|kern]
+ *  and their expected results; they deliberately call VM functions with invalid
+ *  sync values and you may be turning one of those invalid syncs valid.
  */
 
 #define VM_SYNC_ASYNCHRONOUS    ((vm_sync_t) 0x01)

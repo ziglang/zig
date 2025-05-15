@@ -64,7 +64,7 @@ const Header = extern struct {
     }
 
     fn getValue(raw: []const u8) []const u8 {
-        return mem.trimRight(u8, raw, &[_]u8{@as(u8, 0x20)});
+        return mem.trimEnd(u8, raw, &[_]u8{@as(u8, 0x20)});
     }
 };
 
@@ -162,7 +162,7 @@ pub fn parseObject(
         .index => |index| n: {
             const long_file_names = file_contents[archive.long_file_names.off..][0..archive.long_file_names.len];
             const name = mem.sliceTo(long_file_names[index..], 0x0a);
-            break :n mem.trimRight(u8, name, "/");
+            break :n mem.trimEnd(u8, name, "/");
         },
     };
 

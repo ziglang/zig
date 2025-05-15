@@ -369,13 +369,21 @@ pub const mcontext_t = extern struct {
     reserved1: [8]usize = undefined,
 };
 
+/// ucontext_t is part of the state pushed on the stack by the kernel for
+/// a signal handler.  And also a subset of the state returned from the
+/// makecontext/getcontext/swapcontext POSIX APIs.
+///
+/// Currently this structure matches the glibc/musl layout.  It contains a
+/// 1024-bit signal mask, and `fpregs_mem`.  This structure should be
+/// split into one for the kernel ABI and c.zig should define a glibc/musl
+/// compatible structure.
 pub const ucontext_t = extern struct {
     flags: usize,
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
-    fpregs_mem: [64]usize,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a glibc-compatible (1024-bit) sigmask.
+    fpregs_mem: [64]usize, // Not part of kernel ABI, only part of glibc ucontext_t
 };
 
 fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
@@ -455,7 +463,7 @@ fn getContextInternal() callconv(.naked) usize {
           [stack_offset] "i" (@offsetOf(ucontext_t, "stack")),
           [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
           [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
-          [sigset_size] "i" (linux.NSIG / 8),
+          [sigset_size] "i" (@sizeOf(sigset_t)),
         : "cc", "memory", "rax", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
     );
 }

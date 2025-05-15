@@ -350,7 +350,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     regspace: [64]u64,
 };
 

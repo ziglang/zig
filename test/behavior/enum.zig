@@ -19,16 +19,16 @@ test "enum to int" {
     try shouldEqual(Number.Four, 4);
 }
 
-fn testIntToEnumEval(x: i32) !void {
-    try expect(@as(IntToEnumNumber, @enumFromInt(x)) == IntToEnumNumber.Three);
+fn testEnumFromIntEval(x: i32) !void {
+    try expect(@as(EnumFromIntNumber, @enumFromInt(x)) == EnumFromIntNumber.Three);
 }
-const IntToEnumNumber = enum { Zero, One, Two, Three, Four };
+const EnumFromIntNumber = enum { Zero, One, Two, Three, Four };
 
 test "int to enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try testIntToEnumEval(3);
+    try testEnumFromIntEval(3);
 }
 
 const ValueCount1 = enum {

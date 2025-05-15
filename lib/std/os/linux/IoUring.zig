@@ -1208,6 +1208,27 @@ pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
     return handle_registration_result(res);
 }
 
+// Registers range for fixed file allocations.
+// Available since 6.0
+pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
+    assert(self.fd >= 0);
+
+    const range = &linux.io_uring_file_index_range{
+        .off = offset,
+        .len = len,
+        .resv = 0,
+    };
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .REGISTER_FILE_ALLOC_RANGE,
+        @ptrCast(range),
+        @as(u32, @sizeOf(linux.io_uring_file_index_range)),
+    );
+
+    return handle_registration_result(res);
+}
+
 /// Registers the file descriptor for an eventfd that will be notified of completion events on
 ///  an io_uring instance.
 /// Only a single a eventfd can be registered at any given point in time.

@@ -44,7 +44,7 @@ const dev = @import("../dev.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
-const wasi_libc = @import("../wasi_libc.zig");
+const wasi_libc = @import("../libs/wasi_libc.zig");
 const Value = @import("../Value.zig");
 
 base: link.File,
@@ -4627,10 +4627,13 @@ fn convertZcuFnType(
         try params_buffer.append(gpa, .i32); // memory address is always a 32-bit handle
     } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
         if (cc == .wasm_mvp) {
-            const res_classes = abi.classifyType(return_type, zcu);
-            assert(res_classes[0] == .direct and res_classes[1] == .none);
-            const scalar_type = abi.scalarType(return_type, zcu);
-            try returns_buffer.append(gpa, CodeGen.typeToValtype(scalar_type, zcu, target));
+            switch (abi.classifyType(return_type, zcu)) {
+                .direct => |scalar_ty| {
+                    assert(!abi.lowerAsDoubleI64(scalar_ty, zcu));
+                    try returns_buffer.append(gpa, CodeGen.typeToValtype(scalar_ty, zcu, target));
+                },
+                .indirect => unreachable,
+            }
         } else {
             try returns_buffer.append(gpa, CodeGen.typeToValtype(return_type, zcu, target));
         }
@@ -4645,18 +4648,16 @@ fn convertZcuFnType(
 
         switch (cc) {
             .wasm_mvp => {
-                const param_classes = abi.classifyType(param_type, zcu);
-                if (param_classes[1] == .none) {
-                    if (param_classes[0] == .direct) {
-                        const scalar_type = abi.scalarType(param_type, zcu);
-                        try params_buffer.append(gpa, CodeGen.typeToValtype(scalar_type, zcu, target));
-                    } else {
-                        try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target));
-                    }
-                } else {
-                    // i128/f128
-                    try params_buffer.append(gpa, .i64);
-                    try params_buffer.append(gpa, .i64);
+                switch (abi.classifyType(param_type, zcu)) {
+                    .direct => |scalar_ty| {
+                        if (!abi.lowerAsDoubleI64(scalar_ty, zcu)) {
+                            try params_buffer.append(gpa, CodeGen.typeToValtype(scalar_ty, zcu, target));
+                        } else {
+                            try params_buffer.append(gpa, .i64);
+                            try params_buffer.append(gpa, .i64);
+                        }
+                    },
+                    .indirect => try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target)),
                 }
             },
             else => try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target)),

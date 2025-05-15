@@ -28,11 +28,11 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
-const mingw = @import("mingw.zig");
+const mingw = @import("libs/mingw.zig");
 const dev = @import("dev.zig");
 
 test {
@@ -471,8 +471,6 @@ const usage_build_generic =
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
     \\  -freference-trace[=num]   Show num lines of reference trace per compile error
     \\  -fno-reference-trace      Disable reference trace
-    \\  -fbuiltin                 Enable implicit builtin knowledge of functions
-    \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
     \\  -fdata-sections           Places each data in a separate section
@@ -534,6 +532,8 @@ const usage_build_generic =
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
     \\  -ffuzz                    Enable fuzz testing instrumentation
     \\  -fno-fuzz                 Disable fuzz testing instrumentation
+    \\  -fbuiltin                 Enable implicit builtin knowledge of functions
+    \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
@@ -4155,7 +4155,7 @@ fn createModule(
             };
         }
 
-        if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
+        if (target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
             any_name_queries_remaining)
         {
             if (create_module.libc_installation == null) {
@@ -4166,11 +4166,10 @@ fn createModule(
                 }) catch |err| {
                     fatal("unable to find native libc installation: {s}", .{@errorName(err)});
                 };
-
-                try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
             }
+            try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
         }
 
         // Destructively mutates but does not transfer ownership of `unresolved_link_inputs`.
@@ -4206,6 +4205,7 @@ fn createModule(
             error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
+            error.LibCRequiresLibUnwind => fatal("libc of the specified target requires linking libunwind", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
             error.OsRequiresLibC => fatal("the target OS requires using libc as the stable syscall interface", .{}),
             error.LibCppRequiresLibC => fatal("libc++ requires linking libc", .{}),

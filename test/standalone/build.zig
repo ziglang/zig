@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
         "../../tools/update-linux-headers.zig",
         "../../tools/update_clang_options.zig",
         "../../tools/update_cpu_features.zig",
+        "../../tools/update_freebsd_libc.zig",
         "../../tools/update_glibc.zig",
     }) |tool_src_path| {
         const tool = b.addTest(.{
