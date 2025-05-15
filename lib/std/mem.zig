@@ -1666,18 +1666,7 @@ test containsAtLeast {
 //
 /// See also: `containsAtLeast`
 pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
-    if (expected_count == 0) return true;
-
-    var found: usize = 0;
-
-    for (haystack) |item| {
-        if (item == needle) {
-            found += 1;
-            if (found == expected_count) return true;
-        }
-    }
-
-    return false;
+    return containsAtLeast(T, haystack, expected_count, &[1]T{needle});
 }
 
 test containsAtLeastScalar {
