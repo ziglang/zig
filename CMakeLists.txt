@@ -511,6 +511,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/Builder.zig
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
+    lib/std/zig/Manifest.zig
+    lib/std/zig/introspect.zig
     src/Air.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -522,7 +524,6 @@ set(ZIG_STAGE2_SOURCES
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
-    src/Package/Manifest.zig
     src/Package/Module.zig
     src/RangeSet.zig
     src/Sema.zig
@@ -588,7 +589,6 @@ set(ZIG_STAGE2_SOURCES
     src/dev.zig
     src/libs/freebsd.zig
     src/libs/glibc.zig
-    src/introspect.zig
     src/libs/libcxx.zig
     src/libs/libtsan.zig
     src/libs/libunwind.zig
