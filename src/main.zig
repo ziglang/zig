@@ -5313,6 +5313,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .http_client = &http_client,
                     .thread_pool = &thread_pool,
                     .global_cache = global_cache_directory,
+                    .local_cache = local_cache_directory,
                     .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
@@ -5358,6 +5359,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .use_latest_commit = false,
 
                     .package_root = undefined,
+                    .local_override = false,
                     .error_bundle = undefined,
                     .manifest = null,
                     .manifest_ast = undefined,
@@ -7247,6 +7249,7 @@ fn cmdFetch(
         .http_client = &http_client,
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
+        .local_cache = null,
         .recursive = false,
         .read_only = false,
         .debug_hash = debug_hash,
@@ -7273,6 +7276,7 @@ fn cmdFetch(
         .use_latest_commit = true,
 
         .package_root = undefined,
+        .local_override = false,
         .error_bundle = undefined,
         .manifest = null,
         .manifest_ast = undefined,
