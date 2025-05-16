@@ -32,7 +32,7 @@ pub fn Scalar(comptime Type: type) type {
 }
 pub fn AddOneBit(comptime Type: type) type {
     const ResultScalar = switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = 1 + int.bits } }),
+        .int => |int| @Int(int.signedness, 1 + int.bits),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     };
@@ -43,7 +43,7 @@ pub fn AddOneBit(comptime Type: type) type {
 }
 pub fn DoubleBits(comptime Type: type) type {
     const ResultScalar = switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = int.bits * 2 } }),
+        .int => |int| @Int(int.signedness, int.bits * 2),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     };
@@ -54,7 +54,7 @@ pub fn DoubleBits(comptime Type: type) type {
 }
 pub fn RoundBitsUp(comptime Type: type, comptime multiple: u16) type {
     const ResultScalar = switch (@typeInfo(Scalar(Type))) {
-        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = std.mem.alignForward(u16, int.bits, multiple) } }),
+        .int => |int| @Int(int.signedness, std.mem.alignForward(u16, int.bits, multiple)),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
     };
@@ -82,10 +82,7 @@ pub fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
 } {
-    const ScalarInt = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = @bitSizeOf(Scalar(@TypeOf(rhs))),
-    } });
+    const ScalarInt = @Int(.unsigned, @bitSizeOf(Scalar(@TypeOf(rhs))));
     const VectorInt = switch (@typeInfo(@TypeOf(rhs))) {
         else => ScalarInt,
         .vector => |vector| @Vector(vector.len, ScalarInt),
@@ -97,7 +94,7 @@ fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
+                const Bits = @Int(.unsigned, vector.len);
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits & rhs_bits);
@@ -113,7 +110,7 @@ fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
+                const Bits = @Int(.unsigned, vector.len);
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits | rhs_bits);

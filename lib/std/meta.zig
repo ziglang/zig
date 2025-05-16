@@ -170,57 +170,41 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     switch (@typeInfo(T)) {
         .pointer => |info| switch (info.size) {
             .one => switch (@typeInfo(info.child)) {
-                .array => |array_info| return @Type(.{
-                    .pointer = .{
-                        .size = info.size,
-                        .is_const = info.is_const,
-                        .is_volatile = info.is_volatile,
-                        .alignment = info.alignment,
-                        .address_space = info.address_space,
-                        .child = @Type(.{
-                            .array = .{
-                                .len = array_info.len,
-                                .child = array_info.child,
-                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                            },
-                        }),
-                        .is_allowzero = info.is_allowzero,
-                        .sentinel_ptr = info.sentinel_ptr,
-                    },
-                }),
-                else => {},
-            },
-            .many, .slice => return @Type(.{
-                .pointer = .{
+                .array => |array_info| return @Pointer(.{
                     .size = info.size,
                     .is_const = info.is_const,
                     .is_volatile = info.is_volatile,
                     .alignment = info.alignment,
                     .address_space = info.address_space,
-                    .child = info.child,
+                    .child = [array_info.len:@as(?*const anyopaque, @ptrCast(&sentinel_val))]array_info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                },
+                    .sentinel_ptr = info.sentinel_ptr,
+                }),
+                else => {},
+            },
+            .many, .slice => return @Pointer(.{
+                .size = info.size,
+                .is_const = info.is_const,
+                .is_volatile = info.is_volatile,
+                .alignment = info.alignment,
+                .address_space = info.address_space,
+                .child = info.child,
+                .is_allowzero = info.is_allowzero,
+                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
             }),
             else => {},
         },
         .optional => |info| switch (@typeInfo(info.child)) {
             .pointer => |ptr_info| switch (ptr_info.size) {
-                .many => return @Type(.{
-                    .optional = .{
-                        .child = @Type(.{
-                            .pointer = .{
-                                .size = ptr_info.size,
-                                .is_const = ptr_info.is_const,
-                                .is_volatile = ptr_info.is_volatile,
-                                .alignment = ptr_info.alignment,
-                                .address_space = ptr_info.address_space,
-                                .child = ptr_info.child,
-                                .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                            },
-                        }),
-                    },
+                .many => return ?@Pointer(.{
+                    .size = ptr_info.size,
+                    .is_const = ptr_info.is_const,
+                    .is_volatile = ptr_info.is_volatile,
+                    .alignment = ptr_info.alignment,
+                    .address_space = ptr_info.address_space,
+                    .child = ptr_info.child,
+                    .is_allowzero = ptr_info.is_allowzero,
+                    .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                 }),
                 else => {},
             },
@@ -512,13 +496,11 @@ pub fn FieldEnum(comptime T: type) type {
     const field_infos = fields(T);
 
     if (field_infos.len == 0) {
-        return @Type(.{
-            .@"enum" = .{
-                .tag_type = u0,
-                .fields = &.{},
-                .decls = &.{},
-                .is_exhaustive = true,
-            },
+        return @Enum(.{
+            .tag_type = u0,
+            .fields = &.{},
+            .decls = &.{},
+            .is_exhaustive = true,
         });
     }
 
@@ -541,13 +523,11 @@ pub fn FieldEnum(comptime T: type) type {
             .value = i,
         };
     }
-    return @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, field_infos.len - 1),
-            .fields = &enumFields,
-            .decls = &decls,
-            .is_exhaustive = true,
-        },
+    return @Enum(.{
+        .tag_type = std.math.IntFittingRange(0, field_infos.len - 1),
+        .fields = &enumFields,
+        .decls = &decls,
+        .is_exhaustive = true,
     });
 }
 
@@ -611,13 +591,11 @@ pub fn DeclEnum(comptime T: type) type {
     inline for (fieldInfos, 0..) |field, i| {
         enumDecls[i] = .{ .name = field.name, .value = i };
     }
-    return @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, if (fieldInfos.len == 0) 0 else fieldInfos.len - 1),
-            .fields = &enumDecls,
-            .decls = &decls,
-            .is_exhaustive = true,
-        },
+    return @Enum(.{
+        .tag_type = std.math.IntFittingRange(0, if (fieldInfos.len == 0) 0 else fieldInfos.len - 1),
+        .fields = &enumDecls,
+        .decls = &decls,
+        .is_exhaustive = true,
     });
 }
 
@@ -894,26 +872,20 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
     }
 }
 
+/// Deprecated: use @Int
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
-    return @Type(.{
-        .int = .{
-            .signedness = signedness,
-            .bits = bit_count,
-        },
-    });
+    return @Int(signedness, bit_count);
 }
 
 pub fn Float(comptime bit_count: u8) type {
-    return @Type(.{
-        .float = .{ .bits = bit_count },
-    });
-}
-
-test Float {
-    try testing.expectEqual(f16, Float(16));
-    try testing.expectEqual(f32, Float(32));
-    try testing.expectEqual(f64, Float(64));
-    try testing.expectEqual(f128, Float(128));
+    return switch (bit_count) {
+        16 => f16,
+        32 => f32,
+        64 => f64,
+        80 => f80,
+        128 => f128,
+        else => @compileError("invalid float bit count"),
+    };
 }
 
 /// For a given function type, returns a tuple type which fields will
@@ -966,13 +938,11 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         };
     }
 
-    return @Type(.{
-        .@"struct" = .{
-            .is_tuple = true,
-            .layout = .auto,
-            .decls = &.{},
-            .fields = &tuple_fields,
-        },
+    return @Struct(.{
+        .is_tuple = true,
+        .layout = .auto,
+        .decls = &.{},
+        .fields = &tuple_fields,
     });
 }
 
