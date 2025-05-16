@@ -533,7 +533,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var opt_symbol_name: ?[]const u8 = null;
         var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
         var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
-        var sym_unversioned = false;
 
         var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
         var inc_reader = inc_fbs.reader();
@@ -548,11 +547,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
 
                 break :n sym_name_buf.items;
             };
 
+            // Pick the default symbol version:
+            // - If there are no versions, don't emit it
+            // - Take the greatest one <= than the target one
+            // - If none of them is <= than the
+            //   specified one don't pick any default version
+            var chosen_def_ver_index: usize = 255;
+            var chosen_unversioned_ver_index: usize = 255;
             {
                 const targets = try std.leb.readUleb128(u64, inc_reader);
                 var lib_index = try inc_reader.readByte();
@@ -574,7 +579,12 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
                         versions.set(ver_i);
-                        if (is_unversioned) sym_unversioned = true;
+                        if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                            chosen_def_ver_index = ver_i;
+                        }
+                        if (is_unversioned and (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index)) {
+                            chosen_unversioned_ver_index = ver_i;
+                        }
                         if (is_weak) weak_linkages.set(ver_i);
                     }
                     if (last) break;
@@ -585,25 +595,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
-            }
-
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
+                    if (chosen_unversioned_ver_index != 255 and ver_index == chosen_unversioned_ver_index) {
                         // Example:
                         // .balign 4
                         // .globl _Exit
@@ -701,11 +696,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
 
                 break :n sym_name_buf.items;
             };
 
+            // Pick the default symbol version:
+            // - If there are no versions, don't emit it
+            // - Take the greatest one <= than the target one
+            // - If none of them is <= than the
+            //   specified one don't pick any default version
+            var chosen_def_ver_index: usize = 255;
+            var chosen_unversioned_ver_index: usize = 255;
             {
                 const targets = try std.leb.readUleb128(u64, inc_reader);
                 const size = try std.leb.readUleb128(u16, inc_reader);
@@ -728,8 +729,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
                         versions.set(ver_i);
+                        if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                            chosen_def_ver_index = ver_i;
+                        }
+                        if (is_unversioned and (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index)) {
+                            chosen_unversioned_ver_index = ver_i;
+                        }
                         sizes[ver_i] = size;
-                        if (is_unversioned) sym_unversioned = true;
                         if (is_weak) weak_linkages.set(ver_i);
                     }
                     if (last) break;
@@ -740,25 +746,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
-            }
-
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
+                    if (chosen_unversioned_ver_index != 255 and ver_index == chosen_unversioned_ver_index) {
                         // Example:
                         // .balign 4
                         // .globl malloc_conf
@@ -843,11 +834,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
 
                 break :n sym_name_buf.items;
             };
 
+            // Pick the default symbol version:
+            // - If there are no versions, don't emit it
+            // - Take the greatest one <= than the target one
+            // - If none of them is <= than the
+            //   specified one don't pick any default version
+            var chosen_def_ver_index: usize = 255;
+            var chosen_unversioned_ver_index: usize = 255;
             {
                 const targets = try std.leb.readUleb128(u64, inc_reader);
                 const size = try std.leb.readUleb128(u16, inc_reader);
@@ -870,8 +867,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
                         versions.set(ver_i);
+                        if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                            chosen_def_ver_index = ver_i;
+                        }
+                        if (is_unversioned and (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index)) {
+                            chosen_unversioned_ver_index = ver_i;
+                        }
                         sizes[ver_i] = size;
-                        if (is_unversioned) sym_unversioned = true;
                         if (is_weak) weak_linkages.set(ver_i);
                     }
                     if (last) break;
@@ -882,25 +884,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
-            }
-
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
+                    if (chosen_unversioned_ver_index != 255 and ver_index == chosen_unversioned_ver_index) {
                         // Example:
                         // .balign 4
                         // .globl _ThreadRuneLocale
