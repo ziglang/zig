@@ -60,6 +60,12 @@
 #ifndef WIN_PTHREADS_PTHREAD_COMPAT_H
 #define WIN_PTHREADS_PTHREAD_COMPAT_H
 
+#if defined(_USE_32BIT_TIME_T) || (defined(_TIME_BITS) && _TIME_BITS == 32)
+#define WINPTHREADS_TIME_BITS 32
+#else
+#define WINPTHREADS_TIME_BITS 64
+#endif
+
 #if defined(IN_WINPTHREAD)
 #  if defined(DLL_EXPORT)
 #    define WINPTHREAD_API  __declspec(dllexport)  /* building the DLL  */
@@ -97,7 +103,8 @@ typedef unsigned short mode_t;
 
 #ifdef __GNUC__
 
-#define WINPTHREADS_INLINE inline
+#define WINPTHREADS_INLINE __inline__
+#define WINPTHREADS_ALWAYS_INLINE __inline__ __attribute__((__always_inline__))
 #define WINPTHREADS_ATTRIBUTE(X) __attribute__(X)
 #define WINPTHREADS_SECTION(X) __section__(X)
 
@@ -110,9 +117,32 @@ typedef int     pid_t;
 #endif
 
 #define WINPTHREADS_INLINE __inline
+#define WINPTHREADS_ALWAYS_INLINE __inline __forceinline
 #define WINPTHREADS_ATTRIBUTE(X) __declspec X
 #define WINPTHREADS_SECTION(X) allocate(X)
 
+#endif
+
+#ifndef WINPTHREAD_CLOCK_DECL
+#define WINPTHREAD_CLOCK_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_COND_DECL
+#define WINPTHREAD_COND_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_MUTEX_DECL
+#define WINPTHREAD_MUTEX_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_NANOSLEEP_DECL
+#define WINPTHREAD_NANOSLEEP_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_RWLOCK_DECL
+#define WINPTHREAD_RWLOCK_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_SEM_DECL
+#define WINPTHREAD_SEM_DECL static WINPTHREADS_ALWAYS_INLINE
+#endif
+#ifndef WINPTHREAD_THREAD_DECL
+#define WINPTHREAD_THREAD_DECL static WINPTHREADS_ALWAYS_INLINE
 #endif
 
 #endif

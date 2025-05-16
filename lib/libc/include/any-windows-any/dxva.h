@@ -99,11 +99,26 @@ DEFINE_GUID(DXVA_ModeJPEG_VLD_444, 0x4cd00e17, 0x89ba, 0x48ef, 0xb9, 0xf9, 0xed,
 
 DEFINE_GUID(DXVA_NoEncrypt, 0x1b81bed0, 0xa0c7,0x11d3, 0xb9,0x84,0x00,0xc0,0x4f,0x2e,0x73,0xc5);
 
+#define DXVA_ModeH264_MoComp_NoFGT  DXVA_ModeH264_A
+#define DXVA_ModeH264_MoComp_FGT    DXVA_ModeH264_B
+#define DXVA_ModeH264_IDCT_NoFGT    DXVA_ModeH264_C
+#define DXVA_ModeH264_IDCT_FGT      DXVA_ModeH264_D
+#define DXVA_ModeH264_VLD_NoFGT     DXVA_ModeH264_E
+#define DXVA_ModeH264_VLD_FGT       DXVA_ModeH264_F
+
 #define DXVA_USUAL_BLOCK_WIDTH   8
 #define DXVA_USUAL_BLOCK_HEIGHT  8
 #define DXVA_USUAL_BLOCK_SIZE   (DXVA_USUAL_BLOCK_WIDTH * DXVA_USUAL_BLOCK_HEIGHT)
 
-#include <pshpack1.h>
+#define DXVA_PICTURE_DECODING_FUNCTION          1
+#define DXVA_ALPHA_BLEND_DATA_LOAD_FUNCTION     2
+#define DXVA_ALPHA_BLEND_COMBINATION_FUNCTION   3
+#define DXVA_PICTURE_RESAMPLE_FUNCTION          4
+#define DXVA_DEBLOCKING_FILTER_FUNCTION         5
+#define DXVA_FILM_GRAIN_SYNTHESIS_FUNCTION      6
+#define DXVA_STATUS_REPORTING_FUNCTION          7
+
+#pragma pack(push,1)
 
 typedef struct _DXVA_PicEntry_H264
 {
@@ -309,6 +324,17 @@ typedef struct _DXVA_Slice_H264_Short
     USHORT wBadSliceChopping;
 } DXVA_Slice_H264_Short, *LPDXVA_Slice_H264_Short;
 
+typedef struct _DXVA_Status_H264
+{
+    UINT StatusReportFeedbackNumber;
+    DXVA_PicEntry_H264 CurrPic;
+    UCHAR field_pic_flag;
+    UCHAR bDXVA_Func;
+    UCHAR bBufType;
+    UCHAR bStatus;
+    UCHAR bReserved8Bits;
+    USHORT wNumMbsAffected;
+} DXVA_Status_H264, *LPDXVA_Status_H264;
 
 typedef struct _DXVA_PicEntry_HEVC
 {
@@ -938,7 +964,7 @@ typedef struct _DXVA_Status_AV1 {
     USHORT NumMbsAffected;
 } DXVA_Status_AV1, *LPDXVA_Status_AV1;
 
-#include <poppack.h>
+#pragma pack(pop)
 
 typedef enum _DXVA_VideoChromaSubsampling
 {
