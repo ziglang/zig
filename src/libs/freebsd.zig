@@ -109,7 +109,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     try includePath(comp, arena, "generic-freebsd"),
                     "-I",
                     try csuPath(comp, arena, switch (target.cpu.arch) {
-                        .arm, .thumb => "arm",
+                        .arm => "arm",
                         .aarch64 => "aarch64",
                         .powerpc => "powerpc",
                         .powerpc64, .powerpc64le => "powerpc64",
@@ -155,12 +155,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 .{
                     .path = "arm" ++ path.sep_str ++ "crt1_c.c",
                     .flags = cflags.items,
-                    .condition = target.cpu.arch == .arm or target.cpu.arch == .thumb,
+                    .condition = target.cpu.arch == .arm,
                 },
                 .{
                     .path = "arm" ++ path.sep_str ++ "crt1_s.S",
                     .flags = acflags.items,
-                    .condition = target.cpu.arch == .arm or target.cpu.arch == .thumb,
+                    .condition = target.cpu.arch == .arm,
                 },
 
                 .{
