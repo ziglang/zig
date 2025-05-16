@@ -8,7 +8,7 @@
 #define _SET_ERRNO(x)
 #endif
 
-#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
 #include <math.h>
 
 long double tanhl(long double x)

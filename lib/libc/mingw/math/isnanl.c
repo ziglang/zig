@@ -8,7 +8,9 @@
 int
 __isnanl (long double _x)
 {
-#if defined(__x86_64__) || defined(_AMD64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+    return __isnan(_x);
+#elif defined(__x86_64__) || defined(_AMD64_)
   __mingw_ldbl_type_t ld;
   int xx, signexp;
 
@@ -18,8 +20,6 @@ __isnanl (long double _x)
   signexp |= (unsigned int) (xx | (-xx)) >> 31;
   signexp = 0xfffe - signexp;
   return (int) ((unsigned int) signexp) >> 16;
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    return __isnan(_x);
 #elif defined(__i386__) || defined(_X86_)
   unsigned short _sw;
   __asm__ __volatile__ ("fxam;"

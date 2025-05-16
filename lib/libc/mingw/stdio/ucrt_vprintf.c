@@ -12,4 +12,3 @@ int __cdecl vprintf(const char * __restrict__ _Format,va_list _ArgList)
 {
   return __stdio_common_vfprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, stdout, _Format, NULL, _ArgList);
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(vprintf))(const char *__restrict__, va_list) = vprintf;
