@@ -332,10 +332,10 @@ __mingw_swformat (_IFPW *s, const wchar_t *format, va_list argp)
       return EOF;
     }
 
-  memset (&state, 0, sizeof(state));
+  state = (mbstate_t){0};
   clen = mbrtowc( &wc, localeconv()->decimal_point, 16, &state);
   lc_decimal_point = (clen > 0 ? wc : '.');
-  memset( &state, 0, sizeof( state ) );
+  state = (mbstate_t){0};
   clen = mbrtowc( &wc, localeconv()->thousands_sep, 16, &state);
   lc_thousands_sep = (clen > 0 ? wc : 0);
 
@@ -596,7 +596,7 @@ __mingw_swformat (_IFPW *s, const wchar_t *format, va_list argp)
 	  if ((c = in_ch (s, &read_in)) == WEOF)
 	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	  memset (&state, 0, sizeof (state));
+          state = (mbstate_t){0};
 
 	  do
 	    {
@@ -744,7 +744,7 @@ __mingw_swformat (_IFPW *s, const wchar_t *format, va_list argp)
 	  if ((c = in_ch (s, &read_in)) == WEOF)
 	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	  memset (&state, 0, sizeof (state));
+          state = (mbstate_t){0};
 
 	  do
 	    {
@@ -1459,7 +1459,7 @@ __mingw_swformat (_IFPW *s, const wchar_t *format, va_list argp)
 	      if ((c = in_ch (s, &read_in)) == WEOF)
 		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	      memset (&state, 0, sizeof (state));
+              state = (mbstate_t){0};
 
 	      do
 		{
