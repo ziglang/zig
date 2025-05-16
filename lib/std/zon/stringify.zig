@@ -35,6 +35,8 @@ pub const SerializeOptions = struct {
     /// If false, struct fields are not written if they are equal to their default value. Comparison
     /// is done by `std.meta.eql`.
     emit_default_optional_fields: bool = true,
+    /// Should unicode characters be escaped in strings
+    escape_unicode: bool = false,
 };
 
 /// Serialize the given value as ZON.
@@ -52,6 +54,7 @@ pub fn serialize(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     });
 }
 
@@ -72,6 +75,7 @@ pub fn serializeMaxDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     }, depth);
 }
 
@@ -90,6 +94,7 @@ pub fn serializeArbitraryDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     });
 }
 
@@ -397,6 +402,7 @@ pub const ValueOptions = struct {
     emit_codepoint_literals: EmitCodepointLiterals = .never,
     emit_strings_as_containers: bool = false,
     emit_default_optional_fields: bool = true,
+    escape_unicode: bool = true,
 };
 
 /// Options for manual serialization of container types.
@@ -514,7 +520,7 @@ pub fn Serializer(Writer: type) type {
                         (pointer.sentinel() == null or pointer.sentinel() == 0) and
                         !options.emit_strings_as_containers)
                     {
-                        return try self.string(val);
+                        return try self.string(val, .{ .escape_unicode = options.escape_unicode });
                     }
 
                     // Serialize as either a tuple or as the child type
@@ -714,9 +720,37 @@ pub fn Serializer(Writer: type) type {
             }
         }
 
+        /// Options for formatting strings.
+        pub const StringOptions = struct {
+            /// Should unicode characters be escaped in strings?
+            escape_unicode: bool = false,
+        };
+
         /// Like `value`, but always serializes `val` as a string.
-        pub fn string(self: *Self, val: []const u8) Writer.Error!void {
-            try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+        pub fn string(
+            self: *Self,
+            val: []const u8,
+            options: StringOptions,
+        ) Writer.Error!void {
+            try self.writer.writeByte('"');
+            for (val) |byte| switch (byte) {
+                '\n' => try self.writer.writeAll("\\n"),
+                '\r' => try self.writer.writeAll("\\r"),
+                '\t' => try self.writer.writeAll("\\t"),
+                '\\' => try self.writer.writeAll("\\\\"),
+                '"' => try self.writer.writeAll("\\\""),
+                // if normal ascii, just write it
+                ' ', '!', '#'...'&', '('...'[', ']'...'~' => try self.writer.writeByte(byte),
+                else => {
+                    if (options.escape_unicode) {
+                        try self.writer.writeAll("\\x");
+                        try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, self.writer);
+                    } else {
+                        try self.writer.writeByte(byte);
+                    }
+                },
+            };
+            try self.writer.writeByte('"');
         }
 
         /// Options for formatting multiline strings.
@@ -1645,9 +1679,26 @@ test "std.zon stringify strings" {
     defer buf.deinit();
     var sz = serializer(buf.writer(), .{});
 
-    // Minimal case
-    try sz.string("abc⚡\n");
+    // Minimal case escape_unicode = true
+    try sz.string("abc⚡\n", .{ .escape_unicode = true });
     try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string(
+        \\a"b\c⚡
+    , .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\xe2\\x9a\\xa1\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    // Minimal case escape_unicode = false
+    try sz.string("abc⚡\n", .{});
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string(
+        \\a"b\c⚡
+    , .{});
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c⚡\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.tuple("abc⚡\n", .{});
@@ -1666,6 +1717,14 @@ test "std.zon stringify strings" {
 
     try sz.value("abc⚡\n", .{});
     try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value("abc⚡\n", .{ .escape_unicode = false });
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value("⚡", .{ .escape_unicode = false });
+    try std.testing.expectEqualStrings("\"⚡\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value("abc⚡\n", .{ .emit_strings_as_containers = true });
@@ -1766,7 +1825,7 @@ test "std.zon stringify multiline strings" {
 
         {
             const str: []const u8 = &.{ 'a', '\r', 'c' };
-            try sz.string(str);
+            try sz.string(str, .{ .escape_unicode = true });
             try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
             buf.clearRetainingCapacity();
         }
