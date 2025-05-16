@@ -1444,7 +1444,7 @@ typedef struct _DOT11_SEND_EXTENSION_INFO {
 typedef enum _DOT11_ACK_POLICY {
   dot11_ack_policy_none = 0,
   dot11_ack_policy_acknowledge = 1,
-  dot11_ack_policy_do_not_acknowledge = 2,
+  dot11_ack_policy_do_not_acknowledge = 2
 } DOT11_ACK_POLICY, *PDOT11_ACK_POLICY;
 
 typedef struct _DOT11_SEND_EXTENSION_INFO_V2 {

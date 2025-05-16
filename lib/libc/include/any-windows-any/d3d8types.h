@@ -20,7 +20,7 @@
 #define __WINE_D3D8TYPES_H
 
 #ifdef __i386__
-#include <pshpack4.h>
+#pragma pack(push,4)
 #endif
 
 /*****************************************************************************
@@ -149,6 +149,9 @@
 #define D3DCOLORWRITEENABLE_GREEN (__MSABI_LONG(1)<<1)
 #define D3DCOLORWRITEENABLE_BLUE  (__MSABI_LONG(1)<<2)
 #define D3DCOLORWRITEENABLE_ALPHA (__MSABI_LONG(1)<<3)
+
+#define D3DDEVINFOID_RESOURCEMANAGER 5
+#define D3DDEVINFOID_VERTEXSTATS     6
 
 
 #ifndef MAKEFOURCC
@@ -1117,6 +1120,9 @@ typedef struct _D3DMATRIX {
     } DUMMYUNIONNAME;
 } D3DMATRIX;
 
+#define D3DPRESENT_RATE_DEFAULT 0
+#define D3DPRESENT_RATE_UNLIMITED 0x7fffffff
+
 typedef struct _D3DPRESENT_PARAMETERS_ {
     UINT                    BackBufferWidth;
     UINT                    BackBufferHeight;
@@ -1214,7 +1220,7 @@ typedef struct _D3DVOLUME_DESC {
 } D3DVOLUME_DESC;
 
 #ifdef __i386__
-#include <poppack.h>
+#pragma pack(pop)
 #endif
 
 #endif  /* __WINE_D3D8TYPES_H */

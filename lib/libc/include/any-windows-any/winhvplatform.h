@@ -15,6 +15,8 @@
 
 #include <winhvplatformdefs.h>
 
+#if defined(__x86_64__) || defined(__aarch64__)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,16 +41,22 @@ HRESULT WINAPI WHvRunVirtualProcessor(WHV_PARTITION_HANDLE Partition, UINT32 VpI
 HRESULT WINAPI WHvCancelRunVirtualProcessor(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, UINT32 Flags);
 HRESULT WINAPI WHvGetVirtualProcessorRegisters(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, const WHV_REGISTER_NAME *RegisterNames, UINT32 RegisterCount, WHV_REGISTER_VALUE *RegisterValues);
 HRESULT WINAPI WHvSetVirtualProcessorRegisters(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, const WHV_REGISTER_NAME *RegisterNames, UINT32 RegisterCount, const WHV_REGISTER_VALUE *RegisterValues);
+#if defined(__x86_64__)
 HRESULT WINAPI WHvGetVirtualProcessorInterruptControllerState(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, VOID *State, UINT32 StateSize, UINT32 *WrittenSize);
 HRESULT WINAPI WHvSetVirtualProcessorInterruptControllerState(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, const VOID *State, UINT32 StateSize);
+#endif
 HRESULT WINAPI WHvRequestInterrupt(WHV_PARTITION_HANDLE Partition, const WHV_INTERRUPT_CONTROL *Interrupt, UINT32 InterruptControlSize);
+#if defined(__x86_64__)
 HRESULT WINAPI WHvGetVirtualProcessorXsaveState(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, VOID *Buffer, UINT32 BufferSizeInBytes, UINT32 *BytesWritten);
 HRESULT WINAPI WHvSetVirtualProcessorXsaveState(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, const VOID *Buffer, UINT32 BufferSizeInBytes);
+#endif
 HRESULT WINAPI WHvQueryGpaRangeDirtyBitmap(WHV_PARTITION_HANDLE Partition, WHV_GUEST_PHYSICAL_ADDRESS GuestAddress, UINT64 RangeSizeInBytes, UINT64 *Bitmap, UINT32 BitmapSizeInBytes);
 HRESULT WINAPI WHvGetPartitionCounters(WHV_PARTITION_HANDLE Partition, WHV_PARTITION_COUNTER_SET CounterSet, VOID *Buffer, UINT32 BufferSizeInBytes, UINT32 *BytesWritten);
 HRESULT WINAPI WHvGetVirtualProcessorCounters(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, WHV_PROCESSOR_COUNTER_SET CounterSet, VOID *Buffer, UINT32 BufferSizeInBytes, UINT32 *BytesWritten);
+#if defined(__x86_64__)
 HRESULT WINAPI WHvGetVirtualProcessorInterruptControllerState2(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, VOID *State, UINT32 StateSize, UINT32 *WrittenSize);
 HRESULT WINAPI WHvSetVirtualProcessorInterruptControllerState2(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, const VOID *State, UINT32 StateSize);
+#endif
 HRESULT WINAPI WHvRegisterPartitionDoorbellEvent(WHV_PARTITION_HANDLE Partition, const WHV_DOORBELL_MATCH_DATA *MatchData, HANDLE EventHandle);
 HRESULT WINAPI WHvUnregisterPartitionDoorbellEvent(WHV_PARTITION_HANDLE Partition, const WHV_DOORBELL_MATCH_DATA *MatchData);
 HRESULT WINAPI WHvAdviseGpaRange(WHV_PARTITION_HANDLE Partition, const WHV_MEMORY_RANGE_ENTRY *GpaRanges, UINT32 GpaRangesCount, WHV_ADVISE_GPA_RANGE_CODE Advice, const VOID *AdviceBuffer, UINT32 AdviceBufferSizeInBytes);
@@ -79,8 +87,10 @@ HRESULT WINAPI WHvCreateNotificationPort(WHV_PARTITION_HANDLE Partition, const W
 HRESULT WINAPI WHvSetNotificationPortProperty(WHV_PARTITION_HANDLE Partition, WHV_NOTIFICATION_PORT_HANDLE PortHandle, WHV_NOTIFICATION_PORT_PROPERTY_CODE PropertyCode, WHV_NOTIFICATION_PORT_PROPERTY PropertyValue);
 HRESULT WINAPI WHvDeleteNotificationPort(WHV_PARTITION_HANDLE Partition, WHV_NOTIFICATION_PORT_HANDLE PortHandle);
 HRESULT WINAPI WHvPostVirtualProcessorSynicMessage(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, UINT32 SintIndex, const VOID *Message, UINT32 MessageSizeInBytes);
+#if defined(__x86_64__)
 HRESULT WINAPI WHvGetVirtualProcessorCpuidOutput(WHV_PARTITION_HANDLE Partition, UINT32 VpIndex, UINT32 Eax, UINT32 Ecx, WHV_CPUID_OUTPUT *CpuidOutput);
 HRESULT WINAPI WHvGetInterruptTargetVpSet(WHV_PARTITION_HANDLE Partition, UINT64 Destination, WHV_INTERRUPT_DESTINATION_MODE DestinationMode, UINT32 *TargetVps, UINT32 VpCount, UINT32 *TargetVpCount);
+#endif
 HRESULT WINAPI WHvStartPartitionMigration(WHV_PARTITION_HANDLE Partition, HANDLE *MigrationHandle);
 HRESULT WHvCancelPartitionMigration(WHV_PARTITION_HANDLE Partition);
 HRESULT WHvCompletePartitionMigration(WHV_PARTITION_HANDLE Partition);
@@ -90,6 +100,101 @@ HRESULT WINAPI WHvAcceptPartitionMigration(HANDLE MigrationHandle, WHV_PARTITION
 }
 #endif
 
+#endif /* defined(__x86_64__) || defined(__aarch64__) */
+
 #endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP) */
 
 #endif /* _WINHVAPI_H_ */
+
+
+#ifndef ext_ms_win_hyperv_hvplatform_l1_1_5_query_routines
+#define ext_ms_win_hyperv_hvplatform_l1_1_5_query_routines
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#if defined(__x86_64__) || defined(__aarch64__)
+
+BOOLEAN WINAPI IsWHvGetCapabilityPresent(VOID);
+BOOLEAN WINAPI IsWHvCreatePartitionPresent(VOID);
+BOOLEAN WINAPI IsWHvSetupPartitionPresent(VOID);
+BOOLEAN WINAPI IsWHvResetPartitionPresent(VOID);
+BOOLEAN WINAPI IsWHvDeletePartitionPresent(VOID);
+BOOLEAN WINAPI IsWHvGetPartitionPropertyPresent(VOID);
+BOOLEAN WINAPI IsWHvSetPartitionPropertyPresent(VOID);
+BOOLEAN WINAPI IsWHvSuspendPartitionTimePresent(VOID);
+BOOLEAN WINAPI IsWHvResumePartitionTimePresent(VOID);
+BOOLEAN WINAPI IsWHvMapGpaRangePresent(VOID);
+BOOLEAN WINAPI IsWHvMapGpaRange2Present(VOID);
+BOOLEAN WINAPI IsWHvUnmapGpaRangePresent(VOID);
+BOOLEAN WINAPI IsWHvTranslateGvaPresent(VOID);
+BOOLEAN WINAPI IsWHvCreateVirtualProcessorPresent(VOID);
+BOOLEAN WINAPI IsWHvCreateVirtualProcessor2Present(VOID);
+BOOLEAN WINAPI IsWHvDeleteVirtualProcessorPresent(VOID);
+BOOLEAN WINAPI IsWHvRunVirtualProcessorPresent(VOID);
+BOOLEAN WINAPI IsWHvCancelRunVirtualProcessorPresent(VOID);
+BOOLEAN WINAPI IsWHvGetVirtualProcessorRegistersPresent(VOID);
+BOOLEAN WINAPI IsWHvSetVirtualProcessorRegistersPresent(VOID);
+#if defined(__x86_64__)
+BOOLEAN WINAPI IsWHvGetVirtualProcessorInterruptControllerStatePresent(VOID);
+BOOLEAN WINAPI IsWHvSetVirtualProcessorInterruptControllerStatePresent(VOID);
+#endif
+BOOLEAN WINAPI IsWHvRequestInterruptPresent(VOID);
+#if defined(__x86_64__)
+BOOLEAN WINAPI IsWHvGetVirtualProcessorXsaveStatePresent(VOID);
+BOOLEAN WINAPI IsWHvSetVirtualProcessorXsaveStatePresent(VOID);
+#endif
+BOOLEAN WINAPI IsWHvQueryGpaRangeDirtyBitmapPresent(VOID);
+BOOLEAN WINAPI IsWHvGetPartitionCountersPresent(VOID);
+BOOLEAN WINAPI IsWHvGetVirtualProcessorCountersPresent(VOID);
+#if defined(__x86_64__)
+BOOLEAN WINAPI IsWHvGetVirtualProcessorInterruptControllerState2Present(VOID);
+BOOLEAN WINAPI IsWHvSetVirtualProcessorInterruptControllerState2Present(VOID);
+#endif
+BOOLEAN WINAPI IsWHvRegisterPartitionDoorbellEventPresent(VOID);
+BOOLEAN WINAPI IsWHvUnregisterPartitionDoorbellEventPresent(VOID);
+BOOLEAN WINAPI IsWHvAdviseGpaRangePresent(VOID);
+BOOLEAN WINAPI IsWHvReadGpaRangePresent(VOID);
+BOOLEAN WINAPI IsWHvWriteGpaRangePresent(VOID);
+BOOLEAN WINAPI IsWHvSignalVirtualProcessorSynicEventPresent(VOID);
+BOOLEAN WINAPI IsWHvGetVirtualProcessorStatePresent(VOID);
+BOOLEAN WINAPI IsWHvSetVirtualProcessorStatePresent(VOID);
+BOOLEAN WINAPI IsWHvAllocateVpciResourcePresent(VOID);
+BOOLEAN WINAPI IsWHvCreateVpciDevicePresent(VOID);
+BOOLEAN WINAPI IsWHvDeleteVpciDevicePresent(VOID);
+BOOLEAN WINAPI IsWHvGetVpciDevicePropertyPresent(VOID);
+BOOLEAN WINAPI IsWHvGetVpciDeviceNotificationPresent(VOID);
+BOOLEAN WINAPI IsWHvMapVpciDeviceMmioRangesPresent(VOID);
+BOOLEAN WINAPI IsWHvUnmapVpciDeviceMmioRangesPresent(VOID);
+BOOLEAN WINAPI IsWHvSetVpciDevicePowerStatePresent(VOID);
+BOOLEAN WINAPI IsWHvReadVpciDeviceRegisterPresent(VOID);
+BOOLEAN WINAPI IsWHvWriteVpciDeviceRegisterPresent(VOID);
+BOOLEAN WINAPI IsWHvMapVpciDeviceInterruptPresent(VOID);
+BOOLEAN WINAPI IsWHvUnmapVpciDeviceInterruptPresent(VOID);
+BOOLEAN WINAPI IsWHvRetargetVpciDeviceInterruptPresent(VOID);
+BOOLEAN WINAPI IsWHvRequestVpciDeviceInterruptPresent(VOID);
+BOOLEAN WINAPI IsWHvGetVpciDeviceInterruptTargetPresent(VOID);
+BOOLEAN WINAPI IsWHvCreateTriggerPresent(VOID);
+BOOLEAN WINAPI IsWHvUpdateTriggerParametersPresent(VOID);
+BOOLEAN WINAPI IsWHvDeleteTriggerPresent(VOID);
+BOOLEAN WINAPI IsWHvCreateNotificationPortPresent(VOID);
+BOOLEAN WINAPI IsWHvSetNotificationPortPropertyPresent(VOID);
+BOOLEAN WINAPI IsWHvDeleteNotificationPortPresent(VOID);
+BOOLEAN WINAPI IsWHvPostVirtualProcessorSynicMessagePresent(VOID);
+#if defined(__x86_64__)
+BOOLEAN WINAPI IsWHvGetVirtualProcessorCpuidOutputPresent(VOID);
+BOOLEAN WINAPI IsWHvGetInterruptTargetVpSetPresent(VOID);
+#endif
+BOOLEAN WINAPI IsWHvStartPartitionMigrationPresent(VOID);
+BOOLEAN WINAPI IsWHvCancelPartitionMigrationPresent(VOID);
+BOOLEAN WINAPI IsWHvCompletePartitionMigrationPresent(VOID);
+BOOLEAN WINAPI IsWHvAcceptPartitionMigrationPresent(VOID);
+
+#endif /* defined(__x86_64__) || defined(__aarch64__) */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ext_ms_win_hyperv_hvplatform_l1_1_5_query_routines */
