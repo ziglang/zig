@@ -1668,15 +1668,14 @@ test containsAtLeast {
 pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
     if (expected_count == 0) return true;
 
+    var i: usize = 0;
     var found: usize = 0;
 
-    for (haystack) |item| {
-        if (item == needle) {
-            found += 1;
-            if (found == expected_count) return true;
-        }
+    while (indexOfScalarPos(T, haystack, i, needle)) |idx| {
+        i = idx + 1;
+        found += 1;
+        if (found == expected_count) return true;
     }
-
     return false;
 }
 
