@@ -159,7 +159,9 @@ extern "C" {
 
 #if NTDDI_VERSION >= NTDDI_WIN10_RS2
   WINBASEAPI PVOID WINAPI MapViewOfFileNuma2(HANDLE FileMappingHandle, HANDLE ProcessHandle, ULONG64 Offset, PVOID BaseAddress, SIZE_T ViewSize, ULONG AllocationType, ULONG PageProtection, ULONG PreferredNode);
-  WINBASEAPI PVOID MapViewOfFile2(HANDLE FileMappingHandle, HANDLE ProcessHandle, ULONG64 Offset, PVOID BaseAddress, SIZE_T ViewSize, ULONG AllocationType, ULONG PageProtection);
+  FORCEINLINE PVOID MapViewOfFile2(HANDLE FileMappingHandle, HANDLE ProcessHandle, ULONG64 Offset, PVOID BaseAddress, SIZE_T ViewSize, ULONG AllocationType, ULONG PageProtection) {
+    return MapViewOfFileNuma2(FileMappingHandle, ProcessHandle, Offset, BaseAddress, ViewSize, AllocationType, PageProtection, NUMA_NO_PREFERRED_NODE);
+  }
 #endif
 
 #if NTDDI_VERSION >= NTDDI_WIN10_RS4

@@ -21,7 +21,7 @@
 #define __WINE_D3D9CAPS_H
 
 #ifdef __i386__
-#include <pshpack4.h>
+#pragma pack(push,4)
 #endif
 
 /*
@@ -449,7 +449,7 @@ DEFINE_GUID(D3DKEYEXCHANGE_DXVA,        0x43d3775c, 0x38e5, 0x4924, 0x8d, 0x86, 
 #endif
 
 #ifdef __i386__
-#include <poppack.h>
+#pragma pack(pop)
 #endif
 
 #endif

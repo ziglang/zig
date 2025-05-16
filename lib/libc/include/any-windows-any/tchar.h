@@ -473,9 +473,7 @@ extern "C" {
 #define _istxdigit iswxdigit
 #define _istxdigit_l _iswxdigit_l
 #define _istblank iswblank
-#if __MSVCRT_VERSION__ >= 0xC00
 #define _istblank_l _iswblank_l
-#endif  /* msvcr120 */
 
 #define _totupper towupper
 #define _totupper_l _towupper_l
@@ -1005,9 +1003,7 @@ extern "C" {
 #define _istupper _ismbcupper
 #define _istupper_l _ismbcupper_l
 #define _istblank _ismbcblank
-#if __MSVCRT_VERSION__ >= 0xC00
 #define _istblank_l _ismbcblank_l
-#endif  /* msvcr120 */
 
 #define _totupper _mbctoupper
 #define _totupper_l _mbctoupper_l
@@ -1146,9 +1142,7 @@ extern "C" {
 #define _istupper isupper
 #define _istupper_l _isupper_l
 #define _istblank isblank
-#if __MSVCRT_VERSION__ >= 0xC00
 #define _istblank_l _isblank_l
-#endif  /* msvcr120 */
 
 #define _totupper toupper
 #define _totupper_l _toupper_l

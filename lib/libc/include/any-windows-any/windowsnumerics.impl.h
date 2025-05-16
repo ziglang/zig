@@ -372,7 +372,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       return {
         1.0f, 0.0f,
         0.0f, 1.0f,
-        0.0f, 0.0f,
+        0.0f, 0.0f
       };
     }
 
@@ -422,21 +422,21 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
     return {
       dot(v1r1, v2c1), dot(v1r1, v2c2),
       dot(v1r2, v2c1), dot(v1r2, v2c2),
-      dot(v1r3, v2c1), dot(v1r3, v2c2),
+      dot(v1r3, v2c1), dot(v1r3, v2c2)
     };
   }
   inline float3x2 operator*(const float3x2 &val1, float val2) {
     return {
       val1.m11 * val2, val1.m12 * val2,
       val1.m21 * val2, val1.m22 * val2,
-      val1.m31 * val2, val1.m32 * val2,
+      val1.m31 * val2, val1.m32 * val2
     };
   }
   inline float3x2 operator-(const float3x2 &val) {
     return {
       -val.m11, -val.m12,
       -val.m21, -val.m22,
-      -val.m31, -val.m32,
+      -val.m31, -val.m32
     };
   }
 #undef _WINDOWS_NUMERICS_IMPL_BINARY_OP
@@ -479,7 +479,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
       };
     }
 
@@ -552,7 +552,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       dot(v1r1, v2c1), dot(v1r1, v2c2), dot(v1r1, v2c3), dot(v1r1, v2c4),
       dot(v1r2, v2c1), dot(v1r2, v2c2), dot(v1r2, v2c3), dot(v1r2, v2c4),
       dot(v1r3, v2c1), dot(v1r3, v2c2), dot(v1r3, v2c3), dot(v1r3, v2c4),
-      dot(v1r4, v2c1), dot(v1r4, v2c2), dot(v1r4, v2c3), dot(v1r4, v2c4),
+      dot(v1r4, v2c1), dot(v1r4, v2c2), dot(v1r4, v2c3), dot(v1r4, v2c4)
     };
   }
   inline float4x4 operator*(const float4x4 &val1, float val2) {
@@ -560,7 +560,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       val1.m11 * val2, val1.m12 * val2, val1.m13 * val2, val1.m14 * val2,
       val1.m21 * val2, val1.m22 * val2, val1.m23 * val2, val1.m24 * val2,
       val1.m31 * val2, val1.m32 * val2, val1.m33 * val2, val1.m34 * val2,
-      val1.m41 * val2, val1.m42 * val2, val1.m43 * val2, val1.m44 * val2,
+      val1.m41 * val2, val1.m42 * val2, val1.m43 * val2, val1.m44 * val2
     };
   }
   inline float4x4 operator-(const float4x4 &val) {
@@ -568,7 +568,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       -val.m11, -val.m12, -val.m13, -val.m14,
       -val.m21, -val.m22, -val.m23, -val.m24,
       -val.m31, -val.m32, -val.m33, -val.m34,
-      -val.m41, -val.m42, -val.m43, -val.m44,
+      -val.m41, -val.m42, -val.m43, -val.m44
     };
   }
 #undef _WINDOWS_NUMERICS_IMPL_BINARY_OP
@@ -678,7 +678,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       val1.w * val2.x + val1.x * val2.w + val1.y * val2.z - val1.z * val2.y,
       val1.w * val2.y - val1.x * val2.z + val1.y * val2.w + val1.z * val2.x,
       val1.w * val2.z + val1.x * val2.y - val1.y * val2.x + val1.z * val2.w,
-      val1.w * val2.w - val1.x * val2.x - val1.y * val2.y - val1.z * val2.z,
+      val1.w * val2.w - val1.x * val2.x - val1.y * val2.y - val1.z * val2.z
     }; }
   inline quaternion operator*(const quaternion &val1, float val2) {
     return { val1.x * val2, val1.y * val2, val1.z * val2, val1.w * val2 };
@@ -783,7 +783,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
     return {
       val1.y * val2.z - val2.y * val1.z,
       val1.z * val2.x - val2.z * val1.x,
-      val1.x * val2.y - val2.x * val1.y,
+      val1.x * val2.y - val2.x * val1.y
     };
   }
   inline float3 reflect(const float3 &vec, const float3 &norm) {
@@ -845,7 +845,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       ::std::min(val1.x, val2.x),
       ::std::min(val1.y, val2.y),
       ::std::min(val1.z, val2.z),
-      ::std::min(val1.w, val2.w),
+      ::std::min(val1.w, val2.w)
     };
   }
   inline float4 max(const float4 &val1, const float4 &val2) {
@@ -853,7 +853,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       ::std::max(val1.x, val2.x),
       ::std::max(val1.y, val2.y),
       ::std::max(val1.z, val2.z),
-      ::std::max(val1.w, val2.w),
+      ::std::max(val1.w, val2.w)
     };
   }
   inline float4 clamp(const float4 &val, const float4 &min, const float4 &max) {
@@ -861,7 +861,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       _impl::clamp(val.x, min.x, max.x),
       _impl::clamp(val.y, min.y, max.y),
       _impl::clamp(val.z, min.z, max.z),
-      _impl::clamp(val.w, min.w, max.w),
+      _impl::clamp(val.w, min.w, max.w)
     };
   }
   inline float4 lerp(const float4 &val1, const float4 &val2, float amount) {
@@ -869,7 +869,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       _impl::lerp(val1.x, val2.x, amount),
       _impl::lerp(val1.y, val2.y, amount),
       _impl::lerp(val1.z, val2.z, amount),
-      _impl::lerp(val1.w, val2.w, amount),
+      _impl::lerp(val1.w, val2.w, amount)
     };
   }
   // TODO: impl
@@ -1018,7 +1018,7 @@ _WINDOWS_NUMERICS_BEGIN_NAMESPACE_ {
       val.m11, val.m21, val.m31, val.m41,
       val.m12, val.m22, val.m32, val.m42,
       val.m13, val.m23, val.m33, val.m43,
-      val.m14, val.m24, val.m34, val.m44,
+      val.m14, val.m24, val.m34, val.m44
     };
   }
   inline float4x4 lerp(const float4x4 &val1, const float4x4 &val2, float amount);

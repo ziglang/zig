@@ -7,7 +7,7 @@
 #ifndef _WRL_CLIENT_H_
 #define _WRL_CLIENT_H_
 
-#include <stddef.h>
+#include <cstddef>
 #include <unknwn.h>
 /* #include <weakreference.h> */
 #include <roapi.h>
@@ -263,6 +263,51 @@ namespace Microsoft {
                 return tmp->Release();
             }
         };
+
+        template <class T, class U>
+        bool operator==(const ComPtr<T> &a, const ComPtr<U> &b) throw()
+        {
+            static_assert(__is_base_of(T, U) || __is_base_of(U, T), "Type incompatible");
+            return a.Get() == b.Get();
+        }
+
+        template <class T>
+        bool operator==(const ComPtr<T> &a, std::nullptr_t) throw()
+        {
+            return a.Get() == nullptr;
+        }
+
+        template <class T>
+        bool operator==(std::nullptr_t, const ComPtr<T> &a) throw()
+        {
+            return a.Get() == nullptr;
+        }
+
+        template <class T, class U>
+        bool operator!=(const ComPtr<T> &a, const ComPtr<U> &b) throw()
+        {
+            static_assert(__is_base_of(T, U) || __is_base_of(U, T), "Type incompatible");
+            return a.Get() != b.Get();
+        }
+
+        template <class T>
+        bool operator!=(const ComPtr<T> &a, std::nullptr_t) throw()
+        {
+            return a.Get() != nullptr;
+        }
+
+        template <class T>
+        bool operator!=(std::nullptr_t, const ComPtr<T> &a) throw()
+        {
+            return a.Get() != nullptr;
+        }
+
+        template <class T, class U>
+        bool operator<(const ComPtr<T> &a, const ComPtr<U> &b) throw()
+        {
+            static_assert(__is_base_of(T, U) || __is_base_of(U, T), "Type incompatible");
+            return a.Get() < b.Get();
+        }
     }
 }
 
