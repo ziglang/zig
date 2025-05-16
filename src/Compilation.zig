@@ -3549,9 +3549,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             const end = start + tree.tokenSlice(failed.import_token).len;
             const loc = std.zig.findLineColumn(source.bytes, start);
             try bundle.addRootErrorMessage(.{
-                .msg = switch (failed.kind) {
-                    .file_outside_module_root => try bundle.addString("import of file outside module path"),
-                },
+                // There is currently only one field in `kind`, so uncommenting it exposes a compiler bug: #23902
+                //.msg = switch (failed.kind) {
+                //    .file_outside_module_root => try bundle.addString("import of file outside module path"),
+                //},
+                .msg = try bundle.addString("import of file outside module path"),
+
                 .src_loc = try bundle.addSourceLocation(.{
                     .src_path = try bundle.printString("{}", .{file.path.fmt(comp)}),
                     .span_start = start,

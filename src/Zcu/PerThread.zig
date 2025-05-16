@@ -2233,7 +2233,8 @@ pub fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
                         .file_index = file_idx,
                         .import_string = item.data.name,
                         .import_token = item.data.token,
-                        .kind = .file_outside_module_root,
+                        // There is currently only one field in `kind`, so uncommenting it exposes a compiler bug: #23902
+                        //.kind = .file_outside_module_root,
                     });
                     _ = zcu.alive_files.pop(); // we failed to populate `mod`/`sub_file_path`
                 },

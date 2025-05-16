@@ -222,7 +222,8 @@ failed_imports: std.ArrayListUnmanaged(struct {
     file_index: File.Index,
     import_string: Zir.NullTerminatedString,
     import_token: Ast.TokenIndex,
-    kind: enum { file_outside_module_root },
+    // There is currently only one field in `kind`, so uncommenting it exposes a compiler bug: #23902
+    //kind: enum { file_outside_module_root },
 }) = .empty,
 failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
