@@ -6,6 +6,7 @@
 
 #include <_mingw_mac.h>
 
+#ifndef __arm64ec__
         .globl  __MINGW_USYMBOL(__intrinsic_setjmp)
         .def    __MINGW_USYMBOL(__intrinsic_setjmp); .scl 2; .type 32; .endef
 
@@ -115,3 +116,4 @@ __MINGW_USYMBOL(__intrinsic_setjmpex):
         mov     x0,  #0
         ret
 #endif
+#endif /* __arm64ec__ */

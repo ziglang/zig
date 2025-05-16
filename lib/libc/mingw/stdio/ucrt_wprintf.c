@@ -7,16 +7,17 @@
 #undef __MSVCRT_VERSION__
 #define _UCRT
 
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdio.h>
 
-int __cdecl __ms_fprintf(FILE * restrict file, const char * restrict format, ...)
+int __cdecl wprintf(const wchar_t *fmt, ...);
+
+int __cdecl wprintf(const wchar_t *fmt, ...)
 {
   va_list ap;
   int ret;
-  va_start(ap, format);
-  ret = __stdio_common_vfprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, file, format, NULL, ap);
+  va_start(ap, fmt);
+  ret = __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, stdout, fmt, NULL, ap);
   va_end(ap);
   return ret;
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(__ms_fprintf))(FILE * restrict, const char * restrict, ...) = __ms_fprintf;
