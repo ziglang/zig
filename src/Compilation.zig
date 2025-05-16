@@ -3328,7 +3328,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     if (comp.zcu) |zcu| zcu_errors: {
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
-                try addModuleErrorMsg(zcu, &bundle, msg.*);
+                try addModuleErrorMsg(zcu, &bundle, msg.*, false);
             } else {
                 // Must be ZIR or Zoir errors. Note that this may include AST errors.
                 _ = try file.getTree(gpa); // Tree must be loaded.
@@ -3378,6 +3378,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             break :s entries.slice();
         };
         defer sorted_failed_analysis.deinit(gpa);
+        var added_any_analysis_error = false;
         for (sorted_failed_analysis.items(.key), sorted_failed_analysis.items(.value)) |anal_unit, error_msg| {
             if (comp.incremental) {
                 const refs = try zcu.resolveReferences();
@@ -3389,7 +3390,9 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 zcu.fmtAnalUnit(anal_unit),
             });
 
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, added_any_analysis_error);
+            added_any_analysis_error = true;
+
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
                 for (errors.getMessages()) |err_msg_index| {
                     const err_msg = errors.getErrorMessage(err_msg_index);
@@ -3412,13 +3415,13 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             }
         }
         for (zcu.failed_codegen.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, false);
         }
         for (zcu.failed_types.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, false);
         }
         for (zcu.failed_exports.values()) |value| {
-            try addModuleErrorMsg(zcu, &bundle, value.*);
+            try addModuleErrorMsg(zcu, &bundle, value.*, false);
         }
 
         const actual_error_count = zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
@@ -3527,7 +3530,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         // We don't actually include the error here if `!include_compile_log_sources`.
         // The sorting above was still necessary, though, to get `log_text` in the right order.
         if (include_compile_log_sources) {
-            try addModuleErrorMsg(zcu, &bundle, messages.items[0]);
+            try addModuleErrorMsg(zcu, &bundle, messages.items[0], false);
         }
 
         break :compile_log_text try log_text.toOwnedSlice(gpa);
@@ -3631,10 +3634,14 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
+const default_reference_trace_len = 2;
 pub fn addModuleErrorMsg(
     zcu: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
+    /// If `-freference-trace` is not specified, we only want to show the one reference trace.
+    /// So, this is whether we have already emitted an error with a reference trace.
+    already_added_error: bool,
 ) !void {
     const gpa = eb.gpa;
     const ip = &zcu.intern_pool;
@@ -3657,45 +3664,44 @@ pub fn addModuleErrorMsg(
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
 
-    if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
+    rt: {
+        const rt_root = module_err_msg.reference_trace_root.unwrap() orelse break :rt;
+        const max_references = zcu.comp.reference_trace orelse refs: {
+            if (already_added_error) break :rt;
+            break :refs default_reference_trace_len;
+        };
+
         const all_references = try zcu.resolveReferences();
 
         var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .empty;
         defer seen.deinit(gpa);
-
-        const max_references = zcu.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
         while (all_references.get(referenced_by)) |maybe_ref| {
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
-            if (ref_traces.items.len < max_references) skip: {
-                const src = ref.src.upgrade(zcu);
-                const source = try src.file_scope.getSource(gpa);
-                const span = try src.span(gpa);
-                const loc = std.zig.findLineColumn(source.bytes, span.main);
-                const rt_file_path = try src.file_scope.fullPath(gpa);
-                defer gpa.free(rt_file_path);
-                const name = switch (ref.referencer.unwrap()) {
+            if (ref_traces.items.len < max_references) {
+                var last_call_src = ref.src;
+                var opt_inline_frame = ref.inline_frame;
+                while (opt_inline_frame.unwrap()) |inline_frame| {
+                    const f = inline_frame.ptr(zcu).*;
+                    const func_nav = ip.indexToKey(f.callee).func.owner_nav;
+                    const func_name = ip.getNav(func_nav).name.toSlice(ip);
+                    try addReferenceTraceFrame(zcu, eb, &ref_traces, func_name, last_call_src, true);
+                    last_call_src = f.call_src;
+                    opt_inline_frame = f.parent;
+                }
+                const root_name: ?[]const u8 = switch (ref.referencer.unwrap()) {
                     .@"comptime" => "comptime",
                     .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
                     .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
-                    .memoized_state => break :skip,
+                    .memoized_state => null,
                 };
-                try ref_traces.append(gpa, .{
-                    .decl_name = try eb.addString(name),
-                    .src_loc = try eb.addSourceLocation(.{
-                        .src_path = try eb.addString(rt_file_path),
-                        .span_start = span.start,
-                        .span_main = span.main,
-                        .span_end = span.end,
-                        .line = @intCast(loc.line),
-                        .column = @intCast(loc.column),
-                        .source_line = 0,
-                    }),
-                });
+                if (root_name) |n| {
+                    try addReferenceTraceFrame(zcu, eb, &ref_traces, n, last_call_src, false);
+                }
             }
             referenced_by = ref.referencer;
         }
@@ -3773,6 +3779,35 @@ pub fn addModuleErrorMsg(
     for (notes_start.., notes.keys()) |i, note| {
         eb.extra.items[i] = @intFromEnum(try eb.addErrorMessage(note));
     }
+}
+
+fn addReferenceTraceFrame(
+    zcu: *Zcu,
+    eb: *ErrorBundle.Wip,
+    ref_traces: *std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace),
+    name: []const u8,
+    lazy_src: Zcu.LazySrcLoc,
+    inlined: bool,
+) !void {
+    const gpa = zcu.gpa;
+    const src = lazy_src.upgrade(zcu);
+    const source = try src.file_scope.getSource(gpa);
+    const span = try src.span(gpa);
+    const loc = std.zig.findLineColumn(source.bytes, span.main);
+    const rt_file_path = try src.file_scope.fullPath(gpa);
+    defer gpa.free(rt_file_path);
+    try ref_traces.append(gpa, .{
+        .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
+        .src_loc = try eb.addSourceLocation(.{
+            .src_path = try eb.addString(rt_file_path),
+            .span_start = span.start,
+            .span_main = span.main,
+            .span_end = span.end,
+            .line = @intCast(loc.line),
+            .column = @intCast(loc.column),
+            .source_line = 0,
+        }),
+    });
 }
 
 pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {

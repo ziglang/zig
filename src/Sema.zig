@@ -191,7 +191,6 @@ const LowerZon = @import("Sema/LowerZon.zig");
 const arith = @import("Sema/arith.zig");
 
 pub const default_branch_quota = 1000;
-pub const default_reference_trace_len = 2;
 
 pub const InferredErrorSet = struct {
     /// The function body from which this error set originates.
@@ -445,10 +444,31 @@ pub const Block = struct {
     pub const Inlining = struct {
         call_block: *Block,
         call_src: LazySrcLoc,
-        has_comptime_args: bool,
         func: InternPool.Index,
+
+        /// Populated lazily by `refFrame`.
+        ref_frame: Zcu.InlineReferenceFrame.Index.Optional = .none,
+
+        /// If `true`, the following fields are `undefined`. This doesn't represent a true inline
+        /// call, but rather a generic call analyzing the instantiation's generic type bodies.
+        is_generic_instantiation: bool,
+
+        has_comptime_args: bool,
         comptime_result: Air.Inst.Ref,
         merges: Merges,
+
+        fn refFrame(inlining: *Inlining, zcu: *Zcu) Allocator.Error!Zcu.InlineReferenceFrame.Index {
+            if (inlining.ref_frame == .none) {
+                inlining.ref_frame = (try zcu.addInlineReferenceFrame(.{
+                    .callee = inlining.func,
+                    .call_src = inlining.call_src,
+                    .parent = if (inlining.call_block.inlining) |parent_inlining| p: {
+                        break :p (try parent_inlining.refFrame(zcu)).toOptional();
+                    } else .none,
+                })).toOptional();
+            }
+            return inlining.ref_frame.unwrap().?;
+        }
     };
 
     pub const Merges = struct {
@@ -2580,7 +2600,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
     if (build_options.enable_debug_extensions and zcu.comp.debug_compile_errors) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         wip_errors.init(gpa) catch @panic("out of memory");
-        Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*) catch @panic("out of memory");
+        Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*, false) catch @panic("out of memory");
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
@@ -2590,20 +2610,17 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
     if (block) |start_block| {
         var block_it = start_block;
         while (block_it.inlining) |inlining| {
-            try sema.errNote(
-                inlining.call_src,
-                err_msg,
-                "called from here",
-                .{},
-            );
+            const note_str = note: {
+                if (inlining.is_generic_instantiation) break :note "generic function instantiated here";
+                if (inlining.call_block.isComptime()) break :note "called at comptime here";
+                break :note "called inline here";
+            };
+            try sema.errNote(inlining.call_src, err_msg, "{s}", .{note_str});
             block_it = inlining.call_block;
         }
     }
 
-    const use_ref_trace = if (zcu.comp.reference_trace) |n| n > 0 else zcu.failed_analysis.count() == 0;
-    if (use_ref_trace) {
-        err_msg.reference_trace_root = sema.owner.toOptional();
-    }
+    err_msg.reference_trace_root = sema.owner.toOptional();
 
     const gop = try zcu.failed_analysis.getOrPut(gpa, sema.owner);
     if (gop.found_existing) {
@@ -4291,7 +4308,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (zcu.intern_pool.isFuncBody(val)) {
                 const ty = Type.fromInterned(zcu.intern_pool.typeOf(val));
                 if (try ty.fnHasRuntimeBitsSema(pt)) {
-                    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = val }));
+                    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = val }));
                     try zcu.ensureFuncBodyAnalysisQueued(val);
                 }
             }
@@ -6619,7 +6636,7 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
-    try sema.ensureNavResolved(src, orig_nav_index, .fully);
+    try sema.ensureNavResolved(block, src, orig_nav_index, .fully);
 
     const exported_nav_index = switch (ip.indexToKey(ip.getNav(orig_nav_index).status.fully_resolved.val)) {
         .variable => |v| v.owner_nav,
@@ -6648,7 +6665,7 @@ pub fn analyzeExport(
         return sema.fail(block, src, "export target cannot be extern", .{});
     }
 
-    try sema.maybeQueueFuncBodyAnalysis(src, exported_nav_index);
+    try sema.maybeQueueFuncBodyAnalysis(block, src, exported_nav_index);
 
     try sema.exports.append(gpa, .{
         .opts = options,
@@ -6896,7 +6913,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .no_embedded_nulls,
     );
     const nav_index = try sema.lookupIdentifier(block, src, decl_name);
-    return sema.analyzeNavRef(src, nav_index);
+    return sema.analyzeNavRef(block, src, nav_index);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6992,7 +7009,7 @@ fn lookupInNamespace(
                 }
 
                 for (usingnamespaces.items) |sub_ns_nav| {
-                    try sema.ensureNavResolved(src, sub_ns_nav, .fully);
+                    try sema.ensureNavResolved(block, src, sub_ns_nav, .fully);
                     const sub_ns_ty = Type.fromInterned(ip.getNav(sub_ns_nav).status.fully_resolved.val);
                     const sub_ns = zcu.namespacePtr(sub_ns_ty.getNamespaceIndex(zcu));
                     try checked_namespaces.put(gpa, sub_ns, {});
@@ -7724,10 +7741,11 @@ fn analyzeCall(
     var generic_inlining: Block.Inlining = if (func_ty_info.is_generic) .{
         .call_block = block,
         .call_src = call_src,
-        .has_comptime_args = false, // unused by error reporting
-        .func = .none, // unused by error reporting
-        .comptime_result = .none, // unused by error reporting
-        .merges = undefined, // unused because we'll never `return`
+        .func = func_val.?.toIntern(),
+        .is_generic_instantiation = true, // this allows the following fields to be `undefined`
+        .has_comptime_args = undefined,
+        .comptime_result = undefined,
+        .merges = undefined,
     } else undefined;
 
     // This is the block in which we evaluate generic function components: that is, generic parameter
@@ -8003,7 +8021,7 @@ fn analyzeCall(
         ref_func: {
             const runtime_func_val = try sema.resolveValue(runtime_func) orelse break :ref_func;
             if (!ip.isFuncBody(runtime_func_val.toIntern())) break :ref_func;
-            try sema.addReferenceEntry(call_src, .wrap(.{ .func = runtime_func_val.toIntern() }));
+            try sema.addReferenceEntry(block, call_src, .wrap(.{ .func = runtime_func_val.toIntern() }));
             try zcu.ensureFuncBodyAnalysisQueued(runtime_func_val.toIntern());
         }
 
@@ -8205,10 +8223,11 @@ fn analyzeCall(
     var inlining: Block.Inlining = .{
         .call_block = block,
         .call_src = call_src,
+        .func = func_val.?.toIntern(),
+        .is_generic_instantiation = false,
         .has_comptime_args = for (args) |a| {
             if (try sema.isComptimeKnown(a)) break true;
         } else false,
-        .func = func_val.?.toIntern(),
         .comptime_result = undefined,
         .merges = .{
             .block_inst = block_inst,
@@ -8239,7 +8258,10 @@ fn analyzeCall(
     if (!inlining.has_comptime_args) {
         var block_it = block;
         while (block_it.inlining) |parent_inlining| {
-            if (!parent_inlining.has_comptime_args and parent_inlining.func == func_val.?.toIntern()) {
+            if (!parent_inlining.is_generic_instantiation and
+                !parent_inlining.has_comptime_args and
+                parent_inlining.func == func_val.?.toIntern())
+            {
                 return sema.fail(block, call_src, "inline call is recursive", .{});
             }
             block_it = parent_inlining.call_block;
@@ -17258,7 +17280,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         .@"comptime" => |index| return Air.internedToRef(index),
         .runtime => |index| index,
         .nav_val => |nav| return sema.analyzeNavVal(block, src, nav),
-        .nav_ref => |nav| return sema.analyzeNavRef(src, nav),
+        .nav_ref => |nav| return sema.analyzeNavRef(block, src, nav),
     };
 
     // The comptime case is handled already above. Runtime case below.
@@ -18411,7 +18433,7 @@ fn typeInfoNamespaceDecls(
         if (zcu.analysis_in_progress.contains(.wrap(.{ .nav_val = nav }))) {
             continue;
         }
-        try sema.ensureNavResolved(src, nav, .fully);
+        try sema.ensureNavResolved(block, src, nav, .fully);
         const namespace_ty = Type.fromInterned(ip.getNav(nav).status.fully_resolved.val);
         try sema.typeInfoNamespaceDecls(block, src, namespace_ty.getNamespaceIndex(zcu).toOptional(), declaration_ty, decl_vals, seen_namespaces);
     }
@@ -19443,6 +19465,7 @@ fn analyzeRet(
     };
 
     if (block.inlining) |inlining| {
+        assert(!inlining.is_generic_instantiation); // can't `return` in a generic param/ret ty expr
         if (block.isComptime()) {
             const ret_val = try sema.resolveConstValue(block, operand_src, operand, null);
             inlining.comptime_result = operand;
@@ -27936,7 +27959,7 @@ fn namespaceLookupRef(
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
     const nav = try sema.namespaceLookup(block, src, namespace, decl_name) orelse return null;
-    return try sema.analyzeNavRef(src, nav);
+    return try sema.analyzeNavRef(block, src, nav);
 }
 
 fn namespaceLookupVal(
@@ -29099,7 +29122,7 @@ fn coerceExtra(
                     .@"extern" => |e| e.owner_nav,
                     else => unreachable,
                 };
-                const inst_as_ptr = try sema.analyzeNavRef(inst_src, fn_nav);
+                const inst_as_ptr = try sema.analyzeNavRef(block, inst_src, fn_nav);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
 
@@ -30752,7 +30775,7 @@ fn coerceVarArgParam(
         .@"fn" => fn_ptr: {
             const fn_val = try sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, inst, undefined);
             const fn_nav = zcu.funcInfo(fn_val.toIntern()).owner_nav;
-            break :fn_ptr try sema.analyzeNavRef(inst_src, fn_nav);
+            break :fn_ptr try sema.analyzeNavRef(block, inst_src, fn_nav);
         },
         .array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .float => float: {
@@ -31762,12 +31785,13 @@ fn analyzeNavVal(
     src: LazySrcLoc,
     nav_index: InternPool.Nav.Index,
 ) CompileError!Air.Inst.Ref {
-    const ref = try sema.analyzeNavRefInner(src, nav_index, false);
+    const ref = try sema.analyzeNavRefInner(block, src, nav_index, false);
     return sema.analyzeLoad(block, src, ref, src);
 }
 
 fn addReferenceEntry(
     sema: *Sema,
+    opt_block: ?*Block,
     src: LazySrcLoc,
     referenced_unit: AnalUnit,
 ) !void {
@@ -31775,10 +31799,12 @@ fn addReferenceEntry(
     if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
     if (gop.found_existing) return;
-    // TODO: we need to figure out how to model inline calls here.
-    // They aren't references in the analysis sense, but ought to show up in the reference trace!
-    // Would representing inline calls in the reference table cause excessive memory usage?
-    try zcu.addUnitReference(sema.owner, referenced_unit, src);
+    try zcu.addUnitReference(sema.owner, referenced_unit, src, inline_frame: {
+        const block = opt_block orelse break :inline_frame .none;
+        const inlining = block.inlining orelse break :inline_frame .none;
+        const frame = try inlining.refFrame(zcu);
+        break :inline_frame frame.toOptional();
+    });
 }
 
 pub fn addTypeReferenceEntry(
@@ -31797,7 +31823,7 @@ fn ensureMemoizedStateResolved(sema: *Sema, src: LazySrcLoc, stage: InternPool.M
     const pt = sema.pt;
 
     const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
-    try sema.addReferenceEntry(src, unit);
+    try sema.addReferenceEntry(null, src, unit);
     try sema.declareDependency(.{ .memoized_state = stage });
 
     if (pt.zcu.analysis_in_progress.contains(unit)) {
@@ -31806,7 +31832,7 @@ fn ensureMemoizedStateResolved(sema: *Sema, src: LazySrcLoc, stage: InternPool.M
     try pt.ensureMemoizedStateUpToDate(stage);
 }
 
-pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index, kind: enum { type, fully }) CompileError!void {
+pub fn ensureNavResolved(sema: *Sema, block: *Block, src: LazySrcLoc, nav_index: InternPool.Nav.Index, kind: enum { type, fully }) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -31829,7 +31855,7 @@ pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav
         .type => .{ .nav_ty = nav_index },
         .fully => .{ .nav_val = nav_index },
     });
-    try sema.addReferenceEntry(src, anal_unit);
+    try sema.addReferenceEntry(block, src, anal_unit);
 
     if (zcu.analysis_in_progress.contains(anal_unit)) {
         return sema.failWithOwnedErrorMsg(null, try sema.errMsg(.{
@@ -31859,25 +31885,25 @@ fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     } }));
 }
 
-fn analyzeNavRef(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) CompileError!Air.Inst.Ref {
-    return sema.analyzeNavRefInner(src, nav_index, true);
+fn analyzeNavRef(sema: *Sema, block: *Block, src: LazySrcLoc, nav_index: InternPool.Nav.Index) CompileError!Air.Inst.Ref {
+    return sema.analyzeNavRefInner(block, src, nav_index, true);
 }
 
 /// Analyze a reference to the `Nav` at the given index. Ensures the underlying `Nav` is analyzed.
 /// If this pointer will be used directly, `is_ref` must be `true`.
 /// If this pointer will be immediately loaded (i.e. a `decl_val` instruction), `is_ref` must be `false`.
-fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.Nav.Index, is_ref: bool) CompileError!Air.Inst.Ref {
+fn analyzeNavRefInner(sema: *Sema, block: *Block, src: LazySrcLoc, orig_nav_index: InternPool.Nav.Index, is_ref: bool) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    try sema.ensureNavResolved(src, orig_nav_index, if (is_ref) .type else .fully);
+    try sema.ensureNavResolved(block, src, orig_nav_index, if (is_ref) .type else .fully);
 
     const nav_index = nav: {
         if (ip.getNav(orig_nav_index).isExternOrFn(ip)) {
             // Getting a pointer to this `Nav` might mean we actually get a pointer to something else!
             // We need to resolve the value to know for sure.
-            if (is_ref) try sema.ensureNavResolved(src, orig_nav_index, .fully);
+            if (is_ref) try sema.ensureNavResolved(block, src, orig_nav_index, .fully);
             switch (ip.indexToKey(ip.getNav(orig_nav_index).status.fully_resolved.val)) {
                 .func => |f| break :nav f.owner_nav,
                 .@"extern" => |e| break :nav e.owner_nav,
@@ -31901,7 +31927,7 @@ fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.N
         },
     });
     if (is_ref) {
-        try sema.maybeQueueFuncBodyAnalysis(src, nav_index);
+        try sema.maybeQueueFuncBodyAnalysis(block, src, nav_index);
     }
     return Air.internedToRef((try pt.intern(.{ .ptr = .{
         .ty = ptr_ty.toIntern(),
@@ -31910,7 +31936,7 @@ fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.N
     } })));
 }
 
-fn maybeQueueFuncBodyAnalysis(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) !void {
+fn maybeQueueFuncBodyAnalysis(sema: *Sema, block: *Block, src: LazySrcLoc, nav_index: InternPool.Nav.Index) !void {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -31918,16 +31944,16 @@ fn maybeQueueFuncBodyAnalysis(sema: *Sema, src: LazySrcLoc, nav_index: InternPoo
     // To avoid forcing too much resolution, let's first resolve the type, and check if it's a function.
     // If it is, we can resolve the *value*, and queue analysis as needed.
 
-    try sema.ensureNavResolved(src, nav_index, .type);
+    try sema.ensureNavResolved(block, src, nav_index, .type);
     const nav_ty: Type = .fromInterned(ip.getNav(nav_index).typeOf(ip));
     if (nav_ty.zigTypeTag(zcu) != .@"fn") return;
     if (!try nav_ty.fnHasRuntimeBitsSema(pt)) return;
 
-    try sema.ensureNavResolved(src, nav_index, .fully);
+    try sema.ensureNavResolved(block, src, nav_index, .fully);
     const nav_val = zcu.navValue(nav_index);
     if (!ip.isFuncBody(nav_val.toIntern())) return;
 
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = nav_val.toIntern() }));
+    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = nav_val.toIntern() }));
     try zcu.ensureFuncBodyAnalysisQueued(nav_val.toIntern());
 }
 
@@ -31943,8 +31969,8 @@ fn analyzeRef(
 
     if (try sema.resolveValue(operand)) |val| {
         switch (zcu.intern_pool.indexToKey(val.toIntern())) {
-            .@"extern" => |e| return sema.analyzeNavRef(src, e.owner_nav),
-            .func => |f| return sema.analyzeNavRef(src, f.owner_nav),
+            .@"extern" => |e| return sema.analyzeNavRef(block, src, e.owner_nav),
+            .func => |f| return sema.analyzeNavRef(block, src, f.owner_nav),
             else => return uavRef(sema, val.toIntern()),
         }
     }
@@ -35508,7 +35534,7 @@ fn resolveInferredErrorSet(
         }
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
-        try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = func_index }));
+        try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = func_index }));
         try pt.ensureFuncBodyUpToDate(func_index);
     }
 
