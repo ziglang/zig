@@ -1818,3 +1818,12 @@ test optionalNotEqualNull {
     try test_optional_not_equal_null.testInts();
     try test_optional_not_equal_null.testFloats();
 }
+
+inline fn splat(comptime Type: type, lhs: Type) Type {
+    return @splat(lhs[0]);
+}
+test splat {
+    const test_splat = unary(splat, .{});
+    try test_splat.testIntVectors();
+    try test_splat.testFloatVectors();
+}
