@@ -25362,8 +25362,6 @@ fn zirMinMax(
     const rhs_src = block.builtinCallArgSrc(inst_data.src_node, 1);
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
-    try sema.checkNumericType(block, lhs_src, sema.typeOf(lhs));
-    try sema.checkNumericType(block, rhs_src, sema.typeOf(rhs));
     return sema.analyzeMinMax(block, src, air_tag, &.{ lhs, rhs }, &.{ lhs_src, rhs_src });
 }
 
@@ -25384,7 +25382,6 @@ fn zirMinMaxMulti(
     for (operands, air_refs, operand_srcs, 0..) |zir_ref, *air_ref, *op_src, i| {
         op_src.* = block.builtinCallArgSrc(src_node, @intCast(i));
         air_ref.* = try sema.resolveInst(zir_ref);
-        try sema.checkNumericType(block, op_src.*, sema.typeOf(air_ref.*));
     }
 
     return sema.analyzeMinMax(block, src, air_tag, air_refs, operand_srcs);
@@ -25400,227 +25397,313 @@ fn analyzeMinMax(
 ) CompileError!Air.Inst.Ref {
     assert(operands.len == operand_srcs.len);
     assert(operands.len > 0);
+
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    if (operands.len == 1) return operands[0];
-
+    // This function has the signature `fn (Value, Value, *Zcu) Value`.
+    // It is only used on scalar values, although the values may have different types.
+    // If either operand is undef, it returns undef.
     const opFunc = switch (air_tag) {
         .min => Value.numberMin,
         .max => Value.numberMax,
-        else => @compileError("unreachable"),
+        else => comptime unreachable,
     };
 
-    // The set of runtime-known operands. Set up in the loop below.
-    var runtime_known = try std.DynamicBitSet.initFull(sema.arena, operands.len);
-    // The current minmax value - initially this will always be comptime-known, then we'll add
-    // runtime values into the mix later.
-    var cur_minmax: ?Air.Inst.Ref = null;
-    var cur_minmax_src: LazySrcLoc = undefined; // defined if cur_minmax not null
-    // The current known scalar bounds of the value.
-    var bounds_status: enum {
-        unknown, // We've only seen undef comptime_ints so far, so do not know the bounds.
-        defined, // We've seen only integers, so the bounds are defined.
-        non_integral, // There are floats in the mix, so the bounds aren't defined.
-    } = .unknown;
-    var cur_min_scalar: Value = undefined;
-    var cur_max_scalar: Value = undefined;
+    if (operands.len == 1) {
+        try sema.checkNumericType(block, operand_srcs[0], sema.typeOf(operands[0]));
+        return operands[0];
+    }
 
-    // First, find all comptime-known arguments, and get their min/max
-
-    for (operands, operand_srcs, 0..) |operand, operand_src, operand_idx| {
-        // Resolve the value now to avoid redundant calls to `checkSimdBinOp` - we'll have to call
-        // it in the runtime path anyway since the result type may have been refined
-        const unresolved_uncoerced_val = try sema.resolveValue(operand) orelse continue;
-        const uncoerced_val = try sema.resolveLazyValue(unresolved_uncoerced_val);
-
-        runtime_known.unset(operand_idx);
-
-        switch (bounds_status) {
-            .unknown, .defined => refine_bounds: {
-                const ty = sema.typeOf(operand);
-                if (!ty.scalarType(zcu).isInt(zcu) and !ty.scalarType(zcu).eql(Type.comptime_int, zcu)) {
-                    bounds_status = .non_integral;
-                    break :refine_bounds;
+    // First, basic type validation; we'll make sure all the operands are numeric and agree on vector length.
+    // This value will be `null` for a scalar type, otherwise the length of the vector type.
+    const vector_len: ?u64 = vec_len: {
+        const first_operand_ty = sema.typeOf(operands[0]);
+        try sema.checkNumericType(block, operand_srcs[0], first_operand_ty);
+        if (first_operand_ty.zigTypeTag(zcu) == .vector) {
+            const vec_len = first_operand_ty.vectorLen(zcu);
+            for (operands[1..], operand_srcs[1..]) |operand, operand_src| {
+                const operand_ty = sema.typeOf(operand);
+                try sema.checkNumericType(block, operand_src, operand_ty);
+                if (operand_ty.zigTypeTag(zcu) != .vector) {
+                    return sema.failWithOwnedErrorMsg(block, msg: {
+                        const msg = try sema.errMsg(operand_src, "expected vector, found '{}'", .{operand_ty.fmt(pt)});
+                        errdefer msg.destroy(zcu.gpa);
+                        try sema.errNote(operand_srcs[0], msg, "vector operand here", .{});
+                        break :msg msg;
+                    });
                 }
-                const scalar_bounds: ?[2]Value = bounds: {
-                    if (!ty.isVector(zcu)) break :bounds try uncoerced_val.intValueBounds(pt);
-                    var cur_bounds: [2]Value = try Value.intValueBounds(try uncoerced_val.elemValue(pt, 0), pt) orelse break :bounds null;
-                    const len = try sema.usizeCast(block, src, ty.vectorLen(zcu));
-                    for (1..len) |i| {
-                        const elem = try uncoerced_val.elemValue(pt, i);
-                        const elem_bounds = try elem.intValueBounds(pt) orelse break :bounds null;
-                        cur_bounds = .{
-                            Value.numberMin(elem_bounds[0], cur_bounds[0], zcu),
-                            Value.numberMax(elem_bounds[1], cur_bounds[1], zcu),
-                        };
+                if (operand_ty.vectorLen(zcu) != vec_len) {
+                    return sema.failWithOwnedErrorMsg(block, msg: {
+                        const msg = try sema.errMsg(operand_src, "expected vector of length '{d}', found '{}'", .{ vec_len, operand_ty.fmt(pt) });
+                        errdefer msg.destroy(zcu.gpa);
+                        try sema.errNote(operand_srcs[0], msg, "vector of length '{d}' here", .{vec_len});
+                        break :msg msg;
+                    });
+                }
+            }
+            break :vec_len vec_len;
+        } else {
+            for (operands[1..], operand_srcs[1..]) |operand, operand_src| {
+                const operand_ty = sema.typeOf(operand);
+                if (operand_ty.zigTypeTag(zcu) == .vector) {
+                    return sema.failWithOwnedErrorMsg(block, msg: {
+                        const msg = try sema.errMsg(operand_srcs[0], "expected vector, found '{}'", .{first_operand_ty.fmt(pt)});
+                        errdefer msg.destroy(zcu.gpa);
+                        try sema.errNote(operand_src, msg, "vector operand here", .{});
+                        break :msg msg;
+                    });
+                }
+            }
+            break :vec_len null;
+        }
+    };
+
+    // Now we want to look at the scalar types. If any is a float, our result will be a float. This
+    // union is in "priority" order: `float` overrides `comptime_float` overrides `int`.
+    const TypeStrat = union(enum) {
+        float: Type,
+        comptime_float,
+        int: struct {
+            /// If this is still `true` at the end, we will just use a `comptime_int`.
+            all_comptime_int: bool,
+            // These two fields tells us about the *result* type, which is refined based on operand types.
+            // e.g. `@max(u32, i64)` results in a `u63`, because the result is >=0 and <=maxInt(i64).
+            result_min: Value,
+            result_max: Value,
+            // These two fields tell us the *intermediate* type to use for actually computing the min/max.
+            // e.g. `@max(u32, i64)` uses an intermediate `i64`, because it can fit all our operands.
+            operand_min: Value,
+            operand_max: Value,
+        },
+        none,
+    };
+    var cur_strat: TypeStrat = .none;
+    for (operands) |operand| {
+        const operand_scalar_ty = sema.typeOf(operand).scalarType(zcu);
+        const want_strat: TypeStrat = switch (operand_scalar_ty.zigTypeTag(zcu)) {
+            .comptime_int => s: {
+                const val = (try sema.resolveValueResolveLazy(operand)).?;
+                if (val.isUndef(zcu)) break :s .none;
+                break :s .{ .int = .{
+                    .all_comptime_int = true,
+                    .result_min = val,
+                    .result_max = val,
+                    .operand_min = val,
+                    .operand_max = val,
+                } };
+            },
+            .comptime_float => .comptime_float,
+            .float => .{ .float = operand_scalar_ty },
+            .int => s: {
+                // If the *value* is comptime-known, we will use that to get tighter bounds. If #3806
+                // is accepted and implemented, so that integer literals have a tightly-bounded ranged
+                // integer type (and `comptime_int` ceases to exist), this block should probably go away
+                // (replaced with just the simple calls to `Type.minInt`/`Type.maxInt`) so that we only
+                // use the input *types* to determine the result type.
+                const min: Value, const max: Value = bounds: {
+                    if (try sema.resolveValueResolveLazy(operand)) |operand_val| {
+                        if (vector_len) |len| {
+                            var min = try operand_val.elemValue(pt, 0);
+                            var max = min;
+                            for (1..@intCast(len)) |elem_idx| {
+                                const elem_val = try operand_val.elemValue(pt, elem_idx);
+                                min = Value.numberMin(min, elem_val, zcu);
+                                max = Value.numberMax(max, elem_val, zcu);
+                            }
+                            if (!min.isUndef(zcu) and !max.isUndef(zcu)) {
+                                break :bounds .{ min, max };
+                            }
+                        } else {
+                            if (!operand_val.isUndef(zcu)) {
+                                break :bounds .{ operand_val, operand_val };
+                            }
+                        }
                     }
-                    break :bounds cur_bounds;
+                    break :bounds .{
+                        try operand_scalar_ty.minInt(pt, operand_scalar_ty),
+                        try operand_scalar_ty.maxInt(pt, operand_scalar_ty),
+                    };
                 };
-                if (scalar_bounds) |bounds| {
-                    if (bounds_status == .unknown) {
-                        cur_min_scalar = bounds[0];
-                        cur_max_scalar = bounds[1];
-                        bounds_status = .defined;
-                    } else {
-                        cur_min_scalar = opFunc(cur_min_scalar, bounds[0], zcu);
-                        cur_max_scalar = opFunc(cur_max_scalar, bounds[1], zcu);
+                break :s .{ .int = .{
+                    .all_comptime_int = false,
+                    .result_min = min,
+                    .result_max = max,
+                    .operand_min = min,
+                    .operand_max = max,
+                } };
+            },
+            else => unreachable,
+        };
+        if (@intFromEnum(want_strat) < @intFromEnum(cur_strat)) {
+            // `want_strat` overrides `cur_strat`.
+            cur_strat = want_strat;
+        } else if (@intFromEnum(want_strat) == @intFromEnum(cur_strat)) {
+            // The behavior depends on the tag.
+            switch (cur_strat) {
+                .none, .comptime_float => {}, // no payload, so nop
+                .float => |cur_float| {
+                    const want_float = want_strat.float;
+                    // Select the larger bit size. If the bit size is the same, select whichever is not c_longdouble.
+                    const cur_bits = cur_float.floatBits(zcu.getTarget());
+                    const want_bits = want_float.floatBits(zcu.getTarget());
+                    if (want_bits > cur_bits or
+                        (want_bits == cur_bits and
+                            cur_float.toIntern() == .c_longdouble_type and
+                            want_float.toIntern() != .c_longdouble_type))
+                    {
+                        cur_strat = want_strat;
+                    }
+                },
+                .int => |*cur_int| {
+                    const want_int = want_strat.int;
+                    if (!want_int.all_comptime_int) cur_int.all_comptime_int = false;
+                    cur_int.result_min = opFunc(cur_int.result_min, want_int.result_min, zcu);
+                    cur_int.result_max = opFunc(cur_int.result_max, want_int.result_max, zcu);
+                    cur_int.operand_min = Value.numberMin(cur_int.operand_min, want_int.operand_min, zcu);
+                    cur_int.operand_max = Value.numberMax(cur_int.operand_max, want_int.operand_max, zcu);
+                },
+            }
+        }
+    }
+
+    // Use `cur_strat` to actually resolve the result type (and intermediate type).
+    const result_scalar_ty: Type, const intermediate_scalar_ty: Type = switch (cur_strat) {
+        .float => |ty| .{ ty, ty },
+        .comptime_float => .{ .comptime_float, .comptime_float },
+        .int => |int| if (int.all_comptime_int) .{
+            .comptime_int,
+            .comptime_int,
+        } else .{
+            try pt.intFittingRange(int.result_min, int.result_max),
+            try pt.intFittingRange(int.operand_min, int.operand_max),
+        },
+        .none => .{ .comptime_int, .comptime_int }, // all undef comptime ints
+    };
+    const result_ty: Type = if (vector_len) |l| try pt.vectorType(.{
+        .len = @intCast(l),
+        .child = result_scalar_ty.toIntern(),
+    }) else result_scalar_ty;
+    const intermediate_ty: Type = if (vector_len) |l| try pt.vectorType(.{
+        .len = @intCast(l),
+        .child = intermediate_scalar_ty.toIntern(),
+    }) else intermediate_scalar_ty;
+
+    // This value, if not `null`, will have type `intermediate_ty`.
+    const comptime_part: ?Value = ct: {
+        // Contains the comptime-known scalar result values.
+        // Values are scalars with no particular type.
+        // `elems.len` is `vector_len orelse 1`.
+        const elems: []InternPool.Index = try sema.arena.alloc(
+            InternPool.Index,
+            try sema.usizeCast(block, src, vector_len orelse 1),
+        );
+        // If `false`, we've not seen any comptime-known operand yet, so `elems` contains `undefined`.
+        // Otherwise, `elems` is populated with the comptime-known results so far.
+        var elems_populated = false;
+        // Populated when we see a runtime-known operand.
+        var opt_runtime_src: ?LazySrcLoc = null;
+
+        for (operands, operand_srcs) |operand, operand_src| {
+            const operand_val = try sema.resolveValueResolveLazy(operand) orelse {
+                if (opt_runtime_src == null) opt_runtime_src = operand_src;
+                continue;
+            };
+            if (vector_len) |len| {
+                // Vector case; apply `opFunc` to each element.
+                if (elems_populated) {
+                    for (elems, 0..@intCast(len)) |*elem, elem_idx| {
+                        const new_elem = try operand_val.elemValue(pt, elem_idx);
+                        elem.* = opFunc(.fromInterned(elem.*), new_elem, zcu).toIntern();
+                    }
+                } else {
+                    elems_populated = true;
+                    for (elems, 0..@intCast(len)) |*elem_out, elem_idx| {
+                        elem_out.* = (try operand_val.elemValue(pt, elem_idx)).toIntern();
                     }
                 }
-            },
-            .non_integral => {},
-        }
-
-        const cur = cur_minmax orelse {
-            cur_minmax = operand;
-            cur_minmax_src = operand_src;
-            continue;
-        };
-
-        const simd_op = try sema.checkSimdBinOp(block, src, cur, operand, cur_minmax_src, operand_src);
-        const cur_val = try sema.resolveLazyValue(simd_op.lhs_val.?); // cur_minmax is comptime-known
-        const operand_val = try sema.resolveLazyValue(simd_op.rhs_val.?); // we checked the operand was resolvable above
-
-        const vec_len = simd_op.len orelse {
-            const result_val = opFunc(cur_val, operand_val, zcu);
-            cur_minmax = Air.internedToRef(result_val.toIntern());
-            continue;
-        };
-        const elems = try sema.arena.alloc(InternPool.Index, vec_len);
-        for (elems, 0..) |*elem, i| {
-            const lhs_elem_val = try cur_val.elemValue(pt, i);
-            const rhs_elem_val = try operand_val.elemValue(pt, i);
-            const uncoerced_elem = opFunc(lhs_elem_val, rhs_elem_val, zcu);
-            elem.* = (try pt.getCoerced(uncoerced_elem, simd_op.scalar_ty)).toIntern();
-        }
-        cur_minmax = Air.internedToRef((try pt.intern(.{ .aggregate = .{
-            .ty = simd_op.result_ty.toIntern(),
-            .storage = .{ .elems = elems },
-        } })));
-    }
-
-    const opt_runtime_idx = runtime_known.findFirstSet();
-
-    if (cur_minmax) |ct_minmax_ref| refine: {
-        // Refine the comptime-known result type based on the bounds. This isn't strictly necessary
-        // in the runtime case, since we'll refine the type again later, but keeping things as small
-        // as possible will allow us to emit more optimal AIR (if all the runtime operands have
-        // smaller types than the non-refined comptime type).
-
-        const val = (try sema.resolveValue(ct_minmax_ref)).?;
-        const orig_ty = sema.typeOf(ct_minmax_ref);
-
-        if (opt_runtime_idx == null and orig_ty.scalarType(zcu).eql(Type.comptime_int, zcu)) {
-            // If all arguments were `comptime_int`, and there are no runtime args, we'll preserve that type
-            break :refine;
-        }
-
-        // We can't refine float types
-        if (orig_ty.scalarType(zcu).isAnyFloat()) break :refine;
-
-        assert(bounds_status == .defined); // there was a non-comptime-int integral comptime-known arg
-
-        const refined_scalar_ty = try pt.intFittingRange(cur_min_scalar, cur_max_scalar);
-        const refined_ty = if (orig_ty.isVector(zcu)) try pt.vectorType(.{
-            .len = orig_ty.vectorLen(zcu),
-            .child = refined_scalar_ty.toIntern(),
-        }) else refined_scalar_ty;
-
-        // Apply the refined type to the current value
-        if (std.debug.runtime_safety) {
-            assert(try sema.intFitsInType(val, refined_ty, null));
-        }
-        cur_minmax = try sema.coerceInMemory(val, refined_ty);
-    }
-
-    const runtime_idx = opt_runtime_idx orelse return cur_minmax.?;
-    const runtime_src = operand_srcs[runtime_idx];
-    try sema.requireRuntimeBlock(block, src, runtime_src);
-
-    // Now, iterate over runtime operands, emitting a min/max instruction for each. We'll refine the
-    // type again at the end, based on the comptime-known bound.
-
-    // If the comptime-known part is undef we can avoid emitting actual instructions later
-    const known_undef = if (cur_minmax) |operand| blk: {
-        const val = (try sema.resolveValue(operand)).?;
-        break :blk val.isUndef(zcu);
-    } else false;
-
-    if (cur_minmax == null) {
-        // No comptime operands - use the first operand as the starting value
-        assert(bounds_status == .unknown);
-        assert(runtime_idx == 0);
-        cur_minmax = operands[0];
-        cur_minmax_src = runtime_src;
-        runtime_known.unset(0); // don't look at this operand in the loop below
-        const scalar_ty = sema.typeOf(cur_minmax.?).scalarType(zcu);
-        if (scalar_ty.isInt(zcu)) {
-            cur_min_scalar = try scalar_ty.minInt(pt, scalar_ty);
-            cur_max_scalar = try scalar_ty.maxInt(pt, scalar_ty);
-            bounds_status = .defined;
-        } else {
-            bounds_status = .non_integral;
-        }
-    }
-
-    var it = runtime_known.iterator(.{});
-    while (it.next()) |idx| {
-        const lhs = cur_minmax.?;
-        const lhs_src = cur_minmax_src;
-        const rhs = operands[idx];
-        const rhs_src = operand_srcs[idx];
-        const simd_op = try sema.checkSimdBinOp(block, src, lhs, rhs, lhs_src, rhs_src);
-        if (known_undef) {
-            cur_minmax = try pt.undefRef(simd_op.result_ty);
-        } else {
-            cur_minmax = try block.addBinOp(air_tag, simd_op.lhs, simd_op.rhs);
-        }
-        // Compute the bounds of this type
-        switch (bounds_status) {
-            .unknown, .defined => refine_bounds: {
-                const scalar_ty = sema.typeOf(rhs).scalarType(zcu);
-                if (scalar_ty.isAnyFloat()) {
-                    bounds_status = .non_integral;
-                    break :refine_bounds;
-                }
-                const scalar_min = try scalar_ty.minInt(pt, scalar_ty);
-                const scalar_max = try scalar_ty.maxInt(pt, scalar_ty);
-                if (bounds_status == .unknown) {
-                    cur_min_scalar = scalar_min;
-                    cur_max_scalar = scalar_max;
-                    bounds_status = .defined;
+            } else {
+                // Scalar case; just apply `opFunc`.
+                if (elems_populated) {
+                    elems[0] = opFunc(.fromInterned(elems[0]), operand_val, zcu).toIntern();
                 } else {
-                    cur_min_scalar = opFunc(cur_min_scalar, scalar_min, zcu);
-                    cur_max_scalar = opFunc(cur_max_scalar, scalar_max, zcu);
+                    elems_populated = true;
+                    elems[0] = operand_val.toIntern();
                 }
-            },
-            .non_integral => {},
+            }
+        }
+        const runtime_src = opt_runtime_src orelse {
+            // The result is comptime-known. Coerce each element to its scalar type.
+            assert(elems_populated);
+            for (elems) |*elem| {
+                if (Value.fromInterned(elem.*).isUndef(zcu)) {
+                    elem.* = (try pt.undefValue(result_scalar_ty)).toIntern();
+                } else {
+                    // This coercion will always succeed, because `result_scalar_ty` can definitely hold the result.
+                    const coerced_ref = try sema.coerce(block, result_scalar_ty, Air.internedToRef(elem.*), .unneeded);
+                    elem.* = coerced_ref.toInterned().?;
+                }
+            }
+            if (vector_len == null) return Air.internedToRef(elems[0]);
+            return Air.internedToRef(try pt.intern(.{ .aggregate = .{
+                .ty = result_ty.toIntern(),
+                .storage = .{ .elems = elems },
+            } }));
+        };
+        _ = runtime_src;
+        // The result is runtime-known.
+        // Coerce each element to the intermediate scalar type, unless there were no comptime-known operands.
+        if (!elems_populated) break :ct null;
+        for (elems) |*elem| {
+            if (Value.fromInterned(elem.*).isUndef(zcu)) {
+                elem.* = (try pt.undefValue(intermediate_scalar_ty)).toIntern();
+            } else {
+                // This coercion will always succeed, because `intermediate_scalar_ty` can definitely hold all operands.
+                const coerced_ref = try sema.coerce(block, intermediate_scalar_ty, Air.internedToRef(elem.*), .unneeded);
+                elem.* = coerced_ref.toInterned().?;
+            }
+        }
+        break :ct .fromInterned(if (vector_len != null) try pt.intern(.{ .aggregate = .{
+            .ty = intermediate_ty.toIntern(),
+            .storage = .{ .elems = elems },
+        } }) else elems[0]);
+    };
+
+    // Time to emit the runtime operations. All runtime-known peers are coerced to `intermediate_ty`, and we cast down to `result_ty` at the end.
+
+    // `.none` indicates no result so far.
+    var cur_result: Air.Inst.Ref = if (comptime_part) |val| Air.internedToRef(val.toIntern()) else .none;
+    for (operands, operand_srcs) |operand, operand_src| {
+        if (try sema.isComptimeKnown(operand)) continue; // already in `comptime_part`
+        // This coercion could fail; e.g. coercing a runtime integer peer to a `comptime_float` in a case like `@min(runtime_int, 1.5)`.
+        const operand_coerced = try sema.coerce(block, intermediate_ty, operand, operand_src);
+        if (cur_result == .none) {
+            cur_result = operand_coerced;
+        } else {
+            cur_result = try block.addBinOp(air_tag, cur_result, operand_coerced);
         }
     }
 
-    // Finally, refine the type based on the known bounds.
-    const unrefined_ty = sema.typeOf(cur_minmax.?);
-    if (unrefined_ty.scalarType(zcu).isAnyFloat()) {
-        // We can't refine floats, so we're done.
-        return cur_minmax.?;
-    }
-    assert(bounds_status == .defined); // there were integral runtime operands
-    const refined_scalar_ty = try pt.intFittingRange(cur_min_scalar, cur_max_scalar);
-    const refined_ty = if (unrefined_ty.isVector(zcu)) try pt.vectorType(.{
-        .len = unrefined_ty.vectorLen(zcu),
-        .child = refined_scalar_ty.toIntern(),
-    }) else refined_scalar_ty;
+    assert(cur_result != .none);
+    assert(sema.typeOf(cur_result).toIntern() == intermediate_ty.toIntern());
 
-    if (try sema.typeHasOnePossibleValue(refined_ty)) |opv| {
-        return Air.internedToRef(opv.toIntern());
+    // If there is a comptime-known undef operand, we actually return comptime-known undef -- but we had to do the runtime stuff to check for coercion errors.
+    if (comptime_part) |val| {
+        if (val.isUndefDeep(zcu)) {
+            return pt.undefRef(result_ty);
+        }
     }
 
-    if (!refined_ty.eql(unrefined_ty, zcu)) {
-        // We've reduced the type - cast the result down
-        return block.addTyOp(.intcast, refined_ty, cur_minmax.?);
+    if (result_ty.toIntern() == intermediate_ty.toIntern()) {
+        // No final cast needed; we're all done.
+        return cur_result;
     }
 
-    return cur_minmax.?;
+    // A final cast is needed. The only case where `intermediate_ty` is different is for integers,
+    // where we have refined the range, so we should be doing an intcast.
+    assert(intermediate_scalar_ty.zigTypeTag(zcu) == .int);
+    assert(result_scalar_ty.zigTypeTag(zcu) == .int);
+    return block.addTyOp(.intcast, result_ty, cur_result);
 }
 
 fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !Air.Inst.Ref {
