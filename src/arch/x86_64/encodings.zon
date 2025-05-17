@@ -2330,8 +2330,8 @@
     .{ .pext, .rvm, .{ .r32, .r32, .rm32 }, .{ 0xf3, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w0, .bmi2 },
     .{ .pext, .rvm, .{ .r64, .r64, .rm64 }, .{ 0xf3, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w1, .bmi2 },
 
-    .{ .rorx, .rmi, .{ .r32, .rm32, .imm8 }, .{ 0xf2, 0x0f, 0x3a }, 0, .vex_lz_w0, .bmi2 },
-    .{ .rorx, .rmi, .{ .r64, .rm64, .imm8 }, .{ 0xf2, 0x0f, 0x3a }, 0, .vex_lz_w1, .bmi2 },
+    .{ .rorx, .rmi, .{ .r32, .rm32, .imm8 }, .{ 0xf2, 0x0f, 0x3a, 0xf0 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .rorx, .rmi, .{ .r64, .rm64, .imm8 }, .{ 0xf2, 0x0f, 0x3a, 0xf0 }, 0, .vex_lz_w1, .bmi2 },
 
     .{ .sarx, .rmv, .{ .r32, .rm32, .r32 }, .{ 0xf3, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w0, .bmi2 },
     .{ .shlx, .rmv, .{ .r32, .rm32, .r32 }, .{ 0x66, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w0, .bmi2 },

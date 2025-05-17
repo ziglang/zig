@@ -6,6 +6,7 @@ const DoubleBits = math.DoubleBits;
 const fmax = math.fmax;
 const fmin = math.fmin;
 const Gpr = math.Gpr;
+const imax = math.imax;
 const inf = math.inf;
 const Log2Int = math.Log2Int;
 const math = @import("math.zig");
@@ -2615,263 +2616,23 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 0x1b, 0x61, 0x73, 0x63, 0x2c, 0x35, 0x25, 0x19, 0x09, 0x0c, 0x75, 0x5d, 0x01, 0x29, 0x3b, 0x0c,
             });
             try testArgs(@Vector(128, u7), .{
-                0x5c,
-                0x65,
-                0x65,
-                0x34,
-                0x31,
-                0x03,
-                0x7a,
-                0x56,
-                0x16,
-                0x74,
-                0x5c,
-                0x7f,
-                0x2a,
-                0x46,
-                0x2a,
-                0x5f,
-                0x62,
-                0x06,
-                0x51,
-                0x23,
-                0x58,
-                0x1f,
-                0x5a,
-                0x2d,
-                0x29,
-                0x21,
-                0x26,
-                0x5a,
-                0x5a,
-                0x13,
-                0x13,
-                0x46,
-                0x26,
-                0x1c,
-                0x06,
-                0x2d,
-                0x08,
-                0x52,
-                0x5b,
-                0x6f,
-                0x2d,
-                0x4a,
-                0x00,
-                0x40,
-                0x68,
-                0x27,
-                0x00,
-                0x4a,
-                0x3a,
-                0x22,
-                0x2d,
-                0x5b,
-                0x05,
-                0x26,
-                0x4e,
-                0x6f,
-                0x46,
-                0x4d,
-                0x14,
-                0x70,
-                0x51,
-                0x04,
-                0x66,
-                0x13,
-                0x4c,
-                0x7c,
-                0x67,
-                0x23,
-                0x13,
-                0x55,
-                0x1b,
-                0x30,
-                0x7d,
-                0x04,
-                0x47,
-                0x78,
-                0x05,
-                0x09,
-                0x5a,
-                0x20,
-                0x2e,
-                0x17,
-                0x11,
-                0x49,
-                0x6c,
-                0x5e,
-                0x34,
-                0x3e,
-                0x66,
-                0x60,
-                0x5d,
-                0x75,
-                0x48,
-                0x1d,
-                0x69,
-                0x67,
-                0x40,
-                0x2d,
-                0x7b,
-                0x31,
-                0x13,
-                0x60,
-                0x19,
-                0x2f,
-                0x3e,
-                0x7d,
-                0x23,
-                0x6a,
-                0x0e,
-                0x16,
-                0x44,
-                0x34,
-                0x5d,
-                0x5a,
-                0x2a,
-                0x0b,
-                0x64,
-                0x07,
-                0x22,
-                0x5b,
-                0x24,
-                0x22,
-                0x3b,
-                0x46,
-                0x23,
-                0x65,
-                0x5d,
-                0x34,
+                0x5c, 0x65, 0x65, 0x34, 0x31, 0x03, 0x7a, 0x56, 0x16, 0x74, 0x5c, 0x7f, 0x2a, 0x46, 0x2a, 0x5f,
+                0x62, 0x06, 0x51, 0x23, 0x58, 0x1f, 0x5a, 0x2d, 0x29, 0x21, 0x26, 0x5a, 0x5a, 0x13, 0x13, 0x46,
+                0x26, 0x1c, 0x06, 0x2d, 0x08, 0x52, 0x5b, 0x6f, 0x2d, 0x4a, 0x00, 0x40, 0x68, 0x27, 0x00, 0x4a,
+                0x3a, 0x22, 0x2d, 0x5b, 0x05, 0x26, 0x4e, 0x6f, 0x46, 0x4d, 0x14, 0x70, 0x51, 0x04, 0x66, 0x13,
+                0x4c, 0x7c, 0x67, 0x23, 0x13, 0x55, 0x1b, 0x30, 0x7d, 0x04, 0x47, 0x78, 0x05, 0x09, 0x5a, 0x20,
+                0x2e, 0x17, 0x11, 0x49, 0x6c, 0x5e, 0x34, 0x3e, 0x66, 0x60, 0x5d, 0x75, 0x48, 0x1d, 0x69, 0x67,
+                0x40, 0x2d, 0x7b, 0x31, 0x13, 0x60, 0x19, 0x2f, 0x3e, 0x7d, 0x23, 0x6a, 0x0e, 0x16, 0x44, 0x34,
+                0x5d, 0x5a, 0x2a, 0x0b, 0x64, 0x07, 0x22, 0x5b, 0x24, 0x22, 0x3b, 0x46, 0x23, 0x65, 0x5d, 0x34,
             }, .{
-                0x4b,
-                0x36,
-                0x7a,
-                0x13,
-                0x5a,
-                0x4b,
-                0x69,
-                0x4b,
-                0x1d,
-                0x02,
-                0x1b,
-                0x3f,
-                0x61,
-                0x21,
-                0x45,
-                0x48,
-                0x44,
-                0x61,
-                0x25,
-                0x42,
-                0x57,
-                0x7d,
-                0x7a,
-                0x45,
-                0x22,
-                0x2e,
-                0x44,
-                0x3f,
-                0x3a,
-                0x14,
-                0x07,
-                0x6e,
-                0x68,
-                0x51,
-                0x03,
-                0x6b,
-                0x11,
-                0x32,
-                0x6d,
-                0x6f,
-                0x44,
-                0x5a,
-                0x61,
-                0x6d,
-                0x71,
-                0x66,
-                0x54,
-                0x14,
-                0x5d,
-                0x56,
-                0x22,
-                0x5c,
-                0x3a,
-                0x72,
-                0x16,
-                0x39,
-                0x59,
-                0x3e,
-                0x27,
-                0x4d,
-                0x3d,
-                0x44,
-                0x72,
-                0x2c,
-                0x71,
-                0x74,
-                0x3b,
-                0x6c,
-                0x70,
-                0x39,
-                0x0f,
-                0x5c,
-                0x71,
-                0x04,
-                0x67,
-                0x02,
-                0x2c,
-                0x18,
-                0x0f,
-                0x14,
-                0x2d,
-                0x24,
-                0x51,
-                0x34,
-                0x6d,
-                0x0c,
-                0x19,
-                0x0f,
-                0x73,
-                0x79,
-                0x3d,
-                0x74,
-                0x20,
-                0x15,
-                0x22,
-                0x25,
-                0x09,
-                0x14,
-                0x09,
-                0x71,
-                0x2d,
-                0x6f,
-                0x09,
-                0x2e,
-                0x27,
-                0x75,
-                0x57,
-                0x62,
-                0x4d,
-                0x07,
-                0x62,
-                0x01,
-                0x41,
-                0x2d,
-                0x5d,
-                0x4c,
-                0x77,
-                0x10,
-                0x7f,
-                0x30,
-                0x0f,
-                0x50,
-                0x15,
-                0x39,
-                0x34,
-                0x7c,
-                0x33,
-                0x16,
+                0x4b, 0x36, 0x7a, 0x13, 0x5a, 0x4b, 0x69, 0x4b, 0x1d, 0x02, 0x1b, 0x3f, 0x61, 0x21, 0x45, 0x48,
+                0x44, 0x61, 0x25, 0x42, 0x57, 0x7d, 0x7a, 0x45, 0x22, 0x2e, 0x44, 0x3f, 0x3a, 0x14, 0x07, 0x6e,
+                0x68, 0x51, 0x03, 0x6b, 0x11, 0x32, 0x6d, 0x6f, 0x44, 0x5a, 0x61, 0x6d, 0x71, 0x66, 0x54, 0x14,
+                0x5d, 0x56, 0x22, 0x5c, 0x3a, 0x72, 0x16, 0x39, 0x59, 0x3e, 0x27, 0x4d, 0x3d, 0x44, 0x72, 0x2c,
+                0x71, 0x74, 0x3b, 0x6c, 0x70, 0x39, 0x0f, 0x5c, 0x71, 0x04, 0x67, 0x02, 0x2c, 0x18, 0x0f, 0x14,
+                0x2d, 0x24, 0x51, 0x34, 0x6d, 0x0c, 0x19, 0x0f, 0x73, 0x79, 0x3d, 0x74, 0x20, 0x15, 0x22, 0x25,
+                0x09, 0x14, 0x09, 0x71, 0x2d, 0x6f, 0x09, 0x2e, 0x27, 0x75, 0x57, 0x62, 0x4d, 0x07, 0x62, 0x01,
+                0x41, 0x2d, 0x5d, 0x4c, 0x77, 0x10, 0x7f, 0x30, 0x0f, 0x50, 0x15, 0x39, 0x34, 0x7c, 0x33, 0x16,
             });
 
             try testArgs(@Vector(1, i8), .{
@@ -5282,6 +5043,15 @@ test addWrap {
     try test_add_wrap.testIntVectors();
 }
 
+inline fn addSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs +| rhs;
+}
+test addSat {
+    const test_add_sat = binary(addSat, .{});
+    try test_add_sat.testInts();
+    try test_add_sat.testIntVectors();
+}
+
 inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
     @setRuntimeSafety(false);
     return switch (@typeInfo(Scalar(Type))) {
@@ -5328,6 +5098,15 @@ test subWrap {
     try test_sub_wrap.testIntVectors();
 }
 
+inline fn subSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs -| rhs;
+}
+test subSat {
+    const test_sub_sat = binary(subSat, .{});
+    try test_sub_sat.testInts();
+    try test_sub_sat.testIntVectors();
+}
+
 inline fn mulUnsafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
     @setRuntimeSafety(false);
     return @as(DoubleBits(Type), lhs) * rhs;
@@ -5354,6 +5133,14 @@ test mulWrap {
     const test_mul_wrap = binary(mulWrap, .{});
     try test_mul_wrap.testInts();
     try test_mul_wrap.testIntVectors();
+}
+
+inline fn mulSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs *| rhs;
+}
+test mulSat {
+    const test_mul_sat = binary(mulSat, .{});
+    try test_mul_sat.testInts();
 }
 
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
@@ -5477,6 +5264,16 @@ test mulWithOverflow {
     try test_mul_with_overflow.testInts();
 }
 
+inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs);
+}
+test shlWithOverflow {
+    const test_shl_with_overflow = binary(shlWithOverflow, .{});
+    try test_shl_with_overflow.testInts();
+}
+
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
     return lhs == rhs;
 }
@@ -5590,6 +5387,22 @@ inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
 test shlExactUnsafe {
     const test_shl_exact_unsafe = binary(shlExactUnsafe, .{});
     try test_shl_exact_unsafe.testInts();
+}
+
+inline fn shlSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    // workaround https://github.com/ziglang/zig/issues/23034
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/23139
+        //return lhs <<| @min(@abs(rhs), imax(u64));
+        return lhs <<| @min(@abs(rhs), @as(u64, imax(u64)));
+    }
+    // workaround https://github.com/ziglang/zig/issues/23033
+    @setRuntimeSafety(false);
+    return lhs <<| @abs(rhs);
+}
+test shlSat {
+    const test_shl_sat = binary(shlSat, .{});
+    try test_shl_sat.testInts();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
