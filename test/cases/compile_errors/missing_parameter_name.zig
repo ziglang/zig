@@ -15,5 +15,5 @@ fn f1(x) u64 {
 // :1:7: error: missing parameter name
 // :4:7: error: missing parameter name
 // :7:7: error: missing parameter name or type
-// :7:7: note: if this is a name, annotate its type 'x: T'
-// :7:7: note: if this is a type, give it a name '<name>: x'
+// :7:7: note: if this is a name, annotate its type: 'x: T'
+// :7:7: note: if this is a type, give it a name: 'name: x'

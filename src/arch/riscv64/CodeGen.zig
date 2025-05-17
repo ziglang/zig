@@ -1460,7 +1460,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .mul,
             .mul_wrap,
-            .div_trunc, 
+            .div_trunc,
             .div_exact,
             .rem,
 
@@ -1478,13 +1478,13 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .max,
             => try func.airBinOp(inst, tag),
 
-                        
+
             .ptr_add,
             .ptr_sub => try func.airPtrArithmetic(inst, tag),
 
             .mod,
-            .div_float, 
-            .div_floor, 
+            .div_float,
+            .div_floor,
             => return func.fail("TODO: {s}", .{@tagName(tag)}),
 
             .sqrt,
@@ -1639,7 +1639,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .ptr_slice_ptr_ptr => try func.airPtrSlicePtrPtr(inst),
 
             .array_elem_val      => try func.airArrayElemVal(inst),
-            
+
             .slice_elem_val      => try func.airSliceElemVal(inst),
             .slice_elem_ptr      => try func.airSliceElemPtr(inst),
 
@@ -1769,8 +1769,15 @@ fn finishAirBookkeeping(func: *Func) void {
 fn finishAirResult(func: *Func, inst: Air.Inst.Index, result: MCValue) void {
     if (func.liveness.isUnused(inst)) switch (result) {
         .none, .dead, .unreach => {},
-        else => unreachable, // Why didn't the result die?
+        // Why didn't the result die?
+        .register => |r| if (r != .zero) unreachable,
+        else => unreachable,
     } else {
+        switch (result) {
+            .register => |r| if (r == .zero) unreachable, // Why did we discard a used result?
+            else => {},
+        }
+
         tracking_log.debug("%{d} => {} (birth)", .{ inst, result });
         func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(result));
         // In some cases, an operand may be reused as the result.
@@ -7729,9 +7736,12 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const ptr_mcv = try func.resolveInst(atomic_load.ptr);
 
     const bit_size = elem_ty.bitSize(zcu);
-    if (bit_size > 64) return func.fail("TODO: airAtomicStore > 64 bits", .{});
+    if (bit_size > 64) return func.fail("TODO: airAtomicLoad > 64 bits", .{});
 
-    const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
+    const result_mcv: MCValue = if (func.liveness.isUnused(inst))
+        .{ .register = .zero }
+    else
+        try func.allocRegOrMem(elem_ty, inst, true);
     assert(result_mcv == .register); // should be less than 8 bytes
 
     if (order == .seq_cst) {
@@ -7747,11 +7757,10 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     try func.load(result_mcv, ptr_mcv, ptr_ty);
 
     switch (order) {
-        // Don't guarnetee other memory operations to be ordered after the load.
-        .unordered => {},
-        .monotonic => {},
-        // Make sure all previous reads happen before any reading or writing accurs.
-        .seq_cst, .acquire => {
+        // Don't guarantee other memory operations to be ordered after the load.
+        .unordered, .monotonic => {},
+        // Make sure all previous reads happen before any reading or writing occurs.
+        .acquire, .seq_cst => {
             _ = try func.addInst(.{
                 .tag = .fence,
                 .data = .{ .fence = .{
@@ -7793,6 +7802,17 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
     }
 
     try func.store(ptr_mcv, val_mcv, ptr_ty);
+
+    if (order == .seq_cst) {
+        _ = try func.addInst(.{
+            .tag = .fence,
+            .data = .{ .fence = .{
+                .pred = .rw,
+                .succ = .rw,
+            } },
+        });
+    }
+
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

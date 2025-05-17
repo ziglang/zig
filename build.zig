@@ -550,6 +550,11 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
+    if (tests.addLlvmIrTests(b, .{
+        .enable_llvm = enable_llvm,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+    })) |test_llvm_ir_step| test_step.dependOn(test_llvm_ir_step);
 
     try addWasiUpdateStep(b, version);
 

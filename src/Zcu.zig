@@ -215,6 +215,9 @@ all_references: std.ArrayListUnmanaged(Reference) = .empty,
 /// Freelist of indices in `all_references`.
 free_references: std.ArrayListUnmanaged(u32) = .empty,
 
+inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame) = .empty,
+free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index) = .empty,
+
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
 /// Value is index into `all_type_reference` of the first reference triggered by the unit.
@@ -583,6 +586,42 @@ pub const Reference = struct {
     next: u32,
     /// The source location of the reference.
     src: LazySrcLoc,
+    /// If not `.none`, this is the index of the `InlineReferenceFrame` which should appear
+    /// between the referencer and `referenced` in the reference trace. These frames represent
+    /// inline calls, which do not create actual references (since they happen in the caller's
+    /// `AnalUnit`), but do show in the reference trace.
+    inline_frame: InlineReferenceFrame.Index.Optional,
+};
+
+pub const InlineReferenceFrame = struct {
+    /// The inline *callee*; that is, the function which was called inline.
+    /// The *caller* is either `parent`, or else the unit causing the original `Reference`.
+    callee: InternPool.Index,
+    /// The source location of the inline call, in the *caller*.
+    call_src: LazySrcLoc,
+    /// If not `.none`, a frame which should appear directly below this one.
+    /// This will be the "parent" inline call; this frame's `callee` is our caller.
+    parent: InlineReferenceFrame.Index.Optional,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn ptr(idx: Index, zcu: *Zcu) *InlineReferenceFrame {
+            return &zcu.inline_reference_frames.items[@intFromEnum(idx)];
+        }
+        pub fn toOptional(idx: Index) Optional {
+            return @enumFromInt(@intFromEnum(idx));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
+    };
 };
 
 pub const TypeReference = struct {
@@ -3440,12 +3479,28 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
         var idx = kv.value;
 
         while (idx != std.math.maxInt(u32)) {
+            const ref = zcu.all_references.items[idx];
             zcu.free_references.append(gpa, idx) catch {
                 // This space will be reused eventually, so we need not propagate this error.
                 // Just leak it for now, and let GC reclaim it later on.
                 break :unit_refs;
             };
-            idx = zcu.all_references.items[idx].next;
+            idx = ref.next;
+
+            var opt_inline_frame = ref.inline_frame;
+            while (opt_inline_frame.unwrap()) |inline_frame| {
+                // The same inline frame could be used multiple times by one unit. We need to
+                // detect this case to avoid adding it to `free_inline_reference_frames` more
+                // than once. We do that by setting `parent` to itself as a marker.
+                if (inline_frame.ptr(zcu).parent == inline_frame.toOptional()) break;
+                zcu.free_inline_reference_frames.append(gpa, inline_frame) catch {
+                    // This space will be reused eventually, so we need not propagate this error.
+                    // Just leak it for now, and let GC reclaim it later on.
+                    break :unit_refs;
+                };
+                opt_inline_frame = inline_frame.ptr(zcu).parent;
+                inline_frame.ptr(zcu).parent = inline_frame.toOptional(); // signal to code above
+            }
         }
     }
 
@@ -3480,7 +3535,22 @@ pub fn deleteUnitCompileLogs(zcu: *Zcu, anal_unit: AnalUnit) void {
     }
 }
 
-pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
+pub fn addInlineReferenceFrame(zcu: *Zcu, frame: InlineReferenceFrame) Allocator.Error!Zcu.InlineReferenceFrame.Index {
+    const frame_idx: InlineReferenceFrame.Index = zcu.free_inline_reference_frames.pop() orelse idx: {
+        _ = try zcu.inline_reference_frames.addOne(zcu.gpa);
+        break :idx @enumFromInt(zcu.inline_reference_frames.items.len - 1);
+    };
+    frame_idx.ptr(zcu).* = frame;
+    return frame_idx;
+}
+
+pub fn addUnitReference(
+    zcu: *Zcu,
+    src_unit: AnalUnit,
+    referenced_unit: AnalUnit,
+    ref_src: LazySrcLoc,
+    inline_frame: InlineReferenceFrame.Index.Optional,
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     zcu.clearCachedResolvedReferences();
@@ -3500,6 +3570,7 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
         .referenced = referenced_unit,
         .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
         .src = ref_src,
+        .inline_frame = inline_frame,
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
@@ -3828,7 +3899,10 @@ pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionT
 
 pub const ResolvedReference = struct {
     referencer: AnalUnit,
+    /// If `inline_frame` is not `.none`, this is the *deepest* source location in the chain of
+    /// inline calls. For source locations further up the inline call stack, consult `inline_frame`.
     src: LazySrcLoc,
+    inline_frame: InlineReferenceFrame.Index.Optional,
 };
 
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
@@ -4037,6 +4111,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try unit_queue.put(gpa, ref.referenced, .{
                             .referencer = unit,
                             .src = ref.src,
+                            .inline_frame = ref.inline_frame,
                         });
                     }
                     ref_idx = ref.next;
@@ -4055,6 +4130,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try type_queue.put(gpa, ref.referenced, .{
                             .referencer = unit,
                             .src = ref.src,
+                            .inline_frame = .none,
                         });
                     }
                     ref_idx = ref.next;
