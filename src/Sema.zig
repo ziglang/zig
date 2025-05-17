@@ -36540,6 +36540,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .vector_4_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_2_u128_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
         .vector_2_f32_type,
