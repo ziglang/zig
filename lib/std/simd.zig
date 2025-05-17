@@ -59,7 +59,8 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
                 }) |feat_size| {
                     const feature, const size = feat_size;
                     if (std.Target.riscv.featureSetHas(cpu.features, feature)) break :blk size;
-                } else break :blk 8;
+                }
+                break :blk 8;
             }
         } else if (cpu.arch.isSPARC()) {
             // TODO: Test Sparc capability to handle bigger vectors
