@@ -4132,10 +4132,10 @@ pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
 pub fn smallestUnsignedBits(max: u64) u16 {
-    if (max == 0) return 0;
-    const base = std.math.log2(max);
-    const upper = (@as(u64, 1) << @as(u6, @intCast(base))) - 1;
-    return @as(u16, @intCast(base + @intFromBool(upper < max)));
+    return switch (max) {
+        0 => 0,
+        else => 1 + std.math.log2_int(u64, max),
+    };
 }
 
 /// This is only used for comptime asserts. Bump this number when you make a change

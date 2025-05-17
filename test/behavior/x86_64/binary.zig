@@ -6,6 +6,7 @@ const DoubleBits = math.DoubleBits;
 const fmax = math.fmax;
 const fmin = math.fmin;
 const Gpr = math.Gpr;
+const imax = math.imax;
 const inf = math.inf;
 const Log2Int = math.Log2Int;
 const math = @import("math.zig");
@@ -5386,6 +5387,22 @@ inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
 test shlExactUnsafe {
     const test_shl_exact_unsafe = binary(shlExactUnsafe, .{});
     try test_shl_exact_unsafe.testInts();
+}
+
+inline fn shlSat(comptime Type: type, lhs: Type, rhs: Type) Type {
+    // workaround https://github.com/ziglang/zig/issues/23034
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/23139
+        //return lhs <<| @min(@abs(rhs), imax(u64));
+        return lhs <<| @min(@abs(rhs), @as(u64, imax(u64)));
+    }
+    // workaround https://github.com/ziglang/zig/issues/23033
+    @setRuntimeSafety(false);
+    return lhs <<| @abs(rhs);
+}
+test shlSat {
+    const test_shl_sat = binary(shlSat, .{});
+    try test_shl_sat.testInts();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
