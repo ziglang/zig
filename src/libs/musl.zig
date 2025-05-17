@@ -34,7 +34,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "crt1.c",
                     }),
                     .extra_flags = args.items,
@@ -54,7 +54,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "rcrt1.c",
                     }),
                     .extra_flags = args.items,
@@ -75,7 +75,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "Scrt1.c",
                     }),
                     .extra_flags = args.items,
@@ -165,7 +165,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 try addCcArgs(comp, arena, &args, ext == .o3);
                 const c_source_file = try c_source_files.addOne();
                 c_source_file.* = .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", src_file }),
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libc", src_file }),
                     .extra_flags = args.items,
                     .owner = undefined,
                 };
@@ -220,9 +220,8 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 &.{ arch_define, family_define };
 
             const root_mod = try Module.create(arena, .{
-                .global_cache_directory = comp.global_cache_directory,
                 .paths = .{
-                    .root = .{ .root_dir = comp.zig_lib_directory },
+                    .root = .zig_lib_root,
                     .root_src_path = "",
                 },
                 .fully_qualified_name = "root",
@@ -242,14 +241,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .global = config,
                 .cc_argv = cc_argv,
                 .parent = null,
-                .builtin_mod = null,
-                .builtin_modules = null, // there is only one module in this compilation
             });
 
             const sub_compilation = try Compilation.create(comp.gpa, arena, .{
-                .local_cache_directory = comp.global_cache_directory,
-                .global_cache_directory = comp.global_cache_directory,
-                .zig_lib_directory = comp.zig_lib_directory,
+                .dirs = comp.dirs.withoutLocalCache(),
                 .self_exe_path = comp.self_exe_path,
                 .cache_mode = .whole,
                 .config = config,
@@ -266,9 +261,9 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .verbose_cimport = comp.verbose_cimport,
                 .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
                 .clang_passthrough_mode = comp.clang_passthrough_mode,
-                .c_source_files = &[_]Compilation.CSourceFile{
+                .c_source_files = &.{
                     .{
-                        .src_path = try comp.zig_lib_directory.join(arena, &.{ "libc", "musl", "libc.S" }),
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "libc.S" }),
                         .owner = root_mod,
                     },
                 },
@@ -411,25 +406,25 @@ fn addCcArgs(
         "-D_XOPEN_SOURCE=700",
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "arch", arch_name }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "arch", arch_name }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "arch", "generic" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "arch", "generic" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "src", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "src", "include" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "src", "internal" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "src", "internal" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "include" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", triple }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "generic-musl" }),
 
         o_arg,
 
@@ -444,7 +439,7 @@ fn addCcArgs(
 
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const target = comp.getTarget();
-    return comp.zig_lib_directory.join(arena, &[_][]const u8{
+    return comp.dirs.zig_lib.join(arena, &.{
         "libc", "musl", "crt", std.zig.target.muslArchName(target.cpu.arch, target.abi), basename,
     });
 }

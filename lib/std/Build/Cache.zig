@@ -1011,17 +1011,16 @@ pub const Manifest = struct {
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.
-    /// On success, cache takes ownership of `resolved_path`.
     pub fn addFilePostContents(
         self: *Manifest,
-        resolved_path: []u8,
+        file_path: []const u8,
         bytes: []const u8,
         stat: File.Stat,
     ) !void {
         assert(self.manifest_file != null);
         const gpa = self.cache.gpa;
 
-        const prefixed_path = try self.cache.findPrefixResolved(resolved_path);
+        const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
