@@ -9023,19 +9023,25 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
-        const lhs_scalar_ty = lhs_ty.scalarType(zcu);
-        const lhs_bits = lhs_scalar_ty.bitSize(zcu);
-
-        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
-
+        const lhs_info = lhs_ty.intInfo(zcu);
         const llvm_lhs_ty = try o.lowerType(lhs_ty);
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
+
+        const rhs_ty = self.typeOf(bin_op.rhs);
+        const rhs_info = rhs_ty.intInfo(zcu);
+        assert(rhs_info.signedness == .unsigned);
+        const llvm_rhs_ty = try o.lowerType(rhs_ty);
+        const llvm_rhs_scalar_ty = llvm_rhs_ty.scalarType(&o.builder);
+
         const result = try self.wip.callIntrinsic(
             .normal,
             .none,
-            if (lhs_scalar_ty.isSignedInt(zcu)) .@"sshl.sat" else .@"ushl.sat",
+            switch (lhs_info.signedness) {
+                .signed => .@"sshl.sat",
+                .unsigned => .@"ushl.sat",
+            },
             &.{llvm_lhs_ty},
-            &.{ lhs, casted_rhs },
+            &.{ lhs, try self.wip.conv(.unsigned, rhs, llvm_lhs_ty, "") },
             "",
         );
 
@@ -9044,16 +9050,45 @@ pub const FuncGen = struct {
         // poison value."
         // However Zig semantics says that saturating shift left can never produce
         // undefined; instead it saturates.
+        if (rhs_info.bits <= math.log2_int(u16, lhs_info.bits)) return result;
         const bits = try o.builder.splatValue(
-            llvm_lhs_ty,
-            try o.builder.intConst(llvm_lhs_scalar_ty, lhs_bits),
+            llvm_rhs_ty,
+            try o.builder.intConst(llvm_rhs_scalar_ty, lhs_info.bits),
         );
-        const lhs_max = try o.builder.splatValue(
-            llvm_lhs_ty,
-            try o.builder.intConst(llvm_lhs_scalar_ty, -1),
-        );
-        const in_range = try self.wip.icmp(.ult, casted_rhs, bits, "");
-        return self.wip.select(.normal, in_range, result, lhs_max, "");
+        const in_range = try self.wip.icmp(.ult, rhs, bits, "");
+        const lhs_sat = lhs_sat: switch (lhs_info.signedness) {
+            .signed => {
+                const zero = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, 0),
+                );
+                const smin = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try minIntConst(&o.builder, lhs_ty, llvm_lhs_ty, zcu),
+                );
+                const smax = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try maxIntConst(&o.builder, lhs_ty, llvm_lhs_ty, zcu),
+                );
+                const lhs_lt_zero = try self.wip.icmp(.slt, lhs, zero, "");
+                const slimit = try self.wip.select(.normal, lhs_lt_zero, smin, smax, "");
+                const lhs_eq_zero = try self.wip.icmp(.eq, lhs, zero, "");
+                break :lhs_sat try self.wip.select(.normal, lhs_eq_zero, zero, slimit, "");
+            },
+            .unsigned => {
+                const zero = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, 0),
+                );
+                const umax = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, -1),
+                );
+                const lhs_eq_zero = try self.wip.icmp(.eq, lhs, zero, "");
+                break :lhs_sat try self.wip.select(.normal, lhs_eq_zero, zero, umax, "");
+            },
+        };
+        return self.wip.select(.normal, in_range, result, lhs_sat, "");
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !Builder.Value {

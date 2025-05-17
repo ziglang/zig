@@ -257,7 +257,9 @@ pub const Inst = struct {
         /// it shifts out any bits that disagree with the resultant sign bit.
         /// Uses the `bin_op` field.
         shl_exact,
-        /// Saturating integer shift left. `<<|`
+        /// Saturating integer shift left. `<<|`. The result is the same type as the `lhs`.
+        /// The `rhs` must have the same vector shape as the `lhs`, but with any unsigned
+        /// integer as the scalar type.
         /// Uses the `bin_op` field.
         shl_sat,
         /// Bitwise XOR. `^`
