@@ -46,6 +46,62 @@ test {
 /// https://github.com/ziglang/zig/issues/4524
 pub var environ: [][*:0]u8 = undefined;
 
+var setup_environ = se: {
+    if (std.options.environ_setupFn != null) {
+        if (builtin.output_mode == .Exe) {
+            @compileError(
+                "An environ_setupFn was specified in std_options but this module is being " ++
+                    "built as an executable which will provide the initial environment via Zig " ++
+                    "start code.",
+            );
+        } else if (builtin.link_libc) {
+            @compileError(
+                "An environ_setupFn was specified in std_options but this module is being " ++
+                    "linked against libc which will manage the environ.",
+            );
+        }
+    }
+    const Env = struct {
+        inline fn sliceN(values: [*:null]?[*:0]u8) [][*:0]u8 {
+            var len: usize = 0;
+            while (values[len] != null) : (len += 1) {}
+            return @as([*][*:0]u8, @ptrCast(values))[0..len];
+        }
+
+        fn setup() void {
+            const env = res: {
+                if (builtin.link_libc) {
+                    break :res std.c.environ;
+                } else if (builtin.output_mode == .Exe) {
+                    // N.B. We control when startup code gets injected and when these codepaths
+                    // mesh; so std.start.environ should never be null by the time we get here.
+                    break :res std.start.environ.?;
+                } else if (std.options.environ_setupFn) |environ_setupFn| {
+                    break :res environ_setupFn();
+                } else {
+                    @compileError(
+                        "missing std.options.environ_setupFn: there is no way to collect " ++
+                            "environment variables.",
+                    );
+                }
+            };
+            environ = sliceN(env);
+        }
+    };
+    break :se std.once(Env.setup);
+};
+
+pub fn envp() [][*:0]u8 {
+    setup_environ.call();
+    return environ;
+}
+
+pub inline fn envpN() [*:null]?[*:0]u8 {
+    // This is safe since environ is always set via envp where we alaways slice an existing
+    // null-terminated array.
+    return @ptrCast(envp().ptr);
+}
+
 /// Populated by startup code before main().
 /// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
 /// or `std.process.argsWithAllocator` for a cross-platform alternative.
