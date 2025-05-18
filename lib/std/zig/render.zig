@@ -75,11 +75,11 @@ pub const Fixups = struct {
 const Render = struct {
     gpa: Allocator,
     ais: *Ais,
-    tree: Ast,
+    tree: *const Ast,
     fixups: Fixups,
 };
 
-pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
+pub fn renderTree(buffer: *std.ArrayList(u8), tree: *const Ast, fixups: Fixups) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
     var auto_indenting_stream = Ais.init(buffer, indent_delta);
     defer auto_indenting_stream.deinit();
@@ -144,13 +144,13 @@ fn renderMember(
     const ais = r.ais;
     if (r.fixups.omit_nodes.contains(decl)) return;
     try renderDocComments(r, tree.firstToken(decl));
-    switch (tree.nodeTag(decl)) {
+    switch (decl.tag(tree)) {
         .fn_decl => {
             // Some examples:
             // pub extern "foo" fn ...
             // export fn ...
-            const fn_proto, const body_node = tree.nodeData(decl).node_and_node;
-            const fn_token = tree.nodeMainToken(fn_proto);
+            const fn_proto, const body_node = decl.data(tree).node_and_node;
+            const fn_token = fn_proto.mainToken(tree);
             // Go back to the first token we should render here.
             var i = fn_token;
             while (i > 0) {
@@ -174,18 +174,18 @@ fn renderMember(
             while (i < fn_token) : (i += 1) {
                 try renderToken(r, i, .space);
             }
-            switch (tree.nodeTag(fn_proto)) {
+            switch (fn_proto.tag(tree)) {
                 .fn_proto_one, .fn_proto => {
                     var buf: [1]Ast.Node.Index = undefined;
-                    const opt_callconv_expr = if (tree.nodeTag(fn_proto) == .fn_proto_one)
+                    const opt_callconv_expr = if (fn_proto.tag(tree) == .fn_proto_one)
                         tree.fnProtoOne(&buf, fn_proto).ast.callconv_expr
                     else
                         tree.fnProto(fn_proto).ast.callconv_expr;
 
                     // Keep in sync with logic in `renderFnProto`. Search this file for the marker PROMOTE_CALLCONV_INLINE
                     if (opt_callconv_expr.unwrap()) |callconv_expr| {
-                        if (tree.nodeTag(callconv_expr) == .enum_literal) {
-                            if (mem.eql(u8, "@\"inline\"", tree.tokenSlice(tree.nodeMainToken(callconv_expr)))) {
+                        if (callconv_expr.tag(tree) == .enum_literal) {
+                            if (mem.eql(u8, "@\"inline\"", tree.tokenSlice(callconv_expr.mainToken(tree)))) {
                                 try ais.writer().writeAll("inline ");
                             }
                         }
@@ -197,7 +197,7 @@ fn renderMember(
             try renderExpression(r, fn_proto, .space);
             if (r.fixups.gut_functions.contains(decl)) {
                 try ais.pushIndent(.normal);
-                const lbrace = tree.nodeMainToken(body_node);
+                const lbrace = body_node.mainToken(tree);
                 try renderToken(r, lbrace, .newline);
                 try discardAllParams(r, fn_proto);
                 try ais.writer().writeAll("@trap();");
@@ -206,12 +206,12 @@ fn renderMember(
                 try renderToken(r, tree.lastToken(body_node), space); // rbrace
             } else if (r.fixups.unused_var_decls.count() != 0) {
                 try ais.pushIndent(.normal);
-                const lbrace = tree.nodeMainToken(body_node);
+                const lbrace = body_node.mainToken(tree);
                 try renderToken(r, lbrace, .newline);
 
                 var fn_proto_buf: [1]Ast.Node.Index = undefined;
                 const full_fn_proto = tree.fullFnProto(&fn_proto_buf, fn_proto).?;
-                var it = full_fn_proto.iterate(&tree);
+                var it = full_fn_proto.iterate(tree);
                 while (it.next()) |param| {
                     const name_ident = param.name_token.?;
                     assert(tree.tokenTag(name_ident) == .identifier);
@@ -236,7 +236,7 @@ fn renderMember(
         => {
             // Extern function prototypes are parsed as these tags.
             // Go back to the first token we should render here.
-            const fn_token = tree.nodeMainToken(decl);
+            const fn_token = decl.mainToken(tree);
             var i = fn_token;
             while (i > 0) {
                 i -= 1;
@@ -263,8 +263,8 @@ fn renderMember(
         },
 
         .@"usingnamespace" => {
-            const main_token = tree.nodeMainToken(decl);
-            const expr = tree.nodeData(decl).node;
+            const main_token = decl.mainToken(tree);
+            const expr = decl.data(tree).node;
             if (tree.isTokenPrecededByTags(main_token, &.{.keyword_pub})) {
                 try renderToken(r, main_token - 1, .space); // pub
             }
@@ -284,8 +284,8 @@ fn renderMember(
         },
 
         .test_decl => {
-            const test_token = tree.nodeMainToken(decl);
-            const opt_name_token, const block_node = tree.nodeData(decl).opt_token_and_node;
+            const test_token = decl.mainToken(tree);
+            const opt_name_token, const block_node = decl.data(tree).opt_token_and_node;
             try renderToken(r, test_token, .space);
             if (opt_name_token.unwrap()) |name_token| {
                 switch (tree.tokenTag(name_token)) {
@@ -329,9 +329,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     } else if (r.fixups.replace_nodes_with_node.get(node)) |replacement| {
         return renderExpression(r, replacement, space);
     }
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .identifier => {
-            const token_index = tree.nodeMainToken(node);
+            const token_index = node.mainToken(tree);
             return renderIdentifier(r, token_index, space, .preserve_when_shadowing);
         },
 
@@ -340,12 +340,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .unreachable_literal,
         .anyframe_literal,
         .string_literal,
-        => return renderToken(r, tree.nodeMainToken(node), space),
+        => return renderToken(r, node.mainToken(tree), space),
 
         .multiline_string_literal => {
             try ais.maybeInsertNewline();
 
-            const first_tok, const last_tok = tree.nodeData(node).token_and_token;
+            const first_tok, const last_tok = node.data(tree).token_and_token;
             for (first_tok..last_tok + 1) |i| {
                 try renderToken(r, @intCast(i), .newline);
             }
@@ -372,7 +372,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .error_value => {
-            const main_token = tree.nodeMainToken(node);
+            const main_token = node.mainToken(tree);
             try renderToken(r, main_token, .none);
             try renderToken(r, main_token + 1, .none);
             return renderIdentifier(r, main_token + 2, space, .eagerly_unquote);
@@ -389,8 +389,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .@"errdefer" => {
-            const defer_token = tree.nodeMainToken(node);
-            const maybe_payload_token, const expr = tree.nodeData(node).opt_token_and_node;
+            const defer_token = node.mainToken(tree);
+            const maybe_payload_token, const expr = node.data(tree).opt_token_and_node;
 
             try renderToken(r, defer_token, .space);
             if (maybe_payload_token.unwrap()) |payload_token| {
@@ -406,15 +406,15 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .@"nosuspend",
         .@"suspend",
         => {
-            const main_token = tree.nodeMainToken(node);
-            const item = tree.nodeData(node).node;
+            const main_token = node.mainToken(tree);
+            const item = node.data(tree).node;
             try renderToken(r, main_token, .space);
             return renderExpression(r, item, space);
         },
 
         .@"catch" => {
-            const main_token = tree.nodeMainToken(node);
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const main_token = node.mainToken(tree);
+            const lhs, const rhs = node.data(tree).node_and_node;
             const fallback_first = tree.firstToken(rhs);
 
             const same_line = tree.tokensOnSameLine(main_token, fallback_first);
@@ -437,7 +437,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .field_access => {
-            const lhs, const name_token = tree.nodeData(node).node_and_token;
+            const lhs, const name_token = node.data(tree).node_and_token;
             const dot_token = name_token - 1;
 
             try ais.pushIndent(.field_access);
@@ -458,19 +458,19 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .error_union,
         .switch_range,
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             try renderExpression(r, lhs, .none);
-            try renderToken(r, tree.nodeMainToken(node), .none);
+            try renderToken(r, node.mainToken(tree), .none);
             return renderExpression(r, rhs, space);
         },
         .for_range => {
-            const start, const opt_end = tree.nodeData(node).node_and_opt_node;
+            const start, const opt_end = node.data(tree).node_and_opt_node;
             try renderExpression(r, start, .none);
             if (opt_end.unwrap()) |end| {
-                try renderToken(r, tree.nodeMainToken(node), .none);
+                try renderToken(r, node.mainToken(tree), .none);
                 return renderExpression(r, end, space);
             } else {
-                return renderToken(r, tree.nodeMainToken(node), space);
+                return renderToken(r, node.mainToken(tree), space);
             }
         },
 
@@ -493,9 +493,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .assign_mul_wrap,
         .assign_mul_sat,
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             try renderExpression(r, lhs, .space);
-            const op_token = tree.nodeMainToken(node);
+            const op_token = node.mainToken(tree);
             try ais.pushIndent(.after_equals);
             if (tree.tokensOnSameLine(op_token, op_token + 1)) {
                 try renderToken(r, op_token, .space);
@@ -536,9 +536,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .sub_sat,
         .@"orelse",
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             try renderExpression(r, lhs, .space);
-            const op_token = tree.nodeMainToken(node);
+            const op_token = node.mainToken(tree);
             try ais.pushIndent(.binop);
             if (tree.tokensOnSameLine(op_token, op_token + 1)) {
                 try renderToken(r, op_token, .space);
@@ -557,7 +557,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             for (full.ast.variables, 0..) |variable_node, i| {
                 const variable_space: Space = if (i == full.ast.variables.len - 1) .space else .comma_space;
-                switch (tree.nodeTag(variable_node)) {
+                switch (variable_node.tag(tree)) {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
@@ -585,16 +585,16 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .optional_type,
         .address_of,
         => {
-            try renderToken(r, tree.nodeMainToken(node), .none);
-            return renderExpression(r, tree.nodeData(node).node, space);
+            try renderToken(r, node.mainToken(tree), .none);
+            return renderExpression(r, node.data(tree).node, space);
         },
 
         .@"try",
         .@"resume",
         .@"await",
         => {
-            try renderToken(r, tree.nodeMainToken(node), .space);
-            return renderExpression(r, tree.nodeData(node).node, space);
+            try renderToken(r, node.mainToken(tree), .space);
+            return renderExpression(r, node.data(tree).node, space);
         },
 
         .array_type,
@@ -647,7 +647,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .array_access => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             const lbracket = tree.firstToken(rhs) - 1;
             const rbracket = tree.lastToken(rhs) + 1;
             const one_line = tree.tokensOnSameLine(lbracket, rbracket);
@@ -666,12 +666,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderSlice(r, node, tree.fullSlice(node).?, space),
 
         .deref => {
-            try renderExpression(r, tree.nodeData(node).node, .none);
-            return renderToken(r, tree.nodeMainToken(node), space);
+            try renderExpression(r, node.data(tree).node, .none);
+            return renderToken(r, node.mainToken(tree), space);
         },
 
         .unwrap_optional => {
-            const lhs, const question_mark = tree.nodeData(node).node_and_token;
+            const lhs, const question_mark = node.data(tree).node_and_token;
             const dot_token = question_mark - 1;
             try renderExpression(r, lhs, .none);
             try renderToken(r, dot_token, .none);
@@ -679,8 +679,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .@"break", .@"continue" => {
-            const main_token = tree.nodeMainToken(node);
-            const opt_label_token, const opt_target = tree.nodeData(node).opt_token_and_opt_node;
+            const main_token = node.mainToken(tree);
+            const opt_label_token, const opt_target = node.data(tree).opt_token_and_opt_node;
             if (opt_label_token == .none and opt_target == .none) {
                 try renderToken(r, main_token, space); // break/continue
             } else if (opt_label_token == .none and opt_target != .none) {
@@ -703,18 +703,18 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .@"return" => {
-            if (tree.nodeData(node).opt_node.unwrap()) |expr| {
-                try renderToken(r, tree.nodeMainToken(node), .space);
+            if (node.data(tree).opt_node.unwrap()) |expr| {
+                try renderToken(r, node.mainToken(tree), .space);
                 try renderExpression(r, expr, space);
             } else {
-                try renderToken(r, tree.nodeMainToken(node), space);
+                try renderToken(r, node.mainToken(tree), space);
             }
         },
 
         .grouped_expression => {
-            const expr, const rparen = tree.nodeData(node).node_and_token;
+            const expr, const rparen = node.data(tree).node_and_token;
             try ais.pushIndent(.normal);
-            try renderToken(r, tree.nodeMainToken(node), .none); // lparen
+            try renderToken(r, node.mainToken(tree), .none); // lparen
             try renderExpression(r, expr, .none);
             ais.popIndent();
             return renderToken(r, rparen, space);
@@ -738,8 +738,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .error_set_decl => {
-            const error_token = tree.nodeMainToken(node);
-            const lbrace, const rbrace = tree.nodeData(node).token_and_token;
+            const error_token = node.mainToken(tree);
+            const lbrace, const rbrace = node.data(tree).token_and_token;
 
             try renderToken(r, error_token, .none);
 
@@ -796,7 +796,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const params = tree.builtinCallParams(&buf, node).?;
-            return renderBuiltinCall(r, tree.nodeMainToken(node), params, space);
+            return renderBuiltinCall(r, node.mainToken(tree), params, space);
         },
 
         .fn_proto_simple,
@@ -809,10 +809,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .anyframe_type => {
-            const main_token = tree.nodeMainToken(node);
+            const main_token = node.mainToken(tree);
             try renderToken(r, main_token, .none); // anyframe
             try renderToken(r, main_token + 1, .none); // ->
-            return renderExpression(r, tree.nodeData(node).token_and_node[1], space);
+            return renderExpression(r, node.data(tree).token_and_node[1], space);
         },
 
         .@"switch",
@@ -869,8 +869,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderAsm(r, tree.fullAsm(node).?, space),
 
         .enum_literal => {
-            try renderToken(r, tree.nodeMainToken(node) - 1, .none); // .
-            return renderIdentifier(r, tree.nodeMainToken(node), space, .eagerly_unquote); // name
+            try renderToken(r, node.mainToken(tree) - 1, .none); // .
+            return renderIdentifier(r, node.mainToken(tree), space, .eagerly_unquote); // name
         },
 
         .fn_decl => unreachable,
@@ -932,7 +932,7 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
             // this pointer type and rely on the child to render our asterisk
             // as well when it renders the ** token.
             if (tree.tokenTag(main_token) == .asterisk_asterisk and
-                main_token == tree.nodeMainToken(ptr_type.ast.child_type))
+                main_token == ptr_type.ast.child_type.mainToken(tree))
             {
                 return renderExpression(r, ptr_type.ast.child_type, space);
             }
@@ -1017,8 +1017,8 @@ fn renderSlice(
     space: Space,
 ) Error!void {
     const tree = r.tree;
-    const after_start_space_bool = nodeCausesSliceOpSpace(tree.nodeTag(slice.ast.start)) or
-        if (slice.ast.end.unwrap()) |end| nodeCausesSliceOpSpace(tree.nodeTag(end)) else false;
+    const after_start_space_bool = nodeCausesSliceOpSpace(slice.ast.start.tag(tree)) or
+        if (slice.ast.end.unwrap()) |end| nodeCausesSliceOpSpace(end.tag(tree)) else false;
     const after_start_space = if (after_start_space_bool) Space.space else Space.none;
     const after_dots_space = if (slice.ast.end != .none)
         after_start_space
@@ -1050,8 +1050,8 @@ fn renderAsmOutput(
     space: Space,
 ) Error!void {
     const tree = r.tree;
-    assert(tree.nodeTag(asm_output) == .asm_output);
-    const symbolic_name = tree.nodeMainToken(asm_output);
+    assert(asm_output.tag(tree) == .asm_output);
+    const symbolic_name = asm_output.mainToken(tree);
 
     try renderToken(r, symbolic_name - 1, .none); // lbracket
     try renderIdentifier(r, symbolic_name, .none, .eagerly_unquote); // ident
@@ -1060,7 +1060,7 @@ fn renderAsmOutput(
     try renderToken(r, symbolic_name + 3, .none); // lparen
 
     if (tree.tokenTag(symbolic_name + 4) == .arrow) {
-        const type_expr, const rparen = tree.nodeData(asm_output).opt_node_and_token;
+        const type_expr, const rparen = asm_output.data(tree).opt_node_and_token;
         try renderToken(r, symbolic_name + 4, .space); // ->
         try renderExpression(r, type_expr.unwrap().?, Space.none);
         return renderToken(r, rparen, space);
@@ -1076,9 +1076,9 @@ fn renderAsmInput(
     space: Space,
 ) Error!void {
     const tree = r.tree;
-    assert(tree.nodeTag(asm_input) == .asm_input);
-    const symbolic_name = tree.nodeMainToken(asm_input);
-    const expr, const rparen = tree.nodeData(asm_input).node_and_token;
+    assert(asm_input.tag(tree) == .asm_input);
+    const symbolic_name = asm_input.mainToken(tree);
+    const expr, const rparen = asm_input.data(tree).node_and_token;
 
     try renderToken(r, symbolic_name - 1, .none); // lbracket
     try renderIdentifier(r, symbolic_name, .none, .eagerly_unquote); // ident
@@ -1318,7 +1318,7 @@ fn renderThenElse(
 ) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const then_expr_is_block = nodeIsBlock(tree.nodeTag(then_expr));
+    const then_expr_is_block = nodeIsBlock(then_expr.tag(tree));
     const indent_then_expr = !then_expr_is_block and
         !tree.tokensOnSameLine(last_prefix_token, tree.firstToken(then_expr));
 
@@ -1353,8 +1353,8 @@ fn renderThenElse(
         }
 
         const indent_else_expr = indent_then_expr and
-            !nodeIsBlock(tree.nodeTag(else_expr)) and
-            !nodeIsIfForWhileSwitch(tree.nodeTag(else_expr));
+            !nodeIsBlock(else_expr.tag(tree)) and
+            !nodeIsIfForWhileSwitch(else_expr.tag(tree));
         if (indent_else_expr) {
             try ais.pushIndent(.normal);
             try renderToken(r, last_else_token, .newline);
@@ -1449,7 +1449,7 @@ fn renderContainerField(
     const tree = r.tree;
     const ais = r.ais;
     var field = field_param;
-    if (container != .tuple) field.convertToNonTupleLike(&tree);
+    if (container != .tuple) field.convertToNonTupleLike(tree);
     const quote: QuoteBehavior = switch (container) {
         .@"enum" => .eagerly_unquote_except_underscore,
         .tuple, .other => .eagerly_unquote,
@@ -1569,7 +1569,7 @@ fn renderBuiltinCall(
         const slice = tree.tokenSlice(builtin_token);
         if (mem.eql(u8, slice, "@import")) f: {
             const param = params[0];
-            const str_lit_token = tree.nodeMainToken(param);
+            const str_lit_token = param.mainToken(tree);
             assert(tree.tokenTag(str_lit_token) == .string_literal);
             const token_bytes = tree.tokenSlice(str_lit_token);
             const imported_string = std.zig.string_literal.parseAlloc(r.gpa, token_bytes) catch |err| switch (err) {
@@ -1829,7 +1829,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
 
     if (fn_proto.ast.callconv_expr.unwrap()) |callconv_expr| {
         // Keep in sync with logic in `renderMember`. Search this file for the marker PROMOTE_CALLCONV_INLINE
-        const is_callconv_inline = mem.eql(u8, "@\"inline\"", tree.tokenSlice(tree.nodeMainToken(callconv_expr)));
+        const is_callconv_inline = mem.eql(u8, "@\"inline\"", tree.tokenSlice(callconv_expr.mainToken(tree)));
         const is_declaration = fn_proto.name_token != null;
         if (!(is_declaration and is_callconv_inline)) {
             const callconv_lparen = tree.firstToken(callconv_expr) - 1;
@@ -1882,7 +1882,7 @@ fn renderSwitchCase(
     }
 
     // Render the arrow and everything after it
-    const pre_target_space = if (tree.nodeTag(switch_case.ast.target_expr) == .multiline_string_literal)
+    const pre_target_space = if (switch_case.ast.target_expr.tag(tree) == .multiline_string_literal)
         // Newline gets inserted when rendering the target expr.
         Space.none
     else
@@ -1917,7 +1917,7 @@ fn renderBlock(
 ) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const lbrace = tree.nodeMainToken(block_node);
+    const lbrace = block_node.mainToken(tree);
 
     if (tree.isTokenPrecededByTags(lbrace, &.{ .identifier, .colon })) {
         try renderIdentifier(r, lbrace - 2, .none, .eagerly_unquote); // identifier
@@ -1946,7 +1946,7 @@ fn finishRenderBlock(
         if (i != 0) try renderExtraNewline(r, stmt);
         if (r.fixups.omit_nodes.contains(stmt)) continue;
         try ais.pushSpace(.semicolon);
-        switch (tree.nodeTag(stmt)) {
+        switch (stmt.tag(tree)) {
             .global_var_decl,
             .local_var_decl,
             .simple_var_decl,
@@ -1996,7 +1996,7 @@ fn renderStructInit(
         // Don't output a space after the = if expression is a multiline string,
         // since then it will start on the next line.
         const field_node = struct_init.ast.fields[0];
-        const expr = tree.nodeTag(field_node);
+        const expr = field_node.tag(tree);
         var space_after_equal: Space = if (expr == .multiline_string_literal) .none else .space;
         try renderToken(r, struct_init.ast.lbrace + 3, space_after_equal); // =
 
@@ -2009,7 +2009,7 @@ fn renderStructInit(
             try renderExtraNewlineToken(r, init_token - 3);
             try renderToken(r, init_token - 3, .none); // .
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
-            space_after_equal = if (tree.nodeTag(field_init) == .multiline_string_literal) .none else .space;
+            space_after_equal = if (field_init.tag(tree) == .multiline_string_literal) .none else .space;
             try renderToken(r, init_token - 1, space_after_equal); // =
 
             try ais.pushSpace(.comma);
@@ -2361,7 +2361,7 @@ fn renderContainerDecl(
     }
     for (container_decl.ast.members, 0..) |member, i| {
         if (i != 0) try renderExtraNewline(r, member);
-        switch (tree.nodeTag(member)) {
+        switch (member.tag(tree)) {
             // For container fields, ensure a trailing comma is added if necessary.
             .container_field_init,
             .container_field_align,
@@ -2919,7 +2919,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
 /// `start_token` to `end_token`. This is used to determine if e.g. a
 /// fn_proto should be wrapped and have a trailing comma inserted even if
 /// there is none in the source.
-fn hasComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
+fn hasComment(tree: *const Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
     for (start_token..end_token) |i| {
         const token: Ast.TokenIndex = @intCast(i);
         const start = tree.tokenStart(token) + tree.tokenSlice(token).len;
@@ -2932,7 +2932,7 @@ fn hasComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex)
 
 /// Returns true if there exists a multiline string literal between the start
 /// of token `start_token` and the start of token `end_token`.
-fn hasMultilineString(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
+fn hasMultilineString(tree: *const Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
     return std.mem.indexOfScalar(
         Token.Tag,
         tree.tokens.items(.tag)[start_token..end_token],
@@ -3084,7 +3084,7 @@ fn renderContainerDocComments(r: *Render, start_token: Ast.TokenIndex) Error!voi
 }
 
 fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
-    const tree = &r.tree;
+    const tree = r.tree;
     const ais = r.ais;
     var buf: [1]Ast.Node.Index = undefined;
     const fn_proto = tree.fullFnProto(&buf, fn_proto_node).?;
@@ -3094,12 +3094,12 @@ fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
         assert(tree.tokenTag(name_ident) == .identifier);
         const w = ais.writer();
         try w.writeAll("_ = ");
-        try w.writeAll(tokenSliceForRender(r.tree, name_ident));
+        try w.writeAll(tokenSliceForRender(tree, name_ident));
         try w.writeAll(";\n");
     }
 }
 
-fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
+fn tokenSliceForRender(tree: *const Ast, token_index: Ast.TokenIndex) []const u8 {
     var ret = tree.tokenSlice(token_index);
     switch (tree.tokenTag(token_index)) {
         .container_doc_comment, .doc_comment => {
@@ -3110,7 +3110,7 @@ fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
     return ret;
 }
 
-fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
+fn hasSameLineComment(tree: *const Ast, token_index: Ast.TokenIndex) bool {
     const between_source = tree.source[tree.tokenStart(token_index)..tree.tokenStart(token_index + 1)];
     for (between_source) |byte| switch (byte) {
         '\n' => return false,
@@ -3122,7 +3122,7 @@ fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
 
 /// Returns `true` if and only if there are any tokens or line comments between
 /// start_token and end_token.
-fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
+fn anythingBetween(tree: *const Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
     if (start_token + 1 != end_token) return true;
     const between_source = tree.source[tree.tokenStart(start_token)..tree.tokenStart(start_token + 1)];
     for (between_source) |byte| switch (byte) {
@@ -3217,7 +3217,7 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
 }
 
 // Returns the number of nodes in `exprs` that are on the same line as `rtoken`.
-fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usize {
+fn rowSize(tree: *const Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usize {
     const first_token = tree.firstToken(exprs[0]);
     if (tree.tokensOnSameLine(first_token, rtoken)) {
         const maybe_comma = rtoken - 1;

@@ -1143,7 +1143,7 @@ pub const SrcLoc = struct {
             .node_offset_main_token => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                const main_token = tree.nodeMainToken(node);
+                const main_token = node.mainToken(tree);
                 return tree.tokensToSpan(main_token, main_token, main_token);
             },
             .node_offset_bin_op => |node_off| {
@@ -1157,20 +1157,20 @@ pub const SrcLoc = struct {
                 return tree.tokensToSpan(
                     tree.firstToken(node) - 3,
                     tree.lastToken(node),
-                    tree.nodeMainToken(node) - 2,
+                    node.mainToken(tree) - 2,
                 );
             },
             .node_offset_var_decl_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                const full = switch (tree.nodeTag(node)) {
+                const full = switch (node.tag(tree)) {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
                     .aligned_var_decl,
                     => tree.fullVarDecl(node).?,
                     .@"usingnamespace" => {
-                        return tree.nodeToSpan(tree.nodeData(node).node);
+                        return tree.nodeToSpan(node.data(tree).node);
                     },
                     else => unreachable,
                 };
@@ -1221,7 +1221,7 @@ pub const SrcLoc = struct {
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                const init_node = switch (tree.nodeTag(node)) {
+                const init_node = switch (node.tag(tree)) {
                     .global_var_decl,
                     .local_var_decl,
                     .aligned_var_decl,
@@ -1244,16 +1244,16 @@ pub const SrcLoc = struct {
 
                 var node = node_off.toAbsolute(src_loc.base_node);
                 while (true) {
-                    switch (tree.nodeTag(node)) {
+                    switch (node.tag(tree)) {
                         .builtin_call_two, .builtin_call_two_comma => {},
                         else => break,
                     }
 
-                    const first_arg, const second_arg = tree.nodeData(node).opt_node_and_opt_node;
+                    const first_arg, const second_arg = node.data(tree).opt_node_and_opt_node;
                     if (first_arg == .none) break; // 0 args
                     if (second_arg != .none) break; // 2 args
 
-                    const builtin_token = tree.nodeMainToken(node);
+                    const builtin_token = node.mainToken(tree);
                     const builtin_name = tree.tokenSlice(builtin_token);
                     const info = BuiltinFn.list.get(builtin_name) orelse break;
 
@@ -1275,7 +1275,7 @@ pub const SrcLoc = struct {
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
+                return tree.nodeToSpan(node.data(tree).node_and_node[1]);
             },
             .node_offset_slice_ptr,
             .node_offset_slice_start,
@@ -1305,8 +1305,8 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
-                const tok_index = switch (tree.nodeTag(node)) {
-                    .field_access => tree.nodeData(node).node_and_token[1],
+                const tok_index = switch (node.tag(tree)) {
+                    .field_access => node.data(tree).node_and_token[1],
                     .call_one,
                     .call_one_comma,
                     .async_call_one,
@@ -1349,13 +1349,13 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
-                return tree.nodeToSpan(tree.nodeData(asm_output).opt_node_and_token[0].unwrap().?);
+                return tree.nodeToSpan(asm_output.data(tree).opt_node_and_token[0].unwrap().?);
             },
 
             .node_offset_if_cond => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                const src_node = switch (tree.nodeTag(node)) {
+                const src_node = switch (node.tag(tree)) {
                     .if_simple,
                     .@"if",
                     => tree.fullIf(node).?.ast.cond_expr,
@@ -1433,9 +1433,9 @@ pub const SrcLoc = struct {
                 const node = call_arg.call_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const call_full = tree.fullCall(buf[0..1], node) orelse {
-                    assert(tree.nodeTag(node) == .builtin_call);
-                    const call_args_node: Ast.Node.Index = @enumFromInt(tree.extra_data[@intFromEnum(tree.nodeData(node).extra_range.end) - 1]);
-                    switch (tree.nodeTag(call_args_node)) {
+                    assert(node.tag(tree) == .builtin_call);
+                    const call_args_node: Ast.Node.Index = @enumFromInt(tree.extra_data[@intFromEnum(node.data(tree).extra_range.end) - 1]);
+                    switch (call_args_node.tag(tree)) {
                         .array_init_one,
                         .array_init_one_comma,
                         .array_init_dot_two,
@@ -1496,23 +1496,23 @@ pub const SrcLoc = struct {
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]);
+                return tree.nodeToSpan(node.data(tree).node_and_node[0]);
             },
             .node_offset_bin_rhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
+                return tree.nodeToSpan(node.data(tree).node_and_node[1]);
             },
             .array_cat_lhs, .array_cat_rhs => |cat| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = cat.array_cat_offset.toAbsolute(src_loc.base_node);
                 const arr_node = if (src_loc.lazy == .array_cat_lhs)
-                    tree.nodeData(node).node_and_node[0]
+                    node.data(tree).node_and_node[0]
                 else
-                    tree.nodeData(node).node_and_node[1];
+                    node.data(tree).node_and_node[1];
 
                 var buf: [2]Ast.Node.Index = undefined;
-                switch (tree.nodeTag(arr_node)) {
+                switch (arr_node.tag(tree)) {
                     .array_init_one,
                     .array_init_one_comma,
                     .array_init_dot_two,
@@ -1532,27 +1532,27 @@ pub const SrcLoc = struct {
             .node_offset_try_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(tree.nodeData(node).node);
+                return tree.nodeToSpan(node.data(tree).node);
             },
 
             .node_offset_switch_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                const condition, _ = tree.nodeData(node).node_and_extra;
+                const condition, _ = node.data(tree).node_and_extra;
                 return tree.nodeToSpan(condition);
             },
 
             .node_offset_switch_special_prong => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
-                _, const extra_index = tree.nodeData(switch_node).node_and_extra;
+                _, const extra_index = switch_node.data(tree).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
+                            case.ast.values[0].tag(tree) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(case.ast.values[0].mainToken(tree)), "_"));
                     if (!is_special) continue;
 
                     return tree.nodeToSpan(case_node);
@@ -1562,18 +1562,18 @@ pub const SrcLoc = struct {
             .node_offset_switch_range => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
-                _, const extra_index = tree.nodeData(switch_node).node_and_extra;
+                _, const extra_index = switch_node.data(tree).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = (case.ast.values.len == 0) or
                         (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
+                            case.ast.values[0].tag(tree) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(case.ast.values[0].mainToken(tree)), "_"));
                     if (is_special) continue;
 
                     for (case.ast.values) |item_node| {
-                        if (tree.nodeTag(item_node) == .switch_range) {
+                        if (item_node.tag(tree) == .switch_range) {
                             return tree.nodeToSpan(item_node);
                         }
                     }
@@ -1632,7 +1632,7 @@ pub const SrcLoc = struct {
             },
             .token_offset_param => |token_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const main_token = tree.nodeMainToken(src_loc.base_node);
+                const main_token = src_loc.base_node.mainToken(tree);
                 const tok_index = token_off.toAbsolute(main_token);
 
                 var first_tok = tok_index;
@@ -1650,7 +1650,7 @@ pub const SrcLoc = struct {
             .node_offset_anyframe_type => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
-                _, const child_type = tree.nodeData(parent_node).token_and_node;
+                _, const child_type = parent_node.data(tree).token_and_node;
                 return tree.nodeToSpan(child_type);
             },
 
@@ -1689,7 +1689,7 @@ pub const SrcLoc = struct {
             .node_offset_un_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(tree.nodeData(node).node);
+                return tree.nodeToSpan(node.data(tree).node);
             },
             .node_offset_ptr_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1737,7 +1737,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
-                switch (tree.nodeTag(parent_node)) {
+                switch (parent_node.tag(tree)) {
                     .container_decl_arg, .container_decl_arg_trailing => {
                         const full = tree.containerDeclArg(parent_node);
                         const arg_node = full.ast.arg.unwrap().?;
@@ -1750,7 +1750,7 @@ pub const SrcLoc = struct {
                         return tree.tokensToSpan(
                             tree.firstToken(arg_node) - 2,
                             tree.lastToken(arg_node) + 1,
-                            tree.nodeMainToken(arg_node),
+                            arg_node.mainToken(tree),
                         );
                     },
                     else => unreachable,
@@ -1760,7 +1760,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
-                const full: Ast.full.ContainerField = switch (tree.nodeTag(parent_node)) {
+                const full: Ast.full.ContainerField = switch (parent_node.tag(tree)) {
                     .container_field => tree.containerField(parent_node),
                     .container_field_init => tree.containerFieldInit(parent_node),
                     else => unreachable,
@@ -1782,7 +1782,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
 
-                switch (tree.nodeTag(node)) {
+                switch (node.tag(tree)) {
                     .assign,
                     .assign_mul,
                     .assign_div,
@@ -1801,7 +1801,7 @@ pub const SrcLoc = struct {
                     .assign_mul_sat,
                     .assign_add_sat,
                     .assign_sub_sat,
-                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]),
+                    => return tree.nodeToSpan(node.data(tree).node_and_node[0]),
                     else => return tree.nodeToSpan(node),
                 }
             },
@@ -1809,7 +1809,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
 
-                switch (tree.nodeTag(node)) {
+                switch (node.tag(tree)) {
                     .assign,
                     .assign_mul,
                     .assign_div,
@@ -1828,15 +1828,15 @@ pub const SrcLoc = struct {
                     .assign_mul_sat,
                     .assign_add_sat,
                     .assign_sub_sat,
-                    => return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]),
+                    => return tree.nodeToSpan(node.data(tree).node_and_node[1]),
                     else => return tree.nodeToSpan(node),
                 }
             },
             .node_offset_return_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                if (tree.nodeTag(node) == .@"return") {
-                    if (tree.nodeData(node).opt_node.unwrap()) |lhs| {
+                if (node.tag(tree) == .@"return") {
+                    if (node.data(tree).opt_node.unwrap()) |lhs| {
                         return tree.nodeToSpan(lhs);
                     }
                 }
@@ -1900,7 +1900,7 @@ pub const SrcLoc = struct {
                     return tree.tokensToSpan(
                         tree.firstToken(field_node) - 3,
                         tree.lastToken(field_node),
-                        tree.nodeMainToken(field_node) - 2,
+                        field_node.mainToken(tree) - 2,
                     );
                 } else unreachable;
             },
@@ -1944,7 +1944,7 @@ pub const SrcLoc = struct {
                         return tree.tokensToSpan(
                             name_token - 1,
                             tree.lastToken(field_node),
-                            tree.nodeMainToken(field_node) - 2,
+                            field_node.mainToken(tree) - 2,
                         );
                     }
                 }
@@ -1969,7 +1969,7 @@ pub const SrcLoc = struct {
 
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const switch_node = switch_node_offset.toAbsolute(src_loc.base_node);
-                _, const extra_index = tree.nodeData(switch_node).node_and_extra;
+                _, const extra_index = switch_node.data(tree).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
 
                 var multi_i: u32 = 0;
@@ -1978,8 +1978,8 @@ pub const SrcLoc = struct {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = special: {
                         if (case.ast.values.len == 0) break :special true;
-                        if (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) == .identifier) {
-                            break :special mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_");
+                        if (case.ast.values.len == 1 and case.ast.values[0].tag(tree) == .identifier) {
+                            break :special mem.eql(u8, tree.tokenSlice(case.ast.values[0].mainToken(tree)), "_");
                         }
                         break :special false;
                     };
@@ -1991,7 +1991,7 @@ pub const SrcLoc = struct {
                     }
 
                     const is_multi = case.ast.values.len != 1 or
-                        tree.nodeTag(case.ast.values[0]) == .switch_range;
+                        case.ast.values[0].tag(tree) == .switch_range;
 
                     switch (want_case_idx.kind) {
                         .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
@@ -2034,7 +2034,7 @@ pub const SrcLoc = struct {
                     .single => {
                         var item_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) == .switch_range) continue;
+                            if (item_node.tag(tree) == .switch_range) continue;
                             if (item_i != want_item.index) {
                                 item_i += 1;
                                 continue;
@@ -2045,12 +2045,12 @@ pub const SrcLoc = struct {
                     .range => {
                         var range_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) != .switch_range) continue;
+                            if (item_node.tag(tree) != .switch_range) continue;
                             if (range_i != want_item.index) {
                                 range_i += 1;
                                 continue;
                             }
-                            const first, const last = tree.nodeData(item_node).node_and_node;
+                            const first, const last = item_node.data(tree).node_and_node;
                             return switch (src_loc.lazy) {
                                 .switch_case_item => tree.nodeToSpan(item_node),
                                 .switch_case_item_range_first => tree.nodeToSpan(first),

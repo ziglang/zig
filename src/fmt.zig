@@ -106,28 +106,28 @@ pub fn run(
 
         if (check_ast_flag) {
             if (!force_zon) {
-                var zir = try std.zig.AstGen.generate(gpa, tree);
+                var zir = try std.zig.AstGen.generate(gpa, &tree);
                 defer zir.deinit(gpa);
 
                 if (zir.hasCompileErrors()) {
                     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
                     try wip_errors.init(gpa);
                     defer wip_errors.deinit();
-                    try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
+                    try wip_errors.addZirErrorMessages(zir, &tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
                     error_bundle.renderToStdErr(color.renderOptions());
                     process.exit(2);
                 }
             } else {
-                const zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
+                const zoir = try std.zig.ZonGen.generate(gpa, &tree, .{});
                 defer zoir.deinit(gpa);
 
                 if (zoir.hasCompileErrors()) {
                     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
                     try wip_errors.init(gpa);
                     defer wip_errors.deinit();
-                    try wip_errors.addZoirErrorMessages(zoir, tree, source_code, "<stdin>");
+                    try wip_errors.addZoirErrorMessages(zoir, &tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
                     error_bundle.renderToStdErr(color.renderOptions());

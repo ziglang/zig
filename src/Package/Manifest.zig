@@ -58,7 +58,7 @@ pub const ParseOptions = struct {
 pub const Error = Allocator.Error;
 
 pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
-    const main_node_index = ast.nodeData(.root).node;
+    const main_node_index = Ast.Node.Index.root.data(&ast).node;
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_instance.deinit();
@@ -158,8 +158,8 @@ const Parse = struct {
     const InnerError = error{ ParseFailure, OutOfMemory };
 
     fn parseRoot(p: *Parse, node: Ast.Node.Index) !void {
-        const ast = p.ast;
-        const main_token = ast.nodeMainToken(node);
+        const ast = &p.ast;
+        const main_token = node.mainToken(ast);
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
@@ -192,17 +192,17 @@ const Parse = struct {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
                 if (version_text.len > max_version_len) {
-                    try appendError(p, ast.nodeMainToken(field_init), "version string length {d} exceeds maximum of {d}", .{ version_text.len, max_version_len });
+                    try appendError(p, field_init.mainToken(ast), "version string length {d} exceeds maximum of {d}", .{ version_text.len, max_version_len });
                 }
                 p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
-                    try appendError(p, ast.nodeMainToken(field_init), "unable to parse semantic version: {s}", .{@errorName(err)});
+                    try appendError(p, field_init.mainToken(ast), "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v undefined;
                 };
                 have_version = true;
             } else if (mem.eql(u8, field_name, "minimum_zig_version")) {
                 const version_text = try parseString(p, field_init);
                 p.minimum_zig_version = std.SemanticVersion.parse(version_text) catch |err| v: {
-                    try appendError(p, ast.nodeMainToken(field_init), "unable to parse semantic version: {s}", .{@errorName(err)});
+                    try appendError(p, field_init.mainToken(ast), "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
             } else {
@@ -244,11 +244,11 @@ const Parse = struct {
     }
 
     fn parseDependencies(p: *Parse, node: Ast.Node.Index) !void {
-        const ast = p.ast;
+        const ast = &p.ast;
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
-            const tok = ast.nodeMainToken(node);
+            const tok = node.mainToken(ast);
             return fail(p, tok, "expected dependencies expression to be a struct", .{});
         };
 
@@ -261,11 +261,11 @@ const Parse = struct {
     }
 
     fn parseDependency(p: *Parse, node: Ast.Node.Index) !Dependency {
-        const ast = p.ast;
+        const ast = &p.ast;
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
-            const tok = ast.nodeMainToken(node);
+            const tok = node.mainToken(ast);
             return fail(p, tok, "expected dependency expression to be a struct", .{});
         };
 
@@ -291,7 +291,7 @@ const Parse = struct {
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "url")) {
                 if (has_location) {
-                    return fail(p, ast.nodeMainToken(field_init), "dependency should specify only one of 'url' and 'path' fields.", .{});
+                    return fail(p, field_init.mainToken(ast), "dependency should specify only one of 'url' and 'path' fields.", .{});
                 }
                 dep.location = .{
                     .url = parseString(p, field_init) catch |err| switch (err) {
@@ -300,11 +300,11 @@ const Parse = struct {
                     },
                 };
                 has_location = true;
-                dep.location_tok = ast.nodeMainToken(field_init);
+                dep.location_tok = field_init.mainToken(ast);
                 dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "path")) {
                 if (has_location) {
-                    return fail(p, ast.nodeMainToken(field_init), "dependency should specify only one of 'url' and 'path' fields.", .{});
+                    return fail(p, field_init.mainToken(ast), "dependency should specify only one of 'url' and 'path' fields.", .{});
                 }
                 dep.location = .{
                     .path = parseString(p, field_init) catch |err| switch (err) {
@@ -313,14 +313,14 @@ const Parse = struct {
                     },
                 };
                 has_location = true;
-                dep.location_tok = ast.nodeMainToken(field_init);
+                dep.location_tok = field_init.mainToken(ast);
                 dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
-                dep.hash_tok = .fromToken(ast.nodeMainToken(field_init));
+                dep.hash_tok = .fromToken(field_init.mainToken(ast));
                 dep.hash_node = field_init.toOptional();
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
@@ -334,18 +334,18 @@ const Parse = struct {
         }
 
         if (!has_location) {
-            try appendError(p, ast.nodeMainToken(node), "dependency requires location field, one of 'url' or 'path'.", .{});
+            try appendError(p, node.mainToken(ast), "dependency requires location field, one of 'url' or 'path'.", .{});
         }
 
         return dep;
     }
 
     fn parseIncludedPaths(p: *Parse, node: Ast.Node.Index) !void {
-        const ast = p.ast;
+        const ast = &p.ast;
 
         var buf: [2]Ast.Node.Index = undefined;
         const array_init = ast.fullArrayInit(&buf, node) orelse {
-            const tok = ast.nodeMainToken(node);
+            const tok = node.mainToken(ast);
             return fail(p, tok, "expected paths expression to be a list of strings", .{});
         };
 
@@ -359,11 +359,11 @@ const Parse = struct {
     }
 
     fn parseBool(p: *Parse, node: Ast.Node.Index) !bool {
-        const ast = p.ast;
-        if (ast.nodeTag(node) != .identifier) {
-            return fail(p, ast.nodeMainToken(node), "expected identifier", .{});
+        const ast = &p.ast;
+        if (node.tag(ast) != .identifier) {
+            return fail(p, node.mainToken(ast), "expected identifier", .{});
         }
-        const ident_token = ast.nodeMainToken(node);
+        const ident_token = node.mainToken(ast);
         const token_bytes = ast.tokenSlice(ident_token);
         if (mem.eql(u8, token_bytes, "true")) {
             return true;
@@ -375,9 +375,9 @@ const Parse = struct {
     }
 
     fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Package.Fingerprint {
-        const ast = p.ast;
-        const main_token = ast.nodeMainToken(node);
-        if (ast.nodeTag(node) != .number_literal) {
+        const ast = &p.ast;
+        const main_token = node.mainToken(ast);
+        if (node.tag(ast) != .number_literal) {
             return fail(p, main_token, "expected integer literal", .{});
         }
         const token_bytes = ast.tokenSlice(main_token);
@@ -392,10 +392,10 @@ const Parse = struct {
     }
 
     fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        const main_token = ast.nodeMainToken(node);
+        const ast = &p.ast;
+        const main_token = node.mainToken(ast);
 
-        if (p.allow_name_string and ast.nodeTag(node) == .string_literal) {
+        if (p.allow_name_string and node.tag(ast) == .string_literal) {
             const name = try parseString(p, node);
             if (!std.zig.isValidId(name))
                 return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
@@ -408,7 +408,7 @@ const Parse = struct {
             return name;
         }
 
-        if (ast.nodeTag(node) != .enum_literal)
+        if (node.tag(ast) != .enum_literal)
             return fail(p, main_token, "expected enum literal", .{});
 
         const ident_name = ast.tokenSlice(main_token);
@@ -424,11 +424,11 @@ const Parse = struct {
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        if (ast.nodeTag(node) != .string_literal) {
-            return fail(p, ast.nodeMainToken(node), "expected string literal", .{});
+        const ast = &p.ast;
+        if (node.tag(ast) != .string_literal) {
+            return fail(p, node.mainToken(ast), "expected string literal", .{});
         }
-        const str_lit_token = ast.nodeMainToken(node);
+        const str_lit_token = node.mainToken(ast);
         const token_bytes = ast.tokenSlice(str_lit_token);
         p.buf.clearRetainingCapacity();
         try parseStrLit(p, str_lit_token, &p.buf, token_bytes, 0);
@@ -437,8 +437,8 @@ const Parse = struct {
     }
 
     fn parseHash(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        const tok = ast.nodeMainToken(node);
+        const ast = &p.ast;
+        const tok = node.mainToken(ast);
         const h = try parseString(p, node);
 
         if (h.len > Package.Hash.max_len) {
@@ -450,7 +450,7 @@ const Parse = struct {
 
     /// TODO: try to DRY this with AstGen.identifierTokenString
     fn identifierTokenString(p: *Parse, token: Ast.TokenIndex) InnerError![]const u8 {
-        const ast = p.ast;
+        const ast = &p.ast;
         assert(ast.tokenTag(token) == .identifier);
         const ident_name = ast.tokenSlice(token);
         if (!mem.startsWith(u8, ident_name, "@")) {

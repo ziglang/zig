@@ -17298,7 +17298,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                     break :name null;
                 };
                 const node = src_node.toAbsolute(src_base_node);
-                const token = tree.nodeMainToken(node);
+                const token = node.mainToken(tree);
                 break :name tree.tokenSlice(token);
             };
 
@@ -17326,7 +17326,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                     break :name null;
                 };
                 const node = src_node.toAbsolute(src_base_node);
-                const token = tree.nodeMainToken(node);
+                const token = node.mainToken(tree);
                 break :name tree.tokenSlice(token);
             };
 

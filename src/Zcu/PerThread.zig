@@ -261,7 +261,7 @@ pub fn updateFile(
                 };
             },
             .zon => {
-                file.zoir = try ZonGen.generate(gpa, file.tree.?, .{});
+                file.zoir = try ZonGen.generate(gpa, &file.tree.?, .{});
                 Zcu.saveZoirCache(cache_file, stat, file.zoir.?) catch |err| {
                     log.warn("unable to write cached ZOIR code for {}{s} to {}{s}: {s}", .{
                         file.mod.root, file.sub_file_path, cache_directory, &hex_digest, @errorName(err),

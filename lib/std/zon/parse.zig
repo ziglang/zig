@@ -198,7 +198,7 @@ pub const Error = union(enum) {
             return location;
         } else {
             const ast_node: Ast.Node.Index = @enumFromInt(node_or_offset);
-            const token = ast.nodeMainToken(ast_node);
+            const token = ast_node.mainToken(ast);
             return ast.tokenLocation(0, token);
         }
     }
@@ -644,7 +644,7 @@ const Parser = struct {
         switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
             .success => {},
             .failure => |err| {
-                const token = self.ast.nodeMainToken(ast_node);
+                const token = ast_node.mainToken(self.ast);
                 const raw_string = self.ast.tokenSlice(token);
                 return self.failTokenFmt(token, @intCast(err.offset()), "{s}", .{err.fmt(raw_string)});
             },
@@ -1017,7 +1017,7 @@ const Parser = struct {
         args: anytype,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
-        const token = self.ast.nodeMainToken(node.getAstNode(self.zoir));
+        const token = node.getAstNode(self.zoir).mainToken(self.ast);
         return self.failTokenFmt(token, 0, fmt, args);
     }
 
@@ -1036,7 +1036,7 @@ const Parser = struct {
         message: []const u8,
     ) error{ParseZon} {
         @branchHint(.cold);
-        const token = self.ast.nodeMainToken(node.getAstNode(self.zoir));
+        const token = node.getAstNode(self.zoir).mainToken(self.ast);
         return self.failToken(.{
             .token = token,
             .offset = 0,
@@ -1069,7 +1069,7 @@ const Parser = struct {
             const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
             const field_node = struct_init.ast.fields[f];
             break :b self.ast.firstToken(field_node) - 2;
-        } else self.ast.nodeMainToken(node.getAstNode(self.zoir));
+        } else node.getAstNode(self.zoir).mainToken(self.ast);
         switch (@typeInfo(T)) {
             inline .@"struct", .@"union", .@"enum" => |info| {
                 const note: Error.TypeCheckFailure.Note = if (info.fields.len == 0) b: {

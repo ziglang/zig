@@ -61,11 +61,11 @@ const Block = struct {
     consumes_res_ptr: bool,
 };
 
-pub fn annotate(gpa: Allocator, arena: Allocator, tree: Ast) Allocator.Error!RlNeededSet {
+pub fn annotate(gpa: Allocator, arena: Allocator, tree: *const Ast) Allocator.Error!RlNeededSet {
     var astrl: AstRlAnnotate = .{
         .gpa = gpa,
         .arena = arena,
-        .tree = &tree,
+        .tree = tree,
     };
     defer astrl.deinit(gpa);
 
@@ -129,7 +129,7 @@ fn containerDecl(
 /// Returns true if `rl` provides a result pointer and the expression consumes it.
 fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultInfo) Allocator.Error!bool {
     const tree = astrl.tree;
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .root,
         .switch_case_one,
         .switch_case_inline_one,
@@ -142,11 +142,11 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => unreachable,
 
         .@"errdefer" => {
-            _ = try astrl.expr(tree.nodeData(node).opt_token_and_node[1], block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).opt_token_and_node[1], block, ResultInfo.none);
             return false;
         },
         .@"defer" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
 
@@ -166,11 +166,11 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .@"usingnamespace" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.type_only);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.type_only);
             return false;
         },
         .test_decl => {
-            _ = try astrl.expr(tree.nodeData(node).opt_token_and_node[1], block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).opt_token_and_node[1], block, ResultInfo.none);
             return false;
         },
         .global_var_decl,
@@ -214,7 +214,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .assign => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.typed_ptr);
             return false;
@@ -237,13 +237,13 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .assign_mul_wrap,
         .assign_mul_sat,
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.none);
             return false;
         },
         .shl, .shr => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.type_only);
             return false;
@@ -271,20 +271,20 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .less_or_equal,
         .array_cat,
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.none);
             return false;
         },
 
         .array_mult => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.type_only);
             return false;
         },
         .error_union, .merge_error_sets => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.none);
             return false;
@@ -292,17 +292,17 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .bool_and,
         .bool_or,
         => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.type_only);
             _ = try astrl.expr(rhs, block, ResultInfo.type_only);
             return false;
         },
         .bool_not => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.type_only);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.type_only);
             return false;
         },
         .bit_not, .negation, .negation_wrap => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
 
@@ -347,7 +347,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             for (full.ast.params) |param_node| {
                 _ = try astrl.expr(param_node, block, ResultInfo.type_only);
             }
-            return switch (tree.nodeTag(node)) {
+            return switch (node.tag(tree)) {
                 .call_one,
                 .call_one_comma,
                 .call,
@@ -363,7 +363,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         },
 
         .@"return" => {
-            if (tree.nodeData(node).opt_node.unwrap()) |lhs| {
+            if (node.data(tree).opt_node.unwrap()) |lhs| {
                 const ret_val_consumes_rl = try astrl.expr(lhs, block, ResultInfo.typed_ptr);
                 if (ret_val_consumes_rl) {
                     try astrl.nodes_need_rl.putNoClobber(astrl.gpa, node, {});
@@ -373,7 +373,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         },
 
         .field_access => {
-            const lhs, _ = tree.nodeData(node).node_and_token;
+            const lhs, _ = node.data(tree).node_and_token;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             return false;
         },
@@ -436,8 +436,8 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 break :label try astrl.identString(label_token);
             } else null;
             for (full.ast.inputs) |input| {
-                if (tree.nodeTag(input) == .for_range) {
-                    const lhs, const opt_rhs = tree.nodeData(input).node_and_opt_node;
+                if (input.tag(tree) == .for_range) {
+                    const lhs, const opt_rhs = input.data(tree).node_and_opt_node;
                     _ = try astrl.expr(lhs, block, ResultInfo.type_only);
                     if (opt_rhs.unwrap()) |rhs| {
                         _ = try astrl.expr(rhs, block, ResultInfo.type_only);
@@ -466,13 +466,13 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         },
 
         .slice_open => {
-            const sliced, const start = tree.nodeData(node).node_and_node;
+            const sliced, const start = node.data(tree).node_and_node;
             _ = try astrl.expr(sliced, block, ResultInfo.none);
             _ = try astrl.expr(start, block, ResultInfo.type_only);
             return false;
         },
         .slice => {
-            const sliced, const extra_index = tree.nodeData(node).node_and_extra;
+            const sliced, const extra_index = node.data(tree).node_and_extra;
             const extra = tree.extraData(extra_index, Ast.Node.Slice);
             _ = try astrl.expr(sliced, block, ResultInfo.none);
             _ = try astrl.expr(extra.start, block, ResultInfo.type_only);
@@ -480,7 +480,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .slice_sentinel => {
-            const sliced, const extra_index = tree.nodeData(node).node_and_extra;
+            const sliced, const extra_index = node.data(tree).node_and_extra;
             const extra = tree.extraData(extra_index, Ast.Node.SliceSentinel);
             _ = try astrl.expr(sliced, block, ResultInfo.none);
             _ = try astrl.expr(extra.start, block, ResultInfo.type_only);
@@ -491,24 +491,24 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .deref => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
         .address_of => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
         .optional_type => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.type_only);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.type_only);
             return false;
         },
         .@"try",
         .@"await",
         .@"nosuspend",
-        => return astrl.expr(tree.nodeData(node).node, block, ri),
+        => return astrl.expr(node.data(tree).node, block, ri),
         .grouped_expression,
         .unwrap_optional,
-        => return astrl.expr(tree.nodeData(node).node_and_token[0], block, ri),
+        => return astrl.expr(node.data(tree).node_and_token[0], block, ri),
 
         .block_two,
         .block_two_semicolon,
@@ -520,12 +520,12 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return astrl.blockExpr(block, ri, node, statements);
         },
         .anyframe_type => {
-            _, const child_type = tree.nodeData(node).token_and_node;
+            _, const child_type = node.data(tree).token_and_node;
             _ = try astrl.expr(child_type, block, ResultInfo.type_only);
             return false;
         },
         .@"catch", .@"orelse" => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             const rhs_consumes_rl = try astrl.expr(rhs, block, ri);
             if (rhs_consumes_rl) {
@@ -577,7 +577,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         },
 
         .@"break" => {
-            const opt_label, const opt_rhs = tree.nodeData(node).opt_token_and_opt_node;
+            const opt_label, const opt_rhs = node.data(tree).opt_token_and_opt_node;
             const rhs = opt_rhs.unwrap() orelse {
                 // Breaks with void are not interesting
                 return false;
@@ -609,13 +609,13 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         },
 
         .array_type => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.type_only);
             _ = try astrl.expr(rhs, block, ResultInfo.type_only);
             return false;
         },
         .array_type_sentinel => {
-            const len_expr, const extra_index = tree.nodeData(node).node_and_extra;
+            const len_expr, const extra_index = node.data(tree).node_and_extra;
             const extra = tree.extraData(extra_index, Ast.Node.ArrayTypeSentinel);
             _ = try astrl.expr(len_expr, block, ResultInfo.type_only);
             _ = try astrl.expr(extra.elem_type, block, ResultInfo.type_only);
@@ -623,7 +623,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .array_access => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lhs, const rhs = node.data(tree).node_and_node;
             _ = try astrl.expr(lhs, block, ResultInfo.none);
             _ = try astrl.expr(rhs, block, ResultInfo.type_only);
             return false;
@@ -631,11 +631,11 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .@"comptime" => {
             // AstGen will emit an error if the scope is already comptime, so we can assume it is
             // not. This means the result location is not forwarded.
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
         .@"switch", .switch_comma => {
-            const operand_node, const extra_index = tree.nodeData(node).node_and_extra;
+            const operand_node, const extra_index = node.data(tree).node_and_extra;
             const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
 
             _ = try astrl.expr(operand_node, block, ResultInfo.none);
@@ -644,8 +644,8 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             for (case_nodes) |case_node| {
                 const case = tree.fullSwitchCase(case_node).?;
                 for (case.ast.values) |item_node| {
-                    if (tree.nodeTag(item_node) == .switch_range) {
-                        const lhs, const rhs = tree.nodeData(item_node).node_and_node;
+                    if (item_node.tag(tree) == .switch_range) {
+                        const lhs, const rhs = item_node.data(tree).node_and_node;
                         _ = try astrl.expr(lhs, block, ResultInfo.none);
                         _ = try astrl.expr(rhs, block, ResultInfo.none);
                     } else {
@@ -662,11 +662,11 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return any_prong_consumed_rl;
         },
         .@"suspend" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
         .@"resume" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.none);
+            _ = try astrl.expr(node.data(tree).node, block, ResultInfo.none);
             return false;
         },
 
@@ -752,7 +752,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => |tag| {
             var buf: [1]Ast.Node.Index = undefined;
             const full = tree.fullFnProto(&buf, node).?;
-            const body_node = if (tag == .fn_decl) tree.nodeData(node).node_and_node[1].toOptional() else .none;
+            const body_node = if (tag == .fn_decl) node.data(tree).node_and_node[1].toOptional() else .none;
             {
                 var it = full.iterate(tree);
                 while (it.next()) |param| {
@@ -800,7 +800,7 @@ fn identString(astrl: *AstRlAnnotate, token: Ast.TokenIndex) ![]const u8 {
 fn blockExpr(astrl: *AstRlAnnotate, parent_block: ?*Block, ri: ResultInfo, node: Ast.Node.Index, statements: []const Ast.Node.Index) !bool {
     const tree = astrl.tree;
 
-    const lbrace = tree.nodeMainToken(node);
+    const lbrace = node.mainToken(tree);
     if (tree.isTokenPrecededByTags(lbrace, &.{ .identifier, .colon })) {
         // Labeled block
         var new_block: Block = .{
@@ -830,7 +830,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
     _ = ri; // Currently, no builtin consumes its result location.
 
     const tree = astrl.tree;
-    const builtin_token = tree.nodeMainToken(node);
+    const builtin_token = node.mainToken(tree);
     const builtin_name = tree.tokenSlice(builtin_token);
     const info = BuiltinFn.list.get(builtin_name) orelse return false;
     if (info.param_count) |expected| {

@@ -141,7 +141,7 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
     astgen.extra.appendSliceAssumeCapacity(@ptrCast(refs));
 }
 
-pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
+pub fn generate(gpa: Allocator, tree: *const Ast) Allocator.Error!Zir {
     assert(tree.mode == .zig);
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -153,7 +153,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     var astgen: AstGen = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .tree = &tree,
+        .tree = tree,
         .nodes_need_rl = &nodes_need_rl,
         .src_hasher = undefined, // `structDeclInner` for the root struct will set this
     };
@@ -440,7 +440,7 @@ fn reachableExprComptime(
 fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .root => unreachable,
         .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
@@ -608,7 +608,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .builtin_call_two,
         .builtin_call_two_comma,
         => {
-            const builtin_token = tree.nodeMainToken(node);
+            const builtin_token = node.mainToken(tree);
             const builtin_name = tree.tokenSlice(builtin_token);
             // If the builtin is an invalid name, we don't cause an error here; instead
             // let it pass, and the error will be "invalid builtin function" later.
@@ -646,7 +646,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         gz.anon_name_strategy = .anon;
     }
 
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .root => unreachable, // Top-level declaration.
         .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
@@ -756,8 +756,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
 
         // zig fmt: off
-        .shl => return shiftOp(gz, scope, ri, node, tree.nodeData(node).node_and_node[0], tree.nodeData(node).node_and_node[1], .shl),
-        .shr => return shiftOp(gz, scope, ri, node, tree.nodeData(node).node_and_node[0], tree.nodeData(node).node_and_node[1], .shr),
+        .shl => return shiftOp(gz, scope, ri, node, node.data(tree).node_and_node[0], node.data(tree).node_and_node[1], .shl),
+        .shr => return shiftOp(gz, scope, ri, node, node.data(tree).node_and_node[0], node.data(tree).node_and_node[1], .shr),
 
         .add      => return simpleBinOp(gz, scope, ri, node, .add),
         .add_wrap => return simpleBinOp(gz, scope, ri, node, .addwrap),
@@ -787,7 +787,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             // This syntax form does not currently use the result type in the language specification.
             // However, the result type can be used to emit more optimal code for large multiplications by
             // having Sema perform a coercion before the multiplication operation.
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = node.data(tree).node_and_node;
             const result = try gz.addPlNode(.array_mul, node, Zir.Inst.ArrayMul{
                 .res_ty = if (try ri.rl.resultType(gz, node)) |t| t else .none,
                 .lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node),
@@ -802,7 +802,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 .merge_error_sets => .merge_error_sets,
                 else => unreachable,
             };
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = node.data(tree).node_and_node;
             const lhs = try reachableTypeExpr(gz, scope, lhs_node, node);
             const rhs = try reachableTypeExpr(gz, scope, rhs_node, node);
             const result = try gz.addPlNode(inst_tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
@@ -812,11 +812,11 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .bool_and => return boolBinOp(gz, scope, ri, node, .bool_br_and),
         .bool_or  => return boolBinOp(gz, scope, ri, node, .bool_br_or),
 
-        .bool_not => return simpleUnOp(gz, scope, ri, node, coerced_bool_ri, tree.nodeData(node).node, .bool_not),
-        .bit_not  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, tree.nodeData(node).node, .bit_not),
+        .bool_not => return simpleUnOp(gz, scope, ri, node, coerced_bool_ri, node.data(tree).node, .bool_not),
+        .bit_not  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, node.data(tree).node, .bit_not),
 
         .negation      => return   negation(gz, scope, ri, node),
-        .negation_wrap => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, tree.nodeData(node).node, .negate_wrap),
+        .negation_wrap => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, node.data(tree).node, .negate_wrap),
 
         .identifier => return identifier(gz, scope, ri, node, null),
 
@@ -875,8 +875,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 const else_node = if_full.ast.else_expr.unwrap() orelse break :no_switch_on_err;
                 const full_switch = tree.fullSwitch(else_node) orelse break :no_switch_on_err;
                 if (full_switch.label_token != null) break :no_switch_on_err;
-                if (tree.nodeTag(full_switch.ast.condition) != .identifier) break :no_switch_on_err;
-                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(tree.nodeMainToken(full_switch.ast.condition)))) break :no_switch_on_err;
+                if (full_switch.ast.condition.tag(tree) != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(full_switch.ast.condition.mainToken(tree)))) break :no_switch_on_err;
                 return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
             }
             return ifExpr(gz, scope, ri.br(), node, if_full);
@@ -895,7 +895,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         => {
             const full = tree.fullSlice(node).?;
             if (full.ast.end != .none and
-                tree.nodeTag(full.ast.sliced) == .slice_open and
+                full.ast.sliced.tag(tree) == .slice_open and
                 nodeIsTriviallyZero(tree, full.ast.start))
             {
                 const lhs_extra = tree.sliceOpen(full.ast.sliced).ast;
@@ -950,7 +950,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
 
         .deref => {
-            const lhs = try expr(gz, scope, .{ .rl = .none }, tree.nodeData(node).node);
+            const lhs = try expr(gz, scope, .{ .rl = .none }, node.data(tree).node);
             _ = try gz.addUnNode(.validate_deref, lhs, node);
             switch (ri.rl) {
                 .ref, .ref_coerced_ty => return lhs,
@@ -965,17 +965,17 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 _ = try gz.addUnTok(.validate_ref_ty, res_ty_inst, tree.firstToken(node));
                 break :rl .{ .ref_coerced_ty = res_ty_inst };
             } else .ref;
-            const result = try expr(gz, scope, .{ .rl = operand_rl }, tree.nodeData(node).node);
+            const result = try expr(gz, scope, .{ .rl = operand_rl }, node.data(tree).node);
             return rvalue(gz, ri, result, node);
         },
         .optional_type => {
-            const operand = try typeExpr(gz, scope, tree.nodeData(node).node);
+            const operand = try typeExpr(gz, scope, node.data(tree).node);
             const result = try gz.addUnNode(.optional_type, operand, node);
             return rvalue(gz, ri, result, node);
         },
         .unwrap_optional => switch (ri.rl) {
             .ref, .ref_coerced_ty => {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, tree.nodeData(node).node_and_token[0]);
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node.data(tree).node_and_token[0]);
 
                 const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
                 try emitDbgStmt(gz, cursor);
@@ -983,7 +983,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 return gz.addUnNode(.optional_payload_safe_ptr, lhs, node);
             },
             else => {
-                const lhs = try expr(gz, scope, .{ .rl = .none }, tree.nodeData(node).node_and_token[0]);
+                const lhs = try expr(gz, scope, .{ .rl = .none }, node.data(tree).node_and_token[0]);
 
                 const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
                 try emitDbgStmt(gz, cursor);
@@ -1001,7 +1001,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return blockExpr(gz, scope, ri, node, statements, .normal);
         },
         .enum_literal => if (try ri.rl.resultType(gz, node)) |res_ty| {
-            const str_index = try astgen.identAsString(tree.nodeMainToken(node));
+            const str_index = try astgen.identAsString(node.mainToken(tree));
             const res = try gz.addPlNode(.decl_literal, node, Zir.Inst.Field{
                 .lhs = res_ty,
                 .field_name_start = str_index,
@@ -1011,8 +1011,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 .ty, .coerced_ty => return res, // `decl_literal` does the coercion for us
                 .ref_coerced_ty, .ptr, .inferred_ptr, .destructure => return rvalue(gz, ri, res, node),
             }
-        } else return simpleStrTok(gz, ri, tree.nodeMainToken(node), node, .enum_literal),
-        .error_value => return simpleStrTok(gz, ri, tree.nodeMainToken(node) + 2, node, .error_value),
+        } else return simpleStrTok(gz, ri, node.mainToken(tree), node, .enum_literal),
+        .error_value => return simpleStrTok(gz, ri, node.mainToken(tree) + 2, node, .error_value),
         // TODO restore this when implementing https://github.com/ziglang/zig/issues/6025
         // .anyframe_literal => return rvalue(gz, ri, .anyframe_type, node),
         .anyframe_literal => {
@@ -1020,22 +1020,22 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .anyframe_type => {
-            const return_type = try typeExpr(gz, scope, tree.nodeData(node).token_and_node[1]);
+            const return_type = try typeExpr(gz, scope, node.data(tree).token_and_node[1]);
             const result = try gz.addUnNode(.anyframe_type, return_type, node);
             return rvalue(gz, ri, result, node);
         },
         .@"catch" => {
-            const catch_token = tree.nodeMainToken(node);
+            const catch_token = node.mainToken(tree);
             const payload_token: ?Ast.TokenIndex = if (tree.tokenTag(catch_token + 1) == .pipe)
                 catch_token + 2
             else
                 null;
             no_switch_on_err: {
                 const capture_token = payload_token orelse break :no_switch_on_err;
-                const full_switch = tree.fullSwitch(tree.nodeData(node).node_and_node[1]) orelse break :no_switch_on_err;
+                const full_switch = tree.fullSwitch(node.data(tree).node_and_node[1]) orelse break :no_switch_on_err;
                 if (full_switch.label_token != null) break :no_switch_on_err;
-                if (tree.nodeTag(full_switch.ast.condition) != .identifier) break :no_switch_on_err;
-                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(tree.nodeMainToken(full_switch.ast.condition)))) break :no_switch_on_err;
+                if (full_switch.ast.condition.tag(tree) != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(full_switch.ast.condition.mainToken(tree)))) break :no_switch_on_err;
                 return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
             }
             switch (ri.rl) {
@@ -1109,7 +1109,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .@"break" => return breakExpr(gz, scope, node),
         .@"continue" => return continueExpr(gz, scope, node),
-        .grouped_expression => return expr(gz, scope, ri, tree.nodeData(node).node_and_token[0]),
+        .grouped_expression => return expr(gz, scope, ri, node.data(tree).node_and_token[0]),
         .array_type => return arrayType(gz, scope, ri, node),
         .array_type_sentinel => return arrayTypeSentinel(gz, scope, ri, node),
         .char_literal => return charLiteral(gz, ri, node),
@@ -1123,7 +1123,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"await" => return awaitExpr(gz, scope, ri, node),
         .@"resume" => return resumeExpr(gz, scope, ri, node),
 
-        .@"try" => return tryExpr(gz, scope, ri, node, tree.nodeData(node).node),
+        .@"try" => return tryExpr(gz, scope, ri, node, node.data(tree).node),
 
         .array_init_one,
         .array_init_one_comma,
@@ -1170,7 +1170,7 @@ fn nosuspendExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const body_node = tree.nodeData(node).node;
+    const body_node = node.data(tree).node;
     if (gz.nosuspend_node.unwrap()) |nosuspend_node| {
         try astgen.appendErrorNodeNotes(node, "redundant nosuspend block", .{}, &[_]u32{
             try astgen.errNoteNode(nosuspend_node, "other nosuspend block here", .{}),
@@ -1189,7 +1189,7 @@ fn suspendExpr(
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
-    const body_node = tree.nodeData(node).node;
+    const body_node = node.data(tree).node;
 
     if (gz.nosuspend_node.unwrap()) |nosuspend_node| {
         return astgen.failNodeNotes(node, "suspend inside nosuspend block", .{}, &[_]u32{
@@ -1226,7 +1226,7 @@ fn awaitExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const rhs_node = tree.nodeData(node).node;
+    const rhs_node = node.data(tree).node;
 
     if (gz.suspend_node.unwrap()) |suspend_node| {
         return astgen.failNodeNotes(node, "cannot await inside suspend block", .{}, &[_]u32{
@@ -1253,7 +1253,7 @@ fn resumeExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const rhs_node = tree.nodeData(node).node;
+    const rhs_node = node.data(tree).node;
     const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
     const result = try gz.addUnNode(.@"resume", operand, node);
     return rvalue(gz, ri, result, node);
@@ -1363,7 +1363,7 @@ fn fnProtoExprInner(
                 const param_type = try fullBodyExpr(&param_gz, scope, coerced_type_ri, param_type_node, .normal);
                 const param_inst_expected: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
-                const name_token = param.name_token orelse tree.nodeMainToken(param_type_node);
+                const name_token = param.name_token orelse param_type_node.mainToken(tree);
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 // We pass `prev_param_insts` as `&.{}` here because a function prototype can't refer to previous
                 // arguments (we haven't set up scopes here).
@@ -1437,8 +1437,8 @@ fn arrayInitExpr(
         infer: {
             const array_type: Ast.full.ArrayType = tree.fullArrayType(type_expr) orelse break :infer;
             // This intentionally does not support `@"_"` syntax.
-            if (tree.nodeTag(array_type.ast.elem_count) == .identifier and
-                mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(array_type.ast.elem_count)), "_"))
+            if (array_type.ast.elem_count.tag(tree) == .identifier and
+                mem.eql(u8, tree.tokenSlice(array_type.ast.elem_count.mainToken(tree)), "_"))
             {
                 const len_inst = try gz.addInt(array_init.ast.elements.len);
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
@@ -1705,9 +1705,9 @@ fn structInitExpr(
             }
             break :array;
         };
-        const is_inferred_array_len = tree.nodeTag(array_type.ast.elem_count) == .identifier and
+        const is_inferred_array_len = array_type.ast.elem_count.tag(tree) == .identifier and
             // This intentionally does not support `@"_"` syntax.
-            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(array_type.ast.elem_count)), "_");
+            mem.eql(u8, tree.tokenSlice(array_type.ast.elem_count.mainToken(tree)), "_");
         if (struct_init.ast.fields.len == 0) {
             if (is_inferred_array_len) {
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
@@ -1987,7 +1987,7 @@ fn comptimeExpr2(
     // no need to wrap it in a block. This is hard to determine in general, but we can identify a
     // common subset of trivially comptime expressions to take down the size of the ZIR a bit.
     const tree = gz.astgen.tree;
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .identifier => {
             // Many identifiers can be handled without a `block_comptime`, so `AstGen.identifier` has
             // special handling for this case.
@@ -2040,7 +2040,7 @@ fn comptimeExpr2(
         // comptime block, because that would be silly! Note that we don't bother doing this for
         // unlabelled blocks, since they don't generate blocks at comptime anyway (see `blockExpr`).
         .block_two, .block_two_semicolon, .block, .block_semicolon => {
-            const lbrace = tree.nodeMainToken(node);
+            const lbrace = node.mainToken(tree);
             // Careful! We can't pass in the real result location here, since it may
             // refer to runtime memory. A runtime-to-comptime boundary has to remove
             // result location information, compute the result, and copy it to the true
@@ -2103,7 +2103,7 @@ fn comptimeExprAst(
         try astgen.appendErrorNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
     const tree = astgen.tree;
-    const body_node = tree.nodeData(node).node;
+    const body_node = node.data(tree).node;
     return comptimeExpr2(gz, scope, ri, body_node, node, .comptime_keyword);
 }
 
@@ -2141,7 +2141,7 @@ fn restoreErrRetIndex(
 fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
-    const opt_break_label, const opt_rhs = tree.nodeData(node).opt_token_and_opt_node;
+    const opt_break_label, const opt_rhs = node.data(tree).opt_token_and_opt_node;
 
     // Look for the label in the scope.
     var scope = parent_scope;
@@ -2237,7 +2237,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
-    const opt_break_label, const opt_rhs = tree.nodeData(node).opt_token_and_opt_node;
+    const opt_break_label, const opt_rhs = node.data(tree).opt_token_and_opt_node;
 
     if (opt_break_label == .none and opt_rhs != .none) {
         return astgen.failNode(node, "cannot continue with operand without label", .{});
@@ -2359,7 +2359,7 @@ fn fullBodyExpr(
     const statements = tree.blockStatements(&stmt_buf, node) orelse
         return expr(gz, scope, ri, node);
 
-    const lbrace = tree.nodeMainToken(node);
+    const lbrace = node.mainToken(tree);
 
     if (tree.isTokenPrecededByTags(lbrace, &.{ .identifier, .colon })) {
         // Labeled blocks are tricky - forwarding result location information properly is non-trivial,
@@ -2387,7 +2387,7 @@ fn blockExpr(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lbrace = tree.nodeMainToken(block_node);
+    const lbrace = block_node.mainToken(tree);
     if (tree.isTokenPrecededByTags(lbrace, &.{ .identifier, .colon })) {
         return labeledBlockExpr(gz, scope, ri, block_node, statements, false, kind);
     }
@@ -2466,7 +2466,7 @@ fn labeledBlockExpr(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lbrace = tree.nodeMainToken(block_node);
+    const lbrace = block_node.mainToken(tree);
     const label_token = lbrace - 2;
     assert(tree.tokenTag(label_token) == .identifier);
 
@@ -2559,7 +2559,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         };
         var inner_node = statement;
         while (true) {
-            switch (tree.nodeTag(inner_node)) {
+            switch (inner_node.tag(tree)) {
                 // zig fmt: off
                 .global_var_decl,
                 .local_var_decl,
@@ -2589,7 +2589,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                 .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
 
                 .grouped_expression => {
-                    inner_node = tree.nodeData(statement).node_and_token[0];
+                    inner_node = statement.data(tree).node_and_token[0];
                     continue;
                 },
 
@@ -3122,7 +3122,7 @@ fn deferStmt(
     var local_val_scope: Scope.LocalVal = undefined;
     var opt_remapped_err_code: Zir.Inst.OptionalIndex = .none;
     const sub_scope = if (scope_tag != .defer_error) &defer_gen.base else blk: {
-        const payload_token = tree.nodeData(node).opt_token_and_node[0].unwrap() orelse break :blk &defer_gen.base;
+        const payload_token = node.data(tree).opt_token_and_node[0].unwrap() orelse break :blk &defer_gen.base;
         const ident_name = try gz.astgen.identAsString(payload_token);
         if (std.mem.eql(u8, tree.tokenSlice(payload_token), "_")) {
             try gz.astgen.appendErrorTok(payload_token, "discard of error capture; omit it instead", .{});
@@ -3151,8 +3151,8 @@ fn deferStmt(
         break :blk &local_val_scope.base;
     };
     const expr_node = switch (scope_tag) {
-        .defer_normal => tree.nodeData(node).node,
-        .defer_error => tree.nodeData(node).opt_token_and_node[1],
+        .defer_normal => node.data(tree).node,
+        .defer_error => node.data(tree).opt_token_and_node[1],
         else => unreachable,
     };
     _ = try unusedResultExpr(&defer_gen, sub_scope, expr_node);
@@ -3210,11 +3210,11 @@ fn varDecl(
     };
 
     if (var_decl.ast.addrspace_node.unwrap()) |addrspace_node| {
-        return astgen.failTok(tree.nodeMainToken(addrspace_node), "cannot set address space of local variable '{s}'", .{ident_name_raw});
+        return astgen.failTok(addrspace_node.mainToken(tree), "cannot set address space of local variable '{s}'", .{ident_name_raw});
     }
 
     if (var_decl.ast.section_node.unwrap()) |section_node| {
-        return astgen.failTok(tree.nodeMainToken(section_node), "cannot set section of local variable '{s}'", .{ident_name_raw});
+        return astgen.failTok(section_node.mainToken(tree), "cannot set section of local variable '{s}'", .{ident_name_raw});
     }
 
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node.unwrap()) |align_node|
@@ -3267,7 +3267,7 @@ fn varDecl(
             }
 
             const is_comptime = gz.is_comptime or
-                tree.nodeTag(init_node) == .@"comptime";
+                init_node.tag(tree) == .@"comptime";
 
             const init_rl: ResultInfo.Loc = if (var_decl.ast.type_node.unwrap()) |type_node| init_rl: {
                 const type_inst = try typeExpr(gz, scope, type_node);
@@ -3430,10 +3430,10 @@ fn assign(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerError!voi
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs, const rhs = tree.nodeData(infix_node).node_and_node;
-    if (tree.nodeTag(lhs) == .identifier) {
+    const lhs, const rhs = infix_node.data(tree).node_and_node;
+    if (lhs.tag(tree) == .identifier) {
         // This intentionally does not support `@"_"` syntax.
-        const ident_name = tree.tokenSlice(tree.nodeMainToken(lhs));
+        const ident_name = tree.tokenSlice(lhs.mainToken(tree));
         if (mem.eql(u8, ident_name, "_")) {
             _ = try expr(gz, scope, .{ .rl = .discard, .ctx = .assignment }, rhs);
             return;
@@ -3468,9 +3468,9 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
 
     const rl_components = try astgen.arena.alloc(ResultInfo.Loc.DestructureComponent, full.ast.variables.len);
     for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
-        if (tree.nodeTag(variable_node) == .identifier) {
+        if (variable_node.tag(tree) == .identifier) {
             // This intentionally does not support `@"_"` syntax.
-            const ident_name = tree.tokenSlice(tree.nodeMainToken(variable_node));
+            const ident_name = tree.tokenSlice(variable_node.mainToken(tree));
             if (mem.eql(u8, ident_name, "_")) {
                 variable_rl.* = .discard;
                 continue;
@@ -3514,7 +3514,7 @@ fn assignDestructureMaybeDecls(
     }
 
     const is_comptime = full.comptime_token != null or gz.is_comptime;
-    const value_is_comptime = tree.nodeTag(full.ast.value_expr) == .@"comptime";
+    const value_is_comptime = full.ast.value_expr.tag(tree) == .@"comptime";
 
     // When declaring consts via a destructure, we always use a result pointer.
     // This avoids the need to create tuple types, and is also likely easier to
@@ -3527,10 +3527,10 @@ fn assignDestructureMaybeDecls(
     var any_non_const_variables = false;
     var any_lvalue_expr = false;
     for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
-        switch (tree.nodeTag(variable_node)) {
+        switch (variable_node.tag(tree)) {
             .identifier => {
                 // This intentionally does not support `@"_"` syntax.
-                const ident_name = tree.tokenSlice(tree.nodeMainToken(variable_node));
+                const ident_name = tree.tokenSlice(variable_node.mainToken(tree));
                 if (mem.eql(u8, ident_name, "_")) {
                     any_non_const_variables = true;
                     variable_rl.* = .discard;
@@ -3549,10 +3549,10 @@ fn assignDestructureMaybeDecls(
                 // We detect shadowing in the second pass over these, while we're creating scopes.
 
                 if (full_var_decl.ast.addrspace_node.unwrap()) |addrspace_node| {
-                    return astgen.failTok(tree.nodeMainToken(addrspace_node), "cannot set address space of local variable '{s}'", .{ident_name_raw});
+                    return astgen.failTok(addrspace_node.mainToken(tree), "cannot set address space of local variable '{s}'", .{ident_name_raw});
                 }
                 if (full_var_decl.ast.section_node.unwrap()) |section_node| {
-                    return astgen.failTok(tree.nodeMainToken(section_node), "cannot set section of local variable '{s}'", .{ident_name_raw});
+                    return astgen.failTok(section_node.mainToken(tree), "cannot set section of local variable '{s}'", .{ident_name_raw});
                 }
 
                 const is_const = switch (tree.tokenTag(full_var_decl.ast.mut_token)) {
@@ -3641,7 +3641,7 @@ fn assignDestructureMaybeDecls(
         // evaluate the lvalues from within the possible block_comptime.
         for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
             if (variable_rl.* != .typed_ptr) continue;
-            switch (tree.nodeTag(variable_node)) {
+            switch (variable_node.tag(tree)) {
                 .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => continue,
                 else => {},
             }
@@ -3670,7 +3670,7 @@ fn assignDestructureMaybeDecls(
     // If there were any `const` decls, make the pointer constant.
     var cur_scope = scope;
     for (rl_components, full.ast.variables) |variable_rl, variable_node| {
-        switch (tree.nodeTag(variable_node)) {
+        switch (variable_node.tag(tree)) {
             .local_var_decl, .simple_var_decl, .aligned_var_decl => {},
             else => continue, // We were mutating an existing lvalue - nothing to do
         }
@@ -3732,7 +3732,7 @@ fn assignOp(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs_node, const rhs_node = tree.nodeData(infix_node).node_and_node;
+    const lhs_node, const rhs_node = infix_node.data(tree).node_and_node;
     const lhs_ptr = try lvalExpr(gz, scope, lhs_node);
 
     const cursor = switch (op_inst_tag) {
@@ -3787,7 +3787,7 @@ fn assignShift(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs_node, const rhs_node = tree.nodeData(infix_node).node_and_node;
+    const lhs_node, const rhs_node = infix_node.data(tree).node_and_node;
     const lhs_ptr = try lvalExpr(gz, scope, lhs_node);
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     const rhs_type = try gz.addUnNode(.typeof_log2_int_type, lhs, infix_node);
@@ -3808,7 +3808,7 @@ fn assignShiftSat(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerE
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs_node, const rhs_node = tree.nodeData(infix_node).node_and_node;
+    const lhs_node, const rhs_node = infix_node.data(tree).node_and_node;
     const lhs_ptr = try lvalExpr(gz, scope, lhs_node);
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     // Saturating shift-left allows any integer type for both the LHS and RHS.
@@ -3940,9 +3940,9 @@ fn arrayType(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) !
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const len_node, const elem_type_node = tree.nodeData(node).node_and_node;
-    if (tree.nodeTag(len_node) == .identifier and
-        mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(len_node)), "_"))
+    const len_node, const elem_type_node = node.data(tree).node_and_node;
+    if (len_node.tag(tree) == .identifier and
+        mem.eql(u8, tree.tokenSlice(len_node.mainToken(tree)), "_"))
     {
         return astgen.failNode(len_node, "unable to infer array size", .{});
     }
@@ -3960,11 +3960,11 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const len_node, const extra_index = tree.nodeData(node).node_and_extra;
+    const len_node, const extra_index = node.data(tree).node_and_extra;
     const extra = tree.extraData(extra_index, Ast.Node.ArrayTypeSentinel);
 
-    if (tree.nodeTag(len_node) == .identifier and
-        mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(len_node)), "_"))
+    if (len_node.tag(tree) == .identifier and
+        mem.eql(u8, tree.tokenSlice(len_node.mainToken(tree)), "_"))
     {
         return astgen.failNode(len_node, "unable to infer array size", .{});
     }
@@ -4288,8 +4288,8 @@ fn fnDeclInner(
                 } else {
                     const type_expr = param.type_expr.?;
                     ambiguous: {
-                        if (tree.nodeTag(type_expr) != .identifier) break :ambiguous;
-                        const main_token = tree.nodeMainToken(type_expr);
+                        if (type_expr.tag(tree) != .identifier) break :ambiguous;
+                        const main_token = type_expr.mainToken(tree);
                         const identifier_str = tree.tokenSlice(main_token);
                         if (isPrimitive(identifier_str)) break :ambiguous;
                         return astgen.failNodeNotes(
@@ -4331,7 +4331,7 @@ fn fnDeclInner(
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
                 const param_type_is_generic = any_param_used;
 
-                const name_token = param.name_token orelse tree.nodeMainToken(param_type_node);
+                const name_token = param.name_token orelse param_type_node.mainToken(tree);
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, param_type_is_generic, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
@@ -4428,7 +4428,7 @@ fn fnDeclInner(
     // Leave `astgen.src_hasher` unmodified; this will be used for hashing
     // the *whole* function declaration, including its body.
     var proto_hasher = astgen.src_hasher;
-    const proto_node = tree.nodeData(decl_node).node_and_node[0];
+    const proto_node = decl_node.data(tree).node_and_node[0];
     proto_hasher.update(tree.getNodeSource(proto_node));
     var proto_hash: std.zig.SrcHash = undefined;
     proto_hasher.final(&proto_hash);
@@ -4643,7 +4643,7 @@ fn comptimeDecl(
     node: Ast.Node.Index,
 ) InnerError!void {
     const tree = astgen.tree;
-    const body_node = tree.nodeData(node).node;
+    const body_node = node.data(tree).node;
 
     const old_hasher = astgen.src_hasher;
     defer astgen.src_hasher = old_hasher;
@@ -4713,8 +4713,8 @@ fn usingnamespaceDecl(
     astgen.src_hasher.update(tree.getNodeSource(node));
     astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
-    const type_expr = tree.nodeData(node).node;
-    const is_pub = tree.isTokenPrecededByTags(tree.nodeMainToken(node), &.{.keyword_pub});
+    const type_expr = node.data(tree).node;
+    const is_pub = tree.isTokenPrecededByTags(node.mainToken(tree), &.{.keyword_pub});
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
@@ -4769,7 +4769,7 @@ fn testDecl(
     node: Ast.Node.Index,
 ) InnerError!void {
     const tree = astgen.tree;
-    _, const body_node = tree.nodeData(node).opt_token_and_node;
+    _, const body_node = node.data(tree).opt_token_and_node;
 
     const old_hasher = astgen.src_hasher;
     defer astgen.src_hasher = old_hasher;
@@ -4801,7 +4801,7 @@ fn testDecl(
 
     const decl_column = astgen.source_column;
 
-    const test_token = tree.nodeMainToken(node);
+    const test_token = node.mainToken(tree);
 
     const test_name_token = test_token + 1;
     const test_name: Zir.NullTerminatedString = switch (tree.tokenTag(test_name_token)) {
@@ -5275,7 +5275,7 @@ fn tupleDecl(
 
     for (container_decl.ast.members) |member_node| {
         const field = tree.fullContainerField(member_node) orelse {
-            const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (tree.nodeTag(maybe_tuple)) {
+            const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (maybe_tuple.tag(tree)) {
                 .container_field_init,
                 .container_field_align,
                 .container_field,
@@ -5845,7 +5845,7 @@ fn containerMember(
 ) InnerError!ContainerMemberResult {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    switch (tree.nodeTag(member_node)) {
+    switch (member_node.tag(tree)) {
         .container_field_init,
         .container_field_align,
         .container_field,
@@ -5860,8 +5860,8 @@ fn containerMember(
             var buf: [1]Ast.Node.Index = undefined;
             const full = tree.fullFnProto(&buf, member_node).?;
 
-            const body: Ast.Node.OptionalIndex = if (tree.nodeTag(member_node) == .fn_decl)
-                tree.nodeData(member_node).node_and_node[1].toOptional()
+            const body: Ast.Node.OptionalIndex = if (member_node.tag(tree) == .fn_decl)
+                member_node.data(tree).node_and_node[1].toOptional()
             else
                 .none;
 
@@ -5934,7 +5934,7 @@ fn containerMember(
                         .@"usingnamespace",
                         .empty,
                         member_node,
-                        tree.isTokenPrecededByTags(tree.nodeMainToken(member_node), &.{.keyword_pub}),
+                        tree.isTokenPrecededByTags(member_node.mainToken(tree), &.{.keyword_pub}),
                     );
                 },
             };
@@ -5975,7 +5975,7 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
         var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty;
         defer idents.deinit(gpa);
 
-        const lbrace, const rbrace = tree.nodeData(node).token_and_token;
+        const lbrace, const rbrace = node.data(tree).token_and_token;
         for (lbrace + 1..rbrace) |i| {
             const tok_i: Ast.TokenIndex = @intCast(i);
             switch (tree.tokenTag(tok_i)) {
@@ -6103,7 +6103,7 @@ fn orelseCatchExpr(
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
 
-    const lhs, const rhs = tree.nodeData(node).node_and_node;
+    const lhs, const rhs = node.data(tree).node_and_node;
 
     const need_rl = astgen.nodes_need_rl.contains(node);
     const block_ri: ResultInfo = if (need_rl) ri else .{
@@ -6238,7 +6238,7 @@ fn addFieldAccess(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const object_node, const field_ident = tree.nodeData(node).node_and_token;
+    const object_node, const field_ident = node.data(tree).node_and_token;
     const str_index = try astgen.identAsString(field_ident);
     const lhs = try expr(gz, scope, lhs_ri, object_node);
 
@@ -6260,7 +6260,7 @@ fn arrayAccess(
     const tree = gz.astgen.tree;
     switch (ri.rl) {
         .ref, .ref_coerced_ty => {
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = node.data(tree).node_and_node;
             const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_node);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
@@ -6271,7 +6271,7 @@ fn arrayAccess(
             return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
         },
         else => {
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = node.data(tree).node_and_node;
             const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
@@ -6294,12 +6294,12 @@ fn simpleBinOp(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+    const lhs_node, const rhs_node = node.data(tree).node_and_node;
 
     if (op_inst_tag == .cmp_neq or op_inst_tag == .cmp_eq) {
         const str = if (op_inst_tag == .cmp_eq) "==" else "!=";
-        if (tree.nodeTag(lhs_node) == .string_literal or
-            tree.nodeTag(rhs_node) == .string_literal)
+        if (lhs_node.tag(tree) == .string_literal or
+            rhs_node.tag(tree) == .string_literal)
             return astgen.failNode(node, "cannot compare strings with {s}", .{str});
     }
 
@@ -6343,7 +6343,7 @@ fn boolBinOp(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+    const lhs_node, const rhs_node = node.data(tree).node_and_node;
     const lhs = try expr(gz, scope, coerced_bool_ri, lhs_node);
     const bool_br = (try gz.addPlNodePayloadIndex(zir_tag, node, undefined)).toIndex().?;
 
@@ -6951,11 +6951,11 @@ fn forExpr(
             capture_token = ident_tok + 2;
 
             try emitDbgNode(parent_gz, input);
-            if (tree.nodeTag(input) == .for_range) {
+            if (input.tag(tree) == .for_range) {
                 if (capture_is_ref) {
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
-                const start_node, const end_node = tree.nodeData(input).node_and_opt_node;
+                const start_node, const end_node = input.data(tree).node_and_opt_node;
                 const start_val = try expr(parent_gz, scope, .{ .rl = .{ .ty = .usize_type } }, start_node);
 
                 const end_val = if (end_node.unwrap()) |end|
@@ -7064,7 +7064,7 @@ fn forExpr(
             try astgen.detectLocalShadowing(capture_sub_scope, name_str_index, ident_tok, capture_name, .capture);
 
             const capture_inst = inst: {
-                const is_counter = tree.nodeTag(input) == .for_range;
+                const is_counter = input.tag(tree) == .for_range;
 
                 if (indexable_ref == .none) {
                     // Special case: the main index can be used directly.
@@ -7204,9 +7204,9 @@ fn switchExprErrUnion(
 
     const switch_node, const operand_node, const error_payload = switch (node_ty) {
         .@"catch" => .{
-            tree.nodeData(catch_or_if_node).node_and_node[1],
-            tree.nodeData(catch_or_if_node).node_and_node[0],
-            tree.nodeMainToken(catch_or_if_node) + 2,
+            catch_or_if_node.data(tree).node_and_node[1],
+            catch_or_if_node.data(tree).node_and_node[0],
+            catch_or_if_node.mainToken(tree) + 2,
         },
         .@"if" => .{
             if_full.ast.else_expr.unwrap().?,
@@ -7266,8 +7266,8 @@ fn switchExprErrUnion(
             else_src = case_src;
             continue;
         } else if (case.ast.values.len == 1 and
-            tree.nodeTag(case.ast.values[0]) == .identifier and
-            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"))
+            case.ast.values[0].tag(tree) == .identifier and
+            mem.eql(u8, tree.tokenSlice(case.ast.values[0].mainToken(tree)), "_"))
         {
             const case_src = case.ast.arrow_token - 1;
             return astgen.failTokNotes(
@@ -7285,11 +7285,11 @@ fn switchExprErrUnion(
         }
 
         for (case.ast.values) |val| {
-            if (tree.nodeTag(val) == .string_literal)
+            if (val.tag(tree) == .string_literal)
                 return astgen.failNode(val, "cannot switch on strings", .{});
         }
 
-        if (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) != .switch_range) {
+        if (case.ast.values.len == 1 and case.ast.values[0].tag(tree) != .switch_range) {
             scalar_cases_len += 1;
         } else {
             multi_cases_len += 1;
@@ -7486,7 +7486,7 @@ fn switchExprErrUnion(
         const case = tree.fullSwitchCase(case_node).?;
 
         const is_multi_case = case.ast.values.len > 1 or
-            (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) == .switch_range);
+            (case.ast.values.len == 1 and case.ast.values[0].tag(tree) == .switch_range);
 
         var dbg_var_name: Zir.NullTerminatedString = .empty;
         var dbg_var_inst: Zir.Inst.Ref = undefined;
@@ -7540,7 +7540,7 @@ fn switchExprErrUnion(
             // items
             var items_len: u32 = 0;
             for (case.ast.values) |item_node| {
-                if (tree.nodeTag(item_node) == .switch_range) continue;
+                if (item_node.tag(tree) == .switch_range) continue;
                 items_len += 1;
 
                 const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node, .switch_item);
@@ -7550,10 +7550,10 @@ fn switchExprErrUnion(
             // ranges
             var ranges_len: u32 = 0;
             for (case.ast.values) |range| {
-                if (tree.nodeTag(range) != .switch_range) continue;
+                if (range.tag(tree) != .switch_range) continue;
                 ranges_len += 1;
 
-                const first_node, const last_node = tree.nodeData(range).node_and_node;
+                const first_node, const last_node = range.data(tree).node_and_node;
                 const first = try comptimeExpr(parent_gz, scope, item_ri, first_node, .switch_item);
                 const last = try comptimeExpr(parent_gz, scope, item_ri, last_node, .switch_item);
                 try payloads.appendSlice(gpa, &[_]u32{
@@ -7788,8 +7788,8 @@ fn switchExpr(
             else_src = case_src;
             continue;
         } else if (case.ast.values.len == 1 and
-            tree.nodeTag(case.ast.values[0]) == .identifier and
-            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"))
+            case.ast.values[0].tag(tree) == .identifier and
+            mem.eql(u8, tree.tokenSlice(case.ast.values[0].mainToken(tree)), "_"))
         {
             const case_src = case.ast.arrow_token - 1;
             if (underscore_src) |src| {
@@ -7834,11 +7834,11 @@ fn switchExpr(
         }
 
         for (case.ast.values) |val| {
-            if (tree.nodeTag(val) == .string_literal)
+            if (val.tag(tree) == .string_literal)
                 return astgen.failNode(val, "cannot switch on strings", .{});
         }
 
-        if (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) != .switch_range) {
+        if (case.ast.values.len == 1 and case.ast.values[0].tag(tree) != .switch_range) {
             scalar_cases_len += 1;
         } else {
             multi_cases_len += 1;
@@ -7927,7 +7927,7 @@ fn switchExpr(
         const case = tree.fullSwitchCase(case_node).?;
 
         const is_multi_case = case.ast.values.len > 1 or
-            (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) == .switch_range);
+            (case.ast.values.len == 1 and case.ast.values[0].tag(tree) == .switch_range);
 
         var dbg_var_name: Zir.NullTerminatedString = .empty;
         var dbg_var_inst: Zir.Inst.Ref = undefined;
@@ -8007,7 +8007,7 @@ fn switchExpr(
             // items
             var items_len: u32 = 0;
             for (case.ast.values) |item_node| {
-                if (tree.nodeTag(item_node) == .switch_range) continue;
+                if (item_node.tag(tree) == .switch_range) continue;
                 items_len += 1;
 
                 const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node, .switch_item);
@@ -8017,10 +8017,10 @@ fn switchExpr(
             // ranges
             var ranges_len: u32 = 0;
             for (case.ast.values) |range| {
-                if (tree.nodeTag(range) != .switch_range) continue;
+                if (range.tag(tree) != .switch_range) continue;
                 ranges_len += 1;
 
-                const first_node, const last_node = tree.nodeData(range).node_and_node;
+                const first_node, const last_node = range.data(tree).node_and_node;
                 const first = try comptimeExpr(parent_gz, scope, item_ri, first_node, .switch_item);
                 const last = try comptimeExpr(parent_gz, scope, item_ri, last_node, .switch_item);
                 try payloads.appendSlice(gpa, &[_]u32{
@@ -8170,7 +8170,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
     const defer_outer = &astgen.fn_block.?.base;
 
-    const operand_node = tree.nodeData(node).opt_node.unwrap() orelse {
+    const operand_node = node.data(tree).opt_node.unwrap() orelse {
         // Returning a void value; skip error defers.
         try genDefers(gz, defer_outer, scope, .normal_only);
 
@@ -8181,10 +8181,10 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         return Zir.Inst.Ref.unreachable_value;
     };
 
-    if (tree.nodeTag(operand_node) == .error_value) {
+    if (operand_node.tag(tree) == .error_value) {
         // Hot path for `return error.Foo`. This bypasses result location logic as well as logic
         // for detecting whether to add something to the function's inferred error set.
-        const ident_token = tree.nodeMainToken(operand_node) + 2;
+        const ident_token = operand_node.mainToken(tree) + 2;
         const err_name_str_index = try astgen.identAsString(ident_token);
         const defer_counts = countDefers(defer_outer, scope);
         if (!defer_counts.need_err_code) {
@@ -8316,7 +8316,7 @@ fn identifier(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const ident_token = tree.nodeMainToken(ident);
+    const ident_token = ident.mainToken(tree);
     const ident_name_raw = tree.tokenSlice(ident_token);
     if (mem.eql(u8, ident_name_raw, "_")) {
         return astgen.failNode(ident, "'_' used as an identifier without @\"_\" syntax", .{});
@@ -8657,7 +8657,7 @@ fn stringLiteral(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const str_lit_token = tree.nodeMainToken(node);
+    const str_lit_token = node.mainToken(tree);
     const str = try astgen.strLitAsString(str_lit_token);
     const result = try gz.add(.{
         .tag = .str,
@@ -8689,7 +8689,7 @@ fn multilineStringLiteral(
 fn charLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_token = tree.nodeMainToken(node);
+    const main_token = node.mainToken(tree);
     const slice = tree.tokenSlice(main_token);
 
     switch (std.zig.parseCharLiteral(slice)) {
@@ -8706,7 +8706,7 @@ const Sign = enum { negative, positive };
 fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node: Ast.Node.Index, sign: Sign) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const num_token = tree.nodeMainToken(node);
+    const num_token = node.mainToken(tree);
     const bytes = tree.tokenSlice(num_token);
 
     const result: Zir.Inst.Ref = switch (std.zig.parseNumberLiteral(bytes)) {
@@ -8826,10 +8826,10 @@ fn asmExpr(
     const tree = astgen.tree;
 
     const TagAndTmpl = struct { tag: Zir.Inst.Extended, tmpl: Zir.NullTerminatedString };
-    const tag_and_tmpl: TagAndTmpl = switch (tree.nodeTag(full.ast.template)) {
+    const tag_and_tmpl: TagAndTmpl = switch (full.ast.template.tag(tree)) {
         .string_literal => .{
             .tag = .@"asm",
-            .tmpl = (try astgen.strLitAsString(tree.nodeMainToken(full.ast.template))).index,
+            .tmpl = (try astgen.strLitAsString(full.ast.template.mainToken(tree))).index,
         },
         .multiline_string_literal => .{
             .tag = .@"asm",
@@ -8864,7 +8864,7 @@ fn asmExpr(
     var output_type_bits: u32 = 0;
 
     for (full.outputs, 0..) |output_node, i| {
-        const symbolic_name = tree.nodeMainToken(output_node);
+        const symbolic_name = output_node.mainToken(tree);
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
@@ -8874,7 +8874,7 @@ fn asmExpr(
                 return astgen.failNode(output_node, "inline assembly allows up to one output value", .{});
             }
             output_type_bits |= @as(u32, 1) << @intCast(i);
-            const out_type_node = tree.nodeData(output_node).opt_node_and_token[0].unwrap().?;
+            const out_type_node = output_node.data(tree).opt_node_and_token[0].unwrap().?;
             const out_type_inst = try typeExpr(gz, scope, out_type_node);
             outputs[i] = .{
                 .name = name,
@@ -8901,11 +8901,11 @@ fn asmExpr(
     const inputs = inputs_buffer[0..full.inputs.len];
 
     for (full.inputs, 0..) |input_node, i| {
-        const symbolic_name = tree.nodeMainToken(input_node);
+        const symbolic_name = input_node.mainToken(tree);
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
-        const operand = try expr(gz, scope, .{ .rl = .none }, tree.nodeData(input_node).node_and_token[0]);
+        const operand = try expr(gz, scope, .{ .rl = .none }, input_node.data(tree).node_and_token[0]);
         inputs[i] = .{
             .name = name,
             .constraint = constraint,
@@ -9029,11 +9029,11 @@ fn ptrCast(
     // to handle `builtin_call_two`.
     var node = root_node;
     while (true) {
-        switch (tree.nodeTag(node)) {
+        switch (node.tag(tree)) {
             .builtin_call_two, .builtin_call_two_comma => {},
             .grouped_expression => {
                 // Handle the chaining even with redundant parentheses
-                node = tree.nodeData(node).node_and_token[0];
+                node = node.data(tree).node_and_token[0];
                 continue;
             },
             else => break,
@@ -9045,7 +9045,7 @@ fn ptrCast(
 
         if (args.len == 0) break; // 0 args
 
-        const builtin_token = tree.nodeMainToken(node);
+        const builtin_token = node.mainToken(tree);
         const builtin_name = tree.tokenSlice(builtin_token);
         const info = BuiltinFn.list.get(builtin_name) orelse break;
         if (args.len == 1) {
@@ -9246,7 +9246,7 @@ fn builtinCall(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const builtin_token = tree.nodeMainToken(node);
+    const builtin_token = node.mainToken(tree);
     const builtin_name = tree.tokenSlice(builtin_token);
 
     // We handle the different builtins manually because they have different semantics depending
@@ -9289,11 +9289,11 @@ fn builtinCall(
         .import => {
             const operand_node = params[0];
 
-            if (tree.nodeTag(operand_node) != .string_literal) {
+            if (operand_node.tag(tree) != .string_literal) {
                 // Spec reference: https://github.com/ziglang/zig/issues/2206
                 return astgen.failNode(operand_node, "@import operand must be a string literal", .{});
             }
-            const str_lit_token = tree.nodeMainToken(operand_node);
+            const str_lit_token = operand_node.mainToken(tree);
             const str = try astgen.strLitAsString(str_lit_token);
             const str_slice = astgen.string_bytes.items[@intFromEnum(str.index)..][0..str.len];
             if (mem.indexOfScalar(u8, str_slice, 0) != null) {
@@ -9919,8 +9919,8 @@ fn negation(
 
     // Check for float literal as the sub-expression because we want to preserve
     // its negativity rather than having it go through comptime subtraction.
-    const operand_node = tree.nodeData(node).node;
-    if (tree.nodeTag(operand_node) == .number_literal) {
+    const operand_node = node.data(tree).node;
+    if (operand_node.tag(tree) == .number_literal) {
         return numberLiteral(gz, ri, operand_node, node, .negative);
     }
 
@@ -10034,9 +10034,10 @@ fn shiftOp(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    const tree = gz.astgen.tree;
     const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
 
-    const cursor = switch (gz.astgen.tree.nodeTag(node)) {
+    const cursor = switch (node.tag(tree)) {
         .shl, .shr => maybeAdvanceSourceCursorToMainToken(gz, node),
         else => undefined,
     };
@@ -10044,7 +10045,7 @@ fn shiftOp(
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .ty = log2_int_type }, .ctx = .shift_op }, rhs_node);
 
-    switch (gz.astgen.tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .shl, .shr => try emitDbgStmt(gz, cursor),
         else => undefined,
     }
@@ -10248,10 +10249,10 @@ fn calleeExpr(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const tag = tree.nodeTag(node);
+    const tag = node.tag(tree);
     switch (tag) {
         .field_access => {
-            const object_node, const field_ident = tree.nodeData(node).node_and_token;
+            const object_node, const field_ident = node.data(tree).node_and_token;
             const str_index = try astgen.identAsString(field_ident);
             // Capture the object by reference so we can promote it to an
             // address in Sema if needed.
@@ -10276,7 +10277,7 @@ fn calleeExpr(
             // Decl literal call syntax, e.g.
             // `const foo: T = .init();`
             // Look up `init` in `T`, but don't try and coerce it.
-            const str_index = try astgen.identAsString(tree.nodeMainToken(node));
+            const str_index = try astgen.identAsString(node.mainToken(tree));
             const callee = try gz.addPlNode(.decl_literal_no_coerce, node, Zir.Inst.Field{
                 .lhs = res_ty,
                 .field_name_start = str_index,
@@ -10348,9 +10349,9 @@ comptime {
 }
 
 fn nodeIsTriviallyZero(tree: *const Ast, node: Ast.Node.Index) bool {
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .number_literal => {
-            const ident = tree.nodeMainToken(node);
+            const ident = node.mainToken(tree);
             return switch (std.zig.parseNumberLiteral(tree.tokenSlice(ident))) {
                 .int => |number| switch (number) {
                     0 => true,
@@ -10366,7 +10367,7 @@ fn nodeIsTriviallyZero(tree: *const Ast, node: Ast.Node.Index) bool {
 fn nodeMayAppendToErrorTrace(tree: *const Ast, start_node: Ast.Node.Index) bool {
     var node = start_node;
     while (true) {
-        switch (tree.nodeTag(node)) {
+        switch (node.tag(tree)) {
             // These don't have the opportunity to call any runtime functions.
             .error_value,
             .identifier,
@@ -10376,10 +10377,10 @@ fn nodeMayAppendToErrorTrace(tree: *const Ast, start_node: Ast.Node.Index) bool 
             // Forward the question to the LHS sub-expression.
             .@"try",
             .@"nosuspend",
-            => node = tree.nodeData(node).node,
+            => node = node.data(tree).node,
             .grouped_expression,
             .unwrap_optional,
-            => node = tree.nodeData(node).node_and_token[0],
+            => node = node.data(tree).node_and_token[0],
 
             // Anything that does not eval to an error is guaranteed to pop any
             // additions to the error trace, so it effectively does not append.
@@ -10391,7 +10392,7 @@ fn nodeMayAppendToErrorTrace(tree: *const Ast, start_node: Ast.Node.Index) bool 
 fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.EvalToError {
     var node = start_node;
     while (true) {
-        switch (tree.nodeTag(node)) {
+        switch (node.tag(tree)) {
             .root,
             .@"usingnamespace",
             .test_decl,
@@ -10558,10 +10559,10 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .@"await",
             .@"comptime",
             .@"nosuspend",
-            => node = tree.nodeData(node).node,
+            => node = node.data(tree).node,
             .grouped_expression,
             .unwrap_optional,
-            => node = tree.nodeData(node).node_and_token[0],
+            => node = node.data(tree).node_and_token[0],
 
             // LHS sub-expression may still be an error under the outer optional or error union
             .@"catch",
@@ -10573,7 +10574,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .block,
             .block_semicolon,
             => {
-                const lbrace = tree.nodeMainToken(node);
+                const lbrace = node.mainToken(tree);
                 if (tree.tokenTag(lbrace - 1) == .colon) {
                     // Labeled blocks may need a memory location to forward
                     // to their break statements.
@@ -10588,7 +10589,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .builtin_call_two,
             .builtin_call_two_comma,
             => {
-                const builtin_token = tree.nodeMainToken(node);
+                const builtin_token = node.mainToken(tree);
                 const builtin_name = tree.tokenSlice(builtin_token);
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
@@ -10604,7 +10605,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.Index) bool {
     var node = start_node;
     while (true) {
-        switch (tree.nodeTag(node)) {
+        switch (node.tag(tree)) {
             .root,
             .@"usingnamespace",
             .test_decl,
@@ -10771,10 +10772,10 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .@"await",
             .@"comptime",
             .@"nosuspend",
-            => node = tree.nodeData(node).node,
+            => node = node.data(tree).node,
             .grouped_expression,
             .unwrap_optional,
-            => node = tree.nodeData(node).node_and_token[0],
+            => node = node.data(tree).node_and_token[0],
 
             .ptr_type_aligned,
             .ptr_type_sentinel,
@@ -10786,7 +10787,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             => return true,
 
             .identifier => {
-                const ident_bytes = tree.tokenSlice(tree.nodeMainToken(node));
+                const ident_bytes = tree.tokenSlice(node.mainToken(tree));
                 if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
@@ -10848,7 +10849,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
 fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
     var node = start_node;
     while (true) {
-        switch (tree.nodeTag(node)) {
+        switch (node.tag(tree)) {
             .root,
             .@"usingnamespace",
             .test_decl,
@@ -11024,13 +11025,13 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .@"await",
             .@"comptime",
             .@"nosuspend",
-            => node = tree.nodeData(node).node,
+            => node = node.data(tree).node,
             .grouped_expression,
             .unwrap_optional,
-            => node = tree.nodeData(node).node_and_token[0],
+            => node = node.data(tree).node_and_token[0],
 
             .identifier => {
-                const ident_bytes = tree.tokenSlice(tree.nodeMainToken(node));
+                const ident_bytes = tree.tokenSlice(node.mainToken(tree));
                 if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
@@ -11089,7 +11090,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
 
 /// Returns `true` if the node uses `gz.anon_name_strategy`.
 fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
-    switch (tree.nodeTag(node)) {
+    switch (node.tag(tree)) {
         .container_decl,
         .container_decl_trailing,
         .container_decl_two,
@@ -11104,7 +11105,7 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
         .tagged_union_enum_tag_trailing,
         => return true,
         .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
-            const builtin_token = tree.nodeMainToken(node);
+            const builtin_token = node.mainToken(tree);
             const builtin_name = tree.tokenSlice(builtin_token);
             return std.mem.eql(u8, builtin_name, "@Type");
         },
@@ -11660,7 +11661,7 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
 fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
     const tree = astgen.tree;
 
-    const start, const end = tree.nodeData(node).token_and_token;
+    const start, const end = node.data(tree).token_and_token;
 
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
@@ -12155,9 +12156,9 @@ const GenZir = struct {
         const src_locs_and_hash: []const u32 = if (args.body_gz != null) src_locs_and_hash: {
             const tree = astgen.tree;
             const fn_decl = args.src_node;
-            const block = switch (tree.nodeTag(fn_decl)) {
-                .fn_decl => tree.nodeData(fn_decl).node_and_node[1],
-                .test_decl => tree.nodeData(fn_decl).opt_token_and_node[1],
+            const block = switch (fn_decl.tag(tree)) {
+                .fn_decl => fn_decl.data(tree).node_and_node[1],
+                .test_decl => fn_decl.data(tree).opt_token_and_node[1],
                 else => unreachable,
             };
             const rbrace_start = tree.tokenStart(tree.lastToken(block));
@@ -13399,7 +13400,7 @@ fn maybeAdvanceSourceCursorToMainToken(gz: *GenZir, node: Ast.Node.Index) LineCo
     if (gz.is_comptime) return .{ gz.astgen.source_line - gz.decl_line, gz.astgen.source_column };
 
     const tree = gz.astgen.tree;
-    const node_start = tree.tokenStart(tree.nodeMainToken(node));
+    const node_start = tree.tokenStart(node.mainToken(tree));
     gz.astgen.advanceSourceCursor(node_start);
 
     return .{ gz.astgen.source_line - gz.decl_line, gz.astgen.source_column };
@@ -13492,7 +13493,7 @@ fn scanContainer(
     var decl_count: u32 = 0;
     for (members) |member_node| {
         const Kind = enum { decl, field };
-        const kind: Kind, const name_token = switch (tree.nodeTag(member_node)) {
+        const kind: Kind, const name_token = switch (member_node.tag(tree)) {
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -13512,7 +13513,7 @@ fn scanContainer(
             .aligned_var_decl,
             => blk: {
                 decl_count += 1;
-                break :blk .{ .decl, tree.nodeMainToken(member_node) + 1 };
+                break :blk .{ .decl, member_node.mainToken(tree) + 1 };
             },
 
             .fn_proto_simple,
@@ -13522,7 +13523,7 @@ fn scanContainer(
             .fn_decl,
             => blk: {
                 decl_count += 1;
-                const ident = tree.nodeMainToken(member_node) + 1;
+                const ident = member_node.mainToken(tree) + 1;
                 if (tree.tokenTag(ident) != .identifier) {
                     try astgen.appendErrorNode(member_node, "missing function name", .{});
                     any_invalid_declarations = true;
@@ -13540,7 +13541,7 @@ fn scanContainer(
                 decl_count += 1;
                 // We don't want shadowing detection here, and test names work a bit differently, so
                 // we must do the redeclaration detection ourselves.
-                const test_name_token = tree.nodeMainToken(member_node) + 1;
+                const test_name_token = member_node.mainToken(tree) + 1;
                 const new_ent: NameEntry = .{
                     .tok = test_name_token,
                     .next = null,
