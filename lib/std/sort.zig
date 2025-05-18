@@ -34,18 +34,23 @@ pub fn insertion(
     insertionContext(0, items.len, Context{ .items = items, .sub_ctx = context });
 }
 
-/// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
-/// O(1) memory (no allocator required).
-/// `context` must have methods `swap` and `lessThan`,
-/// which each take 2 `usize` parameters indicating the index of an item.
-/// Sorts in ascending order with respect to `lessThan`.
-pub fn insertionContext(a: usize, b: usize, context: anytype) void {
-    assert(a <= b);
+/// Stable in-place sort.
+/// `context` must have methods `swap` and `lessThan`, with the following signatures:
+/// ```
+/// pub fn swap(self: Context, lhs: usize, rhs: usize) void
+/// pub fn lessThan(self: Context, lhs: usize, rhs: usize) bool
+/// ```
+/// `lhs` and `rhs` represent the indexes of the elements.
+/// Sorts from [low..high), excluding high, in ascending order with respect to `lessThan`.
+/// Computational complexity: O(n) best case, O(pow(n, 2)) worst case.
+/// Memory complexity: O(1).
+pub fn insertionContext(low: usize, high: usize, context: anytype) void {
+    assert(low <= high);
 
-    var i = a + 1;
-    while (i < b) : (i += 1) {
+    var i = low + 1;
+    while (i < high) : (i += 1) {
         var j = i;
-        while (j > a and context.lessThan(j, j - 1)) : (j -= 1) {
+        while (j > low and context.lessThan(j, j - 1)) : (j -= 1) {
             context.swap(j, j - 1);
         }
     }
@@ -75,11 +80,16 @@ pub fn heap(
     heapContext(0, items.len, Context{ .items = items, .sub_ctx = context });
 }
 
-/// Unstable in-place sort. O(n*log(n)) best case, worst case and average case.
-/// O(1) memory (no allocator required).
-/// `context` must have methods `swap` and `lessThan`,
-/// which each take 2 `usize` parameters indicating the index of an item.
-/// Sorts in ascending order with respect to `lessThan`.
+/// Unstable in-place sort.
+/// `context` must have methods `swap` and `lessThan`, with the following signatures:
+/// ```
+/// pub fn swap(self: Context, lhs: usize, rhs: usize) void
+/// pub fn lessThan(self: Context, lhs: usize, rhs: usize) bool
+/// ```
+/// `lhs` and `rhs` represent the indexes of the elements.
+/// Sorts from [low..high), excluding high, in ascending order with respect to `lessThan`.
+/// Computational complexity: O(n*log(n)) best case, worst case and average case.
+/// Memory complexity: O(1).
 pub fn heapContext(a: usize, b: usize, context: anytype) void {
     assert(a <= b);
     // build the heap in linear time.

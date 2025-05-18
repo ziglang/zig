@@ -6,7 +6,7 @@ const testing = std.testing;
 
 /// Unstable in-place sort. Sorts in ascending order with respect to `lessThanFn`.
 /// Computational complexity: O(n) best case, O(n*log(n)) worst case and average case.
-/// Memory complexity: O(log(n)) (no allocator required).
+/// Memory complexity: O(1) ~1.5kb.
 pub fn pdq(
     comptime T: type,
     items: []T,
@@ -34,27 +34,27 @@ const Hint = enum {
     unknown,
 };
 
-/// Unstable in-place sort. Sorts in ascending order with respect to `lessThan`.
+/// Unstable in-place sort.
 /// `context` must have methods `swap` and `lessThan`, with the following signatures:
 /// ```
 /// pub fn swap(self: Context, lhs: usize, rhs: usize) void
 /// pub fn lessThan(self: Context, lhs: usize, rhs: usize) bool
 /// ```
 /// `lhs` and `rhs` represent the indexes of the elements.
-///
+/// Sorts from [low..high), excluding high, in ascending order with respect to `lessThan`.
 /// Computational complexity: O(n) best case, O(n*log(n)) worst case and average case.
-/// Memory complexity: O(log(n)) (no allocator required).
-pub fn pdqContext(a: usize, b: usize, context: anytype) void {
+/// Memory complexity: O(1) ~1.5kb.
+pub fn pdqContext(low: usize, high: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
     // number of allowed imbalanced partitions before switching to heap sort.
-    const max_limit = std.math.floorPowerOfTwo(usize, b - a) + 1;
+    const max_limit = std.math.floorPowerOfTwo(usize, high - low) + 1;
 
     // set upper bound on stack memory usage.
     const Range = struct { a: usize, b: usize, limit: usize };
     const stack_size = math.log2(math.maxInt(usize) + 1);
     var stack: [stack_size]Range = undefined;
-    var range = Range{ .a = a, .b = b, .limit = max_limit };
+    var range = Range{ .a = low, .b = high, .limit = max_limit };
     var top: usize = 0;
 
     while (true) {
@@ -105,7 +105,7 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
             // if the chosen pivot is equal to the predecessor, then it's the smallest element in the
             // slice. Partition the slice into elements equal to and elements greater than the pivot.
             // This case is usually hit when the slice contains many duplicate elements.
-            if (range.a > a and !context.lessThan(range.a - 1, pivot)) {
+            if (range.a > low and !context.lessThan(range.a - 1, pivot)) {
                 range.a = partitionEqual(range.a, range.b, pivot, context);
                 continue;
             }
@@ -172,11 +172,11 @@ test pdqContext {
     try TestContext.testPdq(&.{ 30, 30, 29, 29, 28, 28, 27, 27, 26, 26, 25, 25, 24, 24, 23, 23, 22, 22, 21, 21, 20, 20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 13, 13, 12, 12, 11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0 }, &.{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30 });
 }
 
-/// partitions `items[a..b]` into elements smaller than `items[pivot.*]`,
+/// Partitions `items[a..b]` into elements smaller than `items[pivot.*]`,
 /// followed by elements greater than or equal to `items[pivot.*]`.
 ///
-/// sets the new pivot.
-/// returns `true` if already partitioned.
+/// Sets the new pivot.
+/// Returns `true` if already partitioned.
 fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
     std.debug.assert(a < b);
 
@@ -243,9 +243,7 @@ test partition {
     try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 2, 7);
     try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 9, 4);
     try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 0, 5);
-    //try helper(&.{ 2, 1, 1, 1, 3, 3 }, 0, 3);
     try helper(&.{ 1, 1, 1, 3, 3, 2 }, 5, 3);
-    //try helper(&.{ 1, 0 }, 0, 1);
 }
 test "partition already partitioned" {
     const helper = struct {
@@ -275,7 +273,7 @@ test "partition already partitioned" {
 /// followed by elements greater than `items[pivot]`.
 /// Returns the index to first element that is greater than `items[pivot]`,
 /// or `b` if no item is greater than `items[pivot]`.
-/// It is assumed that `items[a..b]` does not contain elements smaller than `items[pivot]`.
+/// Assumes `items[a..b]` does not contain elements smaller than `items[pivot]`.
 fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
     std.debug.assert(a < b);
 
@@ -348,9 +346,10 @@ test "partitionEqual already partitioned" {
     try helper(&.{ 2, 2, 2, 3, 4, 4 }, 1, 3);
 }
 
-/// partially sorts a slice by shifting several out-of-order elements around.
+/// Partially sorts a slice by shifting several out-of-order elements around.
 ///
-/// returns `true` if the slice is sorted at the end. This function is `O(n)` worst-case.
+/// Returns `true` if the slice is sorted at the end.
+/// `O(n)` worst-case.
 fn partialInsertionSort(a: usize, b: usize, context: anytype) bool {
     @branchHint(.cold);
 
@@ -417,8 +416,8 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
     }
 }
 
-/// chooses a pivot in `items[a..b]`.
-/// swaps likely_sorted when `items[a..b]` seems to be already sorted.
+/// Chooses a pivot in `items[a..b]`.
+/// Swaps likely_sorted when `items[a..b]` seems to be already sorted.
 fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     // minimum length for using the Tukey's ninther method
     const shortest_ninther = 50;
