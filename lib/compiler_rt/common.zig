@@ -13,8 +13,10 @@ else
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility =
-    if (builtin.target.cpu.arch.isWasm() and linkage != .internal) .hidden else .default;
+pub const visibility: std.builtin.SymbolVisibility = if (linkage != .internal)
+    .hidden
+else
+    .default;
 
 pub const PreferredLoadStoreElement = element: {
     if (std.simd.suggestVectorLength(u8)) |vec_size| {
