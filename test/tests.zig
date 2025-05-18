@@ -296,17 +296,16 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/7935
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .x86,
-        //         .os_tag = .linux,
-        //         .abi = .musl,
-        //     },
-        //     .linkage = .dynamic,
-        //     .link_libc = true,
-        //     .extra_target = true,
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
         .{
             .target = .{
                 .cpu_arch = .x86,
