@@ -4,35 +4,34 @@ const std = @import("std");
 const io = std.io;
 const assert = std.debug.assert;
 
-const hc = @import("huffman_encoder.zig");
-const consts = @import("consts.zig").huffman;
-const Token = @import("Token.zig");
-const BitWriter = @import("BitWriter.zig");
 const BlockWriter = @This();
+const flate = @import("../flate.zig");
+const Compress = flate.Compress;
+const huffman = flate.huffman;
+const Token = @import("Token.zig");
 
-const codegen_order = consts.codegen_order;
+const codegen_order = huffman.codegen_order;
 const end_code_mark = 255;
-const Self = @This();
 
-bit_writer: BitWriter,
+output: *std.io.BufferedWriter,
 
-codegen_freq: [consts.codegen_code_count]u16 = undefined,
-literal_freq: [consts.max_num_lit]u16 = undefined,
-distance_freq: [consts.distance_code_count]u16 = undefined,
-codegen: [consts.max_num_lit + consts.distance_code_count + 1]u8 = undefined,
-literal_encoding: hc.LiteralEncoder = .{},
-distance_encoding: hc.DistanceEncoder = .{},
-codegen_encoding: hc.CodegenEncoder = .{},
-fixed_literal_encoding: hc.LiteralEncoder,
-fixed_distance_encoding: hc.DistanceEncoder,
-huff_distance: hc.DistanceEncoder,
+codegen_freq: [huffman.codegen_code_count]u16 = undefined,
+literal_freq: [huffman.max_num_lit]u16 = undefined,
+distance_freq: [huffman.distance_code_count]u16 = undefined,
+codegen: [huffman.max_num_lit + huffman.distance_code_count + 1]u8 = undefined,
+literal_encoding: Compress.LiteralEncoder = .{},
+distance_encoding: Compress.DistanceEncoder = .{},
+codegen_encoding: Compress.CodegenEncoder = .{},
+fixed_literal_encoding: Compress.LiteralEncoder,
+fixed_distance_encoding: Compress.DistanceEncoder,
+huff_distance: Compress.DistanceEncoder,
 
-pub fn init(writer: *std.io.BufferedWriter) Self {
+pub fn init(output: *std.io.BufferedWriter) BlockWriter {
     return .{
-        .bit_writer = BitWriter.init(writer),
-        .fixed_literal_encoding = hc.fixedLiteralEncoder(),
-        .fixed_distance_encoding = hc.fixedDistanceEncoder(),
-        .huff_distance = hc.huffmanDistanceEncoder(),
+        .output = output,
+        .fixed_literal_encoding = Compress.fixedLiteralEncoder(),
+        .fixed_distance_encoding = Compress.fixedDistanceEncoder(),
+        .huff_distance = Compress.huffmanDistanceEncoder(),
     };
 }
 
@@ -42,15 +41,15 @@ pub fn init(writer: *std.io.BufferedWriter) Self {
 /// That is after final block; when last byte could be incomplete or
 /// after stored block; which is aligned to the byte boundary (it has x
 /// padding bits after first 3 bits).
-pub fn flush(self: *Self) std.io.Writer.Error!void {
+pub fn flush(self: *BlockWriter) std.io.Writer.Error!void {
     try self.bit_writer.flush();
 }
 
-pub fn setWriter(self: *Self, new_writer: *std.io.BufferedWriter) void {
+pub fn setWriter(self: *BlockWriter, new_writer: *std.io.BufferedWriter) void {
     self.bit_writer.setWriter(new_writer);
 }
 
-fn writeCode(self: *Self, c: hc.HuffCode) std.io.Writer.Error!void {
+fn writeCode(self: *BlockWriter, c: Compress.HuffCode) std.io.Writer.Error!void {
     try self.bit_writer.writeBits(c.code, c.len);
 }
 
@@ -68,11 +67,11 @@ fn writeCode(self: *Self, c: hc.HuffCode) std.io.Writer.Error!void {
 // lit_enc: The literal encoder to use
 // dist_enc: The distance encoder to use
 fn generateCodegen(
-    self: *Self,
+    self: *BlockWriter,
     num_literals: u32,
     num_distances: u32,
-    lit_enc: *hc.LiteralEncoder,
-    dist_enc: *hc.DistanceEncoder,
+    lit_enc: *Compress.LiteralEncoder,
+    dist_enc: *Compress.DistanceEncoder,
 ) void {
     for (self.codegen_freq, 0..) |_, i| {
         self.codegen_freq[i] = 0;
@@ -169,9 +168,9 @@ const DynamicSize = struct {
 
 // dynamicSize returns the size of dynamically encoded data in bits.
 fn dynamicSize(
-    self: *Self,
-    lit_enc: *hc.LiteralEncoder, // literal encoder
-    dist_enc: *hc.DistanceEncoder, // distance encoder
+    self: *BlockWriter,
+    lit_enc: *Compress.LiteralEncoder, // literal encoder
+    dist_enc: *Compress.DistanceEncoder, // distance encoder
     extra_bits: u32,
 ) DynamicSize {
     var num_codegens = self.codegen_freq.len;
@@ -195,7 +194,7 @@ fn dynamicSize(
 }
 
 // fixedSize returns the size of dynamically encoded data in bits.
-fn fixedSize(self: *Self, extra_bits: u32) u32 {
+fn fixedSize(self: *BlockWriter, extra_bits: u32) u32 {
     return 3 +
         self.fixed_literal_encoding.bitLength(&self.literal_freq) +
         self.fixed_distance_encoding.bitLength(&self.distance_freq) +
@@ -214,7 +213,7 @@ fn storedSizeFits(in: ?[]const u8) StoredSize {
     if (in == null) {
         return .{ .size = 0, .storable = false };
     }
-    if (in.?.len <= consts.max_store_block_size) {
+    if (in.?.len <= huffman.max_store_block_size) {
         return .{ .size = @as(u32, @intCast((in.?.len + 5) * 8)), .storable = true };
     }
     return .{ .size = 0, .storable = false };
@@ -227,7 +226,7 @@ fn storedSizeFits(in: ?[]const u8) StoredSize {
 //  num_codegens: The number of codegens used in codegen
 //  eof: Is it the end-of-file? (end of stream)
 fn dynamicHeader(
-    self: *Self,
+    self: *BlockWriter,
     num_literals: u32,
     num_distances: u32,
     num_codegens: u32,
@@ -272,7 +271,7 @@ fn dynamicHeader(
     }
 }
 
-fn storedHeader(self: *Self, length: usize, eof: bool) std.io.Writer.Error!void {
+fn storedHeader(self: *BlockWriter, length: usize, eof: bool) std.io.Writer.Error!void {
     assert(length <= 65535);
     const flag: u32 = if (eof) 1 else 0;
     try self.bit_writer.writeBits(flag, 3);
@@ -282,7 +281,7 @@ fn storedHeader(self: *Self, length: usize, eof: bool) std.io.Writer.Error!void 
     try self.bit_writer.writeBits(~l, 16);
 }
 
-fn fixedHeader(self: *Self, eof: bool) std.io.Writer.Error!void {
+fn fixedHeader(self: *BlockWriter, eof: bool) std.io.Writer.Error!void {
     // Indicate that we are a fixed Huffman block
     var value: u32 = 2;
     if (eof) {
@@ -296,7 +295,7 @@ fn fixedHeader(self: *Self, eof: bool) std.io.Writer.Error!void {
 // is larger than the original bytes, the data will be written as a
 // stored block.
 // If the input is null, the tokens will always be Huffman encoded.
-pub fn write(self: *Self, tokens: []const Token, eof: bool, input: ?[]const u8) std.io.Writer.Error!void {
+pub fn write(self: *BlockWriter, tokens: []const Token, eof: bool, input: ?[]const u8) std.io.Writer.Error!void {
     const lit_and_dist = self.indexTokens(tokens);
     const num_literals = lit_and_dist.num_literals;
     const num_distances = lit_and_dist.num_distances;
@@ -374,7 +373,7 @@ pub fn write(self: *Self, tokens: []const Token, eof: bool, input: ?[]const u8) 
     try self.writeTokens(tokens, &literal_encoding.codes, &distance_encoding.codes);
 }
 
-pub fn storedBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Error!void {
+pub fn storedBlock(self: *BlockWriter, input: []const u8, eof: bool) std.io.Writer.Error!void {
     try self.storedHeader(input.len, eof);
     try self.bit_writer.writeBytes(input);
 }
@@ -385,7 +384,7 @@ pub fn storedBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Erro
 // If input is supplied and the compression savings are below 1/16th of the
 // input size the block is stored.
 fn dynamicBlock(
-    self: *Self,
+    self: *BlockWriter,
     tokens: []const Token,
     eof: bool,
     input: ?[]const u8,
@@ -433,7 +432,7 @@ const TotalIndexedTokens = struct {
 // literal_freq and distance_freq, and generates literal_encoding
 // and distance_encoding.
 // The number of literal and distance tokens is returned.
-fn indexTokens(self: *Self, tokens: []const Token) TotalIndexedTokens {
+fn indexTokens(self: *BlockWriter, tokens: []const Token) TotalIndexedTokens {
     var num_literals: u32 = 0;
     var num_distances: u32 = 0;
 
@@ -453,7 +452,7 @@ fn indexTokens(self: *Self, tokens: []const Token) TotalIndexedTokens {
         self.distance_freq[t.distanceCode()] += 1;
     }
     // add end_block_marker token at the end
-    self.literal_freq[consts.end_block_marker] += 1;
+    self.literal_freq[huffman.end_block_marker] += 1;
 
     // get the number of literals
     num_literals = @as(u32, @intCast(self.literal_freq.len));
@@ -482,10 +481,10 @@ fn indexTokens(self: *Self, tokens: []const Token) TotalIndexedTokens {
 // Writes a slice of tokens to the output followed by and end_block_marker.
 // codes for literal and distance encoding must be supplied.
 fn writeTokens(
-    self: *Self,
+    self: *BlockWriter,
     tokens: []const Token,
-    le_codes: []hc.HuffCode,
-    oe_codes: []hc.HuffCode,
+    le_codes: []Compress.HuffCode,
+    oe_codes: []Compress.HuffCode,
 ) std.io.Writer.Error!void {
     for (tokens) |t| {
         if (t.kind == Token.Kind.literal) {
@@ -508,18 +507,18 @@ fn writeTokens(
         }
     }
     // add end_block_marker at the end
-    try self.writeCode(le_codes[consts.end_block_marker]);
+    try self.writeCode(le_codes[huffman.end_block_marker]);
 }
 
 // Encodes a block of bytes as either Huffman encoded literals or uncompressed bytes
 // if the results only gains very little from compression.
-pub fn huffmanBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Error!void {
+pub fn huffmanBlock(self: *BlockWriter, input: []const u8, eof: bool) std.io.Writer.Error!void {
     // Add everything as literals
     histogram(input, &self.literal_freq);
 
-    self.literal_freq[consts.end_block_marker] = 1;
+    self.literal_freq[huffman.end_block_marker] = 1;
 
-    const num_literals = consts.end_block_marker + 1;
+    const num_literals = huffman.end_block_marker + 1;
     self.distance_freq[0] = 1;
     const num_distances = 1;
 
@@ -560,7 +559,7 @@ pub fn huffmanBlock(self: *Self, input: []const u8, eof: bool) std.io.Writer.Err
         const c = encoding[t];
         try self.bit_writer.writeBits(c.code, c.len);
     }
-    try self.writeCode(encoding[consts.end_block_marker]);
+    try self.writeCode(encoding[huffman.end_block_marker]);
 }
 
 // histogram accumulates a histogram of b in h.

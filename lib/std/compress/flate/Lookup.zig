@@ -5,22 +5,22 @@
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const consts = @import("consts.zig");
+const flate = @import("../flate.zig");
 
-const Self = @This();
+const Lookup = @This();
 
 const prime4 = 0x9E3779B1; // 4 bytes prime number 2654435761
-const chain_len = 2 * consts.history.len;
+const chain_len = 2 * flate.history.len;
 
 // Maps hash => first position
-head: [consts.lookup.len]u16 = [_]u16{0} ** consts.lookup.len,
+head: [flate.lookup.len]u16 = [_]u16{0} ** flate.lookup.len,
 // Maps position => previous positions for the same hash value
 chain: [chain_len]u16 = [_]u16{0} ** (chain_len),
 
 // Calculates hash of the 4 bytes from data.
 // Inserts `pos` position of that hash in the lookup tables.
 // Returns previous location with the same hash value.
-pub fn add(self: *Self, data: []const u8, pos: u16) u16 {
+pub fn add(self: *Lookup, data: []const u8, pos: u16) u16 {
     if (data.len < 4) return 0;
     const h = hash(data[0..4]);
     return self.set(h, pos);
@@ -28,11 +28,11 @@ pub fn add(self: *Self, data: []const u8, pos: u16) u16 {
 
 // Returns previous location with the same hash value given the current
 // position.
-pub fn prev(self: *Self, pos: u16) u16 {
+pub fn prev(self: *Lookup, pos: u16) u16 {
     return self.chain[pos];
 }
 
-fn set(self: *Self, h: u32, pos: u16) u16 {
+fn set(self: *Lookup, h: u32, pos: u16) u16 {
     const p = self.head[h];
     self.head[h] = pos;
     self.chain[pos] = p;
@@ -40,7 +40,7 @@ fn set(self: *Self, h: u32, pos: u16) u16 {
 }
 
 // Slide all positions in head and chain for `n`
-pub fn slide(self: *Self, n: u16) void {
+pub fn slide(self: *Lookup, n: u16) void {
     for (&self.head) |*v| {
         v.* -|= n;
     }
@@ -52,8 +52,8 @@ pub fn slide(self: *Self, n: u16) void {
 
 // Add `len` 4 bytes hashes from `data` into lookup.
 // Position of the first byte is `pos`.
-pub fn bulkAdd(self: *Self, data: []const u8, len: u16, pos: u16) void {
-    if (len == 0 or data.len < consts.match.min_length) {
+pub fn bulkAdd(self: *Lookup, data: []const u8, len: u16, pos: u16) void {
+    if (len == 0 or data.len < flate.match.min_length) {
         return;
     }
     var hb =
@@ -80,7 +80,7 @@ fn hash(b: *const [4]u8) u32 {
 }
 
 fn hashu(v: u32) u32 {
-    return @intCast((v *% prime4) >> consts.lookup.shift);
+    return @intCast((v *% prime4) >> flate.lookup.shift);
 }
 
 test add {
@@ -91,7 +91,7 @@ test add {
         0x01, 0x02, 0x03,
     };
 
-    var h: Self = .{};
+    var h: Lookup = .{};
     for (data, 0..) |_, i| {
         const p = h.add(data[i..], @intCast(i));
         if (i >= 8 and i < 24) {
@@ -101,7 +101,7 @@ test add {
         }
     }
 
-    const v = Self.hash(data[2 .. 2 + 4]);
+    const v = Lookup.hash(data[2 .. 2 + 4]);
     try expect(h.head[v] == 2 + 16);
     try expect(h.chain[2 + 16] == 2 + 8);
     try expect(h.chain[2 + 8] == 2);
@@ -111,13 +111,13 @@ test bulkAdd {
     const data = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
 
     // one by one
-    var h: Self = .{};
+    var h: Lookup = .{};
     for (data, 0..) |_, i| {
         _ = h.add(data[i..], @intCast(i));
     }
 
     // in bulk
-    var bh: Self = .{};
+    var bh: Lookup = .{};
     bh.bulkAdd(data, data.len, 0);
 
     try testing.expectEqualSlices(u16, &h.head, &bh.head);

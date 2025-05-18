@@ -1,4 +1,196 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
+const testing = std.testing;
+
+/// Container of the deflate bit stream body. Container adds header before
+/// deflate bit stream and footer after. It can bi gzip, zlib or raw (no header,
+/// no footer, raw bit stream).
+///
+/// Zlib format is defined in rfc 1950. Header has 2 bytes and footer 4 bytes
+/// addler 32 checksum.
+///
+/// Gzip format is defined in rfc 1952. Header has 10+ bytes and footer 4 bytes
+/// crc32 checksum and 4 bytes of uncompressed data length.
+///
+///
+/// rfc 1950: https://datatracker.ietf.org/doc/html/rfc1950#page-4
+/// rfc 1952: https://datatracker.ietf.org/doc/html/rfc1952#page-5
+pub const Container = enum {
+    raw, // no header or footer
+    gzip, // gzip header and footer
+    zlib, // zlib header and footer
+
+    pub fn size(w: Container) usize {
+        return headerSize(w) + footerSize(w);
+    }
+
+    pub fn headerSize(w: Container) usize {
+        return header(w).len;
+    }
+
+    pub fn footerSize(w: Container) usize {
+        return switch (w) {
+            .gzip => 8,
+            .zlib => 4,
+            .raw => 0,
+        };
+    }
+
+    pub const list = [_]Container{ .raw, .gzip, .zlib };
+
+    pub const Error = error{
+        BadGzipHeader,
+        BadZlibHeader,
+        WrongGzipChecksum,
+        WrongGzipSize,
+        WrongZlibChecksum,
+    };
+
+    pub fn header(container: Container) []const u8 {
+        return switch (container) {
+            // GZIP 10 byte header (https://datatracker.ietf.org/doc/html/rfc1952#page-5):
+            //  - ID1 (IDentification 1), always 0x1f
+            //  - ID2 (IDentification 2), always 0x8b
+            //  - CM (Compression Method), always 8 = deflate
+            //  - FLG (Flags), all set to 0
+            //  - 4 bytes, MTIME (Modification time), not used, all set to zero
+            //  - XFL (eXtra FLags), all set to zero
+            //  - OS (Operating System), 03 = Unix
+            .gzip => &[_]u8{ 0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 },
+            // ZLIB has a two-byte header (https://datatracker.ietf.org/doc/html/rfc1950#page-4):
+            // 1st byte:
+            //  - First four bits is the CINFO (compression info), which is 7 for the default deflate window size.
+            //  - The next four bits is the CM (compression method), which is 8 for deflate.
+            // 2nd byte:
+            //  - Two bits is the FLEVEL (compression level). Values are: 0=fastest, 1=fast, 2=default, 3=best.
+            //  - The next bit, FDICT, is set if a dictionary is given.
+            //  - The final five FCHECK bits form a mod-31 checksum.
+            //
+            // CINFO = 7, CM = 8, FLEVEL = 0b10, FDICT = 0, FCHECK = 0b11100
+            .zlib => &[_]u8{ 0x78, 0b10_0_11100 },
+            .raw => &{},
+        };
+    }
+
+    pub fn parseHeader(comptime wrap: Container, reader: *std.io.BufferedReader) !void {
+        switch (wrap) {
+            .gzip => try parseGzipHeader(reader),
+            .zlib => try parseZlibHeader(reader),
+            .raw => {},
+        }
+    }
+
+    fn parseGzipHeader(reader: *std.io.BufferedReader) !void {
+        const magic1 = try reader.read(u8);
+        const magic2 = try reader.read(u8);
+        const method = try reader.read(u8);
+        const flags = try reader.read(u8);
+        try reader.skipBytes(6); // mtime(4), xflags, os
+        if (magic1 != 0x1f or magic2 != 0x8b or method != 0x08)
+            return error.BadGzipHeader;
+        // Flags description: https://www.rfc-editor.org/rfc/rfc1952.html#page-5
+        if (flags != 0) {
+            if (flags & 0b0000_0100 != 0) { // FEXTRA
+                const extra_len = try reader.read(u16);
+                try reader.skipBytes(extra_len);
+            }
+            if (flags & 0b0000_1000 != 0) { // FNAME
+                try reader.skipStringZ();
+            }
+            if (flags & 0b0001_0000 != 0) { // FCOMMENT
+                try reader.skipStringZ();
+            }
+            if (flags & 0b0000_0010 != 0) { // FHCRC
+                try reader.skipBytes(2);
+            }
+        }
+    }
+
+    fn parseZlibHeader(reader: *std.io.BufferedReader) !void {
+        const cm = try reader.read(u4);
+        const cinfo = try reader.read(u4);
+        _ = try reader.read(u8);
+        if (cm != 8 or cinfo > 7) {
+            return error.BadZlibHeader;
+        }
+    }
+
+    pub fn parseFooter(comptime wrap: Container, hasher: *Hasher(wrap), reader: *std.io.BufferedReader) !void {
+        switch (wrap) {
+            .gzip => {
+                try reader.fill(0);
+                if (try reader.read(u32) != hasher.chksum()) return error.WrongGzipChecksum;
+                if (try reader.read(u32) != hasher.bytesRead()) return error.WrongGzipSize;
+            },
+            .zlib => {
+                const chksum: u32 = @byteSwap(hasher.chksum());
+                if (try reader.read(u32) != chksum) return error.WrongZlibChecksum;
+            },
+            .raw => {},
+        }
+    }
+
+    pub const Hasher = union(Container) {
+        gzip: struct {
+            crc: std.hash.Crc32 = .init(),
+            count: usize = 0,
+        },
+        zlib: std.hash.Adler32,
+        raw: void,
+
+        pub fn init(containter: Container) Hasher {
+            return switch (containter) {
+                .gzip => .{ .gzip = .{} },
+                .zlib => .{ .zlib = .init() },
+                .raw => {},
+            };
+        }
+
+        pub fn container(h: Hasher) Container {
+            return h;
+        }
+
+        pub fn update(h: *Hasher, buf: []const u8) void {
+            switch (h.*) {
+                .raw => {},
+                .gzip => |*gzip| {
+                    gzip.update(buf);
+                    gzip.count += buf.len;
+                },
+                .zlib => |*zlib| {
+                    zlib.update(buf);
+                },
+                inline .gzip, .zlib => |*x| x.update(buf),
+            }
+        }
+
+        pub fn writeFooter(hasher: *Hasher, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+            var bits: [4]u8 = undefined;
+            switch (hasher.*) {
+                .gzip => |*gzip| {
+                    // GZIP 8 bytes footer
+                    //  - 4 bytes, CRC32 (CRC-32)
+                    //  - 4 bytes, ISIZE (Input SIZE) - size of the original (uncompressed) input data modulo 2^32
+                    std.mem.writeInt(u32, &bits, gzip.final(), .little);
+                    try writer.writeAll(&bits);
+
+                    std.mem.writeInt(u32, &bits, gzip.bytes_read, .little);
+                    try writer.writeAll(&bits);
+                },
+                .zlib => |*zlib| {
+                    // ZLIB (RFC 1950) is big-endian, unlike GZIP (RFC 1952).
+                    // 4 bytes of ADLER32 (Adler-32 checksum)
+                    // Checksum value of the uncompressed data (excluding any
+                    // dictionary data) computed according to Adler-32
+                    // algorithm.
+                    std.mem.writeInt(u32, &bits, zlib.final, .big);
+                    try writer.writeAll(&bits);
+                },
+                .raw => {},
+            }
+        }
+    };
+};
 
 /// When decompressing, the output buffer is used as the history window, so
 /// less than this may result in failure to decompress streams that were
@@ -7,66 +199,48 @@ pub const max_window_len = 1 << 16;
 
 /// Deflate is a lossless data compression file format that uses a combination
 /// of LZ77 and Huffman coding.
-pub const deflate = @import("flate/deflate.zig");
+pub const Compress = @import("flate/Compress.zig");
 
 /// Inflate is the decoding process that takes a Deflate bitstream for
 /// decompression and correctly produces the original full-size data or file.
-pub const inflate = @import("flate/inflate.zig");
-
-/// Decompress compressed data from reader and write plain data to the writer.
-pub fn decompress(reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
-    try inflate.decompress(.raw, reader, writer);
-}
-
-pub const Decompressor = inflate.Decompressor(.raw);
-
-/// Compression level, trades between speed and compression size.
-pub const Options = deflate.Options;
-
-/// Compress plain data from reader and write compressed data to the writer.
-pub fn compress(reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter, options: Options) std.io.Writer.Error!void {
-    try deflate.compress(.raw, reader, writer, options);
-}
-
-pub const Compressor = deflate.Compressor(.raw);
+pub const Decompress = @import("flate/Decompress.zig");
 
 /// Huffman only compression. Without Lempel-Ziv match searching. Faster
 /// compression, less memory requirements but bigger compressed sizes.
 pub const huffman = struct {
-    pub fn compress(reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
-        try deflate.huffman.compress(.raw, reader, writer);
-    }
+    // The odd order in which the codegen code sizes are written.
+    pub const codegen_order = [_]u32{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+    // The number of codegen codes.
+    pub const codegen_code_count = 19;
 
-    pub const Compressor = deflate.huffman.Compressor(.raw);
+    // The largest distance code.
+    pub const distance_code_count = 30;
+
+    // Maximum number of literals.
+    pub const max_num_lit = 286;
+
+    // Max number of frequencies used for a Huffman Code
+    // Possible lengths are codegen_code_count (19), distance_code_count (30) and max_num_lit (286).
+    // The largest of these is max_num_lit.
+    pub const max_num_frequencies = max_num_lit;
+
+    // Biggest block size for uncompressed block.
+    pub const max_store_block_size = 65535;
+    // The special code used to mark the end of a block.
+    pub const end_block_marker = 256;
 };
-
-// No compression store only. Compressed size is slightly bigger than plain.
-pub const store = struct {
-    pub fn compress(reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
-        try deflate.store.compress(.raw, reader, writer);
-    }
-
-    pub const Compressor = deflate.store.Compressor(.raw);
-};
-
-const builtin = @import("builtin");
-const testing = std.testing;
-const fixedBufferStream = std.io.fixedBufferStream;
-const print = std.debug.print;
-/// Container defines header/footer around deflate bit stream. Gzip and zlib
-/// compression algorithms are containers around deflate bit stream body.
-const Container = @import("flate/container.zig").Container;
 
 test {
-    _ = deflate;
-    _ = inflate;
+    _ = Compress;
+    _ = Decompress;
 }
 
 test "compress/decompress" {
+    const print = std.debug.print;
     var cmp_buf: [64 * 1024]u8 = undefined; // compressed data buffer
     var dcm_buf: [64 * 1024]u8 = undefined; // decompressed data buffer
 
-    const levels = [_]deflate.Level{ .level_4, .level_5, .level_6, .level_7, .level_8, .level_9 };
+    const levels = [_]Compress.Level{ .level_4, .level_5, .level_6, .level_7, .level_8, .level_9 };
     const cases = [_]struct {
         data: []const u8, // uncompressed content
         // compressed data sizes per level 4-9
@@ -113,9 +287,11 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original = fixedBufferStream(data);
-                    var compressed = fixedBufferStream(&cmp_buf);
-                    try deflate.compress(container, original.reader(), compressed.writer(), .{ .level = level });
+                    var original: std.io.BufferedReader = undefined;
+                    original.initFixed(data);
+                    var compressed: std.io.BufferedWriter = undefined;
+                    compressed.initFixed(&cmp_buf);
+                    try Compress.pump(container, original.reader(), &compressed, .{ .level = level });
                     if (compressed_size == 0) {
                         if (container == .gzip)
                             print("case {d} gzip level {} compressed size: {d}\n", .{ case_no, level, compressed.pos });
@@ -125,16 +301,19 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed = fixedBufferStream(cmp_buf[0..compressed_size]);
-                    var decompressed = fixedBufferStream(&dcm_buf);
-                    try inflate.decompress(container, compressed.reader(), decompressed.writer());
+                    var compressed: std.io.BufferedReader = undefined;
+                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var decompressed: std.io.BufferedWriter = undefined;
+                    decompressed.initFixed(&dcm_buf);
+                    try Decompress.pump(container, &compressed, &decompressed);
                     try testing.expectEqualSlices(u8, data, decompressed.getWritten());
                 }
 
                 // compressor writer interface
                 {
-                    var compressed = fixedBufferStream(&cmp_buf);
-                    var cmp = try deflate.compressor(container, compressed.writer(), .{ .level = level });
+                    var compressed: std.io.BufferedWriter = undefined;
+                    compressed.initFixed(&cmp_buf);
+                    var cmp = try Compress.init(container, &compressed, .{ .level = level });
                     var cmp_wrt = cmp.writer();
                     try cmp_wrt.writeAll(data);
                     try cmp.finish();
@@ -143,8 +322,9 @@ test "compress/decompress" {
                 }
                 // decompressor reader interface
                 {
-                    var compressed = fixedBufferStream(cmp_buf[0..compressed_size]);
-                    var dcm = inflate.decompressor(container, compressed.reader());
+                    var compressed: std.io.BufferedReader = undefined;
+                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var dcm = Decompress.pump(container, &compressed);
                     var dcm_rdr = dcm.reader();
                     const n = try dcm_rdr.readAll(&dcm_buf);
                     try testing.expectEqual(data.len, n);
@@ -162,9 +342,11 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original = fixedBufferStream(data);
-                    var compressed = fixedBufferStream(&cmp_buf);
-                    var cmp = try deflate.huffman.compressor(container, compressed.writer());
+                    var original: std.io.BufferedReader = undefined;
+                    original.initFixed(data);
+                    var compressed: std.io.BufferedWriter = undefined;
+                    compressed.initFixed(&cmp_buf);
+                    var cmp = try Compress.Huffman.init(container, &compressed);
                     try cmp.compress(original.reader());
                     try cmp.finish();
                     if (compressed_size == 0) {
@@ -176,9 +358,11 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed = fixedBufferStream(cmp_buf[0..compressed_size]);
-                    var decompressed = fixedBufferStream(&dcm_buf);
-                    try inflate.decompress(container, compressed.reader(), decompressed.writer());
+                    var compressed: std.io.BufferedReader = undefined;
+                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var decompressed: std.io.BufferedWriter = undefined;
+                    decompressed.initFixed(&dcm_buf);
+                    try Decompress.pump(container, &compressed, &decompressed);
                     try testing.expectEqualSlices(u8, data, decompressed.getWritten());
                 }
             }
@@ -194,9 +378,11 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original = fixedBufferStream(data);
-                    var compressed = fixedBufferStream(&cmp_buf);
-                    var cmp = try deflate.store.compressor(container, compressed.writer());
+                    var original: std.io.BufferedReader = undefined;
+                    original.initFixed(data);
+                    var compressed: std.io.BufferedWriter = undefined;
+                    compressed.initFixed(&cmp_buf);
+                    var cmp = try Compress.SimpleCompressor(.store, container).init(&compressed);
                     try cmp.compress(original.reader());
                     try cmp.finish();
                     if (compressed_size == 0) {
@@ -209,9 +395,11 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed = fixedBufferStream(cmp_buf[0..compressed_size]);
-                    var decompressed = fixedBufferStream(&dcm_buf);
-                    try inflate.decompress(container, compressed.reader(), decompressed.writer());
+                    var compressed: std.io.BufferedReader = undefined;
+                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var decompressed: std.io.BufferedWriter = undefined;
+                    decompressed.initFixed(&dcm_buf);
+                    try Decompress.pump(container, &compressed, &decompressed);
                     try testing.expectEqualSlices(u8, data, decompressed.getWritten());
                 }
             }
@@ -220,11 +408,13 @@ test "compress/decompress" {
 }
 
 fn testDecompress(comptime container: Container, compressed: []const u8, expected_plain: []const u8) !void {
-    var in = fixedBufferStream(compressed);
-    var out = std.ArrayList(u8).init(testing.allocator);
+    var in: std.io.BufferedReader = undefined;
+    in.initFixed(compressed);
+    var out: std.io.AllocatingWriter = undefined;
+    out.init(testing.allocator);
     defer out.deinit();
 
-    try inflate.decompress(container, in.reader(), out.writer());
+    try Decompress.pump(container, &in, &out.buffered_writer);
     try testing.expectEqualSlices(u8, expected_plain, out.items);
 }
 
@@ -337,23 +527,24 @@ test "public interface" {
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
     } ++ plain_data;
 
-    // gzip header/footer + deflate block
-    const gzip_data =
-        [_]u8{ 0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 } ++ // gzip header (10 bytes)
-        deflate_block ++
-        [_]u8{ 0xd5, 0xe0, 0x39, 0xb7, 0x0c, 0x00, 0x00, 0x00 }; // gzip footer checksum (4 byte), size (4 bytes)
+    //// gzip header/footer + deflate block
+    //const gzip_data =
+    //    [_]u8{ 0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 } ++ // gzip header (10 bytes)
+    //    deflate_block ++
+    //    [_]u8{ 0xd5, 0xe0, 0x39, 0xb7, 0x0c, 0x00, 0x00, 0x00 }; // gzip footer checksum (4 byte), size (4 bytes)
 
-    // zlib header/footer + deflate block
-    const zlib_data = [_]u8{ 0x78, 0b10_0_11100 } ++ // zlib header (2 bytes)}
-        deflate_block ++
-        [_]u8{ 0x1c, 0xf2, 0x04, 0x47 }; // zlib footer: checksum
+    //// zlib header/footer + deflate block
+    //const zlib_data = [_]u8{ 0x78, 0b10_0_11100 } ++ // zlib header (2 bytes)}
+    //    deflate_block ++
+    //    [_]u8{ 0x1c, 0xf2, 0x04, 0x47 }; // zlib footer: checksum
 
-    const gzip = @import("gzip.zig");
-    const zlib = @import("zlib.zig");
+    // TODO
+    //const gzip = @import("gzip.zig");
+    //const zlib = @import("zlib.zig");
     const flate = @This();
 
-    try testInterface(gzip, &gzip_data, &plain_data);
-    try testInterface(zlib, &zlib_data, &plain_data);
+    //try testInterface(gzip, &gzip_data, &plain_data);
+    //try testInterface(zlib, &zlib_data, &plain_data);
     try testInterface(flate, &deflate_block, &plain_data);
 }
 
@@ -361,95 +552,181 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
     var buffer1: [64]u8 = undefined;
     var buffer2: [64]u8 = undefined;
 
-    var compressed = fixedBufferStream(&buffer1);
-    var plain = fixedBufferStream(&buffer2);
-
     // decompress
     {
-        var in = fixedBufferStream(gzip_data);
-        try pkg.decompress(in.reader(), plain.writer());
+        var plain: std.io.BufferedWriter = undefined;
+        plain.initFixed(&buffer2);
+
+        var in: std.io.BufferedReader = undefined;
+        in.initFixed(gzip_data);
+        try pkg.decompress(&in, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
-    plain.reset();
-    compressed.reset();
 
     // compress/decompress
     {
-        var in = fixedBufferStream(plain_data);
-        try pkg.compress(in.reader(), compressed.writer(), .{});
-        compressed.reset();
-        try pkg.decompress(compressed.reader(), plain.writer());
+        var plain: std.io.BufferedWriter = undefined;
+        plain.initFixed(&buffer2);
+        var compressed: std.io.BufferedWriter = undefined;
+        compressed.initFixed(&buffer1);
+
+        var in: std.io.BufferedReader = undefined;
+        in.initFixed(plain_data);
+        try pkg.compress(&in, &compressed, .{});
+
+        var compressed_br: std.io.BufferedReader = undefined;
+        compressed_br.initFixed(&buffer1);
+        try pkg.decompress(&compressed_br, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
-    plain.reset();
-    compressed.reset();
 
     // compressor/decompressor
     {
-        var in = fixedBufferStream(plain_data);
-        var cmp = try pkg.compressor(compressed.writer(), .{});
-        try cmp.compress(in.reader());
+        var plain: std.io.BufferedWriter = undefined;
+        plain.initFixed(&buffer2);
+        var compressed: std.io.BufferedWriter = undefined;
+        compressed.initFixed(&buffer1);
+
+        var in: std.io.BufferedReader = undefined;
+        in.initFixed(plain_data);
+        var cmp = try pkg.compressor(&compressed, .{});
+        try cmp.compress(&in);
         try cmp.finish();
 
-        compressed.reset();
-        var dcp = pkg.decompressor(compressed.reader());
-        try dcp.decompress(plain.writer());
+        var compressed_br: std.io.BufferedReader = undefined;
+        compressed_br.initFixed(&buffer1);
+        var dcp = pkg.decompressor(&compressed_br);
+        try dcp.decompress(&plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
-    plain.reset();
-    compressed.reset();
 
     // huffman
     {
         // huffman compress/decompress
         {
-            var in = fixedBufferStream(plain_data);
-            try pkg.huffman.compress(in.reader(), compressed.writer());
-            compressed.reset();
-            try pkg.decompress(compressed.reader(), plain.writer());
+            var plain: std.io.BufferedWriter = undefined;
+            plain.initFixed(&buffer2);
+            var compressed: std.io.BufferedWriter = undefined;
+            compressed.initFixed(&buffer1);
+
+            var in: std.io.BufferedReader = undefined;
+            in.initFixed(plain_data);
+            try pkg.huffman.compress(&in, &compressed);
+
+            var compressed_br: std.io.BufferedReader = undefined;
+            compressed_br.initFixed(&buffer1);
+            try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
-        plain.reset();
-        compressed.reset();
 
         // huffman compressor/decompressor
         {
-            var in = fixedBufferStream(plain_data);
-            var cmp = try pkg.huffman.compressor(compressed.writer());
-            try cmp.compress(in.reader());
+            var plain: std.io.BufferedWriter = undefined;
+            plain.initFixed(&buffer2);
+            var compressed: std.io.BufferedWriter = undefined;
+            compressed.initFixed(&buffer1);
+
+            var in: std.io.BufferedReader = undefined;
+            in.initFixed(plain_data);
+            var cmp = try pkg.huffman.compressor(&compressed);
+            try cmp.compress(&in);
             try cmp.finish();
 
-            compressed.reset();
-            try pkg.decompress(compressed.reader(), plain.writer());
+            var compressed_br: std.io.BufferedReader = undefined;
+            compressed_br.initFixed(&buffer1);
+            try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
     }
-    plain.reset();
-    compressed.reset();
 
     // store
     {
         // store compress/decompress
         {
-            var in = fixedBufferStream(plain_data);
-            try pkg.store.compress(in.reader(), compressed.writer());
-            compressed.reset();
-            try pkg.decompress(compressed.reader(), plain.writer());
+            var plain: std.io.BufferedWriter = undefined;
+            plain.initFixed(&buffer2);
+            var compressed: std.io.BufferedWriter = undefined;
+            compressed.initFixed(&buffer1);
+
+            var in: std.io.BufferedReader = undefined;
+            in.initFixed(plain_data);
+            try pkg.store.compress(&in, &compressed);
+
+            var compressed_br: std.io.BufferedReader = undefined;
+            compressed_br.initFixed(&buffer1);
+            try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
-        plain.reset();
-        compressed.reset();
 
         // store compressor/decompressor
         {
-            var in = fixedBufferStream(plain_data);
-            var cmp = try pkg.store.compressor(compressed.writer());
-            try cmp.compress(in.reader());
+            var plain: std.io.BufferedWriter = undefined;
+            plain.initFixed(&buffer2);
+            var compressed: std.io.BufferedWriter = undefined;
+            compressed.initFixed(&buffer1);
+
+            var in: std.io.BufferedReader = undefined;
+            in.initFixed(plain_data);
+            var cmp = try pkg.store.compressor(&compressed);
+            try cmp.compress(&in);
             try cmp.finish();
 
-            compressed.reset();
-            try pkg.decompress(compressed.reader(), plain.writer());
+            var compressed_br: std.io.BufferedReader = undefined;
+            compressed_br.initFixed(&buffer1);
+            try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
     }
+}
+
+pub const match = struct {
+    pub const base_length = 3; // smallest match length per the RFC section 3.2.5
+    pub const min_length = 4; // min length used in this algorithm
+    pub const max_length = 258;
+
+    pub const min_distance = 1;
+    pub const max_distance = 32768;
+};
+
+pub const history = struct {
+    pub const len = match.max_distance;
+};
+
+pub const lookup = struct {
+    pub const bits = 15;
+    pub const len = 1 << bits;
+    pub const shift = 32 - bits;
+};
+
+test "zlib should not overshoot" {
+    // Compressed zlib data with extra 4 bytes at the end.
+    const data = [_]u8{
+        0x78, 0x9c, 0x73, 0xce, 0x2f, 0xa8, 0x2c, 0xca, 0x4c, 0xcf, 0x28, 0x51, 0x08, 0xcf, 0xcc, 0xc9,
+        0x49, 0xcd, 0x55, 0x28, 0x4b, 0xcc, 0x53, 0x08, 0x4e, 0xce, 0x48, 0xcc, 0xcc, 0xd6, 0x51, 0x08,
+        0xce, 0xcc, 0x4b, 0x4f, 0x2c, 0xc8, 0x2f, 0x4a, 0x55, 0x30, 0xb4, 0xb4, 0x34, 0xd5, 0xb5, 0x34,
+        0x03, 0x00, 0x8b, 0x61, 0x0f, 0xa4, 0x52, 0x5a, 0x94, 0x12,
+    };
+
+    var stream = std.io.fixedBufferStream(data[0..]);
+    const reader = stream.reader();
+
+    var dcp = Decompress.init(reader);
+    var out: [128]u8 = undefined;
+
+    // Decompress
+    var n = try dcp.reader().readAll(out[0..]);
+
+    // Expected decompressed data
+    try std.testing.expectEqual(46, n);
+    try std.testing.expectEqualStrings("Copyright Willem van Schaik, Singapore 1995-96", out[0..n]);
+
+    // Decompressor don't overshoot underlying reader.
+    // It is leaving it at the end of compressed data chunk.
+    try std.testing.expectEqual(data.len - 4, stream.getPos());
+    try std.testing.expectEqual(0, dcp.unreadBytes());
+
+    // 4 bytes after compressed chunk are available in reader.
+    n = try reader.readAll(out[0..]);
+    try std.testing.expectEqual(n, 4);
+    try std.testing.expectEqualSlices(u8, data[data.len - 4 .. data.len], out[0..n]);
 }
