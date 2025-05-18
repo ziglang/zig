@@ -13,6 +13,9 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
+/// Maximum number of frames to walk when iterating through a stack trace.
+pub const max_stack_trace_depth = 50;
+
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
@@ -452,6 +455,8 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
         }
 
+        var depth: usize = 0;
+
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
 
@@ -462,6 +467,13 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             // same behaviour for x86-windows-msvc
             const address = if (return_address == 0) return_address else return_address - 1;
             printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
+
+            depth += 1;
+            if (depth > max_stack_trace_depth) {
+                // Likely a bug (or an exceptionally deep stack trace).
+                stderr.print("Abandoned stack trace after {} frames. See Zig Issue #18286.\n", .{max_stack_trace_depth}) catch {};
+                break;
+            }
         } else printLastUnwindError(&it, debug_info, stderr, tty_config);
     }
 }
@@ -869,8 +881,16 @@ pub const StackIterator = struct {
         var address = it.next_internal() orelse return null;
 
         if (it.first_address) |first_address| {
+            var depth: usize = 0;
             while (address != first_address) {
                 address = it.next_internal() orelse return null;
+
+                depth += 1;
+                if (depth > max_stack_trace_depth) {
+                    // Failed to find the starting frame.  Abandoning as an "infinite" stack trace.
+                    // This is likely https://github.com/ziglang/zig/issues/18286 or something similar.
+                    return null;
+                }
             }
             it.first_address = null;
         }
@@ -981,6 +1001,8 @@ pub fn writeCurrentStackTrace(
     } else null) orelse StackIterator.init(start_addr, null);
     defer it.deinit();
 
+    var depth: usize = 0;
+
     while (it.next()) |return_address| {
         printLastUnwindError(&it, debug_info, out_stream, tty_config);
 
@@ -991,6 +1013,13 @@ pub fn writeCurrentStackTrace(
         // same behaviour for x86-windows-msvc
         const address = return_address -| 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
+
+        depth += 1;
+        if (depth > max_stack_trace_depth) {
+            // Likely a bug (or an exceptionally deep stack trace).
+            out_stream.print("Abandoned stack trace after {} frames. See Zig Issue #18286.\n", .{max_stack_trace_depth}) catch {};
+            break;
+        }
     } else printLastUnwindError(&it, debug_info, out_stream, tty_config);
 }
 
