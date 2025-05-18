@@ -412,6 +412,10 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             return;
         }
         const stderr = io.getStdErr().writer();
+        if (!have_ucontext) {
+            stderr.print("Unable to dump stack trace: platform 'ucontext_t' not defined\n", .{}) catch return;
+            return;
+        }
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -439,9 +443,14 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
         // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
         const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             context.mcontext.ss.pc
+        else if (it.unwind_state != null)
+            it.unwind_state.?.dwarf_context.pc
         else
-            it.unwind_state.?.dwarf_context.pc;
-        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
+            0;
+
+        if (pc_addr != 0) {
+            printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
+        }
 
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
