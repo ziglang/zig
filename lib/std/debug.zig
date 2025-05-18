@@ -969,8 +969,8 @@ pub fn writeCurrentStackTrace(
     start_addr: ?usize,
 ) !void {
     if (native_os == .windows) {
-        var context: ThreadContext = undefined;
-        assert(getContext(&context));
+        var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
+        windows.ntdll.RtlCaptureContext(&context);
         return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);
     }
     var context: ThreadContext = undefined;
