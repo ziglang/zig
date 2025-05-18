@@ -135,12 +135,47 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     }
 }
 
-/// partitions `items[a..b]` into elements smaller than `items[pivot]`,
-/// followed by elements greater than or equal to `items[pivot]`.
+const TestContext = struct {
+    data: [*]usize,
+    pub fn swap(self: @This(), lhs: usize, rhs: usize) void {
+        std.mem.swap(usize, &self.data[lhs], &self.data[rhs]);
+    }
+    pub fn lessThan(self: @This(), lhs: usize, rhs: usize) bool {
+        return self.data[lhs] < self.data[rhs];
+    }
+    pub fn testPdq(comptime data: []const usize, expected: []const usize) !void {
+        var actual = data[0..].*;
+        pdqContext(0, actual.len, TestContext{ .data = &actual });
+        try testing.expectEqualSlices(usize, expected, &actual);
+    }
+};
+test "pdqContext empty" {
+    try TestContext.testPdq(&.{}, &.{});
+}
+test "pdqContext already partitioned" {
+    try TestContext.testPdq(&.{0}, &.{0});
+    try TestContext.testPdq(&.{ 0, 1 }, &.{ 0, 1 });
+    try TestContext.testPdq(&.{ 0, 1, 2, 3, 4, 5, 6, 7 }, &.{ 0, 1, 2, 3, 4, 5, 6, 7 });
+    // pdq changes strategy depending on the number of elements, so we need to use long lists
+    try TestContext.testPdq(&.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 }, &.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 });
+    try TestContext.testPdq(&.{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30 }, &.{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30 });
+}
+test pdqContext {
+    try TestContext.testPdq(&.{ 1, 0 }, &.{ 0, 1 });
+    try TestContext.testPdq(&.{ 1, 2, 2, 1, 1 }, &.{ 1, 1, 1, 2, 2 });
+    try TestContext.testPdq(&.{ 3, 5, 1, 2, 7, 6, 4 }, &.{ 1, 2, 3, 4, 5, 6, 7 });
+    // pdq changes strategy depending on the number of elements, so we need to use long lists
+    try TestContext.testPdq(&.{ 3, 5, 1, 2, 7, 6, 4, 5, 1, 2, 1, 2, 7, 6, 4, 5, 1, 2, 3, 5, 1, 2, 7, 6, 4, 5, 1, 2, 1, 2, 7, 6, 4, 5, 1, 2 }, &.{ 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7 });
+}
+
+/// partitions `items[a..b]` into elements smaller than `items[pivot.*]`,
+/// followed by elements greater than or equal to `items[pivot.*]`.
 ///
 /// sets the new pivot.
 /// returns `true` if already partitioned.
 fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
+    std.debug.assert(a < b);
+
     // move pivot to the first place
     context.swap(a, pivot.*);
 
@@ -179,11 +214,66 @@ fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
     return false;
 }
 
-/// partitions items into elements equal to `items[pivot]`
+test partition {
+    const helper = struct {
+        pub fn call(comptime data: []const usize, pivot: usize, expected_pivot: usize) !void {
+            var actual = data[0..].*;
+            var actual_pivot = pivot;
+            const already_partitioned = partition(
+                0,
+                data.len,
+                &actual_pivot,
+                TestContext{ .data = &actual },
+            );
+            try testing.expectEqual(expected_pivot, actual_pivot);
+            try testing.expect(!already_partitioned);
+            for (actual[0..actual_pivot]) |v| {
+                try testing.expect(v < data[pivot]);
+            }
+            for (actual[actual_pivot..]) |v| {
+                try testing.expect(v >= data[pivot]);
+            }
+        }
+    }.call;
+    try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 2, 7);
+    try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 9, 4);
+    try helper(&.{ 5, 6, 7, 8, 9, 0, 1, 2, 3, 4 }, 0, 5);
+    try helper(&.{ 2, 1, 1, 1, 3, 3 }, 0, 3);
+    try helper(&.{ 1, 1, 1, 3, 3, 2 }, 5, 3);
+    try helper(&.{ 1, 0 }, 0, 1);
+}
+test "partition already partitioned" {
+    const helper = struct {
+        pub fn call(comptime data: []const usize, pivot: usize) !void {
+            var actual = data[0..].*;
+            var actual_pivot = pivot;
+            const already_partitioned = partition(
+                0,
+                data.len,
+                &actual_pivot,
+                TestContext{ .data = &actual },
+            );
+            try testing.expectEqual(pivot, actual_pivot);
+            try testing.expect(already_partitioned);
+            try testing.expectEqualSlices(usize, data, &actual);
+        }
+    }.call;
+    try helper(&.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, 0);
+    try helper(&.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, 2);
+    try helper(&.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, 9);
+    try helper(&.{ 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9 }, 0);
+    try helper(&.{ 0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9 }, 4);
+    try helper(&.{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9 }, 18);
+}
+
+/// Partitions items into elements equal to `items[pivot]`
 /// followed by elements greater than `items[pivot]`.
-///
-/// it assumed that `items[a..b]` does not contain elements smaller than the `items[pivot]`.
+/// Returns the index to first element that is greater than `items[pivot]`,
+/// or `b` if no item is greater than `items[pivot]`.
+/// It is assumed that `items[a..b]` does not contain elements smaller than `items[pivot]`.
 fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
+    std.debug.assert(a < b);
+
     // move pivot to the first place
     context.swap(a, pivot);
 
@@ -201,6 +291,55 @@ fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
     }
 
     return i;
+}
+test partitionEqual {
+    const helper = struct {
+        pub fn call(comptime data: []const usize, pivot: usize, expected_first_greater: usize) !void {
+            var actual = data[0..].*;
+            const actual_first_greater = partitionEqual(
+                0,
+                data.len,
+                pivot,
+                TestContext{ .data = &actual },
+            );
+            try testing.expectEqual(expected_first_greater, actual_first_greater);
+            for (actual[0..expected_first_greater]) |v| {
+                try testing.expect(v == data[pivot]);
+            }
+            for (actual[expected_first_greater..]) |v| {
+                try testing.expect(v > data[pivot]);
+            }
+        }
+    }.call;
+    try helper(&.{ 4, 2 }, 1, 1);
+    try helper(&.{ 2, 2, 4, 3, 2 }, 0, 3);
+    try helper(&.{ 4, 2, 2, 4, 3, 2 }, 5, 3);
+}
+test "partitionEqual already partitioned" {
+    const helper = struct {
+        pub fn call(comptime data: []const usize, pivot: usize, expected_first_greater: usize) !void {
+            var actual = data[0..].*;
+            const actual_first_greater = partitionEqual(
+                0,
+                data.len,
+                pivot,
+                TestContext{ .data = &actual },
+            );
+            try testing.expectEqual(expected_first_greater, actual_first_greater);
+            for (actual[0..actual_first_greater]) |v| {
+                try testing.expect(v == data[pivot]);
+            }
+            for (actual[actual_first_greater..]) |v| {
+                try testing.expect(v > data[pivot]);
+            }
+        }
+    }.call;
+    try helper(&.{ 2, 3 }, 0, 1);
+    try helper(&.{ 2, 2, 2 }, 0, 3);
+    try helper(&.{ 2, 2, 2 }, 1, 3);
+    try helper(&.{ 2, 2, 2 }, 2, 3);
+    try helper(&.{ 2, 2, 2, 3, 4, 4 }, 0, 3);
+    try helper(&.{ 2, 2, 2, 3, 4, 4 }, 1, 3);
 }
 
 /// partially sorts a slice by shifting several out-of-order elements around.
