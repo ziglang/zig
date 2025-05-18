@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
         });
 
         const run_cmd = b.addRunArtifact(exe);
+        run_cmd.addCheck(.{ .expect_stderr_match = "Test complete." });
         test_step.dependOn(&run_cmd.step);
     }
 
@@ -55,6 +56,7 @@ pub fn build(b: *std.Build) void {
         });
 
         const run_cmd = b.addRunArtifact(exe);
+        run_cmd.addCheck(.{ .expect_stderr_match = "Test complete." });
         test_step.dependOn(&run_cmd.step);
     }
 
