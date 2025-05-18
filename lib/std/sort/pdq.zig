@@ -14,7 +14,7 @@ pub fn pdq(
     comptime lessThanFn: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
     const Context = struct {
-        items: []T,
+        items: [*]T,
         sub_ctx: @TypeOf(context),
 
         pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
@@ -25,7 +25,7 @@ pub fn pdq(
             return mem.swap(T, &ctx.items[a], &ctx.items[b]);
         }
     };
-    pdqContext(0, items.len, Context{ .items = items, .sub_ctx = context });
+    pdqContext(0, items.len, Context{ .items = items.ptr, .sub_ctx = context });
 }
 
 const Hint = enum {
