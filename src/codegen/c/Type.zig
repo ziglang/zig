@@ -1374,6 +1374,10 @@ pub const Pool = struct {
             .i64_type => return .i64,
             .u80_type, .u128_type => return .u128,
             .i128_type => return .i128,
+            .u256_type => return pool.fromIntInfo(allocator, .{
+                .signedness = .unsigned,
+                .bits = 256,
+            }, mod, kind),
             .usize_type => return .usize,
             .isize_type => return .isize,
             .c_char_type => return .{ .index = .char },
@@ -1567,6 +1571,21 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 32,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_64_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 64,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1788,6 +1807,21 @@ pub const Pool = struct {
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
+            .vector_1_u128_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u128,
+                    .len = 1,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u128.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_2_u128_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u128,
@@ -1799,6 +1833,24 @@ pub const Pool = struct {
                         .name = .{ .index = .array },
                         .ctype = vector_ctype,
                         .alignas = AlignAs.fromAbiAlignment(Type.u128.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_1_u256_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = try pool.fromIntInfo(allocator, .{
+                        .signedness = .unsigned,
+                        .bits = 256,
+                    }, mod, kind),
+                    .len = 1,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u256.abiAlignment(zcu)),
                     },
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
