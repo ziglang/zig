@@ -4,10 +4,9 @@ const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
 
-/// Unstable in-place sort. n best case, n*log(n) worst case and average case.
-/// log(n) memory (no allocator required).
-///
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// Unstable in-place sort. Sorts in ascending order with respect to `lessThanFn`.
+/// Computational complexity: O(n) best case, O(n*log(n)) worst case and average case.
+/// Memory complexity: O(log(n)) (no allocator required).
 pub fn pdq(
     comptime T: type,
     items: []T,
@@ -35,11 +34,16 @@ const Hint = enum {
     unknown,
 };
 
-/// Unstable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
-/// O(log(n)) memory (no allocator required).
-/// `context` must have methods `swap` and `lessThan`,
-/// which each take 2 `usize` parameters indicating the index of an item.
-/// Sorts in ascending order with respect to `lessThan`.
+/// Unstable in-place sort. Sorts in ascending order with respect to `lessThan`.
+/// `context` must have methods `swap` and `lessThan`, with the following signatures:
+/// ```
+/// pub fn swap(self: Context, lhs: usize, rhs: usize) void
+/// pub fn lessThan(self: Context, lhs: usize, rhs: usize) bool
+/// ```
+/// `lhs` and `rhs` represent the indexes of the elements.
+///
+/// Computational complexity: O(n) best case, O(n*log(n)) worst case and average case.
+/// Memory complexity: O(log(n)) (no allocator required).
 pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
