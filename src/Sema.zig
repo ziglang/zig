@@ -14215,14 +14215,15 @@ fn zirShl(
     const rhs_ty = sema.typeOf(rhs);
 
     const src = block.nodeOffset(inst_data.src_node);
-    const lhs_src = switch (air_tag) {
-        .shl, .shl_sat => block.src(.{ .node_offset_bin_lhs = inst_data.src_node }),
-        .shl_exact => block.builtinCallArgSrc(inst_data.src_node, 0),
-        else => unreachable,
-    };
-    const rhs_src = switch (air_tag) {
-        .shl, .shl_sat => block.src(.{ .node_offset_bin_rhs = inst_data.src_node }),
-        .shl_exact => block.builtinCallArgSrc(inst_data.src_node, 1),
+    const lhs_src, const rhs_src = switch (air_tag) {
+        .shl, .shl_sat => .{
+            block.src(.{ .node_offset_bin_lhs = inst_data.src_node }),
+            block.src(.{ .node_offset_bin_rhs = inst_data.src_node }),
+        },
+        .shl_exact => .{
+            block.builtinCallArgSrc(inst_data.src_node, 0),
+            block.builtinCallArgSrc(inst_data.src_node, 1),
+        },
         else => unreachable,
     };
 
@@ -14231,8 +14232,7 @@ fn zirShl(
     const scalar_ty = lhs_ty.scalarType(zcu);
     const scalar_rhs_ty = rhs_ty.scalarType(zcu);
 
-    // TODO coerce rhs if air_tag is not shl_sat
-    const rhs_is_comptime_int = try sema.checkIntType(block, rhs_src, scalar_rhs_ty);
+    _ = try sema.checkIntType(block, rhs_src, scalar_rhs_ty);
 
     const maybe_lhs_val = try sema.resolveValueResolveLazy(lhs);
     const maybe_rhs_val = try sema.resolveValueResolveLazy(rhs);
@@ -14245,7 +14245,7 @@ fn zirShl(
         if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
             return lhs;
         }
-        if (scalar_ty.zigTypeTag(zcu) != .comptime_int and air_tag != .shl_sat) {
+        if (air_tag != .shl_sat and scalar_ty.zigTypeTag(zcu) != .comptime_int) {
             const bit_value = try pt.intValue(Type.comptime_int, scalar_ty.intInfo(zcu).bits);
             if (rhs_ty.zigTypeTag(zcu) == .vector) {
                 var i: usize = 0;
@@ -14282,6 +14282,8 @@ fn zirShl(
                 rhs_val.fmtValueSema(pt, sema),
             });
         }
+    } else if (scalar_rhs_ty.isSignedInt(zcu)) {
+        return sema.fail(block, rhs_src, "shift by signed type '{}'", .{rhs_ty.fmt(pt)});
     }
 
     const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
@@ -14309,18 +14311,34 @@ fn zirShl(
         return Air.internedToRef(val.toIntern());
     } else lhs_src;
 
-    const new_rhs = if (air_tag == .shl_sat) rhs: {
-        // Limit the RHS type for saturating shl to be an integer as small as the LHS.
-        if (rhs_is_comptime_int or
-            scalar_rhs_ty.intInfo(zcu).bits > scalar_ty.intInfo(zcu).bits)
-        {
-            const max_int = Air.internedToRef((try lhs_ty.maxInt(pt, lhs_ty)).toIntern());
-            const rhs_limited = try sema.analyzeMinMax(block, rhs_src, .min, &.{ rhs, max_int }, &.{ rhs_src, rhs_src });
-            break :rhs try sema.intCast(block, src, lhs_ty, rhs_src, rhs_limited, rhs_src, false, false);
-        } else {
-            break :rhs rhs;
-        }
-    } else rhs;
+    const rt_rhs = switch (air_tag) {
+        else => unreachable,
+        .shl, .shl_exact => rhs,
+        // The backend can handle a large runtime rhs better than we can, but
+        // we can limit a large comptime rhs better here. This also has the
+        // necessary side effect of preventing rhs from being a `comptime_int`.
+        .shl_sat => if (maybe_rhs_val) |rhs_val| Air.internedToRef(rt_rhs: {
+            const bit_count = scalar_ty.intInfo(zcu).bits;
+            const rt_rhs_scalar_ty = try pt.smallestUnsignedInt(bit_count);
+            if (!rhs_ty.isVector(zcu)) break :rt_rhs (try pt.intValue(
+                rt_rhs_scalar_ty,
+                @min(try rhs_val.getUnsignedIntSema(pt) orelse bit_count, bit_count),
+            )).toIntern();
+            const rhs_len = rhs_ty.vectorLen(zcu);
+            const rhs_elems = try sema.arena.alloc(InternPool.Index, rhs_len);
+            for (rhs_elems, 0..) |*rhs_elem, i| rhs_elem.* = (try pt.intValue(
+                rt_rhs_scalar_ty,
+                @min(try (try rhs_val.elemValue(pt, i)).getUnsignedIntSema(pt) orelse bit_count, bit_count),
+            )).toIntern();
+            break :rt_rhs try pt.intern(.{ .aggregate = .{
+                .ty = (try pt.vectorType(.{
+                    .len = rhs_len,
+                    .child = rt_rhs_scalar_ty.toIntern(),
+                })).toIntern(),
+                .storage = .{ .elems = rhs_elems },
+            } });
+        }) else rhs,
+    };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     if (block.wantSafety()) {
@@ -14374,7 +14392,7 @@ fn zirShl(
             return sema.tupleFieldValByIndex(block, op_ov, 0, op_ov_tuple_ty);
         }
     }
-    return block.addBinOp(air_tag, lhs, new_rhs);
+    return block.addBinOp(air_tag, lhs, rt_rhs);
 }
 
 fn zirShr(
@@ -36432,10 +36450,7 @@ fn generateUnionTagTypeSimple(
     const enum_ty = try ip.getGeneratedTagEnumType(gpa, pt.tid, .{
         .name = name,
         .owner_union_ty = union_type,
-        .tag_ty = if (enum_field_names.len == 0)
-            (try pt.intType(.unsigned, 0)).toIntern()
-        else
-            (try pt.smallestUnsignedInt(enum_field_names.len - 1)).toIntern(),
+        .tag_ty = (try pt.smallestUnsignedInt(enum_field_names.len -| 1)).toIntern(),
         .names = enum_field_names,
         .values = &.{},
         .tag_mode = .auto,
@@ -36502,6 +36517,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
         .vector_1_u8_type,
@@ -36510,8 +36526,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
         .vector_4_i32_type,
@@ -36522,6 +36540,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .vector_4_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_2_u128_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
         .vector_2_f32_type,

@@ -1633,7 +1633,7 @@ pub fn unwindFrameDwarf(
                 &cie,
                 &fde,
             ) catch |err| switch (err) {
-                error.InvalidDebugInfo => {
+                error.MissingDebugInfo => {
                     // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
                     // and `fde_list`, and fall back to the binary search logic below.
                     try di.scanCieFdeInfo(allocator, base_address);
