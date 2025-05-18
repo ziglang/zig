@@ -4548,6 +4548,7 @@ pub const Index = enum(u32) {
     u80_type,
     u128_type,
     i128_type,
+    u256_type,
     usize_type,
     isize_type,
     c_char_type,
@@ -4594,6 +4595,7 @@ pub const Index = enum(u32) {
     vector_8_u8_type,
     vector_16_u8_type,
     vector_32_u8_type,
+    vector_64_u8_type,
     vector_4_i16_type,
     vector_8_i16_type,
     vector_16_i16_type,
@@ -4608,7 +4610,9 @@ pub const Index = enum(u32) {
     vector_4_i64_type,
     vector_2_u64_type,
     vector_4_u64_type,
+    vector_1_u128_type,
     vector_2_u128_type,
+    vector_1_u256_type,
     vector_4_f16_type,
     vector_8_f16_type,
     vector_2_f32_type,
@@ -5022,6 +5026,11 @@ pub const static_keys = [_]Key{
         .bits = 128,
     } },
 
+    .{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 256,
+    } },
+
     .{ .simple_type = .usize },
     .{ .simple_type = .isize },
     .{ .simple_type = .c_char },
@@ -5125,6 +5134,8 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 16, .child = .u8_type } },
     // @Vector(32, u8)
     .{ .vector_type = .{ .len = 32, .child = .u8_type } },
+    // @Vector(64, u8)
+    .{ .vector_type = .{ .len = 64, .child = .u8_type } },
     // @Vector(4, i16)
     .{ .vector_type = .{ .len = 4, .child = .i16_type } },
     // @Vector(8, i16)
@@ -5153,8 +5164,12 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 2, .child = .u64_type } },
     // @Vector(8, u64)
     .{ .vector_type = .{ .len = 4, .child = .u64_type } },
+    // @Vector(1, u128)
+    .{ .vector_type = .{ .len = 1, .child = .u128_type } },
     // @Vector(2, u128)
     .{ .vector_type = .{ .len = 2, .child = .u128_type } },
+    // @Vector(1, u256)
+    .{ .vector_type = .{ .len = 1, .child = .u256_type } },
     // @Vector(4, f16)
     .{ .vector_type = .{ .len = 4, .child = .f16_type } },
     // @Vector(8, f16)
@@ -11767,6 +11782,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -11811,6 +11827,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
         .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
@@ -11825,7 +11842,9 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_4_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_1_u128_type,
         .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
         .vector_2_f32_type,
@@ -12084,6 +12103,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -12135,6 +12155,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
         .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
@@ -12149,7 +12170,9 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_4_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_1_u128_type,
         .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
         .vector_2_f32_type,
