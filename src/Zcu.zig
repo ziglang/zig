@@ -2652,6 +2652,9 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.all_references.deinit(gpa);
         zcu.free_references.deinit(gpa);
 
+        zcu.inline_reference_frames.deinit(gpa);
+        zcu.free_inline_reference_frames.deinit(gpa);
+
         zcu.type_reference_table.deinit(gpa);
         zcu.all_type_references.deinit(gpa);
         zcu.free_type_references.deinit(gpa);
