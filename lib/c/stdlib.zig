@@ -1,10 +1,26 @@
 const std = @import("std");
 const common = @import("common.zig");
+const builtin = @import("builtin");
 
 comptime {
-    @export(&abs, .{ .name = "abs", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&labs, .{ .name = "labs", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&llabs, .{ .name = "llabs", .linkage = common.linkage, .visibility = common.visibility });
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        // Functions specific to musl and wasi-libc.
+        @export(&abs, .{ .name = "abs", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&labs, .{ .name = "labs", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&llabs, .{ .name = "llabs", .linkage = common.linkage, .visibility = common.visibility });
+    }
+
+    if (builtin.target.isMuslLibC()) {
+        // Functions specific to musl.
+    }
+
+    if (builtin.target.isWasiLibC()) {
+        // Functions specific to wasi-libc.
+    }
+
+    if (builtin.target.isMinGW()) {
+        // Functions specific to MinGW-w64.
+    }
 }
 
 fn abs(a: c_int) callconv(.c) c_int {
