@@ -8,18 +8,6 @@ comptime {
         // Functions specific to musl and wasi-libc.
         @export(&imaxabs, .{ .name = "imaxabs", .linkage = common.linkage, .visibility = common.visibility });
     }
-
-    if (builtin.target.isMuslLibC()) {
-        // Functions specific to musl.
-    }
-
-    if (builtin.target.isWasiLibC()) {
-        // Functions specific to wasi-libc.
-    }
-
-    if (builtin.target.isMinGW()) {
-        // Functions specific to MinGW-w64.
-    }
 }
 
 fn imaxabs(a: intmax_t) callconv(.c) intmax_t {
