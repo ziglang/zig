@@ -42,7 +42,7 @@ pub fn insertion(
 /// ```
 /// `lhs` and `rhs` represent the indexes of the elements.
 /// Sorts from [low..high), excluding high, in ascending order with respect to `lessThan`.
-/// Computational complexity: O(n) best case, O(pow(n, 2)) worst case.
+/// Computational complexity: O(n) best case, O(n^2) worst case.
 /// Memory complexity: O(1).
 pub fn insertionContext(low: usize, high: usize, context: anytype) void {
     assert(low <= high);
