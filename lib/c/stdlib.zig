@@ -9,18 +9,6 @@ comptime {
         @export(&labs, .{ .name = "labs", .linkage = common.linkage, .visibility = common.visibility });
         @export(&llabs, .{ .name = "llabs", .linkage = common.linkage, .visibility = common.visibility });
     }
-
-    if (builtin.target.isMuslLibC()) {
-        // Functions specific to musl.
-    }
-
-    if (builtin.target.isWasiLibC()) {
-        // Functions specific to wasi-libc.
-    }
-
-    if (builtin.target.isMinGW()) {
-        // Functions specific to MinGW-w64.
-    }
 }
 
 fn abs(a: c_int) callconv(.c) c_int {
