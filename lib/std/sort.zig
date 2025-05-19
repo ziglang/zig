@@ -90,21 +90,21 @@ pub fn heap(
 /// Sorts from [low..high), excluding high, in ascending order with respect to `lessThan`.
 /// Computational complexity: O(n*log(n)) best case, worst case and average case.
 /// Memory complexity: O(1).
-pub fn heapContext(a: usize, b: usize, context: anytype) void {
-    assert(a <= b);
+pub fn heapContext(low: usize, high: usize, context: anytype) void {
+    assert(low <= high);
     // build the heap in linear time.
-    var i = a + (b - a) / 2;
-    while (i > a) {
+    var i = low + (high - low) / 2;
+    while (i > low) {
         i -= 1;
-        siftDown(a, i, b, context);
+        siftDown(low, i, high, context);
     }
 
     // pop maximal elements from the heap.
-    i = b;
-    while (i > a) {
+    i = high;
+    while (i > low) {
         i -= 1;
-        context.swap(a, i);
-        siftDown(a, a, i, context);
+        context.swap(low, i);
+        siftDown(low, low, i, context);
     }
 }
 
