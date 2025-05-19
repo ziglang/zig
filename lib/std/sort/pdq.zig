@@ -172,6 +172,23 @@ test pdqContext {
     try TestContext.testPdq(&.{ 30, 30, 29, 29, 28, 28, 27, 27, 26, 26, 25, 25, 24, 24, 23, 23, 22, 22, 21, 21, 20, 20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 13, 13, 12, 12, 11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0 }, &.{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30 });
 }
 
+fn PartitionHelper(comptime Context: type) type {
+    return struct {
+        i: usize,
+        j: usize,
+        target: usize,
+        context: Context,
+
+        fn converge(self: *@This()) bool {
+            self.i += 1;
+            self.j -= 1;
+            while (self.i <= self.j and self.context.lessThan(self.i, self.target)) self.i += 1;
+            while (self.i <= self.j and !self.context.lessThan(self.j, self.target)) self.j -= 1;
+            return self.i > self.j;
+        }
+    };
+}
+
 /// Partitions `items[a..b]` into elements smaller than `items[pivot.*]`,
 /// followed by elements greater than or equal to `items[pivot.*]`.
 ///
@@ -182,22 +199,7 @@ fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
 
     // move pivot to the first place
     context.swap(a, pivot.*);
-    const Helper = struct {
-        i: usize,
-        j: usize,
-        target: usize,
-        context: @TypeOf(context),
-
-        fn converge(self: *@This()) bool {
-            self.i += 1;
-            self.j -= 1;
-            while (self.i <= self.j and self.context.lessThan(self.i, self.target)) self.i += 1;
-            while (self.i <= self.j and !self.context.lessThan(self.j, self.target)) self.j -= 1;
-            return self.i > self.j;
-        }
-    };
-
-    var helper: Helper = .{
+    var helper: PartitionHelper(@TypeOf(context)) = .{
         .i = a,
         .j = b,
         .target = a,
