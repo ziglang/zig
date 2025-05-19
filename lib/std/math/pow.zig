@@ -42,8 +42,8 @@ pub fn pow(comptime T: type, x: T, y: T) if (T == comptime_float) f128 else T {
     if (T == comptime_float) {
         const x_f128: f128 = @floatCast(x);
         const y_f128: f128 = @floatCast(y);
-        
-        if (math.isNan(x_f128) or math.isNan(y_f128)) {
+
+        if ((comptime math.isNan(x_f128)) or (comptime math.isNan(y_f128))) {
             @compileError("comptime_float cannot have NaN value");
         }
         if (math.isInf(x_f128) or math.isInf(y_f128)) {
