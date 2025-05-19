@@ -183,8 +183,8 @@ pub const CompileUnit = struct {
 
         pub fn findSource(slc: *const SrcLocCache, address: u64) !LineEntry {
             const index = std.sort.upperBound(u64, slc.line_table.keys(), address, struct {
-                fn order(context: u64, item: u64) std.math.Order {
-                    return std.math.order(context, item);
+                fn order(probed: u64, context: u64) std.math.Order {
+                    return std.math.order(probed, context);
                 }
             }.order);
             if (index == 0) return missing();
