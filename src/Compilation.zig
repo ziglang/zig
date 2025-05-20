@@ -26,6 +26,7 @@ const LibCInstallation = std.zig.LibCInstallation;
 const glibc = @import("libs/glibc.zig");
 const musl = @import("libs/musl.zig");
 const freebsd = @import("libs/freebsd.zig");
+const netbsd = @import("libs/netbsd.zig");
 const mingw = @import("libs/mingw.zig");
 const libunwind = @import("libs/libunwind.zig");
 const libcxx = @import("libs/libcxx.zig");
@@ -244,6 +245,7 @@ fuzzer_lib: ?CrtFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
 freebsd_so_files: ?freebsd.BuiltSharedObjects = null,
+netbsd_so_files: ?netbsd.BuiltSharedObjects = null,
 wasi_emulated_libs: []const wasi_libc.CrtFile,
 
 /// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
@@ -290,6 +292,7 @@ const QueuedJobs = struct {
     musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = @splat(false),
     glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = @splat(false),
     freebsd_crt_file: [@typeInfo(freebsd.CrtFile).@"enum".fields.len]bool = @splat(false),
+    netbsd_crt_file: [@typeInfo(netbsd.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of WASI libc static objects
     wasi_libc_crt_file: [@typeInfo(wasi_libc.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of the mingw-w64 static objects
@@ -297,6 +300,7 @@ const QueuedJobs = struct {
     /// all of the glibc shared objects
     glibc_shared_objects: bool = false,
     freebsd_shared_objects: bool = false,
+    netbsd_shared_objects: bool = false,
     /// libunwind.a, usually needed when linking libc
     libunwind: bool = false,
     libcxx: bool = false,
@@ -1242,6 +1246,8 @@ pub const MiscTask = enum {
     musl_crt_file,
     freebsd_crt_file,
     freebsd_shared_objects,
+    netbsd_crt_file,
+    netbsd_shared_objects,
     mingw_crt_file,
     windows_import_lib,
     libunwind,
@@ -1278,6 +1284,9 @@ pub const MiscTask = enum {
 
     @"freebsd libc Scrt1.o",
     @"freebsd libc shared object",
+
+    @"netbsd libc Scrt0.o",
+    @"netbsd libc shared object",
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
@@ -2295,6 +2304,16 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     comp.queued_jobs.freebsd_shared_objects = true;
                     comp.remaining_prelink_tasks += freebsd.sharedObjectsCount();
+                } else if (target.isNetBSDLibC()) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+
+                    if (netbsd.needsCrt0(comp.config.output_mode)) |f| {
+                        comp.queued_jobs.netbsd_crt_file[@intFromEnum(f)] = true;
+                        comp.remaining_prelink_tasks += 1;
+                    }
+
+                    comp.queued_jobs.netbsd_shared_objects = true;
+                    comp.remaining_prelink_tasks += netbsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
@@ -2451,6 +2470,10 @@ pub fn destroy(comp: *Compilation) void {
 
     if (comp.freebsd_so_files) |*freebsd_file| {
         freebsd_file.deinit(gpa);
+    }
+
+    if (comp.netbsd_so_files) |*netbsd_file| {
+        netbsd_file.deinit(gpa);
     }
 
     for (comp.c_object_table.keys()) |key| {
@@ -4192,6 +4215,10 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.spawnManager(buildFreeBSDSharedObjects, .{ comp, main_progress_node });
     }
 
+    if (comp.queued_jobs.netbsd_shared_objects) {
+        comp.link_task_wait_group.spawnManager(buildNetBSDSharedObjects, .{ comp, main_progress_node });
+    }
+
     if (comp.queued_jobs.libunwind) {
         comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
     }
@@ -4230,6 +4257,13 @@ fn performAllTheWorkInner(
         if (comp.queued_jobs.freebsd_crt_file[i]) {
             const tag: freebsd.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
+        }
+    }
+
+    for (0..@typeInfo(netbsd.CrtFile).@"enum".fields.len) |i| {
+        if (comp.queued_jobs.netbsd_crt_file[i]) {
+            const tag: netbsd.CrtFile = @enumFromInt(i);
+            comp.link_task_wait_group.spawnManager(buildNetBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -5231,6 +5265,29 @@ fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) v
     }
 }
 
+fn buildNetBSDCrtFile(comp: *Compilation, crt_file: netbsd.CrtFile, prog_node: std.Progress.Node) void {
+    if (netbsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.netbsd_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.netbsd_crt_file, "unable to build NetBSD {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
+        }),
+    }
+}
+
+fn buildNetBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    if (netbsd.buildSharedObjects(comp, prog_node)) |_| {
+        // The job should no longer be queued up since it succeeded.
+        comp.queued_jobs.netbsd_shared_objects = false;
+    } else |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.netbsd_shared_objects, "unable to build NetBSD libc shared objects: {s}", .{
+            @errorName(err),
+        }),
+    }
+}
+
 fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
     if (mingw.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.mingw_crt_file[@intFromEnum(crt_file)] = false;
@@ -6218,6 +6275,14 @@ pub fn addCCArgs(
                         // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
                         // symbols would be inconsistent with header declarations.
                         min_ver.major * 100_000,
+                    }));
+                } else if (target.isNetBSDLibC()) {
+                    const min_ver = target.os.version_range.semver.min;
+                    try argv.append(try std.fmt.allocPrint(arena, "-D__NetBSD_Version__={d}", .{
+                        // We don't currently respect the patch component. This wouldn't be particularly helpful because
+                        // our abilists file only tracks major and minor NetBSD releases, so the link-time stub symbols
+                        // would be inconsistent with header declarations.
+                        (min_ver.major * 100_000_000) + (min_ver.minor * 1_000_000),
                     }));
                 }
             }

@@ -109,7 +109,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     try includePath(comp, arena, "generic-freebsd"),
                     "-I",
                     try csuPath(comp, arena, switch (target.cpu.arch) {
-                        .arm, .thumb => "arm",
+                        .arm => "arm",
                         .aarch64 => "aarch64",
                         .powerpc => "powerpc",
                         .powerpc64, .powerpc64le => "powerpc64",
@@ -155,12 +155,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 .{
                     .path = "arm" ++ path.sep_str ++ "crt1_c.c",
                     .flags = cflags.items,
-                    .condition = target.cpu.arch == .arm or target.cpu.arch == .thumb,
+                    .condition = target.cpu.arch == .arm,
                 },
                 .{
                     .path = "arm" ++ path.sep_str ++ "crt1_s.S",
                     .flags = acflags.items,
-                    .condition = target.cpu.arch == .arm or target.cpu.arch == .thumb,
+                    .condition = target.cpu.arch == .arm,
                 },
 
                 .{
@@ -533,12 +533,19 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var opt_symbol_name: ?[]const u8 = null;
         var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
         var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
-        var sym_unversioned = false;
 
         var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
         var inc_reader = inc_fbs.reader();
 
         const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+
+        // Pick the default symbol version:
+        // - If there are no versions, don't emit it
+        // - Take the greatest one <= than the target one
+        // - If none of them is <= than the
+        //   specified one don't pick any default version
+        var chosen_def_ver_index: usize = 255;
+        var chosen_unversioned_ver_index: usize = 255;
 
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
@@ -548,11 +555,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
+                chosen_def_ver_index = 255;
+                chosen_unversioned_ver_index = 255;
 
                 break :n sym_name_buf.items;
             };
-
             {
                 const targets = try std.leb.readUleb128(u64, inc_reader);
                 var lib_index = try inc_reader.readByte();
@@ -573,9 +580,19 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
-                        versions.set(ver_i);
-                        if (is_unversioned) sym_unversioned = true;
-                        if (is_weak) weak_linkages.set(ver_i);
+                        if (is_unversioned) {
+                            if (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index) {
+                                chosen_unversioned_ver_index = ver_i;
+                            }
+                        } else {
+                            if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                                chosen_def_ver_index = ver_i;
+                            }
+
+                            versions.set(ver_i);
+                        }
+
+                        weak_linkages.setValue(ver_i, is_weak);
                     }
                     if (last) break;
                 }
@@ -585,46 +602,31 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
+            if (chosen_unversioned_ver_index != 255) {
+                // Example:
+                // .balign 4
+                // .globl _Exit
+                // .type _Exit, %function
+                // _Exit: .long 0
+                try stubs_writer.print(
+                    \\.balign {d}
+                    \\.{s} {s}
+                    \\.type {s}, %function
+                    \\{s}: {s} 0
+                    \\
+                , .{
+                    target.ptrBitWidth() / 8,
+                    if (weak_linkages.isSet(chosen_unversioned_ver_index)) "weak" else "globl",
+                    sym_name,
+                    sym_name,
+                    sym_name,
+                    wordDirective(target),
+                });
             }
 
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
-                        // Example:
-                        // .balign 4
-                        // .globl _Exit
-                        // .type _Exit, %function
-                        // _Exit: .long 0
-                        try stubs_writer.print(
-                            \\.balign {d}
-                            \\.{s} {s}
-                            \\.type {s}, %function
-                            \\{s}: {s} 0
-                            \\
-                        , .{
-                            target.ptrBitWidth() / 8,
-                            if (weak_linkages.isSet(ver_index)) "weak" else "globl",
-                            sym_name,
-                            sym_name,
-                            sym_name,
-                            wordDirective(target),
-                        });
-                    }
-
                     // Example:
                     // .balign 4
                     // .globl _Exit_1_0
@@ -632,10 +634,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     // .symver _Exit_1_0, _Exit@@FBSD_1.0, remove
                     // _Exit_1_0: .long 0
                     const ver = metadata.all_versions[ver_index];
-
-                    // Default symbol version definition vs normal symbol version definition
-                    const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                    const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                     const sym_plus_ver = try std.fmt.allocPrint(
                         arena,
                         "{s}_FBSD_{d}_{d}",
@@ -656,7 +654,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         sym_plus_ver,
                         sym_plus_ver,
                         sym_name,
-                        at_sign_str,
+                        // Default symbol version definition vs normal symbol version definition
+                        if (chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index) "@@" else "@",
                         ver.major,
                         ver.minor,
                         sym_plus_ver,
@@ -693,6 +692,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         sym_i = 0;
         opt_symbol_name = null;
+
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
@@ -701,7 +701,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
+                chosen_def_ver_index = 255;
+                chosen_unversioned_ver_index = 255;
 
                 break :n sym_name_buf.items;
             };
@@ -727,10 +728,20 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
-                        versions.set(ver_i);
+                        if (is_unversioned) {
+                            if (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index) {
+                                chosen_unversioned_ver_index = ver_i;
+                            }
+                        } else {
+                            if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                                chosen_def_ver_index = ver_i;
+                            }
+
+                            versions.set(ver_i);
+                        }
+
                         sizes[ver_i] = size;
-                        if (is_unversioned) sym_unversioned = true;
-                        if (is_weak) weak_linkages.set(ver_i);
+                        weak_linkages.setValue(ver_i, is_weak);
                     }
                     if (last) break;
                 }
@@ -740,50 +751,35 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
+            if (chosen_unversioned_ver_index != 255) {
+                // Example:
+                // .balign 4
+                // .globl malloc_conf
+                // .type malloc_conf, %object
+                // .size malloc_conf, 4
+                // malloc_conf: .fill 4, 1, 0
+                try stubs_writer.print(
+                    \\.balign {d}
+                    \\.{s} {s}
+                    \\.type {s}, %object
+                    \\.size {s}, {d}
+                    \\{s}: {s} 0
+                    \\
+                , .{
+                    target.ptrBitWidth() / 8,
+                    if (weak_linkages.isSet(chosen_unversioned_ver_index)) "weak" else "globl",
+                    sym_name,
+                    sym_name,
+                    sym_name,
+                    sizes[chosen_unversioned_ver_index],
+                    sym_name,
+                    wordDirective(target),
+                });
             }
 
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
-                        // Example:
-                        // .balign 4
-                        // .globl malloc_conf
-                        // .type malloc_conf, %object
-                        // .size malloc_conf, 4
-                        // malloc_conf: .fill 4, 1, 0
-                        try stubs_writer.print(
-                            \\.balign {d}
-                            \\.{s} {s}
-                            \\.type {s}, %object
-                            \\.size {s}, {d}
-                            \\{s}: {s} 0
-                            \\
-                        , .{
-                            target.ptrBitWidth() / 8,
-                            if (weak_linkages.isSet(ver_index)) "weak" else "globl",
-                            sym_name,
-                            sym_name,
-                            sym_name,
-                            sizes[ver_index],
-                            sym_name,
-                            wordDirective(target),
-                        });
-                    }
-
                     // Example:
                     // .balign 4
                     // .globl malloc_conf_1_3
@@ -792,10 +788,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     // .symver malloc_conf_1_3, malloc_conf@@FBSD_1.3
                     // malloc_conf_1_3: .fill 4, 1, 0
                     const ver = metadata.all_versions[ver_index];
-
-                    // Default symbol version definition vs normal symbol version definition
-                    const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                    const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                     const sym_plus_ver = try std.fmt.allocPrint(
                         arena,
                         "{s}_FBSD_{d}_{d}",
@@ -819,7 +811,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         sizes[ver_index],
                         sym_plus_ver,
                         sym_name,
-                        at_sign_str,
+                        // Default symbol version definition vs normal symbol version definition
+                        if (chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index) "@@" else "@",
                         ver.major,
                         ver.minor,
                         sym_plus_ver,
@@ -835,6 +828,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         sym_i = 0;
         opt_symbol_name = null;
+
         while (sym_i < tls_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
@@ -843,7 +837,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 opt_symbol_name = sym_name_buf.items;
                 versions.unsetAll();
                 weak_linkages.unsetAll();
-                sym_unversioned = false;
+                chosen_def_ver_index = 255;
+                chosen_unversioned_ver_index = 255;
 
                 break :n sym_name_buf.items;
             };
@@ -869,10 +864,20 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
-                        versions.set(ver_i);
+                        if (is_unversioned) {
+                            if (chosen_unversioned_ver_index == 255 or ver_i > chosen_unversioned_ver_index) {
+                                chosen_unversioned_ver_index = ver_i;
+                            }
+                        } else {
+                            if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
+                                chosen_def_ver_index = ver_i;
+                            }
+
+                            versions.set(ver_i);
+                        }
+
                         sizes[ver_i] = size;
-                        if (is_unversioned) sym_unversioned = true;
-                        if (is_weak) weak_linkages.set(ver_i);
+                        weak_linkages.setValue(ver_i, is_weak);
                     }
                     if (last) break;
                 }
@@ -882,50 +887,35 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 } else continue;
             }
 
-            // Pick the default symbol version:
-            // - If there are no versions, don't emit it
-            // - Take the greatest one <= than the target one
-            // - If none of them is <= than the
-            //   specified one don't pick any default version
-            var chosen_def_ver_index: usize = 255;
-            {
-                var versions_iter = versions.iterator(.{});
-                while (versions_iter.next()) |ver_i| {
-                    if (chosen_def_ver_index == 255 or ver_i > chosen_def_ver_index) {
-                        chosen_def_ver_index = ver_i;
-                    }
-                }
+            if (chosen_unversioned_ver_index != 255) {
+                // Example:
+                // .balign 4
+                // .globl _ThreadRuneLocale
+                // .type _ThreadRuneLocale, %object
+                // .size _ThreadRuneLocale, 4
+                // _ThreadRuneLocale: .fill 4, 1, 0
+                try stubs_writer.print(
+                    \\.balign {d}
+                    \\.{s} {s}
+                    \\.type {s}, %tls_object
+                    \\.size {s}, {d}
+                    \\{s}: {s} 0
+                    \\
+                , .{
+                    target.ptrBitWidth() / 8,
+                    if (weak_linkages.isSet(chosen_unversioned_ver_index)) "weak" else "globl",
+                    sym_name,
+                    sym_name,
+                    sym_name,
+                    sizes[chosen_unversioned_ver_index],
+                    sym_name,
+                    wordDirective(target),
+                });
             }
 
             {
                 var versions_iter = versions.iterator(.{});
                 while (versions_iter.next()) |ver_index| {
-                    if (sym_unversioned) {
-                        // Example:
-                        // .balign 4
-                        // .globl _ThreadRuneLocale
-                        // .type _ThreadRuneLocale, %object
-                        // .size _ThreadRuneLocale, 4
-                        // _ThreadRuneLocale: .fill 4, 1, 0
-                        try stubs_writer.print(
-                            \\.balign {d}
-                            \\.{s} {s}
-                            \\.type {s}, %tls_object
-                            \\.size {s}, {d}
-                            \\{s}: {s} 0
-                            \\
-                        , .{
-                            target.ptrBitWidth() / 8,
-                            if (weak_linkages.isSet(ver_index)) "weak" else "globl",
-                            sym_name,
-                            sym_name,
-                            sym_name,
-                            sizes[ver_index],
-                            sym_name,
-                            wordDirective(target),
-                        });
-                    }
-
                     // Example:
                     // .balign 4
                     // .globl _ThreadRuneLocale_1_3
@@ -934,10 +924,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     // .symver _ThreadRuneLocale_1_3, _ThreadRuneLocale@@FBSD_1.3
                     // _ThreadRuneLocale_1_3: .fill 4, 1, 0
                     const ver = metadata.all_versions[ver_index];
-
-                    // Default symbol version definition vs normal symbol version definition
-                    const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                    const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                     const sym_plus_ver = try std.fmt.allocPrint(
                         arena,
                         "{s}_FBSD_{d}_{d}",
@@ -961,7 +947,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         sizes[ver_index],
                         sym_plus_ver,
                         sym_name,
-                        at_sign_str,
+                        // Default symbol version definition vs normal symbol version definition
+                        if (chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index) "@@" else "@",
                         ver.major,
                         ver.minor,
                         sym_plus_ver,

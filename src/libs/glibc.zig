@@ -962,6 +962,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
+        var sizes = try arena.alloc(u16, metadata.all_versions.len);
+
         sym_i = 0;
         opt_symbol_name = null;
         versions_buffer = undefined;
@@ -999,6 +1001,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
                     versions_buffer[versions_len] = ver_i;
                     versions_len += 1;
+                    sizes[ver_i] = size;
                 }
                 if (last) break;
             }
@@ -1062,14 +1065,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                             sym_plus_ver,
                             sym_name,
                             at_sign_str,
                             ver.major,
                             ver.minor,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                         });
                     } else {
                         const sym_plus_ver = try std.fmt.allocPrint(
@@ -1090,7 +1093,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                             sym_plus_ver,
                             sym_name,
                             at_sign_str,
@@ -1098,7 +1101,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             ver.minor,
                             ver.patch,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                         });
                     }
                 }

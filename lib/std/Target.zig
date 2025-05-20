@@ -540,7 +540,19 @@ pub const Os = struct {
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
+                        .min = blk: {
+                            const default_min: std.SemanticVersion = .{ .major = 9, .minor = 4, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                if (libc.os_ver) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
@@ -708,7 +720,6 @@ pub const Os = struct {
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
             .aix,
-            .netbsd,
             .driverkit,
             .macos,
             .ios,
@@ -726,6 +737,7 @@ pub const Os = struct {
             .linux,
             .windows,
             .freebsd,
+            .netbsd,
             .freestanding,
             .fuchsia,
             .ps3,
@@ -2072,6 +2084,13 @@ pub inline fn isFreeBSDLibC(target: Target) bool {
     };
 }
 
+pub inline fn isNetBSDLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .eabi, .eabihf => target.os.tag == .netbsd,
+        else => false,
+    };
+}
+
 pub inline fn isWasiLibC(target: Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
 }
@@ -2486,9 +2505,6 @@ pub const DynamicLinker = struct {
                 .mips64,
                 .mips64el,
                 .powerpc,
-                .powerpc64,
-                .riscv32,
-                .riscv64,
                 .sparc,
                 .sparc64,
                 .x86,
