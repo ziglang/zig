@@ -154,7 +154,8 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try addCcArgs(comp, arena, &winpthreads_args);
                 try winpthreads_args.appendSlice(&[_][]const u8{
                     "-DIN_WINPTHREAD",
-                    "-DWIN32_LEAN_AND_MEAN",
+                    // winpthreads incorrectly assumes that Clang has `-Wprio-ctor-dtor`.
+                    "-Wno-unknown-warning-option",
                 });
 
                 switch (comp.compilerRtOptMode()) {
@@ -485,7 +486,6 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "pesect.c",
     "crt" ++ path.sep_str ++ "udllargc.c",
     "crt" ++ path.sep_str ++ "xthdloc.c",
-    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     "crt" ++ path.sep_str ++ "mingw_helpers.c",
     "crt" ++ path.sep_str ++ "pseudo-reloc.c",
     "crt" ++ path.sep_str ++ "udll_argv.c",
@@ -610,7 +610,6 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "delayimp.c",
     "misc" ++ path.sep_str ++ "dirent.c",
     "misc" ++ path.sep_str ++ "dirname.c",
-    "misc" ++ path.sep_str ++ "dllentrypoint.c",
     "misc" ++ path.sep_str ++ "dllmain.c",
     "misc" ++ path.sep_str ++ "feclearexcept.c",
     "misc" ++ path.sep_str ++ "fegetenv.c",
@@ -622,10 +621,14 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "fesetexceptflag.c",
     "misc" ++ path.sep_str ++ "fesetround.c",
     "misc" ++ path.sep_str ++ "fetestexcept.c",
+    "misc" ++ path.sep_str ++ "mingw_controlfp.c",
+    "misc" ++ path.sep_str ++ "mingw_setfp.c",
     "misc" ++ path.sep_str ++ "feupdateenv.c",
     "misc" ++ path.sep_str ++ "ftruncate.c",
-    "misc" ++ path.sep_str ++ "ftw.c",
+    "misc" ++ path.sep_str ++ "ftw32.c",
+    "misc" ++ path.sep_str ++ "ftw32i64.c",
     "misc" ++ path.sep_str ++ "ftw64.c",
+    "misc" ++ path.sep_str ++ "ftw64i32.c",
     "misc" ++ path.sep_str ++ "fwide.c",
     "misc" ++ path.sep_str ++ "getlogin.c",
     "misc" ++ path.sep_str ++ "getopt.c",
@@ -670,12 +673,12 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "_findfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_findnext64i32.c",
     "stdio" ++ path.sep_str ++ "_fstat64i32.c",
-    "stdio" ++ path.sep_str ++ "_stat.c",
     "stdio" ++ path.sep_str ++ "_stat64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindnext64i32.c",
-    "stdio" ++ path.sep_str ++ "_wstat.c",
     "stdio" ++ path.sep_str ++ "_wstat64i32.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_stat_path.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_wstat_path.c",
     "stdio" ++ path.sep_str ++ "asprintf.c",
     "stdio" ++ path.sep_str ++ "fopen64.c",
     "stdio" ++ path.sep_str ++ "fseeko32.c",
@@ -750,23 +753,36 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "ucrt__vscprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_printf_options.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_scanf_options.c",
     "stdio" ++ path.sep_str ++ "ucrt_fprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fwprintf.c",
-    "stdio" ++ path.sep_str ++ "ucrt_ms_fprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fwscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_ms_fwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_printf.c",
     "stdio" ++ path.sep_str ++ "ucrt_scanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_snprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_snwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsnprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsnwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vswprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wprintf.c",
     "string" ++ path.sep_str ++ "ucrt__wcstok.c",
     // uuid
     "libsrc" ++ path.sep_str ++ "ativscp-uuid.c",
@@ -891,6 +907,8 @@ const mingw32_generic_src = [_][]const u8{
 };
 
 const mingw32_x86_src = [_][]const u8{
+    // mingw32
+    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     // mingwex
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
@@ -950,6 +968,8 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "nextafterl.c",
     "math" ++ path.sep_str ++ "nexttoward.c",
     "math" ++ path.sep_str ++ "nexttowardf.c",
+    "math" ++ path.sep_str ++ "sincos.c",
+    "math" ++ path.sep_str ++ "sincosf.c",
 };
 
 const mingw32_x86_32_src = [_][]const u8{
@@ -976,26 +996,25 @@ const mingw32_x86_32_src = [_][]const u8{
 };
 
 const mingw32_arm_src = [_][]const u8{
+    // mingw32
+    "crt" ++ path.sep_str ++ "CRT_fp8.c",
     // mingwex
+    "math" ++ path.sep_str ++ "sincos.c",
+    "math" ++ path.sep_str ++ "sincosf.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "sincosl.c",
 };
 
 const mingw32_arm32_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rintf.c",
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_arm64_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_winpthreads_src = [_][]const u8{
@@ -1006,7 +1025,6 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "misc.c",
     "winpthreads" ++ path.sep_str ++ "mutex.c",
     "winpthreads" ++ path.sep_str ++ "nanosleep.c",
-    "winpthreads" ++ path.sep_str ++ "ref.c",
     "winpthreads" ++ path.sep_str ++ "rwlock.c",
     "winpthreads" ++ path.sep_str ++ "sched.c",
     "winpthreads" ++ path.sep_str ++ "sem.c",

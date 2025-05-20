@@ -12,4 +12,3 @@ int __cdecl vsprintf(char * __restrict__ _Dest,const char * __restrict__ _Format
 {
   return __stdio_common_vsprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR, _Dest, (size_t)-1, _Format, NULL, _Args);
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(vsprintf))(char *__restrict__, const char *__restrict__, va_list) = vsprintf;

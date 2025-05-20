@@ -12,26 +12,15 @@
    representation of the exception flags indicated by the argument
    excepts in the object pointed to by the argument flagp.  */
 
-int fegetexceptflag (fexcept_t * flagp, int excepts)
+int fegetexceptflag(fexcept_t *status, int excepts)
 {
-#if defined(_ARM_) || defined(__arm__)
-  fenv_t _env;
-  __asm__ volatile ("fmrx %0, FPSCR" : "=r" (_env));
-  *flagp = _env.__cw & excepts & FE_ALL_EXCEPT;
-#elif defined(_ARM64_) || defined(__aarch64__)
-  unsigned __int64 fpcr;
-  __asm__ volatile ("mrs %0, fpcr" : "=r" (fpcr));
-  *flagp = fpcr & excepts & FE_ALL_EXCEPT;
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
+    unsigned int x87, sse;
+    __mingw_setfp(NULL, 0, &x87, 0);
+    __mingw_setfp_sse(NULL, 0, &sse, 0);
+    *status = fenv_encode(x87 & excepts, sse & excepts);
 #else
-  int _mxcsr;
-  unsigned short _status;
-
-  __asm__ volatile ("fnstsw %0" : "=am" (_status));
-  _mxcsr = 0;
-  if (__mingw_has_sse ())
-    __asm__ volatile ("stmxcsr %0" : "=m" (_mxcsr));
-
-  *flagp = (_mxcsr | _status) & excepts & FE_ALL_EXCEPT;
-#endif /* defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__) */
-  return 0;
+    *status = fenv_encode(0, __mingw_statusfp() & excepts);
+#endif
+    return 0;
 }

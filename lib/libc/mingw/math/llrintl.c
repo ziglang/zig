@@ -9,7 +9,8 @@
 long long llrintl (long double x) 
 {
   long long retval = 0ll;
-#if defined(_AMD64_) || defined(__x86_64__) || defined(_X86_) || defined(__i386__)
+#if (defined(_AMD64_) && !defined(_ARM64EC_)) || (defined(__x86_64__) && !defined(__arm64ec__)) || \
+  defined(_X86_) || defined(__i386__)
   __asm__ __volatile__ ("fistpll %0"  : "=m" (retval) : "t" (x) : "st");
 #else
   int mode = fegetround();
