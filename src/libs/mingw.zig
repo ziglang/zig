@@ -574,7 +574,6 @@ const mingw32_generic_src = [_][]const u8{
     "gdtoa" ++ path.sep_str ++ "sum.c",
     "gdtoa" ++ path.sep_str ++ "ulp.c",
     "math" ++ path.sep_str ++ "coshl.c",
-    "math" ++ path.sep_str ++ "fabsl.c",
     "math" ++ path.sep_str ++ "fp_consts.c",
     "math" ++ path.sep_str ++ "fp_constsf.c",
     "math" ++ path.sep_str ++ "fp_constsl.c",
@@ -946,7 +945,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinl_internal.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanl.S",
     // ucrtbase
-    "math" ++ path.sep_str ++ "fabsf.c",
     "math" ++ path.sep_str ++ "nextafterl.c",
     "math" ++ path.sep_str ++ "nexttoward.c",
     "math" ++ path.sep_str ++ "nexttowardf.c",

@@ -10822,6 +10822,9 @@ else
         b: c_longdouble,
     };
 
+pub const intmax_t = i64;
+pub const uintmax_t = u64;
+
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: pthread_t, name: [*:0]const u8) void;
 pub extern "c" fn pthread_get_name_np(thread: pthread_t, name: [*:0]u8, len: usize) void;
