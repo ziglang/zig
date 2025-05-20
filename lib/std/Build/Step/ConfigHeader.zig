@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
@@ -519,341 +518,76 @@ fn render_meson(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
+    const build = step.owner;
+    const allocator = build.allocator;
 
-    const State = union(enum) {
-        copy,
-        escape: usize,
-        newline,
-        mesondefine: usize,
-        inline_at_var: usize,
-        dollar: usize,
-        inline_curly_var: usize,
-    };
+    var line_buffer: std.ArrayList(u8) = .init(allocator);
+    defer line_buffer.deinit();
 
     var any_errors = false;
     var line_index: u32 = 0;
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
+    while (line_it.next()) |raw_line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
 
-    var state: State = .copy;
-    var index: usize = 0;
-    while (index < contents.len) {
-        switch (state) {
-            .copy => switch (contents[index]) {
-                '\\' => {
-                    state = .{ .escape = index };
-                    index += 1;
-                    continue;
-                },
-                '\n' => {
-                    try output.append('\n');
-                    state = .newline;
-                    index += 1;
-                    line_index += 1;
-                    continue;
-                },
-                '@' => {
-                    state = .{ .inline_at_var = index };
-                    index += 1;
-                    continue;
-                },
-                '$' => {
-                    state = .{ .dollar = index };
-                    index += 1;
-                    continue;
-                },
-                else => |character| {
-                    try output.append(character);
-                    index += 1;
-                    continue;
-                },
-            },
-            .escape => |start_index| switch (contents[index]) {
-                '\\' => {
-                    index += 1;
-                    continue;
-                },
-                '\n' => {
-                    try output.append('\n');
-                    state = .newline;
-                    index += 1;
-                    line_index += 1;
-                    continue;
-                },
-                '@' => {
-                    const count = index - start_index;
-                    try output.appendNTimes('\\', count / 2);
-                    if (count % 2 == 0) {
-                        state = .{ .inline_at_var = index };
-                        index += 1;
-                    } else {
-                        try output.append('@');
-                        state = .copy;
-                        index += 1;
-                    }
-                    continue;
-                },
-                '$' => {
-                    const count = index - start_index;
-                    try output.appendNTimes('\\', count / 2);
-                    if (count % 2 == 0) {
-                        state = .{ .dollar = index };
-                        index += 1;
-                    } else {
-                        try output.append('$');
-                        state = .copy;
-                        index += 1;
-                    }
-                    continue;
-                },
-                else => |character| {
-                    const count = index - start_index;
-                    try output.appendNTimes('\\', count);
-                    try output.append(character);
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-            },
-            .newline => switch (contents[index]) {
-                '\n' => {
-                    try output.append('\n');
-                    state = .newline;
-                    index += 1;
-                    line_index += 1;
-                    continue;
-                },
-                '@' => {
-                    state = .{ .inline_at_var = index };
-                    index += 1;
-                    line_index += 1;
-                    continue;
-                },
-                '#' => if (std.mem.startsWith(u8, contents[index..], "#mesondefine ")) {
-                    index += "#mesondefine ".len;
-                    state = .{ .mesondefine = index };
-                    continue;
-                } else {
-                    try output.append('#');
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-                else => |character| {
-                    try output.append(character);
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-            },
-            .mesondefine => |start_index| switch (contents[index]) {
-                ' ' => {
-                    index += 1;
-                    state = .{ .mesondefine = index };
-                    continue;
-                },
-                '\n' => {
-                    const name = contents[start_index..index];
-                    state = .newline;
-                    index += 1;
-                    defer line_index += 1;
+        line_buffer.clearRetainingCapacity();
+        const old_len = output.items.len;
 
-                    const kv = values_copy.fetchSwapRemove(name) orelse {
-                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                            src_path, line_index + 1, name,
-                        });
-                        any_errors = true;
-                        continue;
-                    };
-                    try renderValueC(output, name, kv.value);
-                    continue;
+        const line = expand_variables_meson(&line_buffer, raw_line, values) catch |err| {
+            switch (err) {
+                error.MissingValue => {
+                    const key = line_buffer.items;
+                    try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                        src_path, line_index + 1, key,
+                    });
+                    // delete the partially processed line and continue rendering
+                    output.shrinkRetainingCapacity(old_len);
                 },
                 else => {
-                    index += 1;
-                    continue;
+                    try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                        src_path, line_index + 1, @errorName(err),
+                    });
                 },
-            },
-            .inline_at_var => |start_index| switch (contents[index]) {
-                '\n' => {
-                    try output.appendSlice(contents[start_index .. index + 1]);
-                    state = .newline;
-                    index += 1;
-                    defer line_index += 1;
-                    continue;
-                },
-                ' ' => {
-                    try output.appendSlice(contents[start_index .. index + 1]);
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-                '@' => {
-                    const name = contents[start_index + 1 .. index];
-                    state = .copy;
-                    index += 1;
+            }
+            any_errors = true;
+            continue;
+        };
 
-                    const kv = values_copy.fetchSwapRemove(name) orelse get_from_original_or_error: {
-                        if (values.getEntry(name)) |entry| {
-                            break :get_from_original_or_error std.StringArrayHashMap(Value).KV{
-                                .key = entry.key_ptr.*,
-                                .value = entry.value_ptr.*,
-                            };
-                        }
-                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                            src_path, line_index + 1, name,
-                        });
-                        any_errors = true;
-                        continue;
-                    };
-                    switch (kv.value) {
-                        // output nothing
-                        .undef => {},
-                        .defined => try output.appendSlice("1"),
-                        .boolean => |b| try output.appendSlice(if (b) "true" else "false"),
-                        .int => |i| try output.writer().print("{d}", .{i}),
-                        .ident => |ident| try output.appendSlice(ident),
-                        .string => |string| {
-                            // TODO: use C-specific escaping instead of zig string literals
-                            try output.writer().print("{}", .{std.zig.fmtEscapes(string)});
-                        },
-                    }
-                    continue;
-                },
-                else => {
-                    index += 1;
-                    continue;
-                },
-            },
-            .dollar => |start_index| switch (contents[index]) {
-                '{' => {
-                    state = .{ .inline_curly_var = start_index };
-                    index += 1;
-                    continue;
-                },
-                '\\' => {
-                    try output.append('$');
-                    state = .{ .escape = index };
-                    index += 1;
-                    continue;
-                },
-                '\n' => {
-                    try output.append('$');
-                    try output.append('\n');
-                    state = .newline;
-                    index += 1;
-                    line_index += 1;
-                    continue;
-                },
-                '@' => {
-                    try output.append('$');
-                    state = .{ .inline_at_var = index };
-                    index += 1;
-                    continue;
-                },
-                '$' => {
-                    try output.append('$');
-                    state = .{ .dollar = index };
-                    index += 1;
-                    continue;
-                },
-                else => |character| {
-                    try output.append('$');
-                    try output.append(character);
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-            },
-            .inline_curly_var => |start_index| switch (contents[index]) {
-                '\n' => {
-                    try output.appendSlice(contents[start_index .. index + 1]);
-                    state = .newline;
-                    index += 1;
-                    defer line_index += 1;
-                    continue;
-                },
-                ' ' => {
-                    try output.appendSlice(contents[start_index .. index + 1]);
-                    state = .copy;
-                    index += 1;
-                    continue;
-                },
-                '}' => {
-                    const name = contents[start_index + 2 .. index];
-                    state = .copy;
-                    index += 1;
-
-                    const kv = values_copy.fetchSwapRemove(name) orelse get_from_original_or_error: {
-                        if (values.getEntry(name)) |entry| {
-                            break :get_from_original_or_error std.StringArrayHashMap(Value).KV{
-                                .key = entry.key_ptr.*,
-                                .value = entry.value_ptr.*,
-                            };
-                        }
-                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                            src_path, line_index + 1, name,
-                        });
-                        any_errors = true;
-                        continue;
-                    };
-                    switch (kv.value) {
-                        // output nothing
-                        .undef => {},
-                        .defined => try output.appendSlice("1"),
-                        .boolean => |b| try output.appendSlice(if (b) "true" else "false"),
-                        .int => |i| try output.writer().print("{d}", .{i}),
-                        .ident => |ident| try output.appendSlice(ident),
-                        .string => |string| {
-                            // TODO: use C-specific escaping instead of zig string literals
-                            try output.writer().print("{}", .{std.zig.fmtEscapes(string)});
-                        },
-                    }
-                    continue;
-                },
-                else => {
-                    index += 1;
-                    continue;
-                },
-            },
+        if (!std.mem.startsWith(u8, line, "#")) {
+            try output.appendSlice(line);
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
+            continue;
         }
-        std.debug.panic("index = {}, character = {}, state = {}", .{
-            index,
-            contents[index],
-            state,
-        });
-    }
 
-    // clean up any remaining state
-    switch (state) {
-        .copy,
-        .escape,
-        .newline,
-        => {},
-        .mesondefine => |start_index| eof_terminated_mesondefine: {
-            const name = contents[start_index..];
-            const kv = values_copy.fetchSwapRemove(name) orelse {
-                try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                    src_path, line_index + 1, name,
-                });
-                any_errors = true;
-                break :eof_terminated_mesondefine;
-            };
-            try renderValueC(output, name, kv.value);
-        },
-        .inline_at_var,
-        .inline_curly_var,
-        => |start_index| {
-            try output.appendSlice(contents[start_index..]);
-        },
-        .dollar => {
-            try output.append('$');
-        },
-    }
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
+        const mesondefine = it.next().?;
+        if (!std.mem.eql(u8, mesondefine, "mesondefine")) {
+            try output.appendSlice(line);
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
+            continue;
+        }
 
-    // Check for unused values
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
-        any_errors = true;
+        const name = it.next() orelse {
+            try step.addError("{s}:{d}: error: missing define name", .{
+                src_path, line_index + 1,
+            });
+            any_errors = true;
+            continue;
+        };
+
+        const value = values.get(name) orelse {
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                src_path, line_index + 1, name,
+            });
+            any_errors = true;
+            continue;
+        };
+
+        try renderValueCMeson(output, name, value);
     }
 
     if (any_errors) {
@@ -928,6 +662,42 @@ fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !voi
         .string => |string| {
             // TODO: use C-specific escaping instead of zig string literals
             try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
+        },
+    }
+}
+
+fn renderValueCMeson(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
+    // https://mesonbuild.com/Configuration.html
+    switch (value) {
+        .undef => {
+            try output.appendSlice("/* #undef ");
+            try output.appendSlice(name);
+            try output.appendSlice(" */\n");
+        },
+        .defined => {
+            try output.appendSlice("#define ");
+            try output.appendSlice(name);
+            try output.appendSlice("\n");
+        },
+        .boolean => |b| {
+            if (b) {
+                try output.appendSlice("#define ");
+                try output.appendSlice(name);
+                try output.appendSlice("\n");
+            } else {
+                try output.appendSlice("#undef ");
+                try output.appendSlice(name);
+                try output.appendSlice("\n");
+            }
+        },
+        .int => |i| {
+            try output.writer().print("#define {s} {d}\n", .{ name, i });
+        },
+        .ident => |ident| {
+            try output.writer().print("#define {s} {s}\n", .{ name, ident });
+        },
+        .string => |string| {
+            try output.writer().print("#define {s} {s}\n", .{ name, string });
         },
     }
 }
@@ -1146,6 +916,90 @@ fn expand_variables_cmake(
     return result.toOwnedSlice();
 }
 
+fn countEscapes(before_symbol: []const u8) usize {
+    return if (std.mem.lastIndexOfNone(u8, before_symbol, "\\")) |i| (before_symbol.len - i - 1) else before_symbol.len;
+}
+fn expand_variables_meson(
+    buffer: *std.ArrayList(u8),
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+) error{ MissingValue, InvalidCharacter, OutOfMemory }![]const u8 {
+    const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
+
+    var prev: usize = 0;
+    var current = std.mem.indexOfScalar(u8, contents, '@') orelse return contents;
+    outer: while (true) {
+        // find an unescaped @
+        while (true) {
+            const escapes = countEscapes(contents[0..current]);
+            try buffer.appendSlice(contents[prev .. current - escapes]);
+            try buffer.appendNTimes('\\', escapes / 2);
+
+            // candidate for expansion
+            if (escapes % 2 == 0) {
+                break;
+            }
+
+            try buffer.append('@');
+            prev = current + 1;
+            current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break :outer;
+        }
+
+        const valid_varname_end = std.mem.indexOfNonePos(u8, contents, current + 1, valid_varname_chars) orelse {
+            try buffer.append('@');
+            break;
+        };
+
+        if (contents[valid_varname_end] != '@') {
+            if (std.mem.indexOfScalarPos(u8, contents, current + 1, '@') != null) {
+                // return the failed expansion
+                buffer.clearRetainingCapacity();
+                try buffer.appendSlice(contents[current .. valid_varname_end + 1]);
+                return error.InvalidCharacter;
+            } else {
+                // nothing more to expand
+                try buffer.append('@');
+                break;
+            }
+        }
+
+        if (current + 1 == valid_varname_end) {
+            // back-to-back @@, don't expand
+            try buffer.append('@');
+            prev = current + 1;
+            current = valid_varname_end;
+            continue;
+        }
+
+        const key = contents[current + 1 .. valid_varname_end];
+        const value = values.get(key) orelse {
+            // return the key which is missing a value
+            buffer.clearRetainingCapacity();
+            try buffer.appendSlice(key);
+            return error.MissingValue;
+        };
+        switch (value) {
+            .undef, .defined => {},
+            .boolean => |b| {
+                try buffer.appendSlice(if (b) "true" else "false");
+            },
+            .int => |i| {
+                try buffer.writer().print("{d}", .{i});
+            },
+            .ident, .string => |s| {
+                try buffer.appendSlice(s);
+            },
+        }
+
+        current = valid_varname_end;
+        prev = current + 1;
+        current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break;
+    }
+
+    try buffer.appendSlice(contents[current + 1 ..]);
+    return buffer.items;
+}
+
 fn testReplaceVariablesAutoconfAt(
     allocator: Allocator,
     contents: []const u8,
@@ -1173,6 +1027,19 @@ fn testReplaceVariablesCMake(
 ) !void {
     const actual = try expand_variables_cmake(allocator, contents, values);
     defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(expected, actual);
+}
+
+fn testReplaceVariablesMeson(
+    allocator: Allocator,
+    contents: []const u8,
+    expected: []const u8,
+    values: std.StringArrayHashMap(Value),
+) !void {
+    var buffer: std.ArrayList(u8) = .init(allocator);
+    defer buffer.deinit();
+    const actual = try expand_variables_meson(&buffer, contents, values);
 
     try std.testing.expectEqualStrings(expected, actual);
 }
@@ -1458,318 +1325,126 @@ test "expand_variables_cmake escaped characters" {
     try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${string\\}", "", values));
 }
 
-test "meson" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+test "expand_variables_meson simple cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    try values.putNoClobber("undef", .undef);
+    try values.putNoClobber("defined", .defined);
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try values.putNoClobber("ident", Value{ .ident = "value" });
+    try values.putNoClobber("string", Value{ .string = "text" });
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    // empty strings are preserved
+    try testReplaceVariablesMeson(allocator, "", "", values);
 
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
-    };
+    // line with misc content is preserved
+    try testReplaceVariablesMeson(allocator, "no substitution", "no substitution", values);
 
-    var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
-        &.{},
-    );
-    defer builder.destroy();
+    // empty @ sigils are preserved
+    try testReplaceVariablesMeson(allocator, "@", "@", values);
+    try testReplaceVariablesMeson(allocator, "@@", "@@", values);
+    try testReplaceVariablesMeson(allocator, "@@@", "@@@", values);
+    try testReplaceVariablesMeson(allocator, "@@@@", "@@@@", values);
 
-    const config_h_in_contents =
-        \\#define MESSAGE "@var@"
-        \\#define OTHER "@other@" "@second@" "@empty@"
-        \\
-        \\#mesondefine BE_TRUE
-        \\#mesondefine SHOULD_BE_UNDEF
-        \\
-    ;
+    // simple substitution
+    try testReplaceVariablesMeson(allocator, "@undef@", "", values);
+    try testReplaceVariablesMeson(allocator, "@defined@", "", values);
+    try testReplaceVariablesMeson(allocator, "@true@", "true", values);
+    try testReplaceVariablesMeson(allocator, "@false@", "false", values);
+    try testReplaceVariablesMeson(allocator, "@int@", "42", values);
+    try testReplaceVariablesMeson(allocator, "@ident@", "value", values);
+    try testReplaceVariablesMeson(allocator, "@string@", "text", values);
 
-    const generate_config_header = ConfigHeader.create(builder, .{});
-    generate_config_header.addValues(.{
-        .@"var" = "mystring",
-        .other = "mystring 2",
-        .second = "bonus",
-        .empty = null,
-        .BE_TRUE = {},
-        .SHOULD_BE_UNDEF = null,
-    });
-    errdefer {
-        for (generate_config_header.step.result_error_msgs.items) |msg| {
-            std.debug.print("{s}\n", .{msg});
-        }
-    }
+    // double packed substitution
+    try testReplaceVariablesMeson(allocator, "@string@@string@", "texttext", values);
 
-    var output = std.ArrayList(u8).init(arena.allocator());
+    // triple packed substitution
+    try testReplaceVariablesMeson(allocator, "@string@@int@@string@", "text42text", values);
 
-    try render_meson(
-        &generate_config_header.step,
-        config_h_in_contents,
-        &output,
-        generate_config_header.values,
-        "config.h.in",
-    );
+    // double separated substitution
+    try testReplaceVariablesMeson(allocator, "@int@.@int@", "42.42", values);
 
-    try std.testing.expectEqualStrings(
-        \\#define MESSAGE "mystring"
-        \\#define OTHER "mystring 2" "bonus" ""
-        \\
-        \\#define BE_TRUE
-        \\/* #undef SHOULD_BE_UNDEF */
-        \\
-    , output.items);
+    // triple separated substitution
+    try testReplaceVariablesMeson(allocator, "@int@.@true@.@int@", "42.true.42", values);
+
+    // misc prefix is preserved
+    try testReplaceVariablesMeson(allocator, "false is @false@", "false is false", values);
+
+    // misc suffix is preserved
+    try testReplaceVariablesMeson(allocator, "@true@ is true", "true is true", values);
+
+    // surrounding content is preserved
+    try testReplaceVariablesMeson(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
+
+    // incomplete key is preserved
+    try testReplaceVariablesMeson(allocator, "@undef", "@undef", values);
+    try testReplaceVariablesMeson(allocator, "undef@", "undef@", values);
+
+    // (in)complete key of different style is preserved
+    try testReplaceVariablesMeson(allocator, "${undef", "${undef", values);
+    try testReplaceVariablesMeson(allocator, "{undef}", "{undef}", values);
+    try testReplaceVariablesMeson(allocator, "undef}", "undef}", values);
+    try testReplaceVariablesMeson(allocator, "${undef}", "${undef}", values);
+
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesMeson(allocator, "@bad@", "", values));
+
+    // invalid characters lead to an error
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesMeson(allocator, "@str*ing@", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesMeson(allocator, "@str$ing@", "", values));
 }
 
-test "meson at style escapes" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+test "expand_variables_meson escapes" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    try values.putNoClobber("var0", Value{ .string = "foo" });
+    try values.putNoClobber("var1", Value{ .string = "bar" });
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    try testReplaceVariablesMeson(allocator, "\\@var0@", "@var0@", values);
 
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
-    };
+    // multiple escapes before a @ will be simplified to half as many escapes
+    // even numbers of escapes: substitution still happens
+    try testReplaceVariablesMeson(allocator, "\\\\@var0@", "\\foo", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\@var0@", "\\\\foo", values);
+    try testReplaceVariablesMeson(allocator, "\\\\var0", "\\\\var0", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\var0", "\\\\\\\\var0", values);
 
-    var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
-        &.{},
-    );
-    defer builder.destroy();
+    // multiple escapes before a @ will be simplified to half as many escapes (rounded down)
+    // odd numbers of escapes: substitution does not happen
+    // 2 escapes followed by a single escape to prevent replacement
+    try testReplaceVariablesMeson(allocator, "\\\\\\@var0@", "\\@var0@", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\\\@var0@", "\\\\@var0@", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\var0", "\\\\\\var0", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\\\var0", "\\\\\\\\\\var0", values);
 
-    const config_h_in_contents =
-        \\/* No escape */
-        \\#define MESSAGE1 "@var1@"
-        \\
-        \\/* Single escape means no replace */
-        \\#define MESSAGE2 "\@var1@"
-        \\
-        \\/* Replace pairs of escapes before '@' or '\@' with escape characters
-        \\* (note we have to double number of pairs due to C string escaping)
-        \\*/
-        \\#define MESSAGE3 "\\\\@var1@"
-        \\
-        \\/* Pairs of escapes and then single escape to avoid replace */
-        \\#define MESSAGE4 "\\\\\@var1@"
-        \\
-        \\/* Check escaped variable does not overlap following variable */
-        \\#define MESSAGE5 "\@var1@var2@"
-        \\
-        \\/* Check escape character outside variables */
-        \\#define MESSAGE6 "\\ @ \@ \\\\@ \\\\\@"
-        \\
-    ;
+    // escape doesn't affect later substitutions
+    try testReplaceVariablesMeson(allocator, "\\@var0@var1@", "@var0bar", values);
 
-    const generate_config_header = ConfigHeader.create(builder, .{});
-    generate_config_header.addValues(.{
-        .var1 = "foo",
-        .var2 = "bar",
-    });
-    errdefer {
-        for (generate_config_header.step.result_error_msgs.items) |msg| {
-            std.debug.print("{s}\n", .{msg});
-        }
-    }
-
-    var output = std.ArrayList(u8).init(arena.allocator());
-
-    try render_meson(
-        &generate_config_header.step,
-        config_h_in_contents,
-        &output,
-        generate_config_header.values,
-        "config.h.in",
-    );
-
-    try std.testing.expectEqualStrings(
-        \\/* No escape */
-        \\#define MESSAGE1 "foo"
-        \\
-        \\/* Single escape means no replace */
-        \\#define MESSAGE2 "@var1@"
-        \\
-        \\/* Replace pairs of escapes before '@' or '@' with escape characters
-        \\* (note we have to double number of pairs due to C string escaping)
-        \\*/
-        \\#define MESSAGE3 "\\foo"
-        \\
-        \\/* Pairs of escapes and then single escape to avoid replace */
-        \\#define MESSAGE4 "\\@var1@"
-        \\
-        \\/* Check escaped variable does not overlap following variable */
-        \\#define MESSAGE5 "@var1bar"
-        \\
-        \\/* Check escape character outside variables */
-        \\#define MESSAGE6 "\\ @ @ \\@ \\@"
-        \\
-    , output.items);
+    // escaping is not required when there is no matching @
+    try testReplaceVariablesMeson(allocator, "@var0:var1", "@var0:var1", values);
+    try testReplaceVariablesMeson(allocator, "prefix @ suffix", "prefix @ suffix", values);
 }
 
-test "meson curly brace style escapes" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+test "expand_variables_meson edge cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    // basic value
+    try values.putNoClobber("string", Value{ .string = "text" });
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    // proxy case values
+    try values.putNoClobber("string_at", Value{ .string = "@string@" });
 
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
-    };
+    // @-vars resolved only when they wrap valid characters, otherwise considered literals
+    try testReplaceVariablesMeson(allocator, "@@string@@", "@text@", values);
 
-    var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
-        &.{},
-    );
-    defer builder.destroy();
-
-    const config_h_in_contents =
-        \\/* No escape */
-        \\#define MESSAGE1 "${var1}"
-        \\
-        \\/* Single escape means no replace */
-        \\#define MESSAGE2 "\${var1}"
-        \\
-        \\/* Replace pairs of escapes before '@' or '\@' with escape characters
-        \\ * (note we have to double number of pairs due to C string escaping)
-        \\ */
-        \\#define MESSAGE3 "\\\\${var1}"
-        \\
-        \\/* Pairs of escapes and then single escape to avoid replace */
-        \\#define MESSAGE4 "\\\\\${var1}"
-        \\
-        \\/* Check escape character outside variables */
-        \\#define MESSAGE5 "\\ ${ ${ \\\\${ \\\\\${"
-        \\
-    ;
-
-    const generate_config_header = ConfigHeader.create(builder, .{});
-    generate_config_header.addValues(.{
-        .var1 = "foo",
-    });
-    errdefer {
-        for (generate_config_header.step.result_error_msgs.items) |msg| {
-            std.debug.print("{s}\n", .{msg});
-        }
-    }
-
-    var output = std.ArrayList(u8).init(arena.allocator());
-
-    try render_meson(
-        &generate_config_header.step,
-        config_h_in_contents,
-        &output,
-        generate_config_header.values,
-        "config.h.in",
-    );
-
-    try std.testing.expectEqualStrings(
-        \\/* No escape */
-        \\#define MESSAGE1 "foo"
-        \\
-        \\/* Single escape means no replace */
-        \\#define MESSAGE2 "${var1}"
-        \\
-        \\/* Replace pairs of escapes before '@' or '@' with escape characters
-        \\ * (note we have to double number of pairs due to C string escaping)
-        \\ */
-        \\#define MESSAGE3 "\\foo"
-        \\
-        \\/* Pairs of escapes and then single escape to avoid replace */
-        \\#define MESSAGE4 "\\${var1}"
-        \\
-        \\/* Check escape character outside variables */
-        \\#define MESSAGE5 "\\ ${ ${ \\${ \\${"
-        \\
-    , output.items);
-}
-
-test "meson glibconfig.h.in snippets" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
-
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
-    };
-
-    var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
-        &.{},
-    );
-    defer builder.destroy();
-
-    const config_h_in_contents =
-        \\typedef signed @gint32@ gint32;
-        \\
-        \\@glib_extension@typedef signed @gint64@ gint64;
-        \\
-        \\@glib_os@
-        \\
-    ;
-
-    const generate_config_header = ConfigHeader.create(builder, .{});
-    generate_config_header.addValues(.{
-        .gint32 = .int,
-        .glib_extension = null,
-        .gint64 = .long,
-        .glib_os = .@"#define G_OS_WIN32\n#define G_PLATFORM_WIN32",
-    });
-    errdefer {
-        for (generate_config_header.step.result_error_msgs.items) |msg| {
-            std.debug.print("{s}\n", .{msg});
-        }
-    }
-
-    var output = std.ArrayList(u8).init(arena.allocator());
-
-    try render_meson(
-        &generate_config_header.step,
-        config_h_in_contents,
-        &output,
-        generate_config_header.values,
-        "config.h.in",
-    );
-
-    try std.testing.expectEqualStrings(
-        \\typedef signed int gint32;
-        \\
-        \\typedef signed long gint64;
-        \\
-        \\#define G_OS_WIN32
-        \\#define G_PLATFORM_WIN32
-        \\
-    , output.items);
+    // expanded variables are considered strings after expansion
+    try testReplaceVariablesMeson(allocator, "@string_at@", "@string@", values);
 }
