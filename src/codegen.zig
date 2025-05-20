@@ -37,6 +37,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
         .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
@@ -61,6 +62,7 @@ pub fn generateFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -86,7 +88,10 @@ pub fn generateLazyFunction(
         zcu.getTarget();
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_x86_64, .stage2_riscv64 => |backend| {
+        inline .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_x86_64,
+        => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },

@@ -4500,6 +4500,26 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             .naked => true,
             else => false,
         },
+        .stage2_powerpc => switch (target.cpu.arch) {
+            .powerpc, .powerpcle => switch (cc) {
+                .powerpc_sysv,
+                .powerpc_sysv_altivec,
+                .powerpc_aix,
+                .powerpc_aix_altivec,
+                .naked,
+                => true,
+                else => false,
+            },
+            .powerpc64, .powerpc64le => switch (cc) {
+                .powerpc64_elf,
+                .powerpc64_elf_altivec,
+                .powerpc64_elf_v2,
+                .naked,
+                => true,
+                else => false,
+            },
+            else => unreachable,
+        },
         .stage2_riscv64 => switch (cc) {
             .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
             .naked => true,

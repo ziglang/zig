@@ -14,12 +14,16 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // The self-hosted compiler is not fully capable of handling all of this start.zig file.
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
-pub const simplified_logic =
-    builtin.zig_backend == .stage2_x86 or
-    builtin.zig_backend == .stage2_aarch64 or
-    builtin.zig_backend == .stage2_arm or
-    builtin.zig_backend == .stage2_sparc64 or
-    builtin.zig_backend == .stage2_spirv64;
+pub const simplified_logic = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_sparc64,
+    .stage2_spirv64,
+    .stage2_x86,
+    => true,
+    else => false,
+};
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -669,9 +673,14 @@ pub inline fn callMain() u8 {
             if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
-                if (builtin.zig_backend == .stage2_riscv64) {
-                    std.debug.print("error: failed with error\n", .{});
-                    return 1;
+                switch (builtin.zig_backend) {
+                    .stage2_powerpc,
+                    .stage2_riscv64,
+                    => {
+                        std.debug.print("error: failed with error\n", .{});
+                        return 1;
+                    },
+                    else => {},
                 }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
