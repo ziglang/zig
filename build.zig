@@ -437,7 +437,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        .max_rss = 2 * 1024 * 1024 * 1024,
+        // 2262585344 was observed on an x86_64-linux-gnu host.
+        .max_rss = 2488843878,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
