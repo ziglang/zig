@@ -15,7 +15,9 @@ var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 
 const crippled = switch (builtin.zig_backend) {
-    .stage2_riscv64 => true,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => true,
     else => false,
 };
 

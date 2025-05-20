@@ -608,15 +608,20 @@ pub fn defaultPanic(
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        @trap();
+    switch (builtin.zig_backend) {
+        .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_spirv64,
+        .stage2_wasm,
+        .stage2_x86,
+        => @trap(),
+        .stage2_x86_64 => switch (builtin.target.ofmt) {
+            .elf, .macho => {},
+            else => @trap(),
+        },
+        else => {},
     }
 
     switch (builtin.os.tag) {

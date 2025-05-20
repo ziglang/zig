@@ -736,6 +736,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
@@ -796,14 +797,15 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => .stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
         .aarch64, .aarch64_be => .stage2_aarch64,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,
+        .wasm32, .wasm64 => .stage2_wasm,
+        .x86 => .stage2_x86,
+        .x86_64 => .stage2_x86_64,
         else => .other,
     };
 }
