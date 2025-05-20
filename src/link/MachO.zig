@@ -867,11 +867,11 @@ pub fn resolveLibSystem(
     success: {
         if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
-                const dir = try fs.path.join(arena, &[_][]const u8{ comp.sysroot.?, "usr", "lib" });
+                const dir = try fs.path.join(arena, &.{ comp.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
             },
             .vendored => {
-                const dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "darwin" });
+                const dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "darwin" });
                 if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
             },
         };
@@ -4406,7 +4406,7 @@ fn inferSdkVersion(comp: *Compilation, sdk_layout: SdkLayout) ?std.SemanticVersi
 
     const sdk_dir = switch (sdk_layout) {
         .sdk => comp.sysroot.?,
-        .vendored => fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
+        .vendored => fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "libc", "darwin" }) catch return null,
     };
     if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {
         return parseSdkVersion(ver);

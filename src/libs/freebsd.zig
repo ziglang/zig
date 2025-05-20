@@ -34,7 +34,7 @@ pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
 
 fn includePath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &.{
-        comp.zig_lib_directory.path.?,
+        comp.dirs.zig_lib.path.?,
         "libc" ++ path.sep_str ++ "include",
         sub_path,
     });
@@ -42,7 +42,7 @@ fn includePath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]co
 
 fn csuPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &.{
-        comp.zig_lib_directory.path.?,
+        comp.dirs.zig_lib.path.?,
         "libc" ++ path.sep_str ++ "freebsd" ++ path.sep_str ++ "lib" ++ path.sep_str ++ "csu",
         sub_path,
     });
@@ -50,7 +50,7 @@ fn csuPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const 
 
 fn libcPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &.{
-        comp.zig_lib_directory.path.?,
+        comp.dirs.zig_lib.path.?,
         "libc" ++ path.sep_str ++ "freebsd" ++ path.sep_str ++ "lib" ++ path.sep_str ++ "libc",
         sub_path,
     });
@@ -438,11 +438,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
-        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
+        .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
-    cache.addPrefix(comp.zig_lib_directory);
-    cache.addPrefix(comp.global_cache_directory);
+    cache.addPrefix(comp.dirs.zig_lib);
+    cache.addPrefix(comp.dirs.global_cache);
     defer cache.manifest_dir.close();
 
     var man = cache.obtain();
@@ -452,7 +452,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     man.hash.add(target.abi);
     man.hash.add(target_version);
 
-    const full_abilists_path = try comp.zig_lib_directory.join(arena, &.{abilists_path});
+    const full_abilists_path = try comp.dirs.zig_lib.join(arena, &.{abilists_path});
     const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
 
     if (try man.hit()) {
@@ -461,7 +461,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         return queueSharedObjects(comp, .{
             .lock = man.toOwnedLock(),
             .dir_path = .{
-                .root_dir = comp.global_cache_directory,
+                .root_dir = comp.dirs.global_cache,
                 .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
             },
         });
@@ -470,9 +470,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     const digest = man.final();
     const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
 
-    var o_directory: Compilation.Directory = .{
-        .handle = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
-        .path = try comp.global_cache_directory.join(arena, &.{o_sub_path}),
+    var o_directory: Cache.Directory = .{
+        .handle = try comp.dirs.global_cache.handle.makeOpenPath(o_sub_path, .{}),
+        .path = try comp.dirs.global_cache.join(arena, &.{o_sub_path}),
     };
     defer o_directory.handle.close();
 
@@ -974,7 +974,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "stdthreads", etc.
         const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
         try o_directory.handle.writeFile(.{ .sub_path = asm_file_basename, .data = stubs_asm.items });
-        try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib, prog_node);
+        try buildSharedLib(comp, arena, o_directory, asm_file_basename, lib, prog_node);
     }
 
     man.writeManifest() catch |err| {
@@ -984,7 +984,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     return queueSharedObjects(comp, .{
         .lock = man.toOwnedLock(),
         .dir_path = .{
-            .root_dir = comp.global_cache_directory,
+            .root_dir = comp.dirs.global_cache,
             .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
         },
     });
@@ -1023,8 +1023,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
 fn buildSharedLib(
     comp: *Compilation,
     arena: Allocator,
-    zig_cache_directory: Compilation.Directory,
-    bin_directory: Compilation.Directory,
+    bin_directory: Cache.Directory,
     asm_file_basename: []const u8,
     lib: Lib,
     prog_node: std.Progress.Node,
@@ -1057,9 +1056,8 @@ fn buildSharedLib(
     });
 
     const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -1079,8 +1077,6 @@ fn buildSharedLib(
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const c_source_files = [1]Compilation.CSourceFile{
@@ -1091,9 +1087,7 @@ fn buildSharedLib(
     };
 
     const sub_compilation = try Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = zig_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+        .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .incremental,

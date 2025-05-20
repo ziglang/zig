@@ -12,7 +12,8 @@ const LazySrcLoc = Zcu.LazySrcLoc;
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(
     gpa: Allocator,
-    scope_file: *Zcu.File,
+    tree: ?Ast,
+    zir: Zir,
     fs_file: std.fs.File,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -21,8 +22,8 @@ pub fn renderAsTextToFile(
     var writer: Writer = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .file = scope_file,
-        .code = scope_file.zir.?,
+        .tree = tree,
+        .code = zir,
         .indent = 0,
         .parent_decl_node = .root,
         .recurse_decls = true,
@@ -36,18 +37,18 @@ pub fn renderAsTextToFile(
     try stream.print("%{d} ", .{@intFromEnum(main_struct_inst)});
     try writer.writeInstToStream(stream, main_struct_inst);
     try stream.writeAll("\n");
-    const imports_index = scope_file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         try stream.writeAll("Imports:\n");
 
-        const extra = scope_file.zir.?.extraData(Zir.Inst.Imports, imports_index);
+        const extra = zir.extraData(Zir.Inst.Imports, imports_index);
         var extra_index = extra.end;
 
         for (0..extra.data.imports_len) |_| {
-            const item = scope_file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = scope_file.zir.?.nullTerminatedString(item.data.name);
+            const import_path = zir.nullTerminatedString(item.data.name);
             try stream.print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -74,7 +75,7 @@ pub fn renderInstructionContext(
     var writer: Writer = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .file = scope_file,
+        .tree = scope_file.tree,
         .code = scope_file.zir.?,
         .indent = if (indent < 2) 2 else indent,
         .parent_decl_node = parent_decl_node,
@@ -106,7 +107,7 @@ pub fn renderSingleInstruction(
     var writer: Writer = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .file = scope_file,
+        .tree = scope_file.tree,
         .code = scope_file.zir.?,
         .indent = indent,
         .parent_decl_node = parent_decl_node,
@@ -121,7 +122,7 @@ pub fn renderSingleInstruction(
 const Writer = struct {
     gpa: Allocator,
     arena: Allocator,
-    file: *Zcu.File,
+    tree: ?Ast,
     code: Zir,
     indent: u32,
     parent_decl_node: Ast.Node.Index,
@@ -2761,7 +2762,7 @@ const Writer = struct {
     }
 
     fn writeSrcNode(self: *Writer, stream: anytype, src_node: Ast.Node.Offset) !void {
-        const tree = self.file.tree orelse return;
+        const tree = self.tree orelse return;
         const abs_node = src_node.toAbsolute(self.parent_decl_node);
         const src_span = tree.nodeToSpan(abs_node);
         const start = self.line_col_cursor.find(tree.source, src_span.start);
@@ -2773,7 +2774,7 @@ const Writer = struct {
     }
 
     fn writeSrcTok(self: *Writer, stream: anytype, src_tok: Ast.TokenOffset) !void {
-        const tree = self.file.tree orelse return;
+        const tree = self.tree orelse return;
         const abs_tok = src_tok.toAbsolute(tree.firstToken(self.parent_decl_node));
         const span_start = tree.tokenStart(abs_tok);
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
@@ -2786,7 +2787,7 @@ const Writer = struct {
     }
 
     fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: Ast.TokenIndex) !void {
-        const tree = self.file.tree orelse return;
+        const tree = self.tree orelse return;
         const span_start = tree.tokenStart(src_tok);
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
         const start = self.line_col_cursor.find(tree.source, span_start);

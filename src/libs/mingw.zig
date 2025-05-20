@@ -40,7 +40,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             }
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "mingw", "crt", "crtexe.c",
                     }),
                     .extra_flags = args.items,
@@ -57,7 +57,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             try addCrtCcArgs(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "mingw", "crt", "crtdll.c",
                     }),
                     .extra_flags = args.items,
@@ -78,7 +78,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (mingw32_generic_src) |dep| {
                     try c_source_files.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = crt_args.items,
@@ -88,7 +88,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 if (target.cpu.arch.isX86()) {
                     for (mingw32_x86_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -98,7 +98,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     if (target.cpu.arch == .x86) {
                         for (mingw32_x86_32_src) |dep| {
                             try c_source_files.append(.{
-                                .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                                .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                     "libc", "mingw", dep,
                                 }),
                                 .extra_flags = crt_args.items,
@@ -109,7 +109,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 } else if (target.cpu.arch == .thumb) {
                     for (mingw32_arm_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -118,7 +118,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     }
                     for (mingw32_arm32_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -128,7 +128,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 } else if (target.cpu.arch == .aarch64) {
                     for (mingw32_arm_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -137,7 +137,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     }
                     for (mingw32_arm64_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -164,7 +164,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (mingw32_winpthreads_src) |dep| {
                     try c_source_files.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = winpthreads_args.items,
@@ -192,7 +192,7 @@ fn addCcArgs(
         "-D__USE_MINGW_ANSI_STDIO=0",
 
         "-isystem",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "any-windows-any" }),
     });
 }
 
@@ -219,7 +219,7 @@ fn addCrtCcArgs(
         "-DHAVE_CONFIG_H",
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "include" }),
     });
 }
 
@@ -232,7 +232,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const def_file_path = findDef(arena, comp.getTarget(), comp.zig_lib_directory, lib_name) catch |err| switch (err) {
+    const def_file_path = findDef(arena, comp.getTarget(), comp.dirs.zig_lib, lib_name) catch |err| switch (err) {
         error.FileNotFound => {
             log.debug("no {s}.def file available to make a DLL import {s}.lib", .{ lib_name, lib_name });
             // In this case we will end up putting foo.lib onto the linker line and letting the linker
@@ -247,15 +247,15 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
-        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
+        .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
-    cache.addPrefix(comp.zig_lib_directory);
-    cache.addPrefix(comp.global_cache_directory);
+    cache.addPrefix(comp.dirs.zig_lib);
+    cache.addPrefix(comp.dirs.global_cache);
     defer cache.manifest_dir.close();
 
     cache.hash.addBytes(build_options.version);
-    cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
+    cache.hash.addOptionalBytes(comp.dirs.zig_lib.path);
     cache.hash.add(target.cpu.arch);
 
     var man = cache.obtain();
@@ -276,7 +276,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
             .full_object_path = .{
-                .root_dir = comp.global_cache_directory,
+                .root_dir = comp.dirs.global_cache,
                 .sub_path = sub_path,
             },
             .lock = man.toOwnedLock(),
@@ -286,11 +286,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     const digest = man.final();
     const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-    var o_dir = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+    var o_dir = try comp.dirs.global_cache.handle.makeOpenPath(o_sub_path, .{});
     defer o_dir.close();
 
     const final_def_basename = try std.fmt.allocPrint(arena, "{s}.def", .{lib_name});
-    const def_final_path = try comp.global_cache_directory.join(arena, &[_][]const u8{
+    const def_final_path = try comp.dirs.global_cache.join(arena, &[_][]const u8{
         "o", &digest, final_def_basename,
     });
 
@@ -306,7 +306,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
-    const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
+    const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
         std.debug.lockStdErr();
@@ -350,7 +350,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
     const llvm_bindings = @import("../codegen/llvm/bindings.zig");
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
-    const lib_final_path_z = try comp.global_cache_directory.joinZ(arena, &.{lib_final_path});
+    const lib_final_path_z = try comp.dirs.global_cache.joinZ(arena, &.{lib_final_path});
     if (llvm_bindings.WriteImportLibrary(
         def_final_path_z.ptr,
         @intFromEnum(target.toCoffMachine()),
@@ -370,7 +370,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer comp.mutex.unlock();
     try comp.crt_files.putNoClobber(gpa, final_lib_basename, .{
         .full_object_path = .{
-            .root_dir = comp.global_cache_directory,
+            .root_dir = comp.dirs.global_cache,
             .sub_path = lib_final_path,
         },
         .lock = man.toOwnedLock(),

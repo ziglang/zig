@@ -81,7 +81,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             try addLibcBottomHalfIncludes(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, crt1_reactor_src_file),
                     }),
                     .extra_flags = args.items,
@@ -96,7 +96,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             try addLibcBottomHalfIncludes(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, crt1_command_src_file),
                     }),
                     .extra_flags = args.items,
@@ -114,7 +114,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true, .no_strict_aliasing = true });
                 for (emmalloc_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -131,7 +131,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (libc_bottom_half_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -148,7 +148,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (libc_top_half_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -168,7 +168,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             var emu_dl_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
             for (emulated_dl_src_files) |file_path| {
                 try emu_dl_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
@@ -186,7 +186,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             var emu_clocks_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
             for (emulated_process_clocks_src_files) |file_path| {
                 try emu_clocks_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
@@ -203,7 +203,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             var emu_getpid_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
             for (emulated_getpid_src_files) |file_path| {
                 try emu_getpid_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
@@ -220,7 +220,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             var emu_mman_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
             for (emulated_mman_src_files) |file_path| {
                 try emu_mman_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
@@ -238,7 +238,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (emulated_signal_bottom_half_src_files) |file_path| {
                     try emu_signal_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -255,7 +255,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (emulated_signal_top_half_src_files) |file_path| {
                     try emu_signal_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -316,10 +316,10 @@ fn addCCArgs(
         "/",
 
         "-iwithsysroot",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", triple }),
 
         "-iwithsysroot",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "generic-musl" }),
 
         "-DBULK_MEMORY_THRESHOLD=32",
     });
@@ -336,7 +336,7 @@ fn addLibcBottomHalfIncludes(
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -345,7 +345,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -355,7 +355,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -364,7 +364,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -374,7 +374,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -382,7 +382,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -392,7 +392,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -408,7 +408,7 @@ fn addLibcTopHalfIncludes(
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -418,7 +418,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -426,7 +426,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -436,7 +436,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -444,7 +444,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -454,7 +454,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "arch",
@@ -462,7 +462,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
