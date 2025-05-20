@@ -12,13 +12,28 @@ comptime {
 }
 
 fn abs(a: c_int) callconv(.c) c_int {
-    return if (a > 0) a else -a;
+    return @intCast(@abs(a));
 }
 
 fn labs(a: c_long) callconv(.c) c_long {
-    return if (a > 0) a else -a;
+    return @intCast(@abs(a));
 }
 
 fn llabs(a: c_longlong) callconv(.c) c_longlong {
-    return if (a > 0) a else -a;
+    return @intCast(@abs(a));
+}
+
+test abs {
+    const val: c_int = -10;
+    try std.testing.expectEqual(10, abs(val));
+}
+
+test labs {
+    const val: c_long = -10;
+    try std.testing.expectEqual(10, labs(val));
+}
+
+test llabs {
+    const val: c_longlong = -10;
+    try std.testing.expectEqual(10, llabs(val));
 }

@@ -11,5 +11,10 @@ comptime {
 }
 
 fn imaxabs(a: intmax_t) callconv(.c) intmax_t {
-    return if (a > 0) a else -a;
+    return @intCast(@abs(a));
+}
+
+test imaxabs {
+    const val: intmax_t = -10;
+    try std.testing.expectEqual(10, imaxabs(val));
 }
