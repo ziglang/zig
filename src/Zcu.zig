@@ -4239,13 +4239,6 @@ pub fn setFileRootType(zcu: *Zcu, file_index: File.Index, root_type: InternPool.
     files.view().items(.root_type)[file_index_unwrapped.index] = root_type;
 }
 
-pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
-    const ip = &zcu.intern_pool;
-    const file_index_unwrapped = file_index.unwrap(ip);
-    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    return files.view().items(.bin_digest)[file_index_unwrapped.index];
-}
-
 pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
     const ip = &zcu.intern_pool;
     return .{

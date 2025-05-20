@@ -352,12 +352,17 @@ pub const Path = struct {
         gpa.free(p.sub_path);
     }
 
-    /// The returned digest is relocatable across any compiler process using the same lib and cache
+    /// The added data is relocatable across any compiler process using the same lib and cache
     /// directories; it does not depend on cwd.
-    pub fn digest(p: Path) Cache.BinDigest {
-        var h = Cache.hasher_init;
+    pub fn addToHasher(p: Path, h: *Cache.Hasher) void {
         h.update(&.{@intFromEnum(p.root)});
         h.update(p.sub_path);
+    }
+
+    /// Small convenience wrapper around `addToHasher`.
+    pub fn digest(p: Path) Cache.BinDigest {
+        var h = Cache.hasher_init;
+        p.addToHasher(&h);
         return h.finalResult();
     }
 

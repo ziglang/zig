@@ -101,7 +101,15 @@ pub fn updateFile(
         .global_cache, .zig_lib => false,
     };
 
-    const hex_digest = Cache.binToHex(file.path.digest());
+    const hex_digest: Cache.HexDigest = d: {
+        var h: Cache.HashHelper = .{};
+        // As well as the file path, we also include the compiler version in case of backwards-incompatible ZIR changes.
+        file.path.addToHasher(&h.hasher);
+        h.addBytes(build_options.version);
+        h.add(builtin.zig_backend);
+        break :d h.final();
+    };
+
     const cache_directory = if (want_local_cache) zcu.local_zir_cache else zcu.global_zir_cache;
     const zir_dir = cache_directory.handle;
 
