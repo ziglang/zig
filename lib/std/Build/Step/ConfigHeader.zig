@@ -399,9 +399,6 @@ fn render_cmake(
     const build = step.owner;
     const allocator = build.allocator;
 
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
-
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
@@ -450,7 +447,7 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        var value = values_copy.get(name) orelse blk: {
+        var value = values.get(name) orelse blk: {
             if (booldefine) {
                 break :blk Value{ .int = 0 };
             }
