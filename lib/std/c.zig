@@ -9927,7 +9927,9 @@ pub const EVFILT = switch (native_os) {
         pub const PROC = -5;
         pub const SIGNAL = -6;
         pub const TIMER = -7;
+        pub const DEVICE = -8;
         pub const EXCEPT = -9;
+        pub const USER = -10;
     },
     else => void,
 };
@@ -10155,6 +10157,14 @@ pub const NOTE = switch (native_os) {
         pub const CHILD = 0x00000004;
         // data/hint flags for EVFILT.DEVICE
         pub const CHANGE = 0x00000001;
+        // data/hint flags for EVFILT_USER
+        pub const FFNOP = 0x00000000;
+        pub const FFAND = 0x40000000;
+        pub const FFOR = 0x80000000;
+        pub const FFCOPY = 0xc0000000;
+        pub const FFCTRLMASK = 0xc0000000;
+        pub const FFLAGSMASK = 0x00ffffff;
+        pub const TRIGGER = 0x01000000;
     },
     else => void,
 };
