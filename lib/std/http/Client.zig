@@ -1406,7 +1406,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
 
     const conn = try client.allocator.create(Connection);
     errdefer client.allocator.destroy(conn);
-    
+
     const stream = try std.net.connectUnixSocket(path);
     errdefer stream.close();
 
@@ -1707,6 +1707,9 @@ pub const FetchOptions = struct {
     raw_uri: bool = false,
     keep_alive: bool = true,
 
+    /// Must be an already acquired connection.
+    connection: ?*Connection = null,
+
     /// Standard headers that have default, but overridable, behavior.
     headers: Request.Headers = .{},
     /// These headers are kept including when following a redirect to a
@@ -1756,6 +1759,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
         .keep_alive = options.keep_alive,
+        .connection = options.connection,
     });
     defer req.deinit();
 
