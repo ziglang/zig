@@ -4889,6 +4889,14 @@ test reduceAdd {
     try test_reduce_add.testIntVectors();
 }
 
+inline fn reduceMul(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    return @reduce(.Mul, rhs);
+}
+test reduceMul {
+    const test_reduce_mul = unary(reduceMul, .{});
+    try test_reduce_mul.testIntVectors();
+}
+
 inline fn splat(comptime Type: type, rhs: Type) Type {
     return @splat(rhs[0]);
 }
