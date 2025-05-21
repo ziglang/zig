@@ -4881,6 +4881,14 @@ test reduceXor {
     try test_reduce_xor.testIntVectors();
 }
 
+inline fn reduceAdd(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    return @reduce(.Add, rhs);
+}
+test reduceAdd {
+    const test_reduce_add = unary(reduceAdd, .{});
+    try test_reduce_add.testIntVectors();
+}
+
 inline fn splat(comptime Type: type, rhs: Type) Type {
     return @splat(rhs[0]);
 }

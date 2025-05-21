@@ -3091,7 +3091,6 @@ test "std.zon free on error" {
 
 test "std.zon vector" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/15330
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/15329
 
     const gpa = std.testing.allocator;
 
