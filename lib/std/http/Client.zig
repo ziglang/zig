@@ -1404,26 +1404,27 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     })) |node|
         return node;
 
-    const conn = try client.allocator.create(ConnectionPool.Node);
+    const conn = try client.allocator.create(Connection);
     errdefer client.allocator.destroy(conn);
-    conn.* = .{ .data = undefined };
-
+    
     const stream = try std.net.connectUnixSocket(path);
     errdefer stream.close();
 
-    conn.data = .{
+    conn.* = .{
         .stream = stream,
         .tls_client = undefined,
         .protocol = .plain,
 
         .host = try client.allocator.dupe(u8, path),
         .port = 0,
+
+        .pool_node = .{},
     };
-    errdefer client.allocator.free(conn.data.host);
+    errdefer client.allocator.free(conn.host);
 
     client.connection_pool.addUsed(conn);
 
-    return &conn.data;
+    return conn;
 }
 
 /// Connect to `tunnel_host:tunnel_port` using the specified proxy with HTTP
