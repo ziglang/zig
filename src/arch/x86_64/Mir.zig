@@ -386,7 +386,10 @@ pub const Inst = struct {
         /// Packed ___ Quadword
         p_q,
         /// Packed ___ Double Quadword
+        /// Packed ___ Doubleword to Quadword
         p_dq,
+        /// Packed ___ Unsigned Doubleword to Quadword
+        p_udq,
         /// ___ Aligned Packed Integer Values
         _dqa,
         /// ___ Unaligned Packed Integer Values
@@ -446,7 +449,10 @@ pub const Inst = struct {
         /// VEX-Encoded Packed ___ Quadword
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
+        /// VEX-Encoded Packed ___ Doubleword to Quadword
         vp_dq,
+        /// VEX-Encoded Packed ___ Unsigned Doubleword to Quadword
+        vp_udq,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values
@@ -663,6 +669,8 @@ pub const Inst = struct {
         /// Multiply scalar single-precision floating-point values
         /// Multiply packed double-precision floating-point values
         /// Multiply scalar double-precision floating-point values
+        /// Multiply packed unsigned doubleword integers
+        /// Multiply packed doubleword integers
         mul,
         /// Two's complement negation
         neg,
