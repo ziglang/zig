@@ -126,9 +126,11 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        pub fn memcpyLenMismatch() noreturn {
+        /// Delete after next zig1.wasm update
+        pub const memcpyLenMismatch = copyLenMismatch;
+        pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
-            call("@memcpy arguments have non-equal lengths", @returnAddress());
+            call("source and destination arguments have non-equal lengths", @returnAddress());
         }
         pub fn memcpyAlias() noreturn {
             @branchHint(.cold);
@@ -439,7 +441,13 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
-        printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
+
+        // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
+        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
+            context.mcontext.ss.pc
+        else
+            it.unwind_state.?.dwarf_context.pc;
+        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
 
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
@@ -600,15 +608,20 @@ pub fn defaultPanic(
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        @trap();
+    switch (builtin.zig_backend) {
+        .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_spirv64,
+        .stage2_wasm,
+        .stage2_x86,
+        => @trap(),
+        .stage2_x86_64 => switch (builtin.target.ofmt) {
+            .elf, .macho => {},
+            else => @trap(),
+        },
+        else => {},
     }
 
     switch (builtin.os.tag) {
@@ -1385,12 +1398,11 @@ pub fn attachSegfaultHandler() void {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     updateSegfaultHandler(&act);
 }
 
@@ -1402,9 +1414,9 @@ fn resetSegfaultHandler() void {
         }
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = 0,
     };
     updateSegfaultHandler(&act);
@@ -1482,8 +1494,26 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            dumpStackTraceFromBase(ctx);
+            // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
+            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
+            var new_ctx: posix.ucontext_t = ctx.*;
+            if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
+                // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
+                // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
+                // contents to the right place so that the `mcontext` pointer will be correct after the
+                // `relocateContext` call below.
+                new_ctx.__mcontext_data = @as(*align(1) extern struct {
+                    onstack: c_int,
+                    sigmask: std.c.sigset_t,
+                    stack: std.c.stack_t,
+                    link: ?*std.c.ucontext_t,
+                    mcsize: u64,
+                    mcontext: *std.c.mcontext_t,
+                    __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
+                }, @ptrCast(ctx)).__mcontext_data;
+            }
+            relocateContext(&new_ctx);
+            dumpStackTraceFromBase(&new_ctx);
         },
         else => {},
     }

@@ -437,7 +437,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        .max_rss = 2 * 1024 * 1024 * 1024,
+        // 2262585344 was observed on an x86_64-linux-gnu host.
+        .max_rss = 2488843878,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -508,11 +509,9 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(unit_tests_step);
 
     const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+        .root_module = addCompilerMod(b, .{
             .optimize = optimize,
             .target = target,
-            .link_libc = link_libc,
             .single_threaded = single_threaded,
         }),
         .filters = test_filters,
@@ -520,6 +519,9 @@ pub fn build(b: *std.Build) !void {
         .use_lld = use_llvm,
         .zig_lib_dir = b.path("lib"),
     });
+    if (link_libc) {
+        unit_tests.root_module.link_libc = true;
+    }
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
@@ -550,6 +552,11 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
+    if (tests.addLlvmIrTests(b, .{
+        .enable_llvm = enable_llvm,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+    })) |test_llvm_ir_step| test_step.dependOn(test_llvm_ir_step);
 
     try addWasiUpdateStep(b, version);
 
@@ -645,7 +652,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     update_zig1_step.dependOn(&copy_zig_h.step);
 }
 
-const AddCompilerStepOptions = struct {
+const AddCompilerModOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
@@ -654,7 +661,7 @@ const AddCompilerStepOptions = struct {
     single_threaded: ?bool = null,
 };
 
-fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
+fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Module {
     const compiler_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
@@ -677,10 +684,14 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     compiler_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
+    return compiler_mod;
+}
+
+fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .max_rss = 7_800_000_000,
-        .root_module = compiler_mod,
+        .root_module = addCompilerMod(b, options),
     });
     exe.stack_size = stack_size;
 

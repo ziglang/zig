@@ -3,6 +3,8 @@
 *.txt text eol=lf
 langref.html.in text eol=lf
 
+lib/libc/*/abilists binary
+
 lib/std/compress/testdata/** binary
 lib/std/compress/flate/testdata/** binary
 lib/std/compress/lzma/testdata/** binary

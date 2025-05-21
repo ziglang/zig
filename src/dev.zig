@@ -27,6 +27,10 @@ pub const Env = enum {
     @"x86_64-linux",
 
     /// - sema
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target powerpc(64)(le)-linux --listen=-`
+    @"powerpc-linux",
+
+    /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target riscv64-linux`
     @"riscv64-linux",
 
@@ -70,6 +74,7 @@ pub const Env = enum {
                 .x86_64_backend,
                 .aarch64_backend,
                 .x86_backend,
+                .powerpc_backend,
                 .riscv64_backend,
                 .sparc64_backend,
                 .spirv64_backend,
@@ -81,7 +86,8 @@ pub const Env = enum {
                 .wasm_linker,
                 .spirv_linker,
                 .plan9_linker,
-                .nvptx_linker,
+                .goff_linker,
+                .xcoff_linker,
                 => true,
                 .cc_command,
                 .translate_c_command,
@@ -135,6 +141,15 @@ pub const Env = enum {
                 else => Env.ast_gen.supports(feature),
             },
             .@"x86_64-linux" => switch (feature) {
+                .build_command,
+                .stdio_listen,
+                .incremental,
+                .x86_64_backend,
+                .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .@"powerpc-linux" => switch (feature) {
                 .build_command,
                 .stdio_listen,
                 .incremental,
@@ -215,6 +230,7 @@ pub const Feature = enum {
     x86_64_backend,
     aarch64_backend,
     x86_backend,
+    powerpc_backend,
     riscv64_backend,
     sparc64_backend,
     spirv64_backend,
@@ -227,7 +243,8 @@ pub const Feature = enum {
     wasm_linker,
     spirv_linker,
     plan9_linker,
-    nvptx_linker,
+    goff_linker,
+    xcoff_linker,
 };
 
 /// Makes the code following the call to this function unreachable if `feature` is disabled.

@@ -23,7 +23,11 @@ pub fn osRequiresLibC(target: std.Target) bool {
     return target.os.requiresLibC();
 }
 
-pub fn libcNeedsLibUnwind(target: std.Target) bool {
+pub fn libCNeedsLibUnwind(target: std.Target, link_mode: std.builtin.LinkMode) bool {
+    return target.isGnuLibC() and link_mode == .static;
+}
+
+pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
         .macos,
         .ios,
@@ -136,7 +140,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .goff,
         .hex,
         .macho,
-        .nvptx,
         .spirv,
         .raw,
         .wasm,
@@ -153,7 +156,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .avr,
         .bpfel,
         .bpfeb,
-        .csky,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -181,7 +183,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .x86,
         .x86_64,
         .xcore,
-        .xtensa,
         .nvptx,
         .nvptx64,
         .lanai,
@@ -190,8 +191,14 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .ve,
         => true,
 
+        // LLVM backend exists but can produce neither assembly nor object files.
+        .csky,
+        .xtensa,
+        => false,
+
         // No LLVM backend exists.
         .kalimba,
+        .or1k,
         .propeller,
         => false,
     };
@@ -307,6 +314,33 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMod
         return .ReleaseSmall;
     } else {
         return .ReleaseFast;
+    }
+}
+
+pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv, .spirv32, .spirv64 => return false,
+        // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
+        .amdgcn => return false,
+        else => {},
+    }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else have_llvm,
+        else => have_llvm,
+    };
+}
+
+pub fn canBuildLibUbsanRt(target: std.Target) bool {
+    switch (target.cpu.arch) {
+        .spirv, .spirv32, .spirv64 => return false,
+        // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
+        .nvptx, .nvptx64 => return false,
+        else => return true,
     }
 }
 
@@ -486,6 +520,54 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
     };
 }
 
+pub fn isDynamicAMDGCNFeature(target: std.Target, feature: std.Target.Cpu.Feature) bool {
+    if (target.cpu.arch != .amdgcn) return false;
+
+    const sramecc_only = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1010,
+        &std.Target.amdgcn.cpu.gfx1011,
+        &std.Target.amdgcn.cpu.gfx1012,
+        &std.Target.amdgcn.cpu.gfx1013,
+    };
+    const xnack_or_sramecc = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1030,
+        &std.Target.amdgcn.cpu.gfx1031,
+        &std.Target.amdgcn.cpu.gfx1032,
+        &std.Target.amdgcn.cpu.gfx1033,
+        &std.Target.amdgcn.cpu.gfx1034,
+        &std.Target.amdgcn.cpu.gfx1035,
+        &std.Target.amdgcn.cpu.gfx1036,
+        &std.Target.amdgcn.cpu.gfx1100,
+        &std.Target.amdgcn.cpu.gfx1101,
+        &std.Target.amdgcn.cpu.gfx1102,
+        &std.Target.amdgcn.cpu.gfx1103,
+        &std.Target.amdgcn.cpu.gfx1150,
+        &std.Target.amdgcn.cpu.gfx1151,
+        &std.Target.amdgcn.cpu.gfx1152,
+        &std.Target.amdgcn.cpu.gfx1153,
+        &std.Target.amdgcn.cpu.gfx1200,
+        &std.Target.amdgcn.cpu.gfx1201,
+    };
+    const feature_tag: std.Target.amdgcn.Feature = @enumFromInt(feature.index);
+
+    if (feature_tag == .sramecc) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            sramecc_only ++ xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+    if (feature_tag == .xnack) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+
+    return false;
+}
+
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
@@ -654,6 +736,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
@@ -714,14 +797,15 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => .stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
         .aarch64, .aarch64_be => .stage2_aarch64,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,
+        .wasm32, .wasm64 => .stage2_wasm,
+        .x86 => .stage2_x86,
+        .x86_64 => .stage2_x86_64,
         else => .other,
     };
 }

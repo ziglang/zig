@@ -264,8 +264,7 @@ pub const ucontext_t = extern struct {
     flags: c_ulong,
     link: ?*ucontext_t,
     stack: stack_t,
-    sigmask: sigset_t,
-    _pad: [1024 / 8 - @sizeOf(sigset_t)]u8,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     mcontext: mcontext_t,
 };
 

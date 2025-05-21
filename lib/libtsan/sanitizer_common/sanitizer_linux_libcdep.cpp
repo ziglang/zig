@@ -619,21 +619,22 @@ static void GetTls(uptr *addr, uptr *size) {
   *addr = tp - RoundUpTo(*size, align);
   *size = tp - *addr + ThreadDescriptorSize();
 #      else
-  if (SANITIZER_GLIBC)
-    *size += 1664;
-  else if (SANITIZER_FREEBSD)
-    *size += 128;  // RTLD_STATIC_TLS_EXTRA
-#        if defined(__mips__) || defined(__powerpc64__) || SANITIZER_RISCV64
+#        if SANITIZER_GLIBC
+  *size += 1664;
+#        elif SANITIZER_FREEBSD
+  *size += 128;  // RTLD_STATIC_TLS_EXTRA
+#          if defined(__mips__) || defined(__powerpc64__) || SANITIZER_RISCV64
   const uptr pre_tcb_size = TlsPreTcbSize();
   *addr -= pre_tcb_size;
   *size += pre_tcb_size;
-#        else
+#          else
   // arm and aarch64 reserve two words at TP, so this underestimates the range.
   // However, this is sufficient for the purpose of finding the pointers to
   // thread-specific data keys.
   const uptr tcb_size = ThreadDescriptorSize();
   *addr -= tcb_size;
   *size += tcb_size;
+#          endif
 #        endif
 #      endif
 #    elif SANITIZER_NETBSD

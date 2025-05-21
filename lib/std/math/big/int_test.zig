@@ -2295,8 +2295,6 @@ test "sat shift-left signed simple positive" {
 }
 
 test "sat shift-left signed multi positive" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: SignedDoubleLimb = 1;
     _ = &x;
 
@@ -2310,8 +2308,6 @@ test "sat shift-left signed multi positive" {
 }
 
 test "sat shift-left signed multi negative" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: SignedDoubleLimb = -1;
     _ = &x;
 

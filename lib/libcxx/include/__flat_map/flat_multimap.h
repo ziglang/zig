@@ -115,7 +115,7 @@ public:
 
   class value_compare {
   private:
-    key_compare __comp_;
+    _LIBCPP_NO_UNIQUE_ADDRESS key_compare __comp_;
     _LIBCPP_HIDE_FROM_ABI value_compare(key_compare __c) : __comp_(__c) {}
     friend flat_multimap;
 

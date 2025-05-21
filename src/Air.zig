@@ -257,7 +257,9 @@ pub const Inst = struct {
         /// it shifts out any bits that disagree with the resultant sign bit.
         /// Uses the `bin_op` field.
         shl_exact,
-        /// Saturating integer shift left. `<<|`
+        /// Saturating integer shift left. `<<|`. The result is the same type as the `lhs`.
+        /// The `rhs` must have the same vector shape as the `lhs`, but with any unsigned
+        /// integer as the scalar type.
         /// Uses the `bin_op` field.
         shl_sat,
         /// Bitwise XOR. `^`
@@ -730,6 +732,18 @@ pub const Inst = struct {
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
         memcpy,
+        /// Given dest pointer and source pointer, copy elements from source to dest.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The dest element type may be any type.
+        /// Source pointer must have same element type as dest element type.
+        /// Dest slice may have any alignment; source pointer may have any alignment.
+        /// The two memory regions may overlap.
+        /// Result type is always void.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        /// If the length is compile-time known (due to the destination or
+        /// source being a pointer-to-array), then it is guaranteed to be
+        /// greater than zero.
+        memmove,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
@@ -983,6 +997,7 @@ pub const Inst = struct {
         single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        vector_8_i8_type = @intFromEnum(InternPool.Index.vector_8_i8_type),
         vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
         vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),
         vector_1_u8_type = @intFromEnum(InternPool.Index.vector_1_u8_type),
@@ -991,8 +1006,10 @@ pub const Inst = struct {
         vector_8_u8_type = @intFromEnum(InternPool.Index.vector_8_u8_type),
         vector_16_u8_type = @intFromEnum(InternPool.Index.vector_16_u8_type),
         vector_32_u8_type = @intFromEnum(InternPool.Index.vector_32_u8_type),
+        vector_4_i16_type = @intFromEnum(InternPool.Index.vector_4_i16_type),
         vector_8_i16_type = @intFromEnum(InternPool.Index.vector_8_i16_type),
         vector_16_i16_type = @intFromEnum(InternPool.Index.vector_16_i16_type),
+        vector_4_u16_type = @intFromEnum(InternPool.Index.vector_4_u16_type),
         vector_8_u16_type = @intFromEnum(InternPool.Index.vector_8_u16_type),
         vector_16_u16_type = @intFromEnum(InternPool.Index.vector_16_u16_type),
         vector_4_i32_type = @intFromEnum(InternPool.Index.vector_4_i32_type),
@@ -1003,6 +1020,7 @@ pub const Inst = struct {
         vector_4_i64_type = @intFromEnum(InternPool.Index.vector_4_i64_type),
         vector_2_u64_type = @intFromEnum(InternPool.Index.vector_2_u64_type),
         vector_4_u64_type = @intFromEnum(InternPool.Index.vector_4_u64_type),
+        vector_2_u128_type = @intFromEnum(InternPool.Index.vector_2_u128_type),
         vector_4_f16_type = @intFromEnum(InternPool.Index.vector_4_f16_type),
         vector_8_f16_type = @intFromEnum(InternPool.Index.vector_8_f16_type),
         vector_2_f32_type = @intFromEnum(InternPool.Index.vector_2_f32_type),
@@ -1533,6 +1551,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
@@ -1660,6 +1679,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
     const data = air.instructions.items(.data)[@intFromEnum(inst)];
     return switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .arg,
+        .assembly,
         .block,
         .loop,
         .repeat,
@@ -1696,6 +1716,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memset,
         .memset_safe,
         .memcpy,
+        .memmove,
         .cmpxchg_weak,
         .cmpxchg_strong,
         .atomic_store_unordered,
@@ -1802,12 +1823,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .cmp_vector_optimized,
         .is_null,
         .is_non_null,
-        .is_null_ptr,
-        .is_non_null_ptr,
         .is_err,
         .is_non_err,
-        .is_err_ptr,
-        .is_non_err_ptr,
         .bool_and,
         .bool_or,
         .fptrunc,
@@ -1820,7 +1837,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .unwrap_errunion_payload,
         .unwrap_errunion_err,
         .unwrap_errunion_payload_ptr,
-        .unwrap_errunion_err_ptr,
         .wrap_errunion_payload,
         .wrap_errunion_err,
         .struct_field_ptr,
@@ -1865,17 +1881,13 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_group_id,
         => false,
 
-        .assembly => {
-            const extra = air.extraData(Air.Asm, data.ty_pl.payload);
-            const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-            return is_volatile or if (extra.data.outputs_len == 1)
-                @as(Air.Inst.Ref, @enumFromInt(air.extra[extra.end])) != .none
-            else
-                extra.data.outputs_len > 1;
-        },
-        .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
+        .is_non_null_ptr, .is_null_ptr, .is_non_err_ptr, .is_err_ptr => air.typeOf(data.un_op, ip).isVolatilePtrIp(ip),
+        .load, .unwrap_errunion_err_ptr => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
-        .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
+        .atomic_load => switch (data.atomic_load.order) {
+            .unordered, .monotonic => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
+            else => true, // Stronger memory orderings have inter-thread side effects.
+        },
     };
 }
 

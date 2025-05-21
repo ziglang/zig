@@ -370,6 +370,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
+
     /// The standard `propeller` calling convention.
     propeller_sysv: CommonOptions,
 
@@ -1107,6 +1110,9 @@ pub const CompilerBackend = enum(u64) {
     /// The reference implementation self-hosted compiler of Zig, using the
     /// spirv backend.
     stage2_spirv64 = 11,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// powerpc backend.
+    stage2_powerpc = 12,
 
     _,
 };
@@ -1140,10 +1146,12 @@ pub const panic: type = p: {
     if (@hasDecl(root, "Panic")) {
         break :p root.Panic; // Deprecated; use `panic` instead.
     }
-    if (builtin.zig_backend == .stage2_riscv64) {
-        break :p std.debug.simple_panic;
-    }
-    break :p std.debug.FullPanic(std.debug.defaultPanic);
+    break :p switch (builtin.zig_backend) {
+        .stage2_powerpc,
+        .stage2_riscv64,
+        => std.debug.simple_panic,
+        else => std.debug.FullPanic(std.debug.defaultPanic),
+    };
 };
 
 pub noinline fn returnError() void {
