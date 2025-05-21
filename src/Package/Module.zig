@@ -432,7 +432,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
 
 /// Does not ensure that the module's root directory exists on-disk; see `Builtin.updateFileOnDisk` for that task.
 pub fn createBuiltin(arena: Allocator, opts: Builtin, dirs: Compilation.Directories) Allocator.Error!*Module {
-    const sub_path = "b" ++ Cache.binToHex(opts.hash());
+    const sub_path = "b" ++ std.fs.path.sep_str ++ Cache.binToHex(opts.hash());
     const new = try arena.create(Module);
     new.* = .{
         .root = try .fromRoot(arena, dirs, .global_cache, sub_path),
