@@ -1334,9 +1334,6 @@ fn spawnChildAndCollect(
     var child = std.process.Child.init(argv, arena);
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
-    } else {
-        child.cwd = b.build_root.path;
-        child.cwd_dir = b.build_root.handle;
     }
     child.env_map = run.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;
