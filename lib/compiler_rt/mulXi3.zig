@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const common = @import("common.zig");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const panic = common.panic;
 
