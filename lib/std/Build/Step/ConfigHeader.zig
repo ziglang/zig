@@ -1256,7 +1256,7 @@ test "expand_variables_cmake simple cases" {
     try values.putNoClobber("true", Value{ .boolean = true });
     try values.putNoClobber("false", Value{ .boolean = false });
     try values.putNoClobber("int", Value{ .int = 42 });
-    try values.putNoClobber("ident", Value{ .string = "value" });
+    try values.putNoClobber("ident", Value{ .ident = "value" });
     try values.putNoClobber("string", Value{ .string = "text" });
 
     // empty strings are preserved
