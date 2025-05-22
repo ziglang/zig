@@ -168,7 +168,7 @@ pub fn detectFromBuilding(
 
     const generic_name = libCGenericName(target);
     // Some architecture families are handled by the same set of headers.
-    const arch_name = if (target.isMuslLibC())
+    const arch_name = if (target.isMuslLibC() or target.isWasiLibC())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
     else if (target.isFreeBSDLibC())
         std.zig.target.freebsdArchNameHeaders(target.cpu.arch)
