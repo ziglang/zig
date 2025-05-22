@@ -18,7 +18,7 @@
 //! ```
 //! const std = @import("std");
 //!
-//! pub const std_options = .{
+//! pub const std_options: std.Options = .{
 //!     // Set the log level to info
 //!     .log_level = .info,
 //!
