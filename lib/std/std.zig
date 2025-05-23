@@ -17,6 +17,7 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
+pub const SimpleDoublyLinkedList = DoublyLinkedList.Simple;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;

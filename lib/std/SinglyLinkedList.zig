@@ -165,9 +165,10 @@ test "basics" {
     try testing.expect(list.first.?.next.?.next == null);
 }
 
-/// implements a "simple" intrusive singly linked list with a "data" field alongside
-/// "node" field.  This hides @fieldParentPtr complexity and adds type safety for simple
-/// cases.
+/// implements a simple intrusive singly linked list with a "data" field alongside
+/// "node" field.  This hides @fieldParentPtr complexity and adds type safety for the
+/// simple case.  If you need more advanced cases, for example an object being a member of
+/// multiple intrusive lists, you should use SinglyLinkedList directly.
 ///
 /// note that the signatures on the member functions of the generated datastructure take
 /// pointers to the payload, not the node.
