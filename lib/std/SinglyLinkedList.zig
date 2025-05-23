@@ -171,45 +171,45 @@ test "basics" {
 /// multiple intrusive lists, you should use SinglyLinkedList directly.
 ///
 /// note that the signatures on the member functions of the generated datastructure take
-/// pointers to the payload, not the node.
+/// pointers to the item, not the node.
 pub fn Simple(T: type) type {
     return struct {
         const SimpleLinkedList = @This();
         wrapped: SinglyLinkedList = .{},
 
-        pub const Payload = struct {
+        pub const Item = struct {
             data: T,
             node: Node = .{},
 
-            pub fn next(payload: *Payload) ?*Payload {
-                return @fieldParentPtr("node", payload.node.next orelse return null);
+            pub fn next(item: *Item) ?*Item {
+                return @fieldParentPtr("node", item.node.next orelse return null);
             }
 
-            pub fn insertAfter(payload: *Payload, new_payload: *Payload) void {
-                payload.node.insertAfter(&new_payload.node);
+            pub fn insertAfter(item: *Item, new_item: *Item) void {
+                item.node.insertAfter(&new_item.node);
             }
         };
 
-        pub fn prepend(list: *SimpleLinkedList, new_payload: *Payload) void {
-            list.wrapped.prepend(&new_payload.node);
+        pub fn prepend(list: *SimpleLinkedList, new_item: *Item) void {
+            list.wrapped.prepend(&new_item.node);
         }
 
-        pub fn remove(list: *SimpleLinkedList, payload: *Payload) void {
-            list.wrapped.remove(&payload.node);
+        pub fn remove(list: *SimpleLinkedList, item: *Item) void {
+            list.wrapped.remove(&item.node);
         }
 
         /// Remove and return the first node in the list.
-        pub fn popFirst(list: *SimpleLinkedList) ?*Payload {
+        pub fn popFirst(list: *SimpleLinkedList) ?*Item {
             const poppednode = (list.wrapped.popFirst()) orelse return null;
             return @fieldParentPtr("node", poppednode);
         }
 
-        /// Given a Simple list, returns the payload at position <index>.
+        /// Given a Simple list, returns the item at position <index>.
         /// If the list does not have that many elements, returns `null`.
         ///
         /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
-        pub fn at(list: *SimpleLinkedList, index: usize) ?*Payload {
+        pub fn at(list: *SimpleLinkedList, index: usize) ?*Item {
             var thisnode = list.wrapped.first orelse return null;
             var ctr: usize = index;
             while (ctr > 0) : (ctr -= 1) {
@@ -230,7 +230,7 @@ pub fn Simple(T: type) type {
 
 test "Simple singly linked list" {
     const SimpleList = Simple(u32);
-    const L = SimpleList.Payload;
+    const L = SimpleList.Item;
 
     var list: SimpleList = .{};
 
@@ -266,8 +266,8 @@ test "Simple singly linked list" {
     {
         var it = list.at(0);
         var index: u32 = 1;
-        while (it) |payload| : (it = payload.next()) {
-            try testing.expect(payload.data == index);
+        while (it) |item| : (it = item.next()) {
+            try testing.expect(item.data == index);
             index += 1;
         }
     }

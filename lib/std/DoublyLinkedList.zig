@@ -289,39 +289,39 @@ test "concatenation" {
 /// multiple intrusive lists, you should use DoublyLinkedList directly.
 ///
 /// note that the signatures on the member functions of the generated datastructure take
-/// pointers to the payload, not the node.
+/// pointers to the item, not the node.
 pub fn Simple(T: type) type {
     return struct {
         const SimpleLinkedList = @This();
         wrapped: DoublyLinkedList = .{},
 
-        pub const Payload = struct {
+        pub const Item = struct {
             data: T,
             node: Node = .{},
 
-            pub fn next(payload: *Payload) ?*Payload {
-                return @fieldParentPtr("node", payload.node.next orelse return null);
+            pub fn next(item: *Item) ?*Item {
+                return @fieldParentPtr("node", item.node.next orelse return null);
             }
 
-            pub fn prev(payload: *Payload) ?*Payload {
-                return @fieldParentPtr("node", payload.node.prev orelse return null);
+            pub fn prev(item: *Item) ?*Item {
+                return @fieldParentPtr("node", item.node.prev orelse return null);
             }
         };
 
-        pub fn append(list: *SimpleLinkedList, new_payload: *Payload) void {
-            list.wrapped.append(&new_payload.node);
+        pub fn append(list: *SimpleLinkedList, new_item: *Item) void {
+            list.wrapped.append(&new_item.node);
         }
 
-        pub fn insertAfter(list: *SimpleLinkedList, existing_payload: *Payload, new_payload: *Payload) void {
-            list.wrapped.insertAfter(&existing_payload.node, &new_payload.node);
+        pub fn insertAfter(list: *SimpleLinkedList, existing_item: *Item, new_item: *Item) void {
+            list.wrapped.insertAfter(&existing_item.node, &new_item.node);
         }
 
-        pub fn prepend(list: *SimpleLinkedList, new_payload: *Payload) void {
-            list.wrapped.prepend(&new_payload.node);
+        pub fn prepend(list: *SimpleLinkedList, new_item: *Item) void {
+            list.wrapped.prepend(&new_item.node);
         }
 
-        pub fn insertBefore(list: *SimpleLinkedList, existing_payload: *Payload, new_payload: *Payload) void {
-            list.wrapped.insertBefore(&existing_payload.node, &new_payload.node);
+        pub fn insertBefore(list: *SimpleLinkedList, existing_item: *Item, new_item: *Item) void {
+            list.wrapped.insertBefore(&existing_item.node, &new_item.node);
         }
 
         pub fn concatByMoving(list: *SimpleLinkedList, other_list: *SimpleLinkedList) void {
@@ -329,28 +329,28 @@ pub fn Simple(T: type) type {
         }
 
         /// Remove a node from the list.
-        pub fn remove(list: *SimpleLinkedList, payload: *Payload) void {
-            list.wrapped.remove(&payload.node);
+        pub fn remove(list: *SimpleLinkedList, item: *Item) void {
+            list.wrapped.remove(&item.node);
         }
 
         /// Remove and return the last node in the list.
-        pub fn pop(list: *SimpleLinkedList) ?*Payload {
+        pub fn pop(list: *SimpleLinkedList) ?*Item {
             const poppednode = (list.wrapped.pop()) orelse return null;
             return @fieldParentPtr("node", poppednode);
         }
 
         /// Remove and return the first node in the list.
-        pub fn popFirst(list: *SimpleLinkedList) ?*Payload {
+        pub fn popFirst(list: *SimpleLinkedList) ?*Item {
             const poppednode = (list.wrapped.popFirst()) orelse return null;
             return @fieldParentPtr("node", poppednode);
         }
 
-        /// Given a Simple list, returns the payload at position <index>.
+        /// Given a Simple list, returns the item at position <index>.
         /// If the list does not have that many elements, returns `null`.
         ///
         /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
-        pub fn at(list: *SimpleLinkedList, index: usize) ?*Payload {
+        pub fn at(list: *SimpleLinkedList, index: usize) ?*Item {
             var thisnode = list.wrapped.first orelse return null;
             var ctr: usize = index;
             while (ctr > 0) : (ctr -= 1) {
@@ -359,13 +359,13 @@ pub fn Simple(T: type) type {
             return @fieldParentPtr("node", thisnode);
         }
 
-        /// Given a Simple list, returns the payload at position <len-index-1>.
+        /// Given a Simple list, returns the item at position <len-index-1>.
         /// Note the last element is at index "0".  If the list does not have
         /// that many elements, returns `null`.
         ///
         /// This is a linear search through the list, consider avoiding this
         /// operation, except for index == 0
-        pub fn fromEnd(list: *SimpleLinkedList, index: usize) ?*Payload {
+        pub fn fromEnd(list: *SimpleLinkedList, index: usize) ?*Item {
             var thisnode = list.wrapped.last orelse return null;
             var ctr: usize = index;
             while (ctr > 0) : (ctr -= 1) {
@@ -386,14 +386,14 @@ pub fn Simple(T: type) type {
 
 test "Simple DLL basics" {
     const List = Simple(u32);
-    const Payload = List.Payload;
+    const Item = List.Item;
     var list: List = .{};
 
-    var one: Payload = .{ .data = 1 };
-    var two: Payload = .{ .data = 2 };
-    var three: Payload = .{ .data = 3 };
-    var four: Payload = .{ .data = 4 };
-    var five: Payload = .{ .data = 5 };
+    var one: Item = .{ .data = 1 };
+    var two: Item = .{ .data = 2 };
+    var three: Item = .{ .data = 3 };
+    var four: Item = .{ .data = 4 };
+    var five: Item = .{ .data = 5 };
 
     list.append(&two); // {2}
     list.append(&five); // {2, 5}
@@ -406,7 +406,7 @@ test "Simple DLL basics" {
         var it = list.wrapped.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            const l: *Payload = @fieldParentPtr("node", node);
+            const l: *Item = @fieldParentPtr("node", node);
             try testing.expect(l.data == index);
             index += 1;
         }
@@ -427,7 +427,7 @@ test "Simple DLL basics" {
         var it = list.wrapped.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            const l: *Payload = @fieldParentPtr("node", node);
+            const l: *Item = @fieldParentPtr("node", node);
             try testing.expect(l.data == (6 - index));
             index += 1;
         }
@@ -454,15 +454,15 @@ test "Simple DLL basics" {
 
 test "Simple DLL concatenation" {
     const List = Simple(u32);
-    const Payload = List.Payload;
+    const Item = List.Item;
     var list1: List = .{};
     var list2: List = .{};
 
-    var one: Payload = .{ .data = 1 };
-    var two: Payload = .{ .data = 2 };
-    var three: Payload = .{ .data = 3 };
-    var four: Payload = .{ .data = 4 };
-    var five: Payload = .{ .data = 5 };
+    var one: Item = .{ .data = 1 };
+    var two: Item = .{ .data = 2 };
+    var three: Item = .{ .data = 3 };
+    var four: Item = .{ .data = 4 };
+    var five: Item = .{ .data = 5 };
 
     list1.append(&one);
     list1.append(&two);
