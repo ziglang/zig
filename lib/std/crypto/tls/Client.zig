@@ -1447,6 +1447,29 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                                         inline else => |*p| {
                                             const pv = &p.tls_1_3;
                                             const P = @TypeOf(p.*);
+
+                                            const key_update_clear_text =
+                                                int(u8, @intFromEnum(tls.HandshakeType.key_update)) ++
+                                                int(u24, 1) ++ .{@intFromEnum(tls.KeyUpdateRequest.update_not_requested)} ++
+                                                .{@intFromEnum(tls.ContentType.handshake)};
+
+                                            var key_update_msg = .{@intFromEnum(tls.ContentType.application_data)} ++
+                                                int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
+                                                array(u16, u8, @as([key_update_clear_text.len + P.AEAD.tag_length]u8, undefined));
+
+                                            var nonce = pv.client_iv;
+                                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
+                                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
+
+                                            const ad = key_update_msg[0..tls.record_header_len];
+                                            const ciphertext = key_update_msg[tls.record_header_len..][0..key_update_clear_text.len];
+                                            const auth_tag = key_update_msg[key_update_msg.len - P.AEAD.tag_length ..];
+
+                                            P.AEAD.encrypt(ciphertext, auth_tag, &key_update_clear_text, ad, nonce, pv.client_key);
+                                            var cipher_iovecs = [_]std.posix.iovec_const{std.posix.iovec_const{ .base = key_update_msg[0..], .len = key_update_msg.len }};
+
+                                            try stream.writevAll(cipher_iovecs[0..1]);
+
                                             const client_secret = hkdfExpandLabel(P.Hkdf, pv.client_secret, "traffic upd", "", P.Hash.digest_length);
                                             if (c.ssl_key_log) |*key_log| logSecrets(key_log.file, .{
                                                 .counter = key_log.clientCounter(),
