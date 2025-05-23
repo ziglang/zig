@@ -54,6 +54,9 @@
         .wasm_type = .{
             .path = "wasm/type",
         },
+        .wasm_ldexp = .{
+            .path = "wasm/ldexp",
+        },
     },
     .paths = .{
         "build.zig",
