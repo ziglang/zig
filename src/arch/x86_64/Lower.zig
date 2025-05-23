@@ -567,7 +567,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 }
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
-    @setEvalBranchQuota(2_600);
+    @setEvalBranchQuota(2_800);
     const fixes = switch (inst.ops) {
         .none => inst.data.none.fixes,
         .inst => inst.data.inst.fixes,
@@ -601,9 +601,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         var buf: [max_len]u8 = undefined;
 
         const fixes_name = @tagName(fixes);
-        const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + 1 else 0..];
-        const wildcard_i = std.mem.indexOfScalar(u8, pattern, '_').?;
-        const parts = .{ pattern[0..wildcard_i], @tagName(inst.tag), pattern[wildcard_i + 1 ..] };
+        const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + " ".len else 0..];
+        const wildcard_index = std.mem.indexOfScalar(u8, pattern, '_').?;
+        const parts = .{ pattern[0..wildcard_index], @tagName(inst.tag), pattern[wildcard_index + "_".len ..] };
         const err_msg = "unsupported mnemonic: ";
         const mnemonic = std.fmt.bufPrint(&buf, "{s}{s}{s}", parts) catch
             return lower.fail(err_msg ++ "'{s}{s}{s}'", parts);

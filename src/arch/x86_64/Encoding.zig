@@ -313,7 +313,7 @@ pub const Mnemonic = enum {
     @"or", out, outs, outsb, outsd, outsw,
     pause, pop, popf, popfd, popfq, push, pushfq,
     rcl, rcr,
-    rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdssd, rdssq, rdtsc, rdtscp,
+    rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdsspd, rdsspq, rdtsc, rdtscp,
     ret, rol, ror, rsm,
     sahf, sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -436,6 +436,7 @@ pub const Mnemonic = enum {
     pblendvb, pblendw,
     pcmpeqq,
     pextrb, pextrd, pextrq,
+    phminposuw,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
     pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
@@ -494,19 +495,19 @@ pub const Mnemonic = enum {
     vpblendvb, vpblendw, vpclmulqdq,
     vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
     vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
-    vphaddw, vphaddsw, vphaddd, vphsubw, vphsubsw, vphsubd,
     vperm2f128, vpermilpd, vpermilps,
     vpextrb, vpextrd, vpextrq, vpextrw,
+    vphaddw, vphaddsw, vphaddd, vphminposuw, vphsubw, vphsubsw, vphsubd,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
+    vpmaddubsw, vpmaddwd,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
     vpminsb, vpminsd, vpminsw, vpminub, vpminud, vpminuw,
-    vpmaddubsw,
     vpmovmskb,
     vpmovsxbd, vpmovsxbq, vpmovsxbw, vpmovsxdq, vpmovsxwd, vpmovsxwq,
     vpmovzxbd, vpmovzxbq, vpmovzxbw, vpmovzxdq, vpmovzxwd, vpmovzxwq,
-    vpmuldq, vpmulhrsw, vpmulhw, vpmulld, vpmullw, vpmuludq,
+    vpmuldq, vpmulhrsw, vpmulhuw, vpmulhw, vpmulld, vpmullw, vpmuludq,
     vpor,
-    vpshufb, vpshufd, vpshufhw, vpshuflw,
+    vpsadbw, vpshufb, vpshufd, vpshufhw, vpshuflw,
     vpsignb, vpsignd, vpsignw,
     vpslld, vpslldq, vpsllq, vpsllw,
     vpsrad, vpsraq, vpsraw,
@@ -1029,7 +1030,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(5_800);
+    @setEvalBranchQuota(5_900);
     const ModrmExt = u3;
     const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
     const encodings: []const Entry = @import("encodings.zon");
@@ -1038,17 +1039,17 @@ const mnemonic_to_encodings_map = init: {
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
     var data_storage: [encodings.len]Data = undefined;
-    var storage_i: usize = 0;
+    var storage_index: usize = 0;
     for (&mnemonic_map) |*value| {
-        value.ptr = data_storage[storage_i..].ptr;
-        storage_i += value.len;
+        value.ptr = data_storage[storage_index..].ptr;
+        storage_index += value.len;
     }
-    var mnemonic_i: [mnemonic_count]usize = @splat(0);
+    var mnemonic_index: [mnemonic_count]usize = @splat(0);
     const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
     const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
     for (encodings) |entry| {
-        const i = &mnemonic_i[@intFromEnum(entry[0])];
-        mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
+        const index = &mnemonic_index[@intFromEnum(entry[0])];
+        mnemonic_map[@intFromEnum(entry[0])][index.*] = .{
             .op_en = entry[1],
             .ops = (entry[2] ++ .{.none} ** (ops_len - entry[2].len)).*,
             .opc_len = entry[3].len,
@@ -1057,14 +1058,14 @@ const mnemonic_to_encodings_map = init: {
             .mode = entry[5],
             .feature = entry[6],
         };
-        i.* += 1;
+        index.* += 1;
     }
     const final_storage = data_storage;
     var final_map: [mnemonic_count][]const Data = @splat(&.{});
-    storage_i = 0;
+    storage_index = 0;
     for (&final_map, mnemonic_map) |*final_value, value| {
-        final_value.* = final_storage[storage_i..][0..value.len];
-        storage_i += value.len;
+        final_value.* = final_storage[storage_index..][0..value.len];
+        storage_index += value.len;
     }
     break :init final_map;
 };
