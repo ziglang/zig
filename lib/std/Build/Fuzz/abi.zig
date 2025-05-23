@@ -3,6 +3,19 @@
 //! host computer, and the fuzzing web interface webassembly code running in
 //! the browser. All of these components interface to some degree via an ABI.
 
+pub const Slice = extern struct {
+    ptr: [*]const u8,
+    len: usize,
+
+    pub fn toSlice(s: Slice) []const u8 {
+        return s.ptr[0..s.len];
+    }
+
+    pub fn fromSlice(s: []const u8) Slice {
+        return .{ .ptr = s.ptr, .len = s.len };
+    }
+};
+
 /// libfuzzer uses this and its usize is the one that counts. To match the ABI,
 /// make the ints be the size of the target used with libfuzzer.
 ///
