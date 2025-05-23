@@ -4451,141 +4451,354 @@ fn unary(comptime op: anytype, comptime opts: struct {
         }
         fn testFloatVectors() !void {
             try testArgs(@Vector(1, f16), .{
-                -0x1.17cp-12,
+                0x1.7d8p12,
             });
             try testArgs(@Vector(2, f16), .{
-                0x1.47cp9, 0x1.3acp9,
+                -0x0.054p-14, -0x1.c6cp10,
+            });
+            try testArgs(@Vector(3, f16), .{
+                -0x1.39cp-3, -0x1.088p4, -0x0.644p-14,
             });
             try testArgs(@Vector(4, f16), .{
-                0x1.ab4p0, -0x1.7fcp-7, -0x1.1cp0, -0x1.f14p12,
+                -0x1.108p11, 0x1.364p-3, 0x1.8f4p-2, -0x0.8acp-14,
+            });
+            try testArgs(@Vector(5, f16), .{
+                0x1.e1p8, 0x1.ddp11, 0x0.388p-14, 0x1.7p-7, -0x0.a08p-14,
+            });
+            try testArgs(@Vector(7, f16), .{
+                0x1.988p-14, -0x1.f7p-14, 0x1.38cp12, 0x0.0fp-14, -0x1.774p2, -0x1.de4p11, -0x1.9bp-10,
             });
             try testArgs(@Vector(8, f16), .{
-                -0x1.8d8p8, 0x1.83p10, -0x1.5ap-1, -0x1.d78p13, -0x1.608p12, 0x1.e8p-9, -0x1.688p-10, -0x1.738p9,
+                0x1.6ecp12, -0x1.834p9, -0x1.2c8p13, 0x1.e7cp3, -0x1.418p3, 0x1.15cp-1, 0x1.fecp-2, 0x1.1dp-3,
+            });
+            try testArgs(@Vector(9, f16), .{
+                0x1.da8p-1, 0x1.d44p-11, 0x1.884p-10, -0x1.898p1, 0x1.5ccp-5, 0x1.68p0, 0x1.618p14, -0x1.c34p2,
+                -0x1.318p6,
+            });
+            try testArgs(@Vector(15, f16), .{
+                0x1.41cp11, 0x1.edp-1,   0x1.1c8p-12, -0x0.0ecp-14, -0x1.abp8,   0x1.34p0,  -0x1.24cp-4, -0x1.214p1,
+                -0x1.604p9, -0x1.364p-1, 0x1.adp0,    0x0.63p-14,   0x0.60cp-14, 0x1.6ep-6, 0x0.84cp-14,
             });
             try testArgs(@Vector(16, f16), .{
-                0x1.da8p-1, -0x1.ed4p-10, -0x1.dc8p1,  0x1.b78p-14, nan(f16),    0x1.9d8p8,   nan(f16),     0x1.d5p13,
-                -0x1.2dp13, 0x1.6c4p12,   0x1.a9cp-11, -0x1.0ecp8,  0x0.4ccp-14, -0x1.0a8p-6, -0x1.5bcp-14, 0x1.6d8p-9,
+                0x1.308p6,  -0x1.078p-1, 0x0.81p-14, 0x1.1b4p-14, 0x1.4ep-7,   0x1.75p12,  0x1.264p-8,   0x1.a6p2,
+                0x1.9a4p-3, 0x1.e9p4,    -0x1.a4p-6, 0x1.6acp-1,  0x1.7e8p-12, -0x1.02cp6, -0x1.0ccp-14, 0x1.edp-12,
+            });
+            try testArgs(@Vector(17, f16), .{
+                0x1.2c4p-1,  0x1.91cp-3,   0x1.bf8p10,  -0x0.25p-14, 0x1.45p-9,   0x1.cap-2,   0x1.e9cp8,  0x1.b7p8,
+                0x1.21cp9,   -0x0.ba4p-14, -0x1.ddcp-4, -0x1.bcp9,   -0x1.7dcp-3, 0x1.6a4p-12, 0x1.ca8p-8, -0x1.558p11,
+                0x0.26cp-14,
+            });
+            try testArgs(@Vector(31, f16), .{
+                -0x1.f94p7,   0x1.55cp9,   -0x1.f78p11,  -0x0.f48p-14, -0x1.b6p-2,  0x1.85cp1,    -0x1.114p4,  -0x1.97cp-5,
+                -0x1.6f8p2,   0x1.79cp-3,  0x1.e58p-9,   -0x1.f5cp-10, 0x1.a74p5,   -0x0.1e8p-14, 0x1.15cp-14, 0x1.814p-7,
+                -0x0.318p-14, -0x1.b5p-5,  -0x1.058p-10, 0x1.124p0,    -0x1.20cp-1, 0x1.978p10,   -0x1.808p-8, 0x1.528p-6,
+                -0x1.ba8p9,   0x0.294p-14, 0x1.11cp0,    0x1.e5p5,     0x1.904p-11, 0x1.d78p11,   -0x1.c1p5,
             });
             try testArgs(@Vector(32, f16), .{
-                0x1.d5cp-6,  -0x1.a98p5,  0x1.49cp5,   -0x1.e4p-1,  -0x1.21p-13, -0x1.c94p-1, -0x1.adcp-5, -0x1.524p-1,
-                -0x1.0d8p-3, -0x1.5c4p-2, 0x1.f84p-2,  0x1.664p1,   -0x1.f64p13, -0x1.bf4p4,  -0x1.4b8p0,  -0x0.f64p-14,
-                -0x1.3f8p1,  0x1.098p2,   -0x1.a44p8,  0x1.048p13,  0x1.fd4p-11, 0x1.18p-9,   -0x1.504p2,  0x1.d04p7,
-                -nan(f16),   0x1.a94p2,   0x0.5e8p-14, -0x1.7acp-7, 0x1.4c8p-3,  0x1.518p-4,  nan(f16),    0x1.8f8p10,
+                -0x0.11p-14, 0x0.29cp-14, 0x1.7a8p5,    0x1.49cp-11,  0x1.6c4p-3,   -0x1.85cp-11, 0x1.ap-8,   -0x0.49cp-14,
+                0x1.dfp2,    -0x1.4cp1,   0x1.138p-5,   -0x1.45p-9,   0x0.88cp-14,  0x1.6acp10,   0x1.594p3,  0x1.704p6,
+                -0x1.c34p13, 0x1.44cp0,   -0x1.cfcp-10, 0x1.5c8p-4,   -0x1.b2cp-10, -0x1.178p1,   -0x1.b74p7, -0x1.d18p0,
+                0x1.0fcp-9,  0x1.b6p-11,  -0x1.ff4p-2,  -0x0.0b8p-14, 0x1.4dcp-10,  -0x1.af4p-5,  -0x1.eap2,  -0x1.79cp-4,
+            });
+            try testArgs(@Vector(33, f16), .{
+                -0x1.6e8p0,  -0x1.304p-12, 0x1.558p11,  0x1.cf4p13,  0x1.cc4p-9,   0x1.d88p-11,  0x1.838p8,   -0x1.2ecp-10,
+                -0x1.65cp-1, -0x1.644p8,   -0x1.048p10, 0x0.114p-14, 0x1.8a4p13,   0x1.c9p-3,    0x1.dfp-6,   -0x1.774p12,
+                -0x0.4dp-14, 0x1.2ccp-12,  0x0.98p-14,  -0x1.b18p-6, 0x0.1ecp-14,  0x0.86cp-14,  0x0.6e8p-14, -0x1.6dp14,
+                0x1.9e8p-3,  0x1.1ep10,    -0x1.6cp13,  -0x1.d44p1,  -0x1.f54p-12, -0x1.fe8p-14, 0x1.968p-1,  -0x1.ab4p-9,
+                0x1.f0cp0,
+            });
+            try testArgs(@Vector(63, f16), .{
+                -0x1.3ecp-1,  0x0.04p-14,  -0x1.1cp-2,   0x1.0dp10,    0x1.ddcp-12,  -0x1.57cp-11, -0x1.84p-9,  0x1.dfp4,
+                0x1.6e4p-9,   0x0.5d4p-14, -0x0.51cp-14, -0x1.bp2,     -0x1.8ecp-14, 0x1.268p-2,   -0x0.69p-14, -0x1.b98p7,
+                -0x0.cb4p-14, -0x1.accp-3, 0x1.cdcp6,    -0x1.e6p7,    0x1.4ep-14,   0x1.5fp5,     -0x1.95p8,   0x1.044p8,
+                -0x1.e14p9,   0x1.e84p14,  0x1.ee8p-10,  -0x1.0a4p8,   0x1.b14p-8,   -0x1.5dp9,    0x0.e68p-14, -0x0.1acp-14,
+                -0x1.7ccp-11, 0x1.45p-10,  0x0.044p-14,  0x1.078p4,    0x1.c8p-1,    -0x1.8fp11,   -0x1.cbp0,   -0x1.208p-10,
+                -0x1.a5p-1,   -0x1.164p-8, -0x1.304p-3,  -0x1.038p-10, -0x1.4dp11,   0x0.248p-14,  0x1.09cp-4,  -0x1.a7cp14,
+                -0x1.a38p-6,  -0x1.0bp-9,  -0x1.fecp-14, -0x1.c78p-10, -0x1.e38p-11, 0x1.47p-5,    -0x1.3bcp5,  0x1.6a4p9,
+                0x0.728p-14,  0x1.9c8p9,   0x1.88p12,    -0x1.e6p0,    0x1.5dcp-2,   -0x1.7f4p-4,  -0x1.a6p3,
             });
             try testArgs(@Vector(64, f16), .{
-                -0x1.c2p2,   0x0.2fcp-14,  0x1.de8p0,    -0x1.714p2,   0x1.f9p-7,    -0x1.11cp-13, -0x1.558p10, -0x1.2acp-7,
-                0x1.348p14,  0x1.2dcp7,    -0x1.8acp-12, -0x1.2cp2,    0x1.868p1,    -0x1.1f8p-14, 0x1.638p7,   -0x1.734p-5,
-                0x0.b98p-14, -0x1.7f4p-12, -0x1.38cp15,  0x1.50cp15,   0x1.91cp8,    0x1.cb4p-1,   0x1.fc4p-13, 0x1.9a4p0,
-                0x1.18p-4,   0x1.60cp10,   0x1.6fp-12,   0x1.b48p6,    0x1.37cp-11,  0x1.424p7,    0x1.44cp13,  0x1.aep5,
-                0x1.968p14,  0x1.e8p13,    -0x1.bp2,     -0x1.644p5,   0x1.de4p-8,   -0x1.5b4p-14, -0x1.4ap1,   -0x1.868p9,
-                -0x1.d14p0,  0x1.d7cp15,   0x1.3c8p14,   0x1.2ccp-14,  -0x1.ee4p8,   0x1.49p-3,    0x1.35cp12,  0x1.d34p6,
-                0x1.7acp3,   -0x1.fa4p2,   0x1.7b4p13,   -0x1.cf4p-12, -0x1.ebcp-10, -0x1.5p-3,    0x1.4bp-6,   0x1.83p12,
-                -0x1.f9cp-8, -0x1.43p-8,   -0x1.99p-1,   -0x1.dacp3,   -0x1.728p-4,  -0x1.03cp4,   0x1.604p-2,  -0x1.0ep13,
+                -0x1.67cp-13, 0x1.f2cp-10, 0x1.69cp11,  -0x1.0dp-2,  0x1.a8p9,     0x1.7dp-11,   0x1.908p-5,  -0x1.37cp0,
+                0x1.8f8p5,    0x1.38p11,   0x1.d2p8,    0x1.b74p-10, -0x1.188p-7,  0x1.578p5,    0x1.68p-11,  -0x1.b9cp8,
+                -0x1.ba4p2,   0x0.b78p-14, 0x1.458p-8,  0x0.054p-14, -0x0.63p-14,  0x1.83p10,    0x1.94cp-2,  -0x1.d7p2,
+                -0x1.62p4,    0x1.b34p4,   -0x1.4cp-11, -0x1.714p9,  -0x1.ce4p1,   0x1.75p-3,    -0x1.cbp-13, 0x1.714p6,
+                -0x1.cb8p7,   -0x1.b98p-4, 0x1.facp-13, -0x1.1f4p8,  -0x1.92p-3,   0x0.144p-14,  0x1.504p-4,  0x1.a9p-10,
+                0x1.a94p3,    0x1.708p-2,  0x1.c84p-14, 0x1.77cp9,   -0x0.1e4p-14, -0x0.3d8p-14, -0x1.f8p4,   -0x1.2bp5,
+                0x1.5b8p-14,  0x1.898p14,  -0x1.e2p3,   -0x1.0e8p-5, 0x1.4dcp-12,  0x1.368p8,    0x1.968p-7,  -0x1.98cp-5,
+                0x1.39cp-13,  0x1.23p2,    0x1.8e8p6,   0x1.344p7,   0x1.70cp-5,   -0x1.f24p11,  -0x1.54p-7,  -0x1.904p3,
+            });
+            try testArgs(@Vector(65, f16), .{
+                -0x1.d78p-4, 0x1.ea8p-8,   -0x1.b4cp6,   -0x1.c7cp4,   0x1.dfcp7,    0x1.a8cp6,   -0x1.768p11,  0x0.0fp-14,
+                -0x1.a3p-4,  -0x1.868p-9,  0x1.23p-1,    -0x1.2e8p3,   -0x1.9e8p-12, 0x1.8a8p3,   0x1.168p-5,   -0x1.608p8,
+                -0x1.9d4p-4, -0x1.17cp-1,  -0x1.f2p1,    -0x1.d38p-11, 0x1.f38p-12,  -0x1.92p-11, 0x1.c44p6,    0x1.4fp-3,
+                0x0.18p-14,  0x1.3dp11,    -0x1.ce4p9,   -0x1.bf8p-12, 0x0.88cp-14,  -0x1.998p-9, 0x1.788p-2,   -0x1.5c4p2,
+                0x0.08cp-14, -0x0.6f8p-14, 0x1.c7cp-10,  -0x0.1p-14,   -0x1.0fcp-9,  -0x1.5a4p6,  -0x1.8c8p-12, 0x0.57p-14,
+                -0x1.96cp-9, 0x1.6ecp10,   -0x1.c18p1,   -0x1.0ap5,    -0x0.768p-14, -0x1.f8cp-6, 0x0.44p-14,   -0x1.2b4p-2,
+                0x1.efcp-13, -0x1.434p-13, 0x1.434p-3,   0x1.a6p-2,    0x1.bc4p7,    -0x0.e1p-14, -0x1.d9cp-7,  -0x1.f94p-9,
+                0x1.448p-6,  0x1.0d8p3,    -0x0.4a4p-14, -0x1.25cp-10, 0x1.c18p12,   0x0.1ccp-14, -0x1.ep14,    -0x1.42cp6,
+                0x1.14p8,
             });
 
             try testArgs(@Vector(1, f32), .{
-                -0x1.17cp-12,
+                0x1.12e082p8,
             });
             try testArgs(@Vector(2, f32), .{
-                -0x1.a3123ap90, -0x1.4a2ec6p-54,
+                -0x1.f04666p17, 0x1.27d624p4,
+            });
+            try testArgs(@Vector(3, f32), .{
+                -0x1.c3168cp-85, -0x1.169cdcp9, -0x1.4bdb2ap13,
             });
             try testArgs(@Vector(4, f32), .{
-                -0x1.8a41p77, -0x1.7c54e2p-61, -0x1.498556p-41, 0x1.d77c22p-20,
+                -0x1.a8b1d6p29, -0x1.b94e32p-76, 0x1.f4d9aap-43, 0x1.e6c654p44,
+            });
+            try testArgs(@Vector(5, f32), .{
+                0x1.37c57ep-53,  -0x1.832c84p49, -0x1.04256ep-110, -0x1.de4454p-37,
+                -0x1.a36832p-34,
+            });
+            try testArgs(@Vector(7, f32), .{
+                -0x1.35df86p87, -0x1.d96a52p62, 0x1.f9d3ecp-12, 0x1.5f4cc6p112,
+                0x1.176cfap94,  0x1.bb86fcp69,  0x1.015e56p0,
             });
             try testArgs(@Vector(8, f32), .{
-                0x1.943da4p-86, 0x1.528792p95,  -0x1.9c9bfap-26, -0x1.8df936p-90,
-                -0x1.6a70cep56, 0x1.626638p-48, 0x1.7bb2bap-57,  -0x1.ac5104p94,
+                -0x1.9dd6cap3,   0x1.726066p-42, 0x1.5b1f5ep-20, -0x1.347ed6p29,
+                0x1.bfb5d4p-126, -0x1.b0e8dp45,  0x1.5577bep45,  -0x1.9d1608p2,
+            });
+            try testArgs(@Vector(9, f32), .{
+                -0x1.4159b2p76,  0x1.bea7b8p-107, -0x1.b47036p-82, -0x1.4635ap-26,
+                -0x1.27bc98p-47, 0x1.1e0ap-116,   0x1.0f628p-118,  0x1.2e63bcp-62,
+                0x1.d0e45ep-57,
+            });
+            try testArgs(@Vector(15, f32), .{
+                0x1.65e0bcp-12, 0x1.d947c6p-42, -0x1.4596acp64,   -0x1.2a897cp75,
+                0x1.cb074ap-8,  0x1.e44a98p-62, -0x1.3edb2p74,    0x1.07aecep-2,
+                -0x1.fda1f8p14, 0x1.2f2c7ap-95, 0x1.9814e6p-33,   0x1.6d6a58p3,
+                0x1.6a1478p-3,  -0x1.85886ap64, -0x1.e2b9bcp-114,
             });
             try testArgs(@Vector(16, f32), .{
-                0x1.157044p115, -0x1.416c04p-111, 0x1.a8f164p-104, 0x1.9b6678p84,
-                -0x1.9d065cp9,  -0x1.e8c4b4p126,  -0x1.ddb968p84,  -0x1.fec8c8p74,
-                0x1.64ffb2p59,  0x1.548922p20,    0x1.7270fcp22,   -0x1.abac68p33,
-                0x1.faabfp33,   -0x1.8aee82p55,   0x1.1bf8fp75,    0x1.33c46ap-66,
+                0x1.348b38p103,  0x1.bbc8e4p8,   -0x1.03f48ap-119, -0x1.90f87cp115,
+                -0x1.88aaaep28,  -0x1.21ec4p-94, 0x1.e1f21cp-57,   0x1.0e7dd2p-37,
+                -0x1.5963a2p-24, 0x1.4c314cp-61, -0x1.753d5ap113,  -0x1.65705p-12,
+                -0x1.e34902p-54, -0x1.ab8022p87, -0x1.5cc252p-99,  0x1.4f4fe6p41,
+            });
+            try testArgs(@Vector(17, f32), .{
+                0x1.6be79ap-19, -0x1.38819p-21,  -0x1.8551dp2,     -0x1.43155ep-126,
+                0x1.96e6p108,   0x1.58abaap41,   0x1.145ffcp124,   -0x1.8e314ep-41,
+                -0x1.63151p42,  0x1.9585e8p124,  0x1.4bdd42p-66,   0x1.858674p-45,
+                -0x1.bccb68p66, -0x1.88e0e8p-14, -0x1.e0461cp-116, 0x1.3c1e2ep120,
+                -0x1.0076dep14,
+            });
+            try testArgs(@Vector(31, f32), .{
+                0x1.8d5b34p-49,   -0x1.bd019cp-83, -0x1.1d06e2p-95, -0x1.d9ac6ap-45,
+                0x1.f942dap10,    -0x1.c23402p121, -0x1.8e5656p-32, 0x1.925222p-53,
+                -0x1.16440ep-117, 0x1.b146cep107,  -0x1.b58cdep-52, 0x1.713f34p8,
+                0x1.3de424p99,    -0x1.3e6d6ep-28, -0x1.8261b4p-69, 0x1.043d66p-91,
+                -0x1.fbcd6ep113,  0x1.7934dcp-47,  0x1.fa8152p99,   0x1.c29968p-58,
+                0x1.77f26ap82,    0x1.4602aap-57,  -0x1.8a4cb4p8,   0x1.d48cdap113,
+                0x1.636a7ep29,    0x1.730262p57,   0x1.29e668p7,    0x1.58592cp20,
+                0x1.d09ebp-107,   0x1.7a85c6p-39,  0x1.38e1d6p44,
             });
             try testArgs(@Vector(32, f32), .{
-                -0x1.039b68p37,   -0x1.34de4ap-74, -0x1.05d78ap-76, -0x1.be0f5ap-47,
-                0x1.032204p-38,   0x1.ef8e2ap-78,  -0x1.b013ecp-80, 0x1.71fe4cp99,
-                0x1.abdadap-14,   0x1.56a9a8p-48,  -0x1.8bbd7ep9,   0x1.edd308p-72,
-                -0x1.92fafcp-121, -0x1.50812p19,   0x1.f4ddc4p28,   -0x1.6f0b12p-50,
-                -0x1.12ab02p127,  0x1.24df48p21,   -0x1.993c3p-14,  -0x1.4cc476p-112,
-                0x1.13d9a8p-40,   0x1.a6e652p-9,   -0x1.9c730cp-21, -0x1.a75aaap-70,
-                -0x1.39e632p-111, 0x1.8e8da8p-45,  0x1.b5652cp31,   0x1.258366p44,
-                0x1.d473aap92,    -0x1.951b64p9,   0x1.542edp15,    -0x0.f6222ap-126,
+                -0x1.95dec4p-65,  0x1.3833cp65,    -0x1.0ef5ap-53,  0x1.86e4c8p101,
+                -0x1.713132p24,   -0x1.c6fd0ep123, -0x1.75aadcp88,  -0x1.b8f0fp18,
+                0x1.0f5b8ep-34,   -0x1.0d0d66p-15, 0x0.842836p-126, -0x1.157782p22,
+                -0x1.025e8ap-100, 0x1.be825ep117,  0x1.d3efc6p-45,  0x1.ed8462p-34,
+                -0x1.b373c8p-118, -0x1.dbfd16p4,   0x1.73ee9p-56,   -0x1.cdff48p-69,
+                0x1.1b806ep-78,   0x1.65a58ap-4,   -0x1.0d851cp77,  0x1.442c12p41,
+                0x1.215116p47,    -0x1.75f266p-48, 0x1.2273d4p89,   0x1.1bab24p-100,
+                -0x1.0300ep-22,   0x1.8c199cp-70,  -0x1.70e08cp-66, 0x1.aa6b3ep-24,
+            });
+            try testArgs(@Vector(33, f32), .{
+                -0x1.4eddccp-116, 0x1.724e18p-94,  -0x1.9d40bep54,  -0x1.0afc5p-14,
+                0x1.576c2p92,     0x1.cf52b6p110,  -0x1.7e67ep117,  -0x1.7db66ep90,
+                0x1.3eac22p-38,   0x1.6ba068p72,   -0x1.72dc2cp97,  -0x1.4193f4p72,
+                0x1.aa81f6p86,    0x1.984268p53,   -0x1.14ba6ep-45, 0x1.15603ep-122,
+                0x1.85e75p-56,    0x1.108a82p-121, 0x1.569ecp62,    -0x1.7f3268p-68,
+                -0x1.d0964ep0,    0x0.f7a596p-126, -0x1.367646p-11, 0x1.2065bp-26,
+                0x1.cc954ap125,   -0x1.956e1cp65,  0x1.774dep112,   0x1.69dfcep-16,
+                -0x1.b0efb2p76,   0x1.14c54p70,    -0x1.7c6b08p25,  0x1.ae20b4p31,
+                -0x1.73c584p-118,
             });
 
             try testArgs(@Vector(1, f64), .{
-                -0x1.0114613df6f97p816,
+                0x1.58849bfb1303cp-254,
             });
             try testArgs(@Vector(2, f64), .{
-                -0x1.8404dad72003cp720, -0x1.6b14b40bcf3b7p-176,
+                -0x1.b4a24030f3facp215, -0x1.c1bdddbc41cdep950,
+            });
+            try testArgs(@Vector(3, f64), .{
+                -0x1.7d154dcee386cp-284, -0x1.2fdda9cbabfap-84,
+                0x1.00c86a9c3de5cp-46,
             });
             try testArgs(@Vector(4, f64), .{
-                -0x1.04e1acbfddd9cp681, -0x1.ed553cc056da7p-749,
-                0x1.3d3f703a0c893p-905, 0x1.0b35633fa78fp691,
+                0x1.70f298f25a9bfp826,   0x1.4b944832c8eecp-319,
+                -0x1.d801afafdbc01p-708, -0x1.65d0b4b097a57p-872,
+            });
+            try testArgs(@Vector(5, f64), .{
+                -0x1.4796bdf4c112bp938, 0x1.3661030c6a2fp-156,
+                -0x1.20d194f89bc7fp-9,  -0x1.f545d17a1d9e8p604,
+                0x1.c786013e7205ep-514,
+            });
+            try testArgs(@Vector(7, f64), .{
+                -0x1.8f6d6e549941fp501, -0x1.56374640d779p-762,
+                -0x1.4ea02d12bd9cfp209, -0x1.ab85b639e78c6p-879,
+                -0x1.fcd56fe4f85abp47,  -0x1.8963745584169p-957,
+                -0x1.581a8a0033e8p915,
             });
             try testArgs(@Vector(8, f64), .{
-                -0x1.901a2a60f0562p-301, -0x1.2516175ad61ecp-447,
-                0x1.e7b12124846bfp564,   0x1.9291384bd7259p209,
-                -0x1.a7bf62f803c98p900,  0x1.4e2e26257bb3p987,
-                -0x1.413ca9a32d894p811,  0x1.61b1dd9432e95p479,
+                -0x1.2a8fb1782b7f2p-126, -0x1.b246d12815c21p606,
+                0x1.6bc24f2a268b9p837,   0x1.1d550478ebd71p1016,
+                0x1.d2ba52815edc2p252,   0x1.a8d87e5eb97ecp-450,
+                -0x1.c8a3d899aa89p601,   -0x1.1fa47083d9a8fp289,
+            });
+            try testArgs(@Vector(9, f64), .{
+                -0x1.312d39a09757p-567,  -0x1.4b0ef2ac9424ep-10,
+                0x1.84302715c6852p930,   -0x1.01565f82fd32p761,
+                -0x1.36ad9c057719ap-351, 0x1.dc4929f2400c8p793,
+                -0x1.e90f3ae855d3dp-474, 0x1.4e65fb145865ep-834,
+                0x1.4236a94937ee3p-987,
+            });
+            try testArgs(@Vector(15, f64), .{
+                0x1.df73a72937309p351,  -0x1.73506ab182b9p-23,
+                0x1.b2c954612187p-997,  0x1.7c5ee7c602989p-93,
+                -0x1.5edba35428d13p762, -0x1.e3bc1f194dc8cp-386,
+                0x1.ca056fb59bdb9p651,  0x1.e59b99b174a0dp-528,
+                0x1.7a995c7651aa7p929,  -0x1.a25d3d5153405p413,
+                0x1.e5579317d4b37p-50,  0x1.f9d5578c67f67p-90,
+                -0x1.5da751d423506p611, 0x1.9a2cba7bf2467p488,
+                0x1.db3d45f662c4ep-619,
             });
             try testArgs(@Vector(16, f64), .{
-                -0x1.8fc7286d95f54p-235,  -0x1.796a7ea8372b6p-837,
-                -0x1.8c0f930539acbp-98,   -0x1.ec80dfbf0b931p-430,
-                -0x1.e3d80c640652fp-1019, 0x1.8241238fb542fp161,
-                -0x1.e1f1a79d50263p137,   -0x1.9ac5cb2771c28p-791,
-                0x1.4d8f00fe881e7p-401,   -0x1.87fbd7bfd99d7p346,
-                -0x1.a8a7cc575335ep1017,  0x1.37bb88dc3fd8bp-355,
-                0x1.9d53d346c0e65p929,    -0x1.bbae3d0229c34p289,
-                -0x1.cb8ef994d5ce5p25,    0x1.ba20af512616ap50,
+                0x1.fd61de463a33cp898,  -0x1.47be52b4f1241p-18,
+                0x1.729aa777312a3p-930, -0x1.2db258cd9984dp895,
+                0x1.a1fbc900c10cbp517,  -0x1.e93dfa8923807p815,
+                -0x1.e8f19fc0aa2a8p191, -0x1.1b084206321d5p861,
+                -0x1.0be3c6310c58ep457, 0x1.816c3bcf4b9f5p-504,
+                0x1.ec4b026b00c91p-831, 0x1.e42d18f5c7e4bp924,
+                -0x1.f1483ecd74646p560, -0x1.cc5aea97d2264p447,
+                -0x1.a0b1e5b69d166p597, 0x1.e9a109fcf1358p694,
+            });
+            try testArgs(@Vector(17, f64), .{
+                -0x1.cd163cf2878e5p-934, -0x1.ce0ad5b67552p196,
+                -0x1.da0fd3a62b298p508,  0x1.1981c99b14943p3,
+                0x1.d2f6461a9d1a9p390,   -0x1.e8e877d3b4e96p-539,
+                -0x1.8ad9d3e185c43p864,  0x1.61786be9783eep-110,
+                -0x1.1f4be91d90cc3p-500, 0x1.71cacdd984837p956,
+                0x1.7b6ae301fd95ep-661,  0x1.24571ba56e32p343,
+                0x1.b1a9454ab9481p648,   -0x1.887873f8044fep842,
+                -0x1.2f4ee57b9de22p-967, -0x1.c931346ced885p-983,
+                0x1.fe31b9923796bp-772,
             });
 
             try testArgs(@Vector(1, f80), .{
-                -0x1.a2e9410a7dfedabp-2324,
+                -0x1.482098130df28b74p12578,
             });
             try testArgs(@Vector(2, f80), .{
-                -0x1.a2e9410a7dfedabp-2324,
-                0x1.2b17da3b9746885p-8665,
+                -0x1.275157565b1eee5ep14003,
+                0x1.a27b82ef4be6132ap3681,
+            });
+            try testArgs(@Vector(3, f80), .{
+                0x1.9825fbd9b22021fep-10432,
+                -0x1.b8c8c4e5e3911ca8p13568,
+                0x1.aa99cc199c8e524p9865,
             });
             try testArgs(@Vector(4, f80), .{
-                -0x1.c488fedb7ab646cep-13007,
-                0x1.e914deaccaa50016p2073,
-                -0x1.d1c7ae8ec3c9df86p10642,
-                -0x1.2da1658f337fa01p9893,
+                -0x1.9d8ab0a36953d0f6p-760,
+                0x1.869b464121ce6576p-13660,
+                0x1.a54b1d1e8ae2b62ap12073,
+                -0x1.2abe41c9a9d89ea4p-13141,
+            });
+            try testArgs(@Vector(5, f80), .{
+                0x1.0fb10e205522f5aep-15041,
+                -0x1.13e0c338580504dap10809,
+                0x1.50e7c6666fd851acp-5508,
+                -0x1.e2231120481fc762p-8351,
+                0x1.4fae86dc45b06fe2p10741,
+            });
+            try testArgs(@Vector(7, f80), .{
+                -0x1.fe8f8caa4e8697ecp-2992,
+                0x1.2623c910a340e286p-14518,
+                0x1.c5524642a438569p-9469,
+                0x1.3d416ca0a47c73cep2981,
+                0x1.a3a1eb1243923114p-6689,
+                -0x1.a55df9ded3010b1cp-5798,
+                -0x1.3d593df395b03e5ap-14382,
             });
             try testArgs(@Vector(8, f80), .{
-                -0x1.bed8a74c43750656p890,
-                -0x1.7bf57f38004ac976p8481,
-                -0x1.9cdc10ac0657d328p7884,
-                0x1.c86f61883da149fp12293,
-                -0x1.528d6957df6bfdd8p14125,
-                -0x1.5ebb4006d0243bfep14530,
-                -0x1.94b9b18636d12402p-1845,
-                -0x1.25439a6d68add188p5962,
+                -0x1.9bb73ea024f4167cp3116,
+                0x1.adf6241753b29ed2p-4428,
+                -0x1.1494fa8680f9f5f4p2008,
+                -0x1.c68a673c59edeb24p2377,
+                0x1.26c7ab4021afb6dcp1376,
+                0x1.c829b0b3935a2ac6p-11758,
+                -0x1.11e39b110c2fb122p-3836,
+                -0x1.6db14745e291d466p1604,
+            });
+            try testArgs(@Vector(9, f80), .{
+                0x1.f6e537676c132cc6p-10213,
+                -0x1.b86eadf24d8c80eep808,
+                -0x1.54bc27c9a9a2348cp-2369,
+                -0x1.99453820b245bc5p-840,
+                -0x1.93c299090fd981e6p-5264,
+                -0x1.c742059979281ec4p-6347,
+                -0x1.e3efe7b892591d3p-1877,
+                -0x1.350c20a2d59c67dap-8972,
+                -0x1.e3879f20ffc62ff2p-2600,
             });
 
             try testArgs(@Vector(1, f128), .{
-                -0x1.d1e6fc3b1e66632e7b79051a47dap14300,
+                -0x1.274ece23c1832bfe66a1bc59cf87p-8354,
             });
             try testArgs(@Vector(2, f128), .{
-                0x1.84b3ac8ffe5893b2c6af8d68de9dp-83,
-                -0x1.438ca2c8a0d8e3ee9062d351c46ep-10235,
+                0x1.838a4e7ba1e2191cebe701eac5d4p6581,
+                0x1.cdfbda51a2adbce757d7c2e0981bp446,
+            });
+            try testArgs(@Vector(3, f128), .{
+                -0x1.ff45938938f76db417c980c368c6p-7215,
+                -0x1.277a316793a0172e49c7227952ccp10618,
+                0x1.d85027eb4f4ed3512c10bff9a199p-8465,
             });
             try testArgs(@Vector(4, f128), .{
-                0x1.04eb03882d4fd1b090e714d3e5ep806,
-                -0x1.4082b29f7c26e701764c915642ffp-6182,
-                -0x1.b6f1e8565e5040415110f18b519ap13383,
-                0x1.1c29f8c162cead9061c5797ea15ap11957,
+                -0x1.43d8ecf283d4ec6fc4993f385386p-12233,
+                -0x1.384424d239aa2ed9719d2c2d1e58p7346,
+                -0x1.d33fd11001f0ab6d0f9a2790b41cp14692,
+                -0x1.40219a635ef4b042cfb9d7bd9781p900,
+            });
+            try testArgs(@Vector(5, f128), .{
+                -0x1.3273c97faf4619baedaebb51148fp9085,
+                -0x1.f381263ad1033a071dff3a143b14p-13649,
+                -0x1.24b24810f9a1f9b5d1542e2b5841p1425,
+                -0x1.df9e062d482c2bbae0b8fcb07efep-5044,
+                -0x1.15cbca8b8384412d7d09ff76bfe4p-2424,
+            });
+            try testArgs(@Vector(7, f128), .{
+                -0x1.0972e6da79fa8bcd49431d813ea5p12192,
+                0x1.568e3e61ac4fb17303e4ead041dcp-2542,
+                0x1.a55c3f0014942187e6d40c72f12p-13437,
+                -0x1.31fb0ec6dbdf7e4ea8ecc307e6f4p13767,
+                -0x1.5dcc12514e3e540fea9dbd257935p-8938,
+                -0x1.32471cd1d5d2a36e9148a8ce879ap-3274,
+                -0x1.3fd3eb6d86a14567e49f358cf029p-4569,
             });
             try testArgs(@Vector(8, f128), .{
-                -0x1.53d7f00cd204d80e5ff5bb665773p11218,
-                -0x1.4daa1c81cffe28e8fa5cd703c287p2362,
-                -0x1.cc6a71c3ad4560871efdbd025cd7p-8116,
-                -0x1.87f8553cf8772fb6b78e7df3e3bap14523,
-                -0x1.14b6880f6678f86dfb543dde1c6ep2105,
-                0x1.9d2d4398414da9d857e76e8fd7ccp-13668,
-                0x1.a37f07af240ded458d103c022064p-1158,
-                0x1.425d53e6bd6070b847e5da1ed593p1394,
+                -0x1.05fe5035b415bdc5f8f9ae4c8815p455,
+                -0x1.fafde904d5cad82413daee7b88b8p-244,
+                0x1.53041230913c654449b12eb4d89bp2214,
+                -0x1.12d9f4b006063e9c0c7bdf19f61ap-2483,
+                0x1.aee9d4ba013f668773e4f0fd9002p5461,
+                0x1.a6776670633403e78a3cc6fcf8fdp8324,
+                -0x1.392aa756df3b993ea9db22def53ep15136,
+                0x1.823ef104549bdd4624961a44736cp-1097,
+            });
+            try testArgs(@Vector(9, f128), .{
+                -0x1.bde12739521a2bff70e510a6aca3p12384,
+                -0x1.0001c77658eb15cd7cb631b4836bp2147,
+                -0x1.f24c72b8cde26d95bd40f689a2aep-1416,
+                -0x1.61957e7946030c0432af0381f64ap-9492,
+                -0x1.631851492fa27fe7adc7441e0d21p16144,
+                -0x1.9dd39ece97e7a70c6d36e7e3026p-15761,
+                0x1.b044e441d7377755389d0bab3256p-1181,
+                0x1.5c11719701b7ff21384fbbf32922p-1671,
+                -0x1.1a2944a4dff2a4f96732bf03e8f7p-10567,
             });
         }
     };
@@ -4895,6 +5108,15 @@ inline fn reduceMul(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child
 test reduceMul {
     const test_reduce_mul = unary(reduceMul, .{});
     try test_reduce_mul.testIntVectors();
+}
+
+inline fn reduceAddOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    @setFloatMode(.optimized);
+    return @reduce(.Add, rhs);
+}
+test reduceAddOptimized {
+    const test_reduce_add_optimized = unary(reduceAddOptimized, .{ .compare = .approx });
+    try test_reduce_add_optimized.testFloatVectors();
 }
 
 inline fn splat(comptime Type: type, rhs: Type) Type {
