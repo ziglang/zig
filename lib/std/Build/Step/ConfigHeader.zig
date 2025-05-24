@@ -15,6 +15,9 @@ pub const Style = union(enum) {
     /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
+    /// The configure format supported by Meson. It uses `@FOO@` and
+    /// `#mesondefine` for template substitution.
+    meson: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
@@ -22,7 +25,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf_undef, .autoconf, .autoconf_at, .cmake => |s| return s,
+            .autoconf_undef, .autoconf, .autoconf_at, .cmake, .meson => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -220,6 +223,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             };
             try render_cmake(step, contents, &output, config_header.values, src_path);
         },
+        .meson => |file_source| {
+            try output.appendSlice(c_generated_line);
+            const src_path = file_source.getPath(b);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes);
+            try render_meson(step, contents, &output, config_header.values, src_path);
+        },
         .blank => {
             try output.appendSlice(c_generated_line);
             try render_blank(&output, config_header.values, config_header.include_path, config_header.include_guard_override);
@@ -384,9 +393,6 @@ fn render_cmake(
     const build = step.owner;
     const allocator = build.allocator;
 
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
-
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
@@ -439,7 +445,7 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        var value = values_copy.get(name) orelse blk: {
+        var value = values.get(name) orelse blk: {
             if (booldefine) {
                 break :blk Value{ .int = 0 };
             }
@@ -498,6 +504,90 @@ fn render_cmake(
         }
 
         try renderValueC(output, name, value);
+    }
+
+    if (any_errors) {
+        return error.HeaderConfigFailed;
+    }
+}
+
+fn render_meson(
+    step: *Step,
+    contents: []const u8,
+    output: *std.ArrayList(u8),
+    values: std.StringArrayHashMap(Value),
+    src_path: []const u8,
+) !void {
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    var line_buffer: std.ArrayList(u8) = .init(allocator);
+    defer line_buffer.deinit();
+
+    var any_errors = false;
+    var line_index: u32 = 0;
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
+    while (line_it.next()) |raw_line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
+
+        line_buffer.clearRetainingCapacity();
+        const old_len = output.items.len;
+
+        const line = expand_variables_meson(&line_buffer, raw_line, values) catch |err| {
+            switch (err) {
+                error.MissingValue => {
+                    const key = line_buffer.items;
+                    try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                        src_path, line_index + 1, key,
+                    });
+                    // delete the partially processed line and continue rendering
+                    output.shrinkRetainingCapacity(old_len);
+                },
+                else => {
+                    try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                        src_path, line_index + 1, @errorName(err),
+                    });
+                },
+            }
+            any_errors = true;
+            continue;
+        };
+
+        if (!std.mem.startsWith(u8, line, "#")) {
+            try output.appendSlice(line);
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
+            continue;
+        }
+
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
+        const mesondefine = it.next().?;
+        if (!std.mem.eql(u8, mesondefine, "mesondefine")) {
+            try output.appendSlice(line);
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
+            continue;
+        }
+
+        const name = it.next() orelse {
+            try step.addError("{s}:{d}: error: missing define name", .{
+                src_path, line_index + 1,
+            });
+            any_errors = true;
+            continue;
+        };
+
+        const value = values.get(name) orelse {
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                src_path, line_index + 1, name,
+            });
+            any_errors = true;
+            continue;
+        };
+
+        try renderValueCMeson(output, name, value);
     }
 
     if (any_errors) {
@@ -572,6 +662,42 @@ fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !voi
         .string => |string| {
             // TODO: use C-specific escaping instead of zig string literals
             try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
+        },
+    }
+}
+
+fn renderValueCMeson(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
+    // https://mesonbuild.com/Configuration.html
+    switch (value) {
+        .undef => {
+            try output.appendSlice("/* #undef ");
+            try output.appendSlice(name);
+            try output.appendSlice(" */\n");
+        },
+        .defined => {
+            try output.appendSlice("#define ");
+            try output.appendSlice(name);
+            try output.appendSlice("\n");
+        },
+        .boolean => |b| {
+            if (b) {
+                try output.appendSlice("#define ");
+                try output.appendSlice(name);
+                try output.appendSlice("\n");
+            } else {
+                try output.appendSlice("#undef ");
+                try output.appendSlice(name);
+                try output.appendSlice("\n");
+            }
+        },
+        .int => |i| {
+            try output.writer().print("#define {s} {d}\n", .{ name, i });
+        },
+        .ident => |ident| {
+            try output.writer().print("#define {s} {s}\n", .{ name, ident });
+        },
+        .string => |string| {
+            try output.writer().print("#define {s} {s}\n", .{ name, string });
         },
     }
 }
@@ -790,6 +916,90 @@ fn expand_variables_cmake(
     return result.toOwnedSlice();
 }
 
+fn countEscapes(before_symbol: []const u8) usize {
+    return if (std.mem.lastIndexOfNone(u8, before_symbol, "\\")) |i| (before_symbol.len - i - 1) else before_symbol.len;
+}
+fn expand_variables_meson(
+    buffer: *std.ArrayList(u8),
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+) error{ MissingValue, InvalidCharacter, OutOfMemory }![]const u8 {
+    const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
+
+    var prev: usize = 0;
+    var current = std.mem.indexOfScalar(u8, contents, '@') orelse return contents;
+    outer: while (true) {
+        // find an unescaped @
+        while (true) {
+            const escapes = countEscapes(contents[0..current]);
+            try buffer.appendSlice(contents[prev .. current - escapes]);
+            try buffer.appendNTimes('\\', escapes / 2);
+
+            // candidate for expansion
+            if (escapes % 2 == 0) {
+                break;
+            }
+
+            try buffer.append('@');
+            prev = current + 1;
+            current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break :outer;
+        }
+
+        const valid_varname_end = std.mem.indexOfNonePos(u8, contents, current + 1, valid_varname_chars) orelse {
+            try buffer.append('@');
+            break;
+        };
+
+        if (contents[valid_varname_end] != '@') {
+            if (std.mem.indexOfScalarPos(u8, contents, current + 1, '@') != null) {
+                // return the failed expansion
+                buffer.clearRetainingCapacity();
+                try buffer.appendSlice(contents[current .. valid_varname_end + 1]);
+                return error.InvalidCharacter;
+            } else {
+                // nothing more to expand
+                try buffer.append('@');
+                break;
+            }
+        }
+
+        if (current + 1 == valid_varname_end) {
+            // back-to-back @@, don't expand
+            try buffer.append('@');
+            prev = current + 1;
+            current = valid_varname_end;
+            continue;
+        }
+
+        const key = contents[current + 1 .. valid_varname_end];
+        const value = values.get(key) orelse {
+            // return the key which is missing a value
+            buffer.clearRetainingCapacity();
+            try buffer.appendSlice(key);
+            return error.MissingValue;
+        };
+        switch (value) {
+            .undef, .defined => {},
+            .boolean => |b| {
+                try buffer.appendSlice(if (b) "true" else "false");
+            },
+            .int => |i| {
+                try buffer.writer().print("{d}", .{i});
+            },
+            .ident, .string => |s| {
+                try buffer.appendSlice(s);
+            },
+        }
+
+        current = valid_varname_end;
+        prev = current + 1;
+        current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break;
+    }
+
+    try buffer.appendSlice(contents[current + 1 ..]);
+    return buffer.items;
+}
+
 fn testReplaceVariablesAutoconfAt(
     allocator: Allocator,
     contents: []const u8,
@@ -817,6 +1027,19 @@ fn testReplaceVariablesCMake(
 ) !void {
     const actual = try expand_variables_cmake(allocator, contents, values);
     defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(expected, actual);
+}
+
+fn testReplaceVariablesMeson(
+    allocator: Allocator,
+    contents: []const u8,
+    expected: []const u8,
+    values: std.StringArrayHashMap(Value),
+) !void {
+    var buffer: std.ArrayList(u8) = .init(allocator);
+    defer buffer.deinit();
+    const actual = try expand_variables_meson(&buffer, contents, values);
 
     try std.testing.expectEqualStrings(expected, actual);
 }
@@ -943,7 +1166,7 @@ test "expand_variables_cmake simple cases" {
     try values.putNoClobber("true", Value{ .boolean = true });
     try values.putNoClobber("false", Value{ .boolean = false });
     try values.putNoClobber("int", Value{ .int = 42 });
-    try values.putNoClobber("ident", Value{ .string = "value" });
+    try values.putNoClobber("ident", Value{ .ident = "value" });
     try values.putNoClobber("string", Value{ .string = "text" });
 
     // empty strings are preserved
@@ -1100,4 +1323,128 @@ test "expand_variables_cmake escaped characters" {
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
     try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${string\\}", "", values));
+}
+
+test "expand_variables_meson simple cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    try values.putNoClobber("undef", .undef);
+    try values.putNoClobber("defined", .defined);
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try values.putNoClobber("ident", Value{ .ident = "value" });
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // empty strings are preserved
+    try testReplaceVariablesMeson(allocator, "", "", values);
+
+    // line with misc content is preserved
+    try testReplaceVariablesMeson(allocator, "no substitution", "no substitution", values);
+
+    // empty @ sigils are preserved
+    try testReplaceVariablesMeson(allocator, "@", "@", values);
+    try testReplaceVariablesMeson(allocator, "@@", "@@", values);
+    try testReplaceVariablesMeson(allocator, "@@@", "@@@", values);
+    try testReplaceVariablesMeson(allocator, "@@@@", "@@@@", values);
+
+    // simple substitution
+    try testReplaceVariablesMeson(allocator, "@undef@", "", values);
+    try testReplaceVariablesMeson(allocator, "@defined@", "", values);
+    try testReplaceVariablesMeson(allocator, "@true@", "true", values);
+    try testReplaceVariablesMeson(allocator, "@false@", "false", values);
+    try testReplaceVariablesMeson(allocator, "@int@", "42", values);
+    try testReplaceVariablesMeson(allocator, "@ident@", "value", values);
+    try testReplaceVariablesMeson(allocator, "@string@", "text", values);
+
+    // double packed substitution
+    try testReplaceVariablesMeson(allocator, "@string@@string@", "texttext", values);
+
+    // triple packed substitution
+    try testReplaceVariablesMeson(allocator, "@string@@int@@string@", "text42text", values);
+
+    // double separated substitution
+    try testReplaceVariablesMeson(allocator, "@int@.@int@", "42.42", values);
+
+    // triple separated substitution
+    try testReplaceVariablesMeson(allocator, "@int@.@true@.@int@", "42.true.42", values);
+
+    // misc prefix is preserved
+    try testReplaceVariablesMeson(allocator, "false is @false@", "false is false", values);
+
+    // misc suffix is preserved
+    try testReplaceVariablesMeson(allocator, "@true@ is true", "true is true", values);
+
+    // surrounding content is preserved
+    try testReplaceVariablesMeson(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
+
+    // incomplete key is preserved
+    try testReplaceVariablesMeson(allocator, "@undef", "@undef", values);
+    try testReplaceVariablesMeson(allocator, "undef@", "undef@", values);
+
+    // (in)complete key of different style is preserved
+    try testReplaceVariablesMeson(allocator, "${undef", "${undef", values);
+    try testReplaceVariablesMeson(allocator, "{undef}", "{undef}", values);
+    try testReplaceVariablesMeson(allocator, "undef}", "undef}", values);
+    try testReplaceVariablesMeson(allocator, "${undef}", "${undef}", values);
+
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesMeson(allocator, "@bad@", "", values));
+
+    // invalid characters lead to an error
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesMeson(allocator, "@str*ing@", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesMeson(allocator, "@str$ing@", "", values));
+}
+
+test "expand_variables_meson escapes" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    try values.putNoClobber("var0", Value{ .string = "foo" });
+    try values.putNoClobber("var1", Value{ .string = "bar" });
+
+    try testReplaceVariablesMeson(allocator, "\\@var0@", "@var0@", values);
+
+    // multiple escapes before a @ will be simplified to half as many escapes
+    // even numbers of escapes: substitution still happens
+    try testReplaceVariablesMeson(allocator, "\\\\@var0@", "\\foo", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\@var0@", "\\\\foo", values);
+    try testReplaceVariablesMeson(allocator, "\\\\var0", "\\\\var0", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\var0", "\\\\\\\\var0", values);
+
+    // multiple escapes before a @ will be simplified to half as many escapes (rounded down)
+    // odd numbers of escapes: substitution does not happen
+    // 2 escapes followed by a single escape to prevent replacement
+    try testReplaceVariablesMeson(allocator, "\\\\\\@var0@", "\\@var0@", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\\\@var0@", "\\\\@var0@", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\var0", "\\\\\\var0", values);
+    try testReplaceVariablesMeson(allocator, "\\\\\\\\\\var0", "\\\\\\\\\\var0", values);
+
+    // escape doesn't affect later substitutions
+    try testReplaceVariablesMeson(allocator, "\\@var0@var1@", "@var0bar", values);
+
+    // escaping is not required when there is no matching @
+    try testReplaceVariablesMeson(allocator, "@var0:var1", "@var0:var1", values);
+    try testReplaceVariablesMeson(allocator, "prefix @ suffix", "prefix @ suffix", values);
+}
+
+test "expand_variables_meson edge cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    // basic value
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // proxy case values
+    try values.putNoClobber("string_at", Value{ .string = "@string@" });
+
+    // @-vars resolved only when they wrap valid characters, otherwise considered literals
+    try testReplaceVariablesMeson(allocator, "@@string@@", "@text@", values);
+
+    // expanded variables are considered strings after expansion
+    try testReplaceVariablesMeson(allocator, "@string_at@", "@string@", values);
 }
