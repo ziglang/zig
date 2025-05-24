@@ -1180,6 +1180,26 @@ test "POSIX file locking with fcntl" {
     }
 }
 
+test "wait waits for all terminated processes" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+
+    const flags = switch (builtin.os.tag) {
+        .linux => linux.W.NOHANG,
+        else => 0
+    };
+
+    const pid1 = try posix.fork();
+    if (pid1 == 0) posix.exit(0);
+
+    const pid2 = try posix.fork();
+    if (pid2 == 0) posix.exit(0);
+
+    try expect(posix.wait(flags) != null);
+    try expect(posix.wait(flags) != null);
+    try expect(posix.wait(flags) == null);
+}
+
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
