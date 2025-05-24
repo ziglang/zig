@@ -531,6 +531,7 @@ pub const AddressSpace = enum(u5) {
     uniform,
     push_constant,
     storage_buffer,
+    physical_storage_buffer,
 
     // AVR address spaces.
     flash,

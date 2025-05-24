@@ -296,12 +296,26 @@ fn processInstruction(self: *Assembler) !void {
             };
             break :blk .{ .value = try self.spv.importInstructionSet(set_tag) };
         },
+        .OpExecutionMode, .OpExecutionModeId => {
+            assert(try self.processGenericInstruction() == null);
+            const entry_point_id = try self.resolveRefId(self.inst.operands.items[0].ref_id);
+            const exec_mode: spec.ExecutionMode = @enumFromInt(self.inst.operands.items[1].value);
+            const gop = try self.spv.entry_points.getOrPut(self.gpa, entry_point_id);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = .{};
+            } else if (gop.value_ptr.exec_mode != null) {
+                return self.fail(
+                    self.currentToken().start,
+                    "cannot set execution mode more than once to any entry point",
+                    .{},
+                );
+            }
+            gop.value_ptr.exec_mode = exec_mode;
+            return;
+        },
         else => switch (self.inst.opcode.class()) {
             .TypeDeclaration => try self.processTypeInstruction(),
-            else => if (try self.processGenericInstruction()) |result|
-                result
-            else
-                return,
+            else => (try self.processGenericInstruction()) orelse return,
         },
     };
 
