@@ -635,6 +635,12 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         if (zcu.builtin_decl_values.get(to_check) != .none) return;
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
+    }
+
     const any_changed: bool, const new_failed: bool = if (pt.analyzeMemoizedState(stage)) |any_changed|
         .{ any_changed or prev_failed, false }
     else |err| switch (err) {
@@ -782,6 +788,12 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         if (zcu.failed_analysis.contains(anal_unit)) return error.AnalysisFail;
         if (zcu.transitive_failed_analysis.contains(anal_unit)) return error.AnalysisFail;
         return;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, anal_unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
     }
 
     const unit_prog_node = zcu.sema_prog_node.start("comptime", 0);
@@ -956,6 +968,12 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
             .unresolved, .type_resolved => {},
             .fully_resolved => return,
         }
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, anal_unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
     }
 
     const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
@@ -1331,6 +1349,12 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         }
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, anal_unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
+    }
+
     const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
     defer unit_prog_node.end();
 
@@ -1562,6 +1586,12 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
             return error.AnalysisFail;
         }
         if (func.analysisUnordered(ip).is_analyzed) return;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, anal_unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
     }
 
     const func_prog_node = zcu.sema_prog_node.start(ip.getNav(func.owner_nav).fqn.toSlice(ip), 0);
@@ -1816,11 +1846,7 @@ fn createFileRootStruct(
     ip.namespacePtr(namespace_index).owner_type = wip_ty.index;
 
     if (zcu.comp.incremental) {
-        try ip.addDependency(
-            gpa,
-            .wrap(.{ .type = wip_ty.index }),
-            .{ .src_hash = tracked_inst },
-        );
+        try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
     try pt.scanNamespace(namespace_index, decls);
@@ -1832,6 +1858,7 @@ fn createFileRootStruct(
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return wip_ty.finish(ip, namespace_index);
 }
 
@@ -2734,10 +2761,11 @@ const ScanDeclIter = struct {
             else => unit: {
                 const name = maybe_name.unwrap().?;
                 const fqn = try namespace.internFullyQualifiedName(ip, gpa, pt.tid, name);
-                const nav = if (existing_unit) |eu|
-                    eu.unwrap().nav_val
-                else
-                    try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index, decl.kind == .@"usingnamespace");
+                const nav = if (existing_unit) |eu| eu.unwrap().nav_val else nav: {
+                    const nav = try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index, decl.kind == .@"usingnamespace");
+                    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newNav(zcu, nav);
+                    break :nav nav;
+                };
 
                 const unit: AnalUnit = .wrap(.{ .nav_val = nav });
 
@@ -3911,6 +3939,7 @@ pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!
     if (result.new_nav.unwrap()) |nav| {
         // This job depends on any resolve_type_fully jobs queued up before it.
         try pt.zcu.comp.queueJob(.{ .codegen_nav = nav });
+        if (pt.zcu.comp.debugIncremental()) try pt.zcu.incremental_debug_state.newNav(pt.zcu, nav);
     }
     return result.index;
 }
@@ -3979,6 +4008,12 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     _ = zcu.transitive_failed_analysis.swapRemove(anal_unit);
     zcu.intern_pool.removeDependenciesForDepender(gpa, anal_unit);
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, anal_unit);
+        info.last_update_gen = zcu.generation;
+        info.deps.clearRetainingCapacity();
+    }
+
     switch (ip.indexToKey(ty)) {
         .struct_type => return pt.recreateStructType(ty, declared_ty_key),
         .union_type => return pt.recreateUnionType(ty, declared_ty_key),
@@ -4042,11 +4077,7 @@ fn recreateStructType(
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, struct_obj.name);
-    try ip.addDependency(
-        gpa,
-        .wrap(.{ .type = wip_ty.index }),
-        .{ .src_hash = key.zir_index },
-    );
+    try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(struct_obj.namespace).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
@@ -4058,6 +4089,7 @@ fn recreateStructType(
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
 
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     const new_ty = wip_ty.finish(ip, struct_obj.namespace);
     if (inst_info.inst == .main_struct_inst) {
         // This is the root type of a file! Update the reference.
@@ -4138,11 +4170,7 @@ fn recreateUnionType(
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, union_obj.name);
-    try ip.addDependency(
-        gpa,
-        .wrap(.{ .type = wip_ty.index }),
-        .{ .src_hash = key.zir_index },
-    );
+    try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirUnionDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
@@ -4154,6 +4182,7 @@ fn recreateUnionType(
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
 
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return wip_ty.finish(ip, namespace_index);
 }
 
@@ -4255,6 +4284,7 @@ fn recreateEnumType(
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirEnumDecl` will ultimately do that if the type is still alive.
 
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     wip_ty.prepare(ip, namespace_index);
     done = true;
 
@@ -4431,4 +4461,14 @@ pub fn refValue(pt: Zcu.PerThread, val: InternPool.Index) Zcu.SemaError!InternPo
         } },
         .byte_offset = 0,
     } });
+}
+
+pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dependee) Allocator.Error!void {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    try zcu.intern_pool.addDependency(gpa, unit, dependee);
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, unit);
+        try info.deps.append(gpa, dependee);
+    }
 }

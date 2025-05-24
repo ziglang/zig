@@ -190,6 +190,8 @@ time_report: bool,
 stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
+/// Do not check this field directly. Instead, use the `debugIncremental` wrapper function.
+debug_incremental: bool,
 incremental: bool,
 alloc_failure_occurred: bool = false,
 last_update_was_cache_hit: bool = false,
@@ -767,6 +769,14 @@ pub const Directories = struct {
         };
     }
 };
+
+/// This small wrapper function just checks whether debug extensions are enabled before checking
+/// `comp.debug_incremental`. It is inline so that comptime-known `false` propagates to the caller,
+/// preventing debugging features from making it into release builds of the compiler.
+pub inline fn debugIncremental(comp: *const Compilation) bool {
+    if (!build_options.enable_debug_extensions) return false;
+    return comp.debug_incremental;
+}
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -1598,6 +1608,7 @@ pub const CreateOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
+    debug_incremental: bool = false,
     incremental: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
@@ -1968,6 +1979,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .test_name_prefix = options.test_name_prefix,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
+            .debug_incremental = options.debug_incremental,
             .incremental = options.incremental,
             .root_name = root_name,
             .sysroot = sysroot,

@@ -2998,11 +2998,7 @@ fn zirStructDecl(
     errdefer pt.destroyNamespace(new_namespace_index);
 
     if (pt.zcu.comp.incremental) {
-        try ip.addDependency(
-            sema.gpa,
-            AnalUnit.wrap(.{ .type = wip_ty.index }),
-            .{ .src_hash = tracked_inst },
-        );
+        try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3017,6 +3013,7 @@ fn zirStructDecl(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
@@ -3247,6 +3244,7 @@ fn zirEnumDecl(
 
     // We've finished the initial construction of this type, and are about to perform analysis.
     // Set the namespace appropriately, and don't destroy anything on failure.
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     wip_ty.prepare(ip, new_namespace_index);
     done = true;
 
@@ -3377,11 +3375,7 @@ fn zirUnionDecl(
     errdefer pt.destroyNamespace(new_namespace_index);
 
     if (pt.zcu.comp.incremental) {
-        try zcu.intern_pool.addDependency(
-            gpa,
-            AnalUnit.wrap(.{ .type = wip_ty.index }),
-            .{ .src_hash = tracked_inst },
-        );
+        try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3396,6 +3390,7 @@ fn zirUnionDecl(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
@@ -3481,6 +3476,7 @@ fn zirOpaqueDecl(
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
@@ -8026,6 +8022,11 @@ fn analyzeCall(
                 .generic_owner = func_val.?.toIntern(),
                 .comptime_args = comptime_args,
             });
+            if (zcu.comp.debugIncremental()) {
+                const nav = ip.indexToKey(func_instance).func.owner_nav;
+                const gop = try zcu.incremental_debug_state.navs.getOrPut(gpa, nav);
+                if (!gop.found_existing) gop.value_ptr.* = zcu.generation;
+            }
 
             // This call is problematic as it breaks guarantees about order-independency of semantic analysis.
             // These guarantees are necessary for incremental compilation and parallel semantic analysis.
@@ -20345,6 +20346,7 @@ fn structInitAnon(
                 if (block.ownerModule().strip) break :codegen_type;
                 try zcu.comp.queueJob(.{ .codegen_type = wip.index });
             }
+            if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip.index);
             break :ty wip.finish(ip, new_namespace_index);
         },
         .existing => |ty| ty,
@@ -21406,6 +21408,7 @@ fn zirReify(
             });
 
             try sema.addTypeReferenceEntry(src, wip_ty.index);
+            if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
             return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
         },
         .@"union" => {
@@ -21611,6 +21614,7 @@ fn reifyEnum(
 
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     wip_ty.prepare(ip, new_namespace_index);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
     done = true;
@@ -21920,6 +21924,7 @@ fn reifyUnion(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
@@ -22273,6 +22278,7 @@ fn reifyStruct(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
+    if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
@@ -37485,8 +37491,8 @@ fn isKnownZigType(sema: *Sema, ref: Air.Inst.Ref, tag: std.builtin.TypeId) bool 
 }
 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
-    const zcu = sema.pt.zcu;
-    if (!zcu.comp.incremental) return;
+    const pt = sema.pt;
+    if (!pt.zcu.comp.incremental) return;
 
     const gop = try sema.dependencies.getOrPut(sema.gpa, dependee);
     if (gop.found_existing) return;
@@ -37508,7 +37514,7 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
         else => {},
     }
 
-    try zcu.intern_pool.addDependency(sema.gpa, sema.owner, dependee);
+    try pt.addDependency(sema.owner, dependee);
 }
 
 fn isComptimeMutablePtr(sema: *Sema, val: Value) bool {
@@ -37904,6 +37910,11 @@ pub fn resolveDeclaredEnum(
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, sema.owner);
+        info.last_update_gen = zcu.generation;
+    }
 
     try sema.declareDependency(.{ .src_hash = tracked_inst });
 
