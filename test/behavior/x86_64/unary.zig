@@ -5109,6 +5109,7 @@ inline fn reduceMul(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child
 test reduceMul {
     const test_reduce_mul = unary(reduceMul, .{});
     try test_reduce_mul.testIntVectors();
+    try test_reduce_mul.testFloatVectors();
 }
 
 inline fn reduceAddOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
