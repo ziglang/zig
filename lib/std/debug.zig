@@ -13,6 +13,9 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
+/// Maximum number of frames to walk when iterating through a stack trace.
+pub const max_stack_trace_depth = 50;
+
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
@@ -418,6 +421,10 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             return;
         }
         const stderr = io.getStdErr().writer();
+        if (!have_ucontext) {
+            stderr.print("Unable to dump stack trace: platform 'ucontext_t' not defined\n", .{}) catch return;
+            return;
+        }
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -445,9 +452,16 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
         // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
         const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             context.mcontext.ss.pc
+        else if (it.unwind_state != null)
+            it.unwind_state.?.dwarf_context.pc
         else
-            it.unwind_state.?.dwarf_context.pc;
-        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
+            0;
+
+        if (pc_addr != 0) {
+            printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
+        }
+
+        var depth: usize = 0;
 
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
@@ -459,6 +473,12 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             // same behaviour for x86-windows-msvc
             const address = if (return_address == 0) return_address else return_address - 1;
             printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
+
+            depth += 1;
+            if (depth > max_stack_trace_depth) {
+                stderr.print("Abandoned stack trace after {} frames.\n", .{max_stack_trace_depth}) catch {};
+                break;
+            }
         } else printLastUnwindError(&it, debug_info, stderr, tty_config);
     }
 }
@@ -866,8 +886,14 @@ pub const StackIterator = struct {
         var address = it.next_internal() orelse return null;
 
         if (it.first_address) |first_address| {
+            var depth: usize = 0;
             while (address != first_address) {
                 address = it.next_internal() orelse return null;
+
+                depth += 1;
+                if (depth > max_stack_trace_depth) {
+                    return null;
+                }
             }
             it.first_address = null;
         }
@@ -964,8 +990,8 @@ pub fn writeCurrentStackTrace(
     start_addr: ?usize,
 ) !void {
     if (native_os == .windows) {
-        var context: ThreadContext = undefined;
-        assert(getContext(&context));
+        var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
+        windows.ntdll.RtlCaptureContext(&context);
         return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);
     }
     var context: ThreadContext = undefined;
@@ -975,6 +1001,8 @@ pub fn writeCurrentStackTrace(
         break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
     } else null) orelse StackIterator.init(start_addr, null);
     defer it.deinit();
+
+    var depth: usize = 0;
 
     while (it.next()) |return_address| {
         printLastUnwindError(&it, debug_info, out_stream, tty_config);
@@ -986,6 +1014,12 @@ pub fn writeCurrentStackTrace(
         // same behaviour for x86-windows-msvc
         const address = return_address -| 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
+
+        depth += 1;
+        if (depth > max_stack_trace_depth) {
+            out_stream.print("Abandoned stack trace after {} frames.\n", .{max_stack_trace_depth}) catch {};
+            break;
+        }
     } else printLastUnwindError(&it, debug_info, out_stream, tty_config);
 }
 
