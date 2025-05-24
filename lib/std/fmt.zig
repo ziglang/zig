@@ -29,6 +29,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = default_alignment,
     fill: u21 = default_fill_char,
+    commas: bool = false,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -62,6 +63,7 @@ pub const FormatOptions = struct {
 ///   - for slices of u8, print the entire slice as a string without zero-termination
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
+/// - `D`: output numeric value in decimal notation with comma thousands separator
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
@@ -749,6 +751,10 @@ pub fn formatIntValue(
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
         base = 10;
         case = .lower;
+    } else if (comptime std.mem.eql(u8, fmt, "D")) {
+        var o = options;
+        o.commas = true;
+        return formatInt(int_value, base, case, o, writer);
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
@@ -798,7 +804,12 @@ fn formatFloatValue(
         };
         return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .commas = options.commas }) catch |err| switch (err) {
+            error.BufferTooSmall => "(float)",
+        };
+        return formatBuf(s, options, writer);
+    } else if (comptime std.mem.eql(u8, fmt, "D")) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .commas = true }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
@@ -1201,12 +1212,12 @@ pub fn formatInt(
 
     const abs_value = @abs(int_value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
-    var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
+    var buf: [1 + @max(@as(comptime_int, value_info.bits), 1) * 2]u8 = undefined;
 
     var a: MinInt = abs_value;
     var index: usize = buf.len;
 
-    if (base == 10) {
+    if (base == 10 and !options.commas) {
         while (a >= 100) : (a = @divTrunc(a, 100)) {
             index -= 2;
             buf[index..][0..2].* = digits2(@intCast(a % 100));
@@ -1223,6 +1234,10 @@ pub fn formatInt(
         while (true) {
             const digit = a % base;
             index -= 1;
+            if (options.commas and (buf.len - index) % 4 == 0) {
+                buf[index] = ',';
+                index -= 1;
+            }
             buf[index] = digitToChar(@intCast(digit), case);
             a /= base;
             if (a == 0) break;
@@ -3017,4 +3032,14 @@ test "parser specifier" {
         const result = try parser.specifier();
         try testing.expectEqual(char.none, result.none);
     }
+}
+
+test "commas" {
+    try expectFmt("1,234,567", "{D}", .{1234567});
+    try expectFmt("12,345,678", "{D}", .{12345678});
+    try expectFmt("123,456,789", "{D}", .{123456789});
+    try expectFmt("1,234,567,890", "{D}", .{1234567890});
+
+    try expectFmt(" 1,234,567", "{D:10}", .{1234567});
+    try expectFmt(" 1,234,567.9", "{D:12.1}", .{1234567.89});
 }
