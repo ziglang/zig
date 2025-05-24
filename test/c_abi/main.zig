@@ -1087,9 +1087,7 @@ extern fn c_medium_vec(MediumVec) void;
 extern fn c_ret_medium_vec() MediumVec;
 
 test "medium simd vector" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
-
+    if (builtin.zig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .avx)) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
 
     c_medium_vec(.{ 1, 2, 3, 4 });

@@ -203,7 +203,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
             } else if (Instruction.Operand.fromU32(imm32) != null) {
                 // sub
                 return 1 * 4;
-            } else if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+            } else if (emit.target.cpu.has(.arm, .has_v7)) {
                 // movw; movt; sub
                 return 3 * 4;
             } else {
@@ -452,7 +452,7 @@ fn mirSubStackPointer(emit: *Emit, inst: Mir.Inst.Index) !void {
             const operand = Instruction.Operand.fromU32(imm32) orelse blk: {
                 const scratch: Register = .r4;
 
-                if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+                if (emit.target.cpu.has(.arm, .has_v7)) {
                     try emit.writeInstruction(Instruction.movw(cond, scratch, @as(u16, @truncate(imm32))));
                     try emit.writeInstruction(Instruction.movt(cond, scratch, @as(u16, @truncate(imm32 >> 16))));
                 } else {

@@ -41,8 +41,7 @@ test "@select arrays" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx2)) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .avx2)) return error.SkipZigTest;
 
     try comptime selectArrays();
     try selectArrays();
