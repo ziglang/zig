@@ -607,7 +607,7 @@ const Date = struct {
             while (month < date.month) : (month += 1) {
                 const days: u64 = std.time.epoch.getDaysInMonth(
                     date.year,
-                    @as(std.time.epoch.Month, @enumFromInt(month)),
+                    @enumFromInt(month),
                 );
                 sec += days * std.time.epoch.secs_per_day;
             }
@@ -623,15 +623,13 @@ const Date = struct {
 };
 
 pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
-    const result = if (use_vectors) result: {
-        const nn: @Vector(2, u16) = .{ text[0], text[1] };
-        const zero: @Vector(2, u16) = .{ '0', '0' };
-        const mm: @Vector(2, u16) = .{ 10, 1 };
-        break :result @reduce(.Add, (nn -% zero) *% mm);
-    } else std.fmt.parseInt(u8, text, 10) catch return error.CertificateTimeInvalid;
+    const nn: @Vector(2, u16) = .{ text[0], text[1] };
+    const zero: @Vector(2, u16) = .{ '0', '0' };
+    const mm: @Vector(2, u16) = .{ 10, 1 };
+    const result = @reduce(.Add, (nn -% zero) *% mm);
     if (result < min) return error.CertificateTimeInvalid;
     if (result > max) return error.CertificateTimeInvalid;
-    return @truncate(result);
+    return @intCast(result);
 }
 
 test parseTimeDigits {
@@ -647,14 +645,12 @@ test parseTimeDigits {
 }
 
 pub fn parseYear4(text: *const [4]u8) !u16 {
-    const result = if (use_vectors) result: {
-        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
-        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
-        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
-        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
-    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
+    const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
+    const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
+    const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
+    const result = @reduce(.Add, (nnnn -% zero) *% mmmm);
     if (result > 9999) return error.CertificateTimeInvalid;
-    return @truncate(result);
+    return @intCast(result);
 }
 
 test parseYear4 {
@@ -858,7 +854,7 @@ pub const der = struct {
 
         pub fn parse(bytes: []const u8, index: u32) Element.ParseError!Element {
             var i = index;
-            const identifier = @as(Identifier, @bitCast(bytes[i]));
+            const identifier: Identifier = @bitCast(bytes[i]);
             i += 1;
             const size_byte = bytes[i];
             i += 1;
@@ -872,7 +868,7 @@ pub const der = struct {
                 };
             }
 
-            const len_size = @as(u7, @truncate(size_byte));
+            const len_size: u7 = @truncate(size_byte);
             if (len_size > @sizeOf(u32)) {
                 return error.CertificateFieldHasInvalidLength;
             }
@@ -1244,5 +1240,3 @@ pub const rsa = struct {
         return res;
     }
 };
-
-const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;
