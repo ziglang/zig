@@ -4136,11 +4136,15 @@ pub const vector_2_u128: Type = .{ .ip_index = .vector_2_u128_type };
 pub const vector_1_u256: Type = .{ .ip_index = .vector_1_u256_type };
 pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
 pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_16_f16: Type = .{ .ip_index = .vector_16_f16_type };
+pub const vector_32_f16: Type = .{ .ip_index = .vector_32_f16_type };
 pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
 pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
 pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
+pub const vector_16_f32: Type = .{ .ip_index = .vector_16_f32_type };
 pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };
 pub const vector_4_f64: Type = .{ .ip_index = .vector_4_f64_type };
+pub const vector_8_f64: Type = .{ .ip_index = .vector_8_f64_type };
 
 pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 

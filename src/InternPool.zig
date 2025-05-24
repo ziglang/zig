@@ -4615,11 +4615,15 @@ pub const Index = enum(u32) {
     vector_1_u256_type,
     vector_4_f16_type,
     vector_8_f16_type,
+    vector_16_f16_type,
+    vector_32_f16_type,
     vector_2_f32_type,
     vector_4_f32_type,
     vector_8_f32_type,
+    vector_16_f32_type,
     vector_2_f64_type,
     vector_4_f64_type,
+    vector_8_f64_type,
 
     optional_noreturn_type,
     anyerror_void_error_union_type,
@@ -5174,16 +5178,24 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 4, .child = .f16_type } },
     // @Vector(8, f16)
     .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(16, f16)
+    .{ .vector_type = .{ .len = 16, .child = .f16_type } },
+    // @Vector(32, f16)
+    .{ .vector_type = .{ .len = 32, .child = .f16_type } },
     // @Vector(2, f32)
     .{ .vector_type = .{ .len = 2, .child = .f32_type } },
     // @Vector(4, f32)
     .{ .vector_type = .{ .len = 4, .child = .f32_type } },
     // @Vector(8, f32)
     .{ .vector_type = .{ .len = 8, .child = .f32_type } },
+    // @Vector(16, f32)
+    .{ .vector_type = .{ .len = 16, .child = .f32_type } },
     // @Vector(2, f64)
     .{ .vector_type = .{ .len = 2, .child = .f64_type } },
     // @Vector(4, f64)
     .{ .vector_type = .{ .len = 4, .child = .f64_type } },
+    // @Vector(8, f64)
+    .{ .vector_type = .{ .len = 8, .child = .f64_type } },
 
     // ?noreturn
     .{ .opt_type = .noreturn_type },
@@ -11847,11 +11859,15 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
@@ -12175,11 +12191,15 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         => .vector,
 
         .optional_noreturn_type => .optional,

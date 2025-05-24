@@ -117,9 +117,9 @@ export fn testMutablePointer() void {
 // tmp.zig:37:38: note: imported here
 // neg_inf.zon:1:1: error: expected type '?u8'
 // tmp.zig:57:28: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testNonExhaustiveEnum__enum_505'
+// neg_inf.zon:1:1: error: expected type 'tmp.testNonExhaustiveEnum__enum_509'
 // tmp.zig:62:39: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testUntaggedUnion__union_507'
+// neg_inf.zon:1:1: error: expected type 'tmp.testUntaggedUnion__union_511'
 // tmp.zig:67:44: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testTaggedUnionVoid__union_510'
+// neg_inf.zon:1:1: error: expected type 'tmp.testTaggedUnionVoid__union_514'
 // tmp.zig:72:50: note: imported here

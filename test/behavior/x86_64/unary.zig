@@ -5119,6 +5119,15 @@ test reduceAddOptimized {
     try test_reduce_add_optimized.testFloatVectors();
 }
 
+inline fn reduceMulOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    @setFloatMode(.optimized);
+    return @reduce(.Mul, rhs);
+}
+test reduceMulOptimized {
+    const test_reduce_mul_optimized = unary(reduceMulOptimized, .{ .compare = .approx_or_overflow });
+    try test_reduce_mul_optimized.testFloatVectors();
+}
+
 inline fn splat(comptime Type: type, rhs: Type) Type {
     return @splat(rhs[0]);
 }
