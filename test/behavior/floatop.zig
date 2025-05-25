@@ -1737,3 +1737,31 @@ test "comptime calls are only memoized when float arguments are bit-for-bit equa
     try comptime testMemoization();
     try comptime testVectorMemoization(@Vector(4, f32));
 }
+
+test "result location forwarded through unary float builtins" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = struct {
+        var x: u32 = 10;
+    };
+
+    var y: f64 = 0.0;
+    y = @sqrt(@floatFromInt(S.x));
+    y = @sin(@floatFromInt(S.x));
+    y = @cos(@floatFromInt(S.x));
+    y = @tan(@floatFromInt(S.x));
+    y = @exp(@floatFromInt(S.x));
+    y = @exp2(@floatFromInt(S.x));
+    y = @log(@floatFromInt(S.x));
+    y = @log2(@floatFromInt(S.x));
+    y = @log10(@floatFromInt(S.x));
+    y = @floor(@floatFromInt(S.x));
+    y = @ceil(@floatFromInt(S.x));
+    y = @trunc(@floatFromInt(S.x));
+    y = @round(@floatFromInt(S.x));
+}
