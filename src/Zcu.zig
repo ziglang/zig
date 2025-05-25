@@ -3693,7 +3693,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
     const target = zcu.getTarget();
 
     if (zcu.error_limit == 0) return 0;
-    if (target.cpu.arch == .spirv64) {
+    if (target.cpu.arch.isSpirV()) {
         if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
             return 32;
         }
