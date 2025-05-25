@@ -9870,7 +9870,12 @@ fn floatUnOp(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const result_type = try ri.rl.resultType(gz, node);
-    const operand_ri: ResultInfo.Loc = if (result_type) |rt| .{ .ty = rt } else .none;
+    const operand_ri: ResultInfo.Loc = if (result_type) |rt| .{
+        .ty = try gz.addExtendedPayload(.float_op_result_ty, Zir.Inst.UnNode{
+            .node = gz.nodeIndexToRelative(node),
+            .operand = rt,
+        }),
+    } else .none;
     const operand = try expr(gz, scope, .{ .rl = operand_ri }, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, ri, result, node);
