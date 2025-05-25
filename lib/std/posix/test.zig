@@ -1184,10 +1184,9 @@ test "wait waits for all terminated processes" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
-    const flags = switch (builtin.os.tag) {
-        .linux => linux.W.NOHANG,
-        else => 0
-    };
+    const flags = if (@hasDecl(posix.W, "NOHANG"))
+        posix.W.NOHANG else
+        0;
 
     const pid1 = try posix.fork();
     if (pid1 == 0) posix.exit(0);
