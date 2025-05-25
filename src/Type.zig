@@ -3797,6 +3797,11 @@ fn resolveStructInner(
         return error.AnalysisFail;
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
+    }
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3849,6 +3854,11 @@ fn resolveUnionInner(
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);

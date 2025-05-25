@@ -308,7 +308,55 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 
+incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
+    if (build_options.enable_debug_extensions) .init else {},
+
 generation: u32 = 0,
+
+pub const IncrementalDebugState = struct {
+    /// All container types in the ZCU, even dead ones.
+    /// Value is the generation the type was created on.
+    types: std.AutoArrayHashMapUnmanaged(InternPool.Index, u32),
+    /// All `Nav`s in the ZCU, even dead ones.
+    /// Value is the generation the `Nav` was created on.
+    navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, u32),
+    /// All `AnalUnit`s in the ZCU, even dead ones.
+    units: std.AutoArrayHashMapUnmanaged(AnalUnit, UnitInfo),
+
+    pub const init: IncrementalDebugState = .{
+        .types = .empty,
+        .navs = .empty,
+        .units = .empty,
+    };
+    pub fn deinit(ids: *IncrementalDebugState, gpa: Allocator) void {
+        for (ids.units.values()) |*unit_info| {
+            unit_info.deps.deinit(gpa);
+        }
+        ids.types.deinit(gpa);
+        ids.navs.deinit(gpa);
+        ids.units.deinit(gpa);
+    }
+
+    pub const UnitInfo = struct {
+        last_update_gen: u32,
+        /// This information isn't easily recoverable from `InternPool`'s dependency storage format.
+        deps: std.ArrayListUnmanaged(InternPool.Dependee),
+    };
+    pub fn getUnitInfo(ids: *IncrementalDebugState, gpa: Allocator, unit: AnalUnit) Allocator.Error!*UnitInfo {
+        const gop = try ids.units.getOrPut(gpa, unit);
+        if (!gop.found_existing) gop.value_ptr.* = .{
+            .last_update_gen = std.math.maxInt(u32),
+            .deps = .empty,
+        };
+        return gop.value_ptr;
+    }
+    pub fn newType(ids: *IncrementalDebugState, zcu: *Zcu, ty: InternPool.Index) Allocator.Error!void {
+        try ids.types.putNoClobber(zcu.gpa, ty, zcu.generation);
+    }
+    pub fn newNav(ids: *IncrementalDebugState, zcu: *Zcu, nav: InternPool.Nav.Index) Allocator.Error!void {
+        try ids.navs.putNoClobber(zcu.gpa, nav, zcu.generation);
+    }
+};
 
 pub const PerThread = @import("Zcu/PerThread.zig");
 
@@ -2746,6 +2794,10 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.free_type_references.deinit(gpa);
 
         if (zcu.resolved_references) |*r| r.deinit(gpa);
+
+        if (zcu.comp.debugIncremental()) {
+            zcu.incremental_debug_state.deinit(gpa);
+        }
     }
     zcu.intern_pool.deinit(gpa);
 }
