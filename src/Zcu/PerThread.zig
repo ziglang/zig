@@ -1022,6 +1022,35 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         }
     }
 
+    // If there isn't a type annotation, then we have also just resolved the type. That means the
+    // the type is up-to-date, so it won't have the chance to mark its own dependency on the value;
+    // we must do that ourselves.
+    type_deps_on_val: {
+        const inst_resolved = nav.analysis.?.zir_index.resolveFull(ip) orelse break :type_deps_on_val;
+        const file = zcu.fileByIndex(inst_resolved.file);
+        const zir_decl = file.zir.?.getDeclaration(inst_resolved.inst);
+        if (zir_decl.type_body != null) break :type_deps_on_val;
+        // The type does indeed depend on the value. We are responsible for populating all state of
+        // the `nav_ty`, including exports, references, errors, and dependencies.
+        const ty_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
+        const ty_was_outdated = zcu.outdated.swapRemove(ty_unit) or
+            zcu.potentially_outdated.swapRemove(ty_unit);
+        if (ty_was_outdated) {
+            _ = zcu.outdated_ready.swapRemove(ty_unit);
+            zcu.deleteUnitExports(ty_unit);
+            zcu.deleteUnitReferences(ty_unit);
+            zcu.deleteUnitCompileLogs(ty_unit);
+            if (zcu.failed_analysis.fetchSwapRemove(ty_unit)) |kv| {
+                kv.value.destroy(gpa);
+            }
+            _ = zcu.transitive_failed_analysis.swapRemove(ty_unit);
+            ip.removeDependenciesForDepender(gpa, ty_unit);
+        }
+        try pt.addDependency(ty_unit, .{ .nav_val = nav_id });
+        if (new_failed) try zcu.transitive_failed_analysis.put(gpa, ty_unit, {});
+        if (ty_was_outdated) try zcu.markDependeeOutdated(.marked_po, .{ .nav_ty = nav_id });
+    }
+
     if (new_failed) return error.AnalysisFail;
 }
 
@@ -1266,14 +1295,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     // Mark the unit as completed before evaluating the export!
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
-    if (zir_decl.type_body == null) {
-        // In this situation, it's possible that we were triggered by `analyzeNavType` up the stack. In that
-        // case, we must also signal that the *type* is now populated to make this export behave correctly.
-        // An alternative strategy would be to just put something on the job queue to perform the export, but
-        // this is a little more straightforward, if perhaps less elegant.
-        _ = zcu.analysis_in_progress.swapRemove(.wrap(.{ .nav_ty = nav_id }));
-    }
-
     if (zir_decl.linkage == .@"export") {
         const export_src = block.src(.{ .token_offset = @enumFromInt(@intFromBool(zir_decl.is_pub)) });
         const name_slice = zir.nullTerminatedString(zir_decl.name);
@@ -1313,6 +1334,18 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
     const nav = ip.getNav(nav_id);
 
     log.debug("ensureNavTypeUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+
+    const type_resolved_by_value: bool = from_val: {
+        const analysis = nav.analysis orelse break :from_val false;
+        const inst_resolved = analysis.zir_index.resolveFull(ip) orelse break :from_val false;
+        const file = zcu.fileByIndex(inst_resolved.file);
+        const zir_decl = file.zir.?.getDeclaration(inst_resolved.inst);
+        break :from_val zir_decl.type_body == null;
+    };
+    if (type_resolved_by_value) {
+        // Logic at the end of `ensureNavValUpToDate` is directly responsible for populating our state.
+        return pt.ensureNavValUpToDate(nav_id);
+    }
 
     // Determine whether or not this `Nav`'s type is outdated. This also includes checking if the
     // status is `.unresolved`, which indicates that the value is outdated because it has *never*
@@ -1421,6 +1454,10 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     try zcu.analysis_in_progress.put(gpa, anal_unit, {});
     defer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
+    const zir_decl = zir.getDeclaration(inst_resolved.inst);
+    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
+    const type_body = zir_decl.type_body.?;
+
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
@@ -1460,32 +1497,12 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     };
     defer block.instructions.deinit(gpa);
 
-    const zir_decl = zir.getDeclaration(inst_resolved.inst);
-    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
-
     const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
 
     block.comptime_reason = .{ .reason = .{
         .src = ty_src,
         .r = .{ .simple = .type },
     } };
-
-    const type_body = zir_decl.type_body orelse {
-        // The type of this `Nav` is inferred from the value.
-        // In other words, this `nav_ty` depends on the corresponding `nav_val`.
-        try sema.declareDependency(.{ .nav_val = nav_id });
-        try pt.ensureNavValUpToDate(nav_id);
-        // Note that the above call, if it did any work, has removed our `analysis_in_progress` entry for us.
-        // (Our `defer` will run anyway, but it does nothing in this case.)
-
-        // There's not a great way for us to know whether the type actually changed.
-        // For instance, perhaps the `nav_val` was already up-to-date, but this `nav_ty` is being
-        // analyzed because this declaration had a type annotation on the *previous* update.
-        // However, such cases are rare, and it's not unreasonable to re-analyze in them; and in
-        // other cases where we get here, it's because the `nav_val` was already re-analyzed and
-        // is outdated.
-        return .{ .type_changed = true };
-    };
 
     const resolved_ty: Type = ty: {
         const uncoerced_type_ref = try sema.resolveInlineBody(&block, type_body, inst_resolved.inst);
