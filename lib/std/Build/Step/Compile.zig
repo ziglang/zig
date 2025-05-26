@@ -1827,7 +1827,26 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
+        if (b.cache_root.handle.access(args_file, .{})) |_| {
+            // The args file is already present from a previous run.
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                try b.cache_root.handle.makePath("tmp");
+                const rand_int = std.crypto.random.int(u64);
+                const tmp_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+                try b.cache_root.handle.writeFile(.{ .sub_path = tmp_path, .data = args });
+                defer b.cache_root.handle.deleteFile(tmp_path) catch {
+                    // It's fine if the temporary file can't be cleaned up.
+                };
+                b.cache_root.handle.rename(tmp_path, args_file) catch |rename_err| switch (rename_err) {
+                    error.PathAlreadyExists => {
+                        // The args file was created by another concurrent build process.
+                    },
+                    else => |other_err| return other_err,
+                };
+            },
+            else => |other_err| return other_err,
+        }
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
