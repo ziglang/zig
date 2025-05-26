@@ -5015,6 +5015,8 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
+                .tlv_dllimport_ptr => try self.airTlvDllimportPtr(inst),
+
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
                 .dbg_stmt => try self.airDbgStmt(inst),
@@ -8110,6 +8112,13 @@ pub const FuncGen = struct {
         const new_vector = try self.wip.insertElement(loaded, operand, index, "");
         _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
         return .none;
+    }
+
+    fn airTlvDllimportPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
+        const ty_nav = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+        const llvm_ptr_const = try o.lowerNavRefValue(ty_nav.nav);
+        return llvm_ptr_const.toValue();
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

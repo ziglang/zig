@@ -1325,21 +1325,6 @@ pub fn isLazySize(val: Value, zcu: *Zcu) bool {
     };
 }
 
-pub fn isPtrRuntimeValue(val: Value, zcu: *Zcu) bool {
-    const ip = &zcu.intern_pool;
-    const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
-    const nav_val = switch (ip.getNav(nav).status) {
-        .unresolved => unreachable,
-        .type_resolved => |r| return r.is_threadlocal,
-        .fully_resolved => |r| r.val,
-    };
-    return switch (ip.indexToKey(nav_val)) {
-        .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
-        .variable => |v| v.is_threadlocal,
-        else => false,
-    };
-}
-
 // Asserts that the provided start/end are in-bounds.
 pub fn sliceArray(
     val: Value,

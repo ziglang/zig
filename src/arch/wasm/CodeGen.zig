@@ -2050,6 +2050,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .error_set_has_value => cg.airErrorSetHasValue(inst),
         .frame_addr => cg.airFrameAddress(inst),
 
+        .tlv_dllimport_ptr => cg.airTlvDllimportPtr(inst),
+
         .assembly,
         .is_err_ptr,
         .is_non_err_ptr,
@@ -7549,6 +7551,19 @@ fn airFrameAddress(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
     try cg.emitWValue(cg.bottom_stack_value);
     return cg.finishAir(inst, .stack, &.{});
+}
+
+fn airTlvDllimportPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_nav = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const mod = cg.pt.zcu.navFileScope(cg.owner_nav).mod.?;
+    if (mod.single_threaded) {
+        const result: WValue = .{ .nav_ref = .{
+            .nav_index = ty_nav.nav,
+            .offset = 0,
+        } };
+        return cg.finishAir(inst, result, &.{});
+    }
+    return cg.fail("TODO: thread-local variables", .{});
 }
 
 fn typeOf(cg: *CodeGen, inst: Air.Inst.Ref) Type {

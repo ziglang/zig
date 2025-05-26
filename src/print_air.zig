@@ -320,6 +320,7 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
+            .tlv_dllimport_ptr => try w.writeTlvDllimportPtr(s, inst),
 
             .work_item_id,
             .work_group_size,
@@ -550,6 +551,13 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, extra.rhs);
+    }
+
+    fn writeTlvDllimportPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ip = &w.pt.zcu.intern_pool;
+        const ty_nav = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+        try w.writeType(s, .fromInterned(ty_nav.ty));
+        try s.print(", '{}'", .{ip.getNav(ty_nav.nav).fqn.fmt(ip)});
     }
 
     fn writeAtomicLoad(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

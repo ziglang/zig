@@ -1530,6 +1530,12 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
 }
 
 fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
+    // For backends that cannot handle the language features used by this segfault handler, we have a simpler one,
+    switch (builtin.zig_backend) {
+        .stage2_x86_64 => if (builtin.target.ofmt == .coff) @trap(),
+        else => {},
+    }
+
     comptime assert(windows.CONTEXT != void);
     nosuspend switch (panic_stage) {
         0 => {
