@@ -2287,19 +2287,6 @@ fn resolveValueResolveLazy(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value 
     return try sema.resolveLazyValue((try sema.resolveValue(inst)) orelse return null);
 }
 
-/// Like `resolveValue`, but any pointer value which does not correspond
-/// to a comptime-known integer (e.g. a decl pointer) returns `null`.
-/// Lazy values are recursively resolved.
-fn resolveValueIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveValue(inst)) orelse return null;
-    if (sema.pt.zcu.intern_pool.getBackingAddrTag(val.toIntern())) |addr| switch (addr) {
-        .nav, .uav, .comptime_alloc, .comptime_field => return null,
-        .int => {},
-        .eu_payload, .opt_payload, .arr_elem, .field => unreachable,
-    };
-    return try sema.resolveLazyValue(val);
-}
-
 /// Value Tag may be `undef` or `variable`.
 pub fn resolveFinalDeclValue(
     sema: *Sema,
@@ -10144,14 +10131,19 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
     const len = if (is_vector) operand_ty.vectorLen(zcu) else undefined;
     const dest_ty: Type = if (is_vector) try pt.vectorType(.{ .child = .usize_type, .len = len }) else .usize;
-    if (try sema.resolveValueIntable(operand)) |operand_val| ct: {
+
+    if (try sema.resolveValue(operand)) |operand_val| ct: {
         if (!is_vector) {
             if (operand_val.isUndef(zcu)) {
                 return Air.internedToRef((try pt.undefValue(Type.usize)).toIntern());
             }
+            const addr = try operand_val.getUnsignedIntSema(pt) orelse {
+                // Wasn't an integer pointer. This is a runtime operation.
+                break :ct;
+            };
             return Air.internedToRef((try pt.intValue(
                 Type.usize,
-                (try operand_val.toUnsignedIntSema(pt)),
+                addr,
             )).toIntern());
         }
         const new_elems = try sema.arena.alloc(InternPool.Index, len);
