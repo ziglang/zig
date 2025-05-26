@@ -1180,11 +1180,30 @@ test "POSIX file locking with fcntl" {
     }
 }
 
+test "waitpid waits for the designated process" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+
+    const pid1 = try posix.fork();
+    if (pid1 == 0) posix.exit(0);
+
+    try expect(posix.waitpid(pid1, 0).pid == pid1);
+
+    const pid2 = try posix.fork();
+    const pid3 = try posix.fork();
+    if (pid2 == 0) posix.exit(0);
+    if (pid3 == 0) posix.exit(0);
+
+    // out of order:
+    try expect(posix.waitpid(pid3, 0).pid == pid3);
+    try expect(posix.waitpid(pid2, 0).pid == pid2);
+}
+
 test "wait waits for all terminated processes" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
-    const flags = if (@hasDecl(posix.W, "NOHANG"))
+    const nohang = if (@hasDecl(posix.W, "NOHANG"))
         posix.W.NOHANG else
         0;
 
@@ -1194,9 +1213,9 @@ test "wait waits for all terminated processes" {
     const pid2 = try posix.fork();
     if (pid2 == 0) posix.exit(0);
 
-    try expect(posix.wait(flags) != null);
-    try expect(posix.wait(flags) != null);
-    try expect(posix.wait(flags) == null);
+    try expect(posix.wait(0) != null);
+    try expect(posix.wait(0) != null);
+    try expect(posix.wait(nohang) == null);
 }
 
 test "rename smoke test" {
