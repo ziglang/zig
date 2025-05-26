@@ -719,6 +719,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
             .vector_store_elem => @panic("TODO implement vector_store_elem"),
+            .tlv_dllimport_ptr => @panic("TODO implement tlv_dllimport_ptr"),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
@@ -4088,7 +4089,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .lea_symbol, .lea_direct => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

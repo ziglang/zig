@@ -12036,30 +12036,6 @@ pub fn isVariable(ip: *const InternPool, val: Index) bool {
     return val.unwrap(ip).getTag(ip) == .variable;
 }
 
-pub fn getBackingNav(ip: *const InternPool, val: Index) Nav.Index.Optional {
-    var base = val;
-    while (true) {
-        const unwrapped_base = base.unwrap(ip);
-        const base_item = unwrapped_base.getItem(ip);
-        switch (base_item.tag) {
-            .ptr_nav => return @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrNav, "nav").?
-            ]),
-            inline .ptr_eu_payload,
-            .ptr_opt_payload,
-            .ptr_elem,
-            .ptr_field,
-            => |tag| base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(tag.Payload(), "base").?
-            ]),
-            .ptr_slice => base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrSlice, "ptr").?
-            ]),
-            else => return .none,
-        }
-    }
-}
-
 pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Tag {
     var base = val;
     while (true) {

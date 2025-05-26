@@ -876,6 +876,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
             .vector_store_elem => return self.fail("TODO implement vector_store_elem", .{}),
+            .tlv_dllimport_ptr => return self.fail("TODO implement tlv_dllimport_ptr", .{}),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
@@ -6168,7 +6169,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_symbol, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
+            .load_symbol, .lea_symbol, .lea_direct => unreachable, // TODO
         },
         .fail => |msg| return self.failMsg(msg),
     };
