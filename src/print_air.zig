@@ -315,7 +315,8 @@ const Writer = struct {
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
             .mul_add => try w.writeMulAdd(s, inst),
             .select => try w.writeSelect(s, inst),
-            .shuffle => try w.writeShuffle(s, inst),
+            .shuffle_one => try w.writeShuffleOne(s, inst),
+            .shuffle_two => try w.writeShuffleTwo(s, inst),
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
@@ -499,14 +500,39 @@ const Writer = struct {
         try w.writeOperand(s, inst, 2, pl_op.operand);
     }
 
-    fn writeShuffle(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = w.air.extraData(Air.Shuffle, ty_pl.payload).data;
-
-        try w.writeOperand(s, inst, 0, extra.a);
+    fn writeShuffleOne(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const unwrapped = w.air.unwrapShuffleOne(w.pt.zcu, inst);
+        try w.writeType(s, unwrapped.result_ty);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.b);
-        try s.print(", mask {d}, len {d}", .{ extra.mask, extra.mask_len });
+        try w.writeOperand(s, inst, 0, unwrapped.operand);
+        try s.writeAll(", [");
+        for (unwrapped.mask, 0..) |mask_elem, mask_idx| {
+            if (mask_idx > 0) try s.writeAll(", ");
+            switch (mask_elem.unwrap()) {
+                .elem => |idx| try s.print("elem {d}", .{idx}),
+                .value => |val| try s.print("val {}", .{Value.fromInterned(val).fmtValue(w.pt)}),
+            }
+        }
+        try s.writeByte(']');
+    }
+
+    fn writeShuffleTwo(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const unwrapped = w.air.unwrapShuffleTwo(w.pt.zcu, inst);
+        try w.writeType(s, unwrapped.result_ty);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 0, unwrapped.operand_a);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, unwrapped.operand_b);
+        try s.writeAll(", [");
+        for (unwrapped.mask, 0..) |mask_elem, mask_idx| {
+            if (mask_idx > 0) try s.writeAll(", ");
+            switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try s.print("a_elem {d}", .{idx}),
+                .b_elem => |idx| try s.print("b_elem {d}", .{idx}),
+                .undef => try s.writeAll("undef"),
+            }
+        }
+        try s.writeByte(']');
     }
 
     fn writeSelect(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

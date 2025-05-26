@@ -1,6 +1,7 @@
 //! Verifies that Liveness information is valid.
 
 gpa: std.mem.Allocator,
+zcu: *Zcu,
 air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
@@ -287,10 +288,13 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, .none });
             },
-            .shuffle => {
-                const ty_pl = data[@intFromEnum(inst)].ty_pl;
-                const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-                try self.verifyInstOperands(inst, .{ extra.a, extra.b, .none });
+            .shuffle_one => {
+                const unwrapped = self.air.unwrapShuffleOne(self.zcu, inst);
+                try self.verifyInstOperands(inst, .{ unwrapped.operand, .none, .none });
+            },
+            .shuffle_two => {
+                const unwrapped = self.air.unwrapShuffleTwo(self.zcu, inst);
+                try self.verifyInstOperands(inst, .{ unwrapped.operand_a, unwrapped.operand_b, .none });
             },
             .cmp_vector,
             .cmp_vector_optimized,
@@ -639,4 +643,5 @@ const log = std.log.scoped(.liveness_verify);
 const Air = @import("../../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../../InternPool.zig");
+const Zcu = @import("../../Zcu.zig");
 const Verify = @This();

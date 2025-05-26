@@ -1745,7 +1745,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
         try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
     }
 
-    var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
+    var liveness = try Air.Liveness.analyze(zcu, air.*, ip);
     defer liveness.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
@@ -1757,6 +1757,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
     if (std.debug.runtime_safety) {
         var verify: Air.Liveness.Verify = .{
             .gpa = gpa,
+            .zcu = zcu,
             .air = air.*,
             .liveness = liveness,
             .intern_pool = ip,

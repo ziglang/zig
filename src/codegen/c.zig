@@ -3374,7 +3374,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
             .select           => try airSelect(f, inst),
-            .shuffle          => try airShuffle(f, inst),
+            .shuffle_one      => try airShuffleOne(f, inst),
+            .shuffle_two      => try airShuffleTwo(f, inst),
             .reduce           => try airReduce(f, inst),
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
@@ -7163,34 +7164,73 @@ fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airShuffleOne(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    const mask = Value.fromInterned(extra.mask);
-    const lhs = try f.resolveInst(extra.a);
-    const rhs = try f.resolveInst(extra.b);
-
-    const inst_ty = f.typeOfIndex(inst);
+    const unwrapped = f.air.unwrapShuffleOne(zcu, inst);
+    const mask = unwrapped.mask;
+    const operand = try f.resolveInst(unwrapped.operand);
+    const inst_ty = unwrapped.result_ty;
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try reap(f, inst, &.{ extra.a, extra.b }); // local cannot alias operands
-    for (0..extra.mask_len) |index| {
+    try reap(f, inst, &.{unwrapped.operand}); // local cannot alias operand
+    for (mask, 0..) |mask_elem, out_idx| {
         try f.writeCValue(writer, local, .Other);
         try writer.writeByte('[');
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, index), .Other);
+        try f.object.dg.renderValue(writer, try pt.intValue(.usize, out_idx), .Other);
         try writer.writeAll("] = ");
+        switch (mask_elem.unwrap()) {
+            .elem => |src_idx| {
+                try f.writeCValue(writer, operand, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .value => |val| try f.object.dg.renderValue(writer, .fromInterned(val), .Other),
+        }
+        try writer.writeAll(";\n");
+    }
 
-        const mask_elem = (try mask.elemValue(pt, index)).toSignedInt(zcu);
-        const src_val = try pt.intValue(.usize, @as(u64, @intCast(mask_elem ^ mask_elem >> 63)));
+    return local;
+}
 
-        try f.writeCValue(writer, if (mask_elem >= 0) lhs else rhs, .Other);
+fn airShuffleTwo(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pt = f.object.dg.pt;
+    const zcu = pt.zcu;
+
+    const unwrapped = f.air.unwrapShuffleTwo(zcu, inst);
+    const mask = unwrapped.mask;
+    const operand_a = try f.resolveInst(unwrapped.operand_a);
+    const operand_b = try f.resolveInst(unwrapped.operand_b);
+    const inst_ty = unwrapped.result_ty;
+    const elem_ty = inst_ty.childType(zcu);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try reap(f, inst, &.{ unwrapped.operand_a, unwrapped.operand_b }); // local cannot alias operands
+    for (mask, 0..) |mask_elem, out_idx| {
+        try f.writeCValue(writer, local, .Other);
         try writer.writeByte('[');
-        try f.object.dg.renderValue(writer, src_val, .Other);
-        try writer.writeAll("];\n");
+        try f.object.dg.renderValue(writer, try pt.intValue(.usize, out_idx), .Other);
+        try writer.writeAll("] = ");
+        switch (mask_elem.unwrap()) {
+            .a_elem => |src_idx| {
+                try f.writeCValue(writer, operand_a, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .b_elem => |src_idx| {
+                try f.writeCValue(writer, operand_b, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .undef => try f.object.dg.renderUndefValue(writer, elem_ty, .Other),
+        }
+        try writer.writeAll(";\n");
     }
 
     return local;

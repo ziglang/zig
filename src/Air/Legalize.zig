@@ -521,7 +521,8 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .splat,
-            .shuffle,
+            .shuffle_one,
+            .shuffle_two,
             => {},
             .select,
             => if (l.features.contains(.scalarize_select)) continue :inst try l.scalarize(inst, .select_pl_op_bin),

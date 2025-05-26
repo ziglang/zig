@@ -1586,7 +1586,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try func.airErrorName(inst),
             .splat           => try func.airSplat(inst),
             .select          => try func.airSelect(inst),
-            .shuffle         => try func.airShuffle(inst),
+            .shuffle_one     => try func.airShuffleOne(inst),
+            .shuffle_two     => try func.airShuffleTwo(inst),
             .reduce          => try func.airReduce(inst),
             .aggregate_init  => try func.airAggregateInit(inst),
             .union_init      => try func.airUnionInit(inst),
@@ -8030,10 +8031,14 @@ fn airSelect(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShuffle for riscv64", .{});
-    return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+fn airShuffleOne(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleOne for riscv64", .{});
+}
+
+fn airShuffleTwo(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleTwo for riscv64", .{});
 }
 
 fn airReduce(func: *Func, inst: Air.Inst.Index) !void {

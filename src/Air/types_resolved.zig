@@ -249,12 +249,22 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(extra.struct_operand, zcu)) return false;
             },
 
-            .shuffle => {
-                const extra = air.extraData(Air.Shuffle, data.ty_pl.payload).data;
-                if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
-                if (!checkRef(extra.a, zcu)) return false;
-                if (!checkRef(extra.b, zcu)) return false;
-                if (!checkVal(Value.fromInterned(extra.mask), zcu)) return false;
+            .shuffle_one => {
+                const unwrapped = air.unwrapShuffleOne(zcu, inst);
+                if (!checkType(unwrapped.result_ty, zcu)) return false;
+                if (!checkRef(unwrapped.operand, zcu)) return false;
+                for (unwrapped.mask) |m| switch (m.unwrap()) {
+                    .elem => {},
+                    .value => |val| if (!checkVal(.fromInterned(val), zcu)) return false,
+                };
+            },
+
+            .shuffle_two => {
+                const unwrapped = air.unwrapShuffleTwo(zcu, inst);
+                if (!checkType(unwrapped.result_ty, zcu)) return false;
+                if (!checkRef(unwrapped.operand_a, zcu)) return false;
+                if (!checkRef(unwrapped.operand_b, zcu)) return false;
+                // No values to check because there are no comptime-known values other than undef
             },
 
             .cmpxchg_weak,

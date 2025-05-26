@@ -778,7 +778,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => try self.airSelect(inst),
-            .shuffle         => try self.airShuffle(inst),
+            .shuffle_one     => try self.airShuffleOne(inst),
+            .shuffle_two     => try self.airShuffleTwo(inst),
             .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
@@ -6049,11 +6050,14 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) InnerError!void {
     return self.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(self: *Self, inst: Air.Inst.Index) InnerError!void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airShuffle for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
+fn airShuffleOne(self: *Self, inst: Air.Inst.Index) InnerError!void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleOne for {}", .{self.target.cpu.arch});
+}
+
+fn airShuffleTwo(self: *Self, inst: Air.Inst.Index) InnerError!void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleTwo for {}", .{self.target.cpu.arch});
 }
 
 fn airReduce(self: *Self, inst: Air.Inst.Index) InnerError!void {

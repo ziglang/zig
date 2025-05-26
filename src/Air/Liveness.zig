@@ -15,6 +15,7 @@ const Liveness = @This();
 const trace = @import("../tracy.zig").trace;
 const Air = @import("../Air.zig");
 const InternPool = @import("../InternPool.zig");
+const Zcu = @import("../Zcu.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
 
@@ -136,12 +137,15 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     };
 }
 
-pub fn analyze(gpa: Allocator, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
+pub fn analyze(zcu: *Zcu, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = zcu.gpa;
+
     var a: Analysis = .{
         .gpa = gpa,
+        .zcu = zcu,
         .air = air,
         .tomb_bits = try gpa.alloc(
             usize,
@@ -220,6 +224,7 @@ const OperandCategory = enum {
 pub fn categorizeOperand(
     l: Liveness,
     air: Air,
+    zcu: *Zcu,
     inst: Air.Inst.Index,
     operand: Air.Inst.Index,
     ip: *const InternPool,
@@ -511,10 +516,15 @@ pub fn categorizeOperand(
             if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
             return .none;
         },
-        .shuffle => {
-            const extra = air.extraData(Air.Shuffle, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+        .shuffle_one => {
+            const unwrapped = air.unwrapShuffleOne(zcu, inst);
+            if (unwrapped.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .shuffle_two => {
+            const unwrapped = air.unwrapShuffleTwo(zcu, inst);
+            if (unwrapped.operand_a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (unwrapped.operand_b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
             return .none;
         },
         .reduce, .reduce_optimized => {
@@ -639,7 +649,7 @@ pub fn categorizeOperand(
 
                 var operand_live: bool = true;
                 for (&[_]Air.Inst.Index{ then_body[0], else_body[0] }) |cond_inst| {
-                    if (l.categorizeOperand(air, cond_inst, operand, ip) == .tomb)
+                    if (l.categorizeOperand(air, zcu, cond_inst, operand, ip) == .tomb)
                         operand_live = false;
 
                     switch (air_tags[@intFromEnum(cond_inst)]) {
@@ -824,6 +834,7 @@ pub const BigTomb = struct {
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
     gpa: Allocator,
+    zcu: *Zcu,
     air: Air,
     intern_pool: *InternPool,
     tomb_bits: []usize,
@@ -1119,9 +1130,13 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, extra.lhs, extra.rhs });
         },
-        .shuffle => {
-            const extra = a.air.extraData(Air.Shuffle, inst_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            return analyzeOperands(a, pass, data, inst, .{ extra.a, extra.b, .none });
+        .shuffle_one => {
+            const unwrapped = a.air.unwrapShuffleOne(a.zcu, inst);
+            return analyzeOperands(a, pass, data, inst, .{ unwrapped.operand, .none, .none });
+        },
+        .shuffle_two => {
+            const unwrapped = a.air.unwrapShuffleTwo(a.zcu, inst);
+            return analyzeOperands(a, pass, data, inst, .{ unwrapped.operand_a, unwrapped.operand_b, .none });
         },
         .reduce, .reduce_optimized => {
             const reduce = inst_datas[@intFromEnum(inst)].reduce;

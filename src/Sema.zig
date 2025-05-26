@@ -24256,8 +24256,8 @@ fn analyzeShuffle(
     block: *Block,
     src_node: std.zig.Ast.Node.Offset,
     elem_ty: Type,
-    a_arg: Air.Inst.Ref,
-    b_arg: Air.Inst.Ref,
+    a_uncoerced: Air.Inst.Ref,
+    b_uncoerced: Air.Inst.Ref,
     mask: Value,
     mask_len: u32,
 ) CompileError!Air.Inst.Ref {
@@ -24266,150 +24266,154 @@ fn analyzeShuffle(
     const a_src = block.builtinCallArgSrc(src_node, 1);
     const b_src = block.builtinCallArgSrc(src_node, 2);
     const mask_src = block.builtinCallArgSrc(src_node, 3);
-    var a = a_arg;
-    var b = b_arg;
 
-    const res_ty = try pt.vectorType(.{
-        .len = mask_len,
-        .child = elem_ty.toIntern(),
-    });
-
-    const maybe_a_len = switch (sema.typeOf(a).zigTypeTag(zcu)) {
-        .array, .vector => sema.typeOf(a).arrayLen(zcu),
-        .undefined => null,
-        else => return sema.fail(block, a_src, "expected vector or array with element type '{}', found '{}'", .{
-            elem_ty.fmt(pt),
-            sema.typeOf(a).fmt(pt),
-        }),
+    // If the type of `a` is `@Type(.undefined)`, i.e. the argument is untyped, this is 0, because it is an error to index into this vector.
+    const a_len: u32 = switch (sema.typeOf(a_uncoerced).zigTypeTag(zcu)) {
+        .array, .vector => @intCast(sema.typeOf(a_uncoerced).arrayLen(zcu)),
+        .undefined => 0,
+        else => return sema.fail(block, a_src, "expected vector of '{}', found '{}'", .{ elem_ty.fmt(pt), sema.typeOf(a_uncoerced).fmt(pt) }),
     };
-    const maybe_b_len = switch (sema.typeOf(b).zigTypeTag(zcu)) {
-        .array, .vector => sema.typeOf(b).arrayLen(zcu),
-        .undefined => null,
-        else => return sema.fail(block, b_src, "expected vector or array with element type '{}', found '{}'", .{
-            elem_ty.fmt(pt),
-            sema.typeOf(b).fmt(pt),
-        }),
+    const a_ty = try pt.vectorType(.{ .len = a_len, .child = elem_ty.toIntern() });
+    const a_coerced = try sema.coerce(block, a_ty, a_uncoerced, a_src);
+
+    // If the type of `b` is `@Type(.undefined)`, i.e. the argument is untyped, this is 0, because it is an error to index into this vector.
+    const b_len: u32 = switch (sema.typeOf(b_uncoerced).zigTypeTag(zcu)) {
+        .array, .vector => @intCast(sema.typeOf(b_uncoerced).arrayLen(zcu)),
+        .undefined => 0,
+        else => return sema.fail(block, b_src, "expected vector of '{}', found '{}'", .{ elem_ty.fmt(pt), sema.typeOf(b_uncoerced).fmt(pt) }),
     };
-    if (maybe_a_len == null and maybe_b_len == null) {
-        return pt.undefRef(res_ty);
-    }
-    const a_len: u32 = @intCast(maybe_a_len orelse maybe_b_len.?);
-    const b_len: u32 = @intCast(maybe_b_len orelse a_len);
+    const b_ty = try pt.vectorType(.{ .len = b_len, .child = elem_ty.toIntern() });
+    const b_coerced = try sema.coerce(block, b_ty, b_uncoerced, b_src);
 
-    const a_ty = try pt.vectorType(.{
-        .len = a_len,
-        .child = elem_ty.toIntern(),
-    });
-    const b_ty = try pt.vectorType(.{
-        .len = b_len,
-        .child = elem_ty.toIntern(),
-    });
+    const result_ty = try pt.vectorType(.{ .len = mask_len, .child = elem_ty.toIntern() });
 
-    if (maybe_a_len == null) a = try pt.undefRef(a_ty) else a = try sema.coerce(block, a_ty, a, a_src);
-    if (maybe_b_len == null) b = try pt.undefRef(b_ty) else b = try sema.coerce(block, b_ty, b, b_src);
+    // We're going to pre-emptively reserve space in `sema.air_extra`. The reason for this is we need
+    // a `u32` buffer of length `mask_len` anyway, and putting it in `sema.air_extra` avoids a copy
+    // in the runtime case. If the result is comptime-known, we'll shrink `air_extra` back.
+    const air_extra_idx: u32 = @intCast(sema.air_extra.items.len);
+    const air_mask_buf = try sema.air_extra.addManyAsSlice(sema.gpa, mask_len);
 
-    const operand_info = [2]std.meta.Tuple(&.{ u64, LazySrcLoc, Type }){
-        .{ a_len, a_src, a_ty },
-        .{ b_len, b_src, b_ty },
-    };
+    // We want to interpret that buffer in `air_extra` in a few ways. Initially, we'll consider its
+    // elements as `Air.Inst.ShuffleTwoMask`, essentially representing the raw mask values; then, we'll
+    // convert it to `InternPool.Index` or `Air.Inst.ShuffleOneMask` if there are comptime-known operands.
+    const mask_ip_index: []InternPool.Index = @ptrCast(air_mask_buf);
+    const mask_shuffle_one: []Air.ShuffleOneMask = @ptrCast(air_mask_buf);
+    const mask_shuffle_two: []Air.ShuffleTwoMask = @ptrCast(air_mask_buf);
 
-    for (0..@intCast(mask_len)) |i| {
-        const elem = try mask.elemValue(pt, i);
-        if (elem.isUndef(zcu)) continue;
-        const elem_resolved = try sema.resolveLazyValue(elem);
-        const int = elem_resolved.toSignedInt(zcu);
-        var unsigned: u32 = undefined;
-        var chosen: u32 = undefined;
-        if (int >= 0) {
-            unsigned = @intCast(int);
-            chosen = 0;
-        } else {
-            unsigned = @intCast(~int);
-            chosen = 1;
+    // Initial loop: check mask elements, populate `mask_shuffle_two`.
+    var a_used = false;
+    var b_used = false;
+    for (mask_shuffle_two, 0..mask_len) |*out, mask_idx| {
+        const mask_val = try mask.elemValue(pt, mask_idx);
+        if (mask_val.isUndef(zcu)) {
+            out.* = .undef;
+            continue;
         }
-        if (unsigned >= operand_info[chosen][0]) {
-            const msg = msg: {
-                const msg = try sema.errMsg(mask_src, "mask index '{d}' has out-of-bounds selection", .{i});
+        // Safe because mask elements are `i32` and we already checked for undef:
+        const raw = (try sema.resolveLazyValue(mask_val)).toSignedInt(zcu);
+        if (raw >= 0) {
+            const idx: u32 = @intCast(raw);
+            a_used = true;
+            out.* = .aElem(idx);
+            if (idx >= a_len) return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(mask_src, "mask element at index '{d}' selects out-of-bounds index", .{mask_idx});
                 errdefer msg.destroy(sema.gpa);
-
-                try sema.errNote(operand_info[chosen][1], msg, "selected index '{d}' out of bounds of '{}'", .{
-                    unsigned,
-                    operand_info[chosen][2].fmt(pt),
-                });
-
-                if (chosen == 0) {
-                    try sema.errNote(b_src, msg, "selections from the second vector are specified with negative numbers", .{});
+                try sema.errNote(a_src, msg, "index '{d}' exceeds bounds of '{}' given here", .{ idx, a_ty.fmt(pt) });
+                if (idx < b_len) {
+                    try sema.errNote(b_src, msg, "use '~@as(u32, {d})' to index into second vector given here", .{idx});
                 }
-
                 break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
-    }
-
-    if (try sema.resolveValue(a)) |a_val| {
-        if (try sema.resolveValue(b)) |b_val| {
-            const values = try sema.arena.alloc(InternPool.Index, mask_len);
-            for (values, 0..) |*value, i| {
-                const mask_elem_val = try mask.elemValue(pt, i);
-                if (mask_elem_val.isUndef(zcu)) {
-                    value.* = try pt.intern(.{ .undef = elem_ty.toIntern() });
-                    continue;
-                }
-                const int = mask_elem_val.toSignedInt(zcu);
-                const unsigned: u32 = @intCast(if (int >= 0) int else ~int);
-                values[i] = (try (if (int >= 0) a_val else b_val).elemValue(pt, unsigned)).toIntern();
-            }
-            return Air.internedToRef((try pt.intern(.{ .aggregate = .{
-                .ty = res_ty.toIntern(),
-                .storage = .{ .elems = values },
-            } })));
-        }
-    }
-
-    // All static analysis passed, and not comptime.
-    // For runtime codegen, vectors a and b must be the same length. Here we
-    // recursively @shuffle the smaller vector to append undefined elements
-    // to it up to the length of the longer vector. This recursion terminates
-    // in 1 call because these calls to analyzeShuffle guarantee a_len == b_len.
-    if (a_len != b_len) {
-        const min_len = @min(a_len, b_len);
-        const max_src = if (a_len > b_len) a_src else b_src;
-        const max_len = try sema.usizeCast(block, max_src, @max(a_len, b_len));
-
-        const expand_mask_values = try sema.arena.alloc(InternPool.Index, max_len);
-        for (@intCast(0)..@intCast(min_len)) |i| {
-            expand_mask_values[i] = (try pt.intValue(.comptime_int, i)).toIntern();
-        }
-        for (@intCast(min_len)..@intCast(max_len)) |i| {
-            expand_mask_values[i] = .negative_one;
-        }
-        const expand_mask = try pt.intern(.{ .aggregate = .{
-            .ty = (try pt.vectorType(.{ .len = @intCast(max_len), .child = .comptime_int_type })).toIntern(),
-            .storage = .{ .elems = expand_mask_values },
-        } });
-
-        if (a_len < b_len) {
-            const undef = try pt.undefRef(a_ty);
-            a = try sema.analyzeShuffle(block, src_node, elem_ty, a, undef, Value.fromInterned(expand_mask), @intCast(max_len));
+            });
         } else {
-            const undef = try pt.undefRef(b_ty);
-            b = try sema.analyzeShuffle(block, src_node, elem_ty, b, undef, Value.fromInterned(expand_mask), @intCast(max_len));
+            const idx: u32 = @intCast(~raw);
+            b_used = true;
+            out.* = .bElem(idx);
+            if (idx >= b_len) return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(mask_src, "mask element at index '{d}' selects out-of-bounds index", .{mask_idx});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(b_src, msg, "index '{d}' exceeds bounds of '{}' given here", .{ idx, b_ty.fmt(pt) });
+                break :msg msg;
+            });
         }
     }
 
-    return block.addInst(.{
-        .tag = .shuffle,
-        .data = .{ .ty_pl = .{
-            .ty = Air.internedToRef(res_ty.toIntern()),
-            .payload = try block.sema.addExtra(Air.Shuffle{
-                .a = a,
-                .b = b,
-                .mask = mask.toIntern(),
-                .mask_len = mask_len,
-            }),
-        } },
-    });
+    const maybe_a_val = try sema.resolveValue(a_coerced);
+    const maybe_b_val = try sema.resolveValue(b_coerced);
+
+    const a_rt = a_used and maybe_a_val == null;
+    const b_rt = b_used and maybe_b_val == null;
+
+    if (a_rt and b_rt) {
+        // Both operands are needed and runtime-known. We need a `[]ShuffleTwomask`... which is
+        // exactly what we already have in `mask_shuffle_two`! So, we're basically done already.
+        // We just need to append the two operands.
+        try sema.air_extra.ensureUnusedCapacity(sema.gpa, 2);
+        sema.appendRefsAssumeCapacity(&.{ a_coerced, b_coerced });
+        return block.addInst(.{
+            .tag = .shuffle_two,
+            .data = .{ .ty_pl = .{
+                .ty = Air.internedToRef(result_ty.toIntern()),
+                .payload = air_extra_idx,
+            } },
+        });
+    } else if (a_rt) {
+        // We need to convert the `ShuffleTwoMask` values to `ShuffleOneMask`.
+        for (mask_shuffle_two, mask_shuffle_one) |in, *out| {
+            out.* = switch (in.unwrap()) {
+                .undef => .value(try pt.undefValue(elem_ty)),
+                .a_elem => |idx| .elem(idx),
+                .b_elem => |idx| .value(try maybe_b_val.?.elemValue(pt, idx)),
+            };
+        }
+        // Now just append our single runtime operand, and we're done.
+        try sema.air_extra.ensureUnusedCapacity(sema.gpa, 1);
+        sema.appendRefsAssumeCapacity(&.{a_coerced});
+        return block.addInst(.{
+            .tag = .shuffle_one,
+            .data = .{ .ty_pl = .{
+                .ty = Air.internedToRef(result_ty.toIntern()),
+                .payload = air_extra_idx,
+            } },
+        });
+    } else if (b_rt) {
+        // We need to convert the `ShuffleTwoMask` values to `ShuffleOneMask`.
+        for (mask_shuffle_two, mask_shuffle_one) |in, *out| {
+            out.* = switch (in.unwrap()) {
+                .undef => .value(try pt.undefValue(elem_ty)),
+                .a_elem => |idx| .value(try maybe_a_val.?.elemValue(pt, idx)),
+                .b_elem => |idx| .elem(idx),
+            };
+        }
+        // Now just append our single runtime operand, and we're done.
+        try sema.air_extra.ensureUnusedCapacity(sema.gpa, 1);
+        sema.appendRefsAssumeCapacity(&.{b_coerced});
+        return block.addInst(.{
+            .tag = .shuffle_one,
+            .data = .{ .ty_pl = .{
+                .ty = Air.internedToRef(result_ty.toIntern()),
+                .payload = air_extra_idx,
+            } },
+        });
+    } else {
+        // The result will be comptime-known. We must convert the `ShuffleTwoMask` values to
+        // `InternPool.Index` values using the known operands.
+        for (mask_shuffle_two, mask_ip_index) |in, *out| {
+            const val: Value = switch (in.unwrap()) {
+                .undef => try pt.undefValue(elem_ty),
+                .a_elem => |idx| try maybe_a_val.?.elemValue(pt, idx),
+                .b_elem => |idx| try maybe_b_val.?.elemValue(pt, idx),
+            };
+            out.* = val.toIntern();
+        }
+        const res = try pt.intern(.{ .aggregate = .{
+            .ty = result_ty.toIntern(),
+            .storage = .{ .elems = mask_ip_index },
+        } });
+        // We have a comptime-known result, so didn't need `air_mask_buf` -- remove it from `sema.air_extra`.
+        assert(sema.air_extra.items.len == air_extra_idx + air_mask_buf.len);
+        sema.air_extra.shrinkRetainingCapacity(air_extra_idx);
+        return Air.internedToRef(res);
+    }
 }
 
 fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
