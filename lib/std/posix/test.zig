@@ -1204,7 +1204,8 @@ test "wait waits for all terminated processes" {
     if (native_os == .windows) return error.SkipZigTest;
 
     const nohang = if (@hasDecl(posix.W, "NOHANG"))
-        posix.W.NOHANG else
+        posix.W.NOHANG
+    else
         0;
 
     const pid1 = try posix.fork();

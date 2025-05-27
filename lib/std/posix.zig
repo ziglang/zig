@@ -4393,9 +4393,7 @@ pub const WaitPidResult = struct {
     status: u32,
 };
 
-const Rc = if (builtin.link_libc)
-    c_int else
-    u32;
+const Rc = if (builtin.link_libc) c_int else u32;
 
 /// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
 /// `fork` and `execve` method.
@@ -4424,7 +4422,8 @@ pub fn wait(flags: u32) ?WaitPidResult {
         const rc = system.waitpid(-1, &status, @intCast(flags));
         switch (errno(rc)) {
             .SUCCESS => return if (rc != 0)
-                .{ .pid = @intCast(rc), .status = @bitCast(status) } else
+                .{ .pid = @intCast(rc), .status = @bitCast(status) }
+            else
                 null,
             .INTR => continue,
             .CHILD => return null, // For WNOHANG, where waitpid() returns immediately if no process already terminated. Null without WNOHANG is impossible.
