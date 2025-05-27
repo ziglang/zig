@@ -4589,6 +4589,7 @@ pub const Index = enum(u32) {
     vector_8_i8_type,
     vector_16_i8_type,
     vector_32_i8_type,
+    vector_64_i8_type,
     vector_1_u8_type,
     vector_2_u8_type,
     vector_4_u8_type,
@@ -4596,20 +4597,27 @@ pub const Index = enum(u32) {
     vector_16_u8_type,
     vector_32_u8_type,
     vector_64_u8_type,
+    vector_2_i16_type,
     vector_4_i16_type,
     vector_8_i16_type,
     vector_16_i16_type,
+    vector_32_i16_type,
     vector_4_u16_type,
     vector_8_u16_type,
     vector_16_u16_type,
+    vector_32_u16_type,
     vector_4_i32_type,
     vector_8_i32_type,
+    vector_16_i32_type,
     vector_4_u32_type,
     vector_8_u32_type,
+    vector_16_u32_type,
     vector_2_i64_type,
     vector_4_i64_type,
+    vector_8_i64_type,
     vector_2_u64_type,
     vector_4_u64_type,
+    vector_8_u64_type,
     vector_1_u128_type,
     vector_2_u128_type,
     vector_1_u256_type,
@@ -4954,7 +4962,7 @@ pub const Index = enum(u32) {
     }
 };
 
-pub const static_keys = [_]Key{
+pub const static_keys: [static_len]Key = .{
     .{ .int_type = .{
         .signedness = .unsigned,
         .bits = 0,
@@ -5126,6 +5134,8 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 16, .child = .i8_type } },
     // @Vector(32, i8)
     .{ .vector_type = .{ .len = 32, .child = .i8_type } },
+    // @Vector(64, i8)
+    .{ .vector_type = .{ .len = 64, .child = .i8_type } },
     // @Vector(1, u8)
     .{ .vector_type = .{ .len = 1, .child = .u8_type } },
     // @Vector(2, u8)
@@ -5140,34 +5150,48 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 32, .child = .u8_type } },
     // @Vector(64, u8)
     .{ .vector_type = .{ .len = 64, .child = .u8_type } },
+    // @Vector(2, i16)
+    .{ .vector_type = .{ .len = 2, .child = .i16_type } },
     // @Vector(4, i16)
     .{ .vector_type = .{ .len = 4, .child = .i16_type } },
     // @Vector(8, i16)
     .{ .vector_type = .{ .len = 8, .child = .i16_type } },
     // @Vector(16, i16)
     .{ .vector_type = .{ .len = 16, .child = .i16_type } },
+    // @Vector(32, i16)
+    .{ .vector_type = .{ .len = 32, .child = .i16_type } },
     // @Vector(4, u16)
     .{ .vector_type = .{ .len = 4, .child = .u16_type } },
     // @Vector(8, u16)
     .{ .vector_type = .{ .len = 8, .child = .u16_type } },
     // @Vector(16, u16)
     .{ .vector_type = .{ .len = 16, .child = .u16_type } },
+    // @Vector(32, u16)
+    .{ .vector_type = .{ .len = 32, .child = .u16_type } },
     // @Vector(4, i32)
     .{ .vector_type = .{ .len = 4, .child = .i32_type } },
     // @Vector(8, i32)
     .{ .vector_type = .{ .len = 8, .child = .i32_type } },
+    // @Vector(16, i32)
+    .{ .vector_type = .{ .len = 16, .child = .i32_type } },
     // @Vector(4, u32)
     .{ .vector_type = .{ .len = 4, .child = .u32_type } },
     // @Vector(8, u32)
     .{ .vector_type = .{ .len = 8, .child = .u32_type } },
+    // @Vector(16, u32)
+    .{ .vector_type = .{ .len = 16, .child = .u32_type } },
     // @Vector(2, i64)
     .{ .vector_type = .{ .len = 2, .child = .i64_type } },
     // @Vector(4, i64)
     .{ .vector_type = .{ .len = 4, .child = .i64_type } },
+    // @Vector(8, i64)
+    .{ .vector_type = .{ .len = 8, .child = .i64_type } },
     // @Vector(2, u64)
     .{ .vector_type = .{ .len = 2, .child = .u64_type } },
-    // @Vector(8, u64)
+    // @Vector(4, u64)
     .{ .vector_type = .{ .len = 4, .child = .u64_type } },
+    // @Vector(8, u64)
+    .{ .vector_type = .{ .len = 8, .child = .u64_type } },
     // @Vector(1, u128)
     .{ .vector_type = .{ .len = 1, .child = .u128_type } },
     // @Vector(2, u128)
@@ -5273,10 +5297,6 @@ pub const static_keys = [_]Key{
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
 pub const static_len = Zir.Inst.Index.static_len;
-comptime {
-    //@compileLog(static_keys.len);
-    assert(static_len == static_keys.len);
-}
 
 pub const Tag = enum(u8) {
     /// This special tag represents a value which was removed from this pool via
@@ -11833,6 +11853,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
@@ -11840,20 +11861,27 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_16_u8_type,
         .vector_32_u8_type,
         .vector_64_u8_type,
+        .vector_2_i16_type,
         .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
         .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
         .vector_1_u128_type,
         .vector_2_u128_type,
         .vector_1_u256_type,
@@ -12165,6 +12193,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
@@ -12172,20 +12201,27 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_16_u8_type,
         .vector_32_u8_type,
         .vector_64_u8_type,
+        .vector_2_i16_type,
         .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
         .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
         .vector_1_u128_type,
         .vector_2_u128_type,
         .vector_1_u256_type,

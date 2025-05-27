@@ -1170,11 +1170,11 @@ pub const Inst = struct {
         /// Extract packed floating-point values
         /// Extract packed integer values
         extract,
-        /// Packed horizontal word minimum
-        hminposu,
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
         insert,
+        /// Packed horizontal word minimum
+        minposu,
         /// Packed move with sign extend
         movsxb,
         movsxd,

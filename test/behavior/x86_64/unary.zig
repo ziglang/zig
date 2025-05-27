@@ -5094,6 +5094,14 @@ test reduceXor {
     try test_reduce_xor.testIntVectors();
 }
 
+inline fn reduceMin(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    return @reduce(.Min, rhs);
+}
+test reduceMin {
+    const test_reduce_min = unary(reduceMin, .{});
+    try test_reduce_min.testIntVectors();
+}
+
 inline fn reduceAdd(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Add, rhs);
 }

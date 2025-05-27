@@ -117,9 +117,9 @@ pub fn build(b: *std.Build) void {
         const target = b.resolveTargetQuery(query);
         const cpu = query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
         for ([_][]const u8{
+            "access.zig",
             "binary.zig",
             "cast.zig",
-            "mem.zig",
             "unary.zig",
         }) |path| {
             const test_mod = b.createModule(.{
