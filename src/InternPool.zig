@@ -4606,6 +4606,7 @@ pub const Index = enum(u32) {
     vector_8_u16_type,
     vector_16_u16_type,
     vector_32_u16_type,
+    vector_2_i32_type,
     vector_4_i32_type,
     vector_8_i32_type,
     vector_16_i32_type,
@@ -5168,6 +5169,8 @@ pub const static_keys: [static_len]Key = .{
     .{ .vector_type = .{ .len = 16, .child = .u16_type } },
     // @Vector(32, u16)
     .{ .vector_type = .{ .len = 32, .child = .u16_type } },
+    // @Vector(2, i32)
+    .{ .vector_type = .{ .len = 2, .child = .i32_type } },
     // @Vector(4, i32)
     .{ .vector_type = .{ .len = 4, .child = .i32_type } },
     // @Vector(8, i32)
@@ -11870,6 +11873,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_8_u16_type,
         .vector_16_u16_type,
         .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
         .vector_16_i32_type,
@@ -12210,6 +12214,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_8_u16_type,
         .vector_16_u16_type,
         .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
         .vector_16_i32_type,

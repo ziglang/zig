@@ -2142,7 +2142,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 117;
+        pub const static_len = 118;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2246,6 +2246,7 @@ pub const Inst = struct {
         vector_8_u16_type,
         vector_16_u16_type,
         vector_32_u16_type,
+        vector_2_i32_type,
         vector_4_i32_type,
         vector_8_i32_type,
         vector_16_i32_type,

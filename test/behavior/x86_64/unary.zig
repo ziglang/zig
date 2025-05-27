@@ -5102,6 +5102,14 @@ test reduceMin {
     try test_reduce_min.testIntVectors();
 }
 
+inline fn reduceMax(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    return @reduce(.Max, rhs);
+}
+test reduceMax {
+    const test_reduce_max = unary(reduceMax, .{});
+    try test_reduce_max.testIntVectors();
+}
+
 inline fn reduceAdd(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Add, rhs);
 }
