@@ -202,9 +202,6 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/absvti2.zig
     lib/compiler_rt/adddf3.zig
     lib/compiler_rt/addvsi3.zig
-    lib/compiler_rt/subvsi3.zig
-    lib/compiler_rt/subvdi3.zig
-    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/addf3.zig
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
@@ -327,6 +324,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/mulo.zig
     lib/compiler_rt/mulsf3.zig
     lib/compiler_rt/multf3.zig
+    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
     lib/compiler_rt/negdf2.zig
@@ -350,6 +348,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
+    lib/compiler_rt/subvsi3.zig
+    lib/compiler_rt/subvdi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
