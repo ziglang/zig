@@ -55,6 +55,7 @@ test {
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/memcpy.zig");
     _ = @import("behavior/memset.zig");
+    _ = @import("behavior/memmove.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/multiple_externs_with_conflicting_types.zig");
@@ -104,7 +105,11 @@ test {
     _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
-    _ = @import("behavior/vector.zig");
+    // https://github.com/llvm/llvm-project/issues/118879
+    // https://github.com/llvm/llvm-project/issues/134659
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        _ = @import("behavior/vector.zig");
+    }
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");

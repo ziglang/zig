@@ -841,12 +841,12 @@ fn ElfFile(comptime is_64: bool) type {
         arena: std.heap.ArenaAllocator,
 
         const SectionCategory = ElfFileHelper.SectionCategory;
-        const section_memory_align = @alignOf(Elf_Sym); // most restrictive of what we may load in memory
+        const section_memory_align: std.mem.Alignment = .of(Elf_Sym); // most restrictive of what we may load in memory
         const Section = struct {
             section: Elf_Shdr,
             name: []const u8 = "",
             segment: ?*const Elf_Phdr = null, // if the section is used by a program segment (there can be more than one)
-            payload: ?[]align(section_memory_align) const u8 = null, // if we need the data in memory
+            payload: ?[]align(section_memory_align.toByteUnits()) const u8 = null, // if we need the data in memory
             category: SectionCategory = .none, // should the section be kept in the exe or stripped to the debug database, or both.
         };
 
@@ -999,7 +999,7 @@ fn ElfFile(comptime is_64: bool) type {
                 remap_idx: u16,
 
                 // optionally overrides the payload from the source file
-                payload: ?[]align(section_memory_align) const u8 = null,
+                payload: ?[]align(section_memory_align.toByteUnits()) const u8 = null,
                 section: ?Elf_Shdr = null,
             };
             const sections_update = try allocator.alloc(Update, self.sections.len);
@@ -1219,7 +1219,7 @@ fn ElfFile(comptime is_64: bool) type {
                 if (options.debuglink) |link| {
                     const payload = payload: {
                         const crc_offset = std.mem.alignForward(usize, link.name.len + 1, 4);
-                        const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
+                        const buf = try allocator.alignedAlloc(u8, .@"4", crc_offset + 4);
                         @memcpy(buf[0..link.name.len], link.name);
                         @memset(buf[link.name.len..crc_offset], 0);
                         @memcpy(buf[crc_offset..], std.mem.asBytes(&link.crc32));
@@ -1498,7 +1498,7 @@ const ElfFileHelper = struct {
         var section_reader = std.io.limitedReader(in_file.reader(), size);
 
         // allocate as large as decompressed data. if the compression doesn't fit, keep the data uncompressed.
-        const compressed_data = try allocator.alignedAlloc(u8, 8, @intCast(size));
+        const compressed_data = try allocator.alignedAlloc(u8, .@"8", @intCast(size));
         var compressed_stream = std.io.fixedBufferStream(compressed_data);
 
         try compressed_stream.writer().writeAll(prefix);

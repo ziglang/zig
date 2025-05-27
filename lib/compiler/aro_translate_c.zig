@@ -1502,19 +1502,29 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 return scope.base.parent.?.getAlias(name);
             }
 
-            /// Finds the (potentially) mangled struct name for a locally scoped extern variable given the original declaration name.
+            /// Finds the (potentially) mangled struct name for a locally scoped extern variable or function given the original declaration name.
             ///
             /// Block scoped extern declarations translate to:
             ///     const MangledStructName = struct {extern [qualifiers] original_extern_variable_name: [type]};
             /// This finds MangledStructName given original_extern_variable_name for referencing correctly in transDeclRefExpr()
             pub fn getLocalExternAlias(scope: *Block, name: []const u8) ?[]const u8 {
                 for (scope.statements.items) |node| {
-                    if (node.tag() == .extern_local_var) {
-                        const parent_node = node.castTag(.extern_local_var).?;
-                        const init_node = parent_node.data.init.castTag(.var_decl).?;
-                        if (std.mem.eql(u8, init_node.data.name, name)) {
-                            return parent_node.data.name;
-                        }
+                    switch (node.tag()) {
+                        .extern_local_var => {
+                            const parent_node = node.castTag(.extern_local_var).?;
+                            const init_node = parent_node.data.init.castTag(.var_decl).?;
+                            if (std.mem.eql(u8, init_node.data.name, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        .extern_local_fn => {
+                            const parent_node = node.castTag(.extern_local_fn).?;
+                            const init_node = parent_node.data.init.castTag(.func).?;
+                            if (std.mem.eql(u8, init_node.data.name.?, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        else => {},
                     }
                 }
                 return null;

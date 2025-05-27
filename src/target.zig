@@ -23,7 +23,11 @@ pub fn osRequiresLibC(target: std.Target) bool {
     return target.os.requiresLibC();
 }
 
-pub fn libcNeedsLibUnwind(target: std.Target) bool {
+pub fn libCNeedsLibUnwind(target: std.Target, link_mode: std.builtin.LinkMode) bool {
+    return target.isGnuLibC() and link_mode == .static;
+}
+
+pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
         .macos,
         .ios,
@@ -136,7 +140,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .goff,
         .hex,
         .macho,
-        .nvptx,
         .spirv,
         .raw,
         .wasm,
@@ -153,7 +156,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .avr,
         .bpfel,
         .bpfeb,
-        .csky,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -172,13 +174,15 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
+        .spirv,
+        .spirv32,
+        .spirv64,
         .s390x,
         .thumb,
         .thumbeb,
         .x86,
         .x86_64,
         .xcore,
-        .xtensa,
         .nvptx,
         .nvptx64,
         .lanai,
@@ -187,14 +191,14 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .ve,
         => true,
 
-        // An LLVM backend exists but we don't currently support using it.
-        .spirv,
-        .spirv32,
-        .spirv64,
+        // LLVM backend exists but can produce neither assembly nor object files.
+        .csky,
+        .xtensa,
         => false,
 
         // No LLVM backend exists.
         .kalimba,
+        .or1k,
         .propeller,
         => false,
     };
@@ -213,7 +217,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// debug mode. A given target should only return true here if it is passing greater
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
-    _ = target;
+    if (target.cpu.arch.isSpirV()) return true;
     return false;
 }
 
@@ -293,7 +297,13 @@ pub fn hasDebugInfo(target: std.Target) bool {
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx82) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx83) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx84) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx85) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx86) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx87),
         .bpfel, .bpfeb => false,
         else => true,
     };
@@ -307,12 +317,43 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMod
     }
 }
 
+pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv, .spirv32, .spirv64 => return false,
+        // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
+        .amdgcn => return false,
+        else => {},
+    }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else have_llvm,
+        else => have_llvm,
+    };
+}
+
+pub fn canBuildLibUbsanRt(target: std.Target) bool {
+    switch (target.cpu.arch) {
+        .spirv, .spirv32, .spirv64 => return false,
+        // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
+        .nvptx, .nvptx64 => return false,
+        else => return true,
+    }
+}
+
 pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .aarch64,
         .aarch64_be,
-        .x86,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
         .x86_64,
+        .x86,
         => true,
 
         else => false,
@@ -460,23 +501,76 @@ pub fn addrSpaceCastIsValid(
 /// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
 /// for a particular architecture and address space wether such pointers are logical.
 pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
-    if (target.os.tag != .vulkan) {
-        return false;
-    }
+    if (target.os.tag != .vulkan) return false;
 
     return switch (as) {
         // TODO: Vulkan doesn't support pointers in the generic address space, we
         // should remove this case but this requires a change in defaultAddressSpace().
         // For now, at least disable them from being regarded as physical.
         .generic => true,
-        // For now, all global pointers are represented using PhysicalStorageBuffer, so these are real
-        // pointers.
+        // For now, all global pointers are represented using StorageBuffer or CrossWorkgroup,
+        // so these are real pointers.
         .global => false,
-        // TODO: Allowed with VK_KHR_variable_pointers.
-        .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
+        .physical_storage_buffer => false,
+        .shared => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        .constant,
+        .local,
+        .input,
+        .output,
+        .uniform,
+        .push_constant,
+        .storage_buffer,
+        => true,
         else => unreachable,
     };
+}
+
+pub fn isDynamicAMDGCNFeature(target: std.Target, feature: std.Target.Cpu.Feature) bool {
+    if (target.cpu.arch != .amdgcn) return false;
+
+    const sramecc_only = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1010,
+        &std.Target.amdgcn.cpu.gfx1011,
+        &std.Target.amdgcn.cpu.gfx1012,
+        &std.Target.amdgcn.cpu.gfx1013,
+    };
+    const xnack_or_sramecc = &[_]*const std.Target.Cpu.Model{
+        &std.Target.amdgcn.cpu.gfx1030,
+        &std.Target.amdgcn.cpu.gfx1031,
+        &std.Target.amdgcn.cpu.gfx1032,
+        &std.Target.amdgcn.cpu.gfx1033,
+        &std.Target.amdgcn.cpu.gfx1034,
+        &std.Target.amdgcn.cpu.gfx1035,
+        &std.Target.amdgcn.cpu.gfx1036,
+        &std.Target.amdgcn.cpu.gfx1100,
+        &std.Target.amdgcn.cpu.gfx1101,
+        &std.Target.amdgcn.cpu.gfx1102,
+        &std.Target.amdgcn.cpu.gfx1103,
+        &std.Target.amdgcn.cpu.gfx1150,
+        &std.Target.amdgcn.cpu.gfx1151,
+        &std.Target.amdgcn.cpu.gfx1152,
+        &std.Target.amdgcn.cpu.gfx1153,
+        &std.Target.amdgcn.cpu.gfx1200,
+        &std.Target.amdgcn.cpu.gfx1201,
+    };
+    const feature_tag: std.Target.amdgcn.Feature = @enumFromInt(feature.index);
+
+    if (feature_tag == .sramecc) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            sramecc_only ++ xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+    if (feature_tag == .xnack) {
+        if (std.mem.indexOfScalar(
+            *const std.Target.Cpu.Model,
+            xnack_or_sramecc,
+            target.cpu.model,
+        )) |_| return true;
+    }
+
+    return false;
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
@@ -490,10 +584,9 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => "aapcs",
-        // TODO: `muslsf` and `muslf32` in LLVM 20.
         .loongarch64 => switch (target.abi) {
-            .gnusf => "lp64s",
-            .gnuf32 => "lp64f",
+            .gnusf, .muslsf => "lp64s",
+            .gnuf32, .muslf32 => "lp64f",
             else => "lp64d",
         },
         .loongarch32 => switch (target.abi) {
@@ -648,6 +741,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
@@ -708,14 +802,16 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => .stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
         .aarch64, .aarch64_be => .stage2_aarch64,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
-        .spirv64 => .stage2_spirv64,
+        .spirv32 => if (target.os.tag == .opencl) .stage2_spirv64 else .other,
+        .spirv, .spirv64 => .stage2_spirv64,
+        .wasm32, .wasm64 => .stage2_wasm,
+        .x86 => .stage2_x86,
+        .x86_64 => .stage2_x86_64,
         else => .other,
     };
 }

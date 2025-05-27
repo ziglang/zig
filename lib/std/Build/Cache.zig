@@ -337,6 +337,7 @@ pub const Manifest = struct {
         manifest_create: fs.File.OpenError,
         manifest_read: fs.File.ReadError,
         manifest_lock: fs.File.LockError,
+        manifest_seek: fs.File.SeekError,
         file_open: FileOp,
         file_stat: FileOp,
         file_read: FileOp,
@@ -488,7 +489,6 @@ pub const Manifest = struct {
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
     pub fn hit(self: *Manifest) HitError!bool {
-        const gpa = self.cache.gpa;
         assert(self.manifest_file == null);
 
         self.diagnostic = .none;
@@ -501,12 +501,12 @@ pub const Manifest = struct {
 
         self.hex_digest = binToHex(bin_digest);
 
-        self.hash.hasher = hasher_init;
-        self.hash.hasher.update(&bin_digest);
-
         @memcpy(manifest_file_path[0..self.hex_digest.len], &self.hex_digest);
         manifest_file_path[hex_digest_len..][0..ext.len].* = ext.*;
 
+        // We'll try to open the cache with an exclusive lock, but if that would block
+        // and `want_shared_lock` is set, a shared lock might be sufficient, so we'll
+        // open with a shared lock instead.
         while (true) {
             if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
                 .read = true,
@@ -575,26 +575,71 @@ pub const Manifest = struct {
         self.want_refresh_timestamp = true;
 
         const input_file_count = self.files.entries.len;
-        while (true) : (self.unhit(bin_digest, input_file_count)) {
-            const file_contents = self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.StreamTooLong => return error.OutOfMemory,
-                else => |e| {
-                    self.diagnostic = .{ .manifest_read = e };
-                    return error.CacheCheckFailed;
-                },
-            };
-            defer gpa.free(file_contents);
 
-            var any_file_changed = false;
-            var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
-            var idx: usize = 0;
-            if (if (line_iter.next()) |line| !std.mem.eql(u8, line, manifest_header) else true) {
-                if (try self.upgradeToExclusiveLock()) continue;
-                self.manifest_dirty = true;
-                while (idx < input_file_count) : (idx += 1) {
-                    const ch_file = &self.files.keys()[idx];
-                    self.populateFileHash(ch_file) catch |err| {
+        // We're going to construct a second hash. Its input will begin with the digest we've
+        // already computed (`bin_digest`), and then it'll have the digests of each input file,
+        // including "post" files (see `addFilePost`). If this is a hit, we learn the set of "post"
+        // files from the manifest on disk. If this is a miss, we'll learn those from future calls
+        // to `addFilePost` etc. As such, the state of `self.hash.hasher` after this function
+        // depends on whether this is a hit or a miss.
+        //
+        // If we return `true` indicating a cache hit, then `self.hash.hasher` must already include
+        // the digests of the "post" files, so the caller can call `final`. Otherwise, on a cache
+        // miss, `self.hash.hasher` will include the digests of all non-"post" files -- that is,
+        // the ones we've already been told about. The rest will be discovered through calls to
+        // `addFilePost` etc, which will update the hasher. After all files are added, the user can
+        // use `final`, and will at some point `writeManifest` the file list to disk.
+
+        self.hash.hasher = hasher_init;
+        self.hash.hasher.update(&bin_digest);
+
+        hit: {
+            const file_digests_populated: usize = digests: {
+                switch (try self.hitWithCurrentLock()) {
+                    .hit => break :hit,
+                    .miss => |m| if (!try self.upgradeToExclusiveLock()) {
+                        break :digests m.file_digests_populated;
+                    },
+                }
+                // We've just had a miss with the shared lock, and upgraded to an exclusive lock. Someone
+                // else might have modified the digest, so we need to check again before deciding to miss.
+                // Before trying again, we must reset `self.hash.hasher` and `self.files`.
+                // This is basically just the first half of `unhit`.
+                self.hash.hasher = hasher_init;
+                self.hash.hasher.update(&bin_digest);
+                while (self.files.count() != input_file_count) {
+                    var file = self.files.pop().?;
+                    file.key.deinit(self.cache.gpa);
+                }
+                // Also, seek the file back to the start.
+                self.manifest_file.?.seekTo(0) catch |err| {
+                    self.diagnostic = .{ .manifest_seek = err };
+                    return error.CacheCheckFailed;
+                };
+
+                switch (try self.hitWithCurrentLock()) {
+                    .hit => break :hit,
+                    .miss => |m| break :digests m.file_digests_populated,
+                }
+            };
+
+            // This is a guaranteed cache miss. We're almost ready to return `false`, but there's a
+            // little bookkeeping to do first. The first `file_digests_populated` entries in `files`
+            // have their `bin_digest` populated; there may be some left in `input_file_count` which
+            // we'll need to populate ourselves. Other than that, this is basically `unhit`.
+            self.manifest_dirty = true;
+            self.hash.hasher = hasher_init;
+            self.hash.hasher.update(&bin_digest);
+            while (self.files.count() != input_file_count) {
+                var file = self.files.pop().?;
+                file.key.deinit(self.cache.gpa);
+            }
+            for (self.files.keys(), 0..) |*file, idx| {
+                if (idx < file_digests_populated) {
+                    // `bin_digest` is already populated by `hitWithCurrentLock`, so we can use it directly.
+                    self.hash.hasher.update(&file.bin_digest);
+                } else {
+                    self.populateFileHash(file) catch |err| {
                         self.diagnostic = .{ .file_hash = .{
                             .file_index = idx,
                             .err = err,
@@ -602,172 +647,195 @@ pub const Manifest = struct {
                         return error.CacheCheckFailed;
                     };
                 }
-                return false;
             }
-            while (line_iter.next()) |line| {
-                defer idx += 1;
+            return false;
+        }
 
-                var iter = mem.tokenizeScalar(u8, line, ' ');
-                const size = iter.next() orelse return error.InvalidFormat;
-                const inode = iter.next() orelse return error.InvalidFormat;
-                const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
-                const digest_str = iter.next() orelse return error.InvalidFormat;
-                const prefix_str = iter.next() orelse return error.InvalidFormat;
-                const file_path = iter.rest();
+        if (self.want_shared_lock) {
+            self.downgradeToSharedLock() catch |err| {
+                self.diagnostic = .{ .manifest_lock = err };
+                return error.CacheCheckFailed;
+            };
+        }
 
-                const stat_size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
-                const stat_inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
-                const stat_mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
-                const file_bin_digest = b: {
-                    if (digest_str.len != hex_digest_len) return error.InvalidFormat;
-                    var bd: BinDigest = undefined;
-                    _ = fmt.hexToBytes(&bd, digest_str) catch return error.InvalidFormat;
-                    break :b bd;
+        return true;
+    }
+
+    /// Assumes that `self.hash.hasher` has been updated only with the original digest, that
+    /// `self.files` contains only the original input files, and that `self.manifest_file.?` is
+    /// seeked to the start of the file.
+    fn hitWithCurrentLock(self: *Manifest) HitError!union(enum) {
+        hit,
+        miss: struct {
+            file_digests_populated: usize,
+        },
+    } {
+        const gpa = self.cache.gpa;
+        const input_file_count = self.files.entries.len;
+
+        const file_contents = self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.StreamTooLong => return error.OutOfMemory,
+            else => |e| {
+                self.diagnostic = .{ .manifest_read = e };
+                return error.CacheCheckFailed;
+            },
+        };
+        defer gpa.free(file_contents);
+
+        var any_file_changed = false;
+        var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
+        var idx: usize = 0;
+        const header_valid = valid: {
+            const line = line_iter.next() orelse break :valid false;
+            break :valid std.mem.eql(u8, line, manifest_header);
+        };
+        if (!header_valid) {
+            return .{ .miss = .{ .file_digests_populated = 0 } };
+        }
+        while (line_iter.next()) |line| {
+            defer idx += 1;
+
+            var iter = mem.tokenizeScalar(u8, line, ' ');
+            const size = iter.next() orelse return error.InvalidFormat;
+            const inode = iter.next() orelse return error.InvalidFormat;
+            const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
+            const digest_str = iter.next() orelse return error.InvalidFormat;
+            const prefix_str = iter.next() orelse return error.InvalidFormat;
+            const file_path = iter.rest();
+
+            const stat_size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
+            const stat_inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
+            const stat_mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
+            const file_bin_digest = b: {
+                if (digest_str.len != hex_digest_len) return error.InvalidFormat;
+                var bd: BinDigest = undefined;
+                _ = fmt.hexToBytes(&bd, digest_str) catch return error.InvalidFormat;
+                break :b bd;
+            };
+
+            const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
+            if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
+
+            if (file_path.len == 0) return error.InvalidFormat;
+
+            const cache_hash_file = f: {
+                const prefixed_path: PrefixedPath = .{
+                    .prefix = prefix,
+                    .sub_path = file_path, // expires with file_contents
                 };
+                if (idx < input_file_count) {
+                    const file = &self.files.keys()[idx];
+                    if (!file.prefixed_path.eql(prefixed_path))
+                        return error.InvalidFormat;
 
-                const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
-                if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
-
-                if (file_path.len == 0) return error.InvalidFormat;
-
-                const cache_hash_file = f: {
-                    const prefixed_path: PrefixedPath = .{
-                        .prefix = prefix,
-                        .sub_path = file_path, // expires with file_contents
+                    file.stat = .{
+                        .size = stat_size,
+                        .inode = stat_inode,
+                        .mtime = stat_mtime,
                     };
-                    if (idx < input_file_count) {
-                        const file = &self.files.keys()[idx];
-                        if (!file.prefixed_path.eql(prefixed_path))
-                            return error.InvalidFormat;
-
-                        file.stat = .{
+                    file.bin_digest = file_bin_digest;
+                    break :f file;
+                }
+                const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+                errdefer _ = self.files.pop();
+                if (!gop.found_existing) {
+                    gop.key_ptr.* = .{
+                        .prefixed_path = .{
+                            .prefix = prefix,
+                            .sub_path = try gpa.dupe(u8, file_path),
+                        },
+                        .contents = null,
+                        .max_file_size = null,
+                        .handle = null,
+                        .stat = .{
                             .size = stat_size,
                             .inode = stat_inode,
                             .mtime = stat_mtime,
-                        };
-                        file.bin_digest = file_bin_digest;
-                        break :f file;
-                    }
-                    const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-                    errdefer _ = self.files.pop();
-                    if (!gop.found_existing) {
-                        gop.key_ptr.* = .{
-                            .prefixed_path = .{
-                                .prefix = prefix,
-                                .sub_path = try gpa.dupe(u8, file_path),
-                            },
-                            .contents = null,
-                            .max_file_size = null,
-                            .handle = null,
-                            .stat = .{
-                                .size = stat_size,
-                                .inode = stat_inode,
-                                .mtime = stat_mtime,
-                            },
-                            .bin_digest = file_bin_digest,
-                        };
-                    }
-                    break :f gop.key_ptr;
+                        },
+                        .bin_digest = file_bin_digest,
+                    };
+                }
+                break :f gop.key_ptr;
+            };
+
+            const pp = cache_hash_file.prefixed_path;
+            const dir = self.cache.prefixes()[pp.prefix].handle;
+            const this_file = dir.openFile(pp.sub_path, .{ .mode = .read_only }) catch |err| switch (err) {
+                error.FileNotFound => {
+                    // Every digest before this one has been populated successfully.
+                    return .{ .miss = .{ .file_digests_populated = idx } };
+                },
+                else => |e| {
+                    self.diagnostic = .{ .file_open = .{
+                        .file_index = idx,
+                        .err = e,
+                    } };
+                    return error.CacheCheckFailed;
+                },
+            };
+            defer this_file.close();
+
+            const actual_stat = this_file.stat() catch |err| {
+                self.diagnostic = .{ .file_stat = .{
+                    .file_index = idx,
+                    .err = err,
+                } };
+                return error.CacheCheckFailed;
+            };
+            const size_match = actual_stat.size == cache_hash_file.stat.size;
+            const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
+            const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
+
+            if (!size_match or !mtime_match or !inode_match) {
+                cache_hash_file.stat = .{
+                    .size = actual_stat.size,
+                    .mtime = actual_stat.mtime,
+                    .inode = actual_stat.inode,
                 };
 
-                const pp = cache_hash_file.prefixed_path;
-                const dir = self.cache.prefixes()[pp.prefix].handle;
-                const this_file = dir.openFile(pp.sub_path, .{ .mode = .read_only }) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        if (try self.upgradeToExclusiveLock()) continue;
-                        return false;
-                    },
-                    else => |e| {
-                        self.diagnostic = .{ .file_open = .{
-                            .file_index = idx,
-                            .err = e,
-                        } };
-                        return error.CacheCheckFailed;
-                    },
-                };
-                defer this_file.close();
+                if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                    // The actual file has an unreliable timestamp, force it to be hashed
+                    cache_hash_file.stat.mtime = 0;
+                    cache_hash_file.stat.inode = 0;
+                }
 
-                const actual_stat = this_file.stat() catch |err| {
-                    self.diagnostic = .{ .file_stat = .{
+                var actual_digest: BinDigest = undefined;
+                hashFile(this_file, &actual_digest) catch |err| {
+                    self.diagnostic = .{ .file_read = .{
                         .file_index = idx,
                         .err = err,
                     } };
                     return error.CacheCheckFailed;
                 };
-                const size_match = actual_stat.size == cache_hash_file.stat.size;
-                const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
-                const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
-                if (!size_match or !mtime_match or !inode_match) {
-                    self.manifest_dirty = true;
-
-                    cache_hash_file.stat = .{
-                        .size = actual_stat.size,
-                        .mtime = actual_stat.mtime,
-                        .inode = actual_stat.inode,
-                    };
-
-                    if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
-                        // The actual file has an unreliable timestamp, force it to be hashed
-                        cache_hash_file.stat.mtime = 0;
-                        cache_hash_file.stat.inode = 0;
-                    }
-
-                    var actual_digest: BinDigest = undefined;
-                    hashFile(this_file, &actual_digest) catch |err| {
-                        self.diagnostic = .{ .file_read = .{
-                            .file_index = idx,
-                            .err = err,
-                        } };
-                        return error.CacheCheckFailed;
-                    };
-
-                    if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
-                        cache_hash_file.bin_digest = actual_digest;
-                        // keep going until we have the input file digests
-                        any_file_changed = true;
-                    }
-                }
-
-                if (!any_file_changed) {
-                    self.hash.hasher.update(&cache_hash_file.bin_digest);
+                if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
+                    cache_hash_file.bin_digest = actual_digest;
+                    // keep going until we have the input file digests
+                    any_file_changed = true;
                 }
             }
 
-            if (any_file_changed) {
-                if (try self.upgradeToExclusiveLock()) continue;
-                // cache miss
-                // keep the manifest file open
-                self.unhit(bin_digest, input_file_count);
-                return false;
+            if (!any_file_changed) {
+                self.hash.hasher.update(&cache_hash_file.bin_digest);
             }
-
-            if (idx < input_file_count) {
-                if (try self.upgradeToExclusiveLock()) continue;
-                self.manifest_dirty = true;
-                while (idx < input_file_count) : (idx += 1) {
-                    self.populateFileHash(&self.files.keys()[idx]) catch |err| {
-                        self.diagnostic = .{ .file_hash = .{
-                            .file_index = idx,
-                            .err = err,
-                        } };
-                        return error.CacheCheckFailed;
-                    };
-                }
-                return false;
-            }
-
-            if (self.want_shared_lock) {
-                self.downgradeToSharedLock() catch |err| {
-                    self.diagnostic = .{ .manifest_lock = err };
-                    return error.CacheCheckFailed;
-                };
-            }
-
-            return true;
         }
+
+        // If the manifest was somehow missing one of our input files, or if any file hash has changed,
+        // then this is a cache miss. However, we have successfully populated some or all of the file
+        // digests.
+        if (any_file_changed or idx < input_file_count) {
+            return .{ .miss = .{ .file_digests_populated = idx } };
+        }
+
+        return .hit;
     }
 
+    /// Reset `self.hash.hasher` to the state it should be in after `hit` returns `false`.
+    /// The hasher contains the original input digest, and all original input file digests (i.e.
+    /// not including post files).
+    /// Assumes that `bin_digest` is populated for all files up to `input_file_count`. As such,
+    /// this is not necessarily safe to call within `hit`.
     pub fn unhit(self: *Manifest, bin_digest: BinDigest, input_file_count: usize) void {
         // Reset the hash.
         self.hash.hasher = hasher_init;
@@ -943,17 +1011,16 @@ pub const Manifest = struct {
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.
-    /// On success, cache takes ownership of `resolved_path`.
     pub fn addFilePostContents(
         self: *Manifest,
-        resolved_path: []u8,
+        file_path: []const u8,
         bytes: []const u8,
         stat: File.Stat,
     ) !void {
         assert(self.manifest_file != null);
         const gpa = self.cache.gpa;
 
-        const prefixed_path = try self.cache.findPrefixResolved(resolved_path);
+        const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});

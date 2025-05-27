@@ -3014,6 +3014,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                 .auto => break :field .{ field_ty, try aggregate_ty.fieldAlignmentSema(field_idx, pt) },
                 .@"extern" => {
                     // Well-defined layout, so just offset the pointer appropriately.
+                    try aggregate_ty.resolveLayout(pt);
                     const byte_off = aggregate_ty.structFieldOffset(field_idx, zcu);
                     const field_align = a: {
                         const parent_align = if (parent_ptr_info.flags.alignment == .none) pa: {
@@ -3814,7 +3815,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .@"enum" => switch (interpret_mode) {
             .direct => {
                 const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
-                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+                return std.enums.fromInt(T, int) orelse error.TypeMismatch;
             },
             .by_name => {
                 const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;

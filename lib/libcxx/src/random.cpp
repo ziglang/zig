@@ -13,7 +13,7 @@
 #  define _CRT_RAND_S
 #endif // defined(_LIBCPP_USING_WIN32_RANDOM)
 
-#include <__system_error/system_error.h>
+#include <__system_error/throw_system_error.h>
 #include <limits>
 #include <random>
 

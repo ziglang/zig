@@ -37,6 +37,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
         .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
@@ -56,11 +57,12 @@ pub fn generateFunction(
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
-    const target = zcu.navFileScope(func.owner_nav).mod.resolved_target.result;
+    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -81,12 +83,15 @@ pub fn generateLazyFunction(
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const target = if (Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu)) |inst_index|
-        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.resolved_target.result
+        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
     else
         zcu.getTarget();
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_x86_64, .stage2_riscv64 => |backend| {
+        inline .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_x86_64,
+        => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
@@ -666,7 +671,6 @@ fn lowerUavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
@@ -723,7 +727,7 @@ fn lowerNavRef(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const is_obj = lf.comp.config.output_mode == .Obj;
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
@@ -739,7 +743,6 @@ fn lowerNavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
@@ -886,7 +889,7 @@ fn genNavRef(
     else
         .{ false, .none, nav.isThreadlocal(ip) };
 
-    const single_threaded = zcu.navFileScope(nav_index).mod.single_threaded;
+    const single_threaded = zcu.navFileScope(nav_index).mod.?.single_threaded;
     const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;

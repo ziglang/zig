@@ -42,7 +42,6 @@
 #include <__utility/auto_cast.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -162,9 +161,9 @@ public:
 template <view _View>
 template <bool _Const>
 class take_view<_View>::__sentinel {
-  using _Base = __maybe_const<_Const, _View>;
+  using _Base _LIBCPP_NODEBUG = __maybe_const<_Const, _View>;
   template <bool _OtherConst>
-  using _Iter                                        = counted_iterator<iterator_t<__maybe_const<_OtherConst, _View>>>;
+  using _Iter _LIBCPP_NODEBUG                        = counted_iterator<iterator_t<__maybe_const<_OtherConst, _View>>>;
   _LIBCPP_NO_UNIQUE_ADDRESS sentinel_t<_Base> __end_ = sentinel_t<_Base>();
 
   template <bool>
@@ -245,7 +244,7 @@ struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
 };
 
 template <class _Tp>
-using __passthrough_type_t = typename __passthrough_type<_Tp>::type;
+using __passthrough_type_t _LIBCPP_NODEBUG = typename __passthrough_type<_Tp>::type;
 
 struct __fn {
   // [range.take.overview]: the `empty_view` case.
@@ -347,7 +346,7 @@ struct __fn {
     requires constructible_from<decay_t<_Np>, _Np>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Np&& __n) const
       noexcept(is_nothrow_constructible_v<decay_t<_Np>, _Np>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Np>(__n)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Np>(__n)));
   }
 };
 

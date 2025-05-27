@@ -1,3 +1,7 @@
+const math = @import("math.zig");
+const imax = math.imax;
+const imin = math.imin;
+
 fn accessSlice(comptime array: anytype) !void {
     var slice: []const @typeInfo(@TypeOf(array)).array.child = undefined;
     slice = &array;
@@ -38,13 +42,33 @@ test accessSlice {
 
 fn accessVector(comptime init: anytype) !void {
     const Vector = @TypeOf(init);
+    const Elem = @typeInfo(Vector).vector.child;
+    const ct_vals: [2]Elem = switch (Elem) {
+        bool => .{ false, true },
+        else => .{ imin(Elem), imax(Elem) },
+    };
+    var rt_vals: [2]Elem = undefined;
+    rt_vals = ct_vals;
     var vector: Vector = undefined;
     vector = init;
     inline for (0..@typeInfo(Vector).vector.len) |ct_index| {
         var rt_index: usize = undefined;
         rt_index = ct_index;
         if (&vector[rt_index] != &vector[ct_index]) return error.Unexpected;
-        if (vector[rt_index] != vector[ct_index]) return error.Unexpected;
+        if (vector[rt_index] != init[ct_index]) return error.Unexpected;
+        if (vector[ct_index] != init[ct_index]) return error.Unexpected;
+        vector[rt_index] = rt_vals[0];
+        if (vector[rt_index] != ct_vals[0]) return error.Unexpected;
+        if (vector[ct_index] != ct_vals[0]) return error.Unexpected;
+        vector[rt_index] = ct_vals[1];
+        if (vector[rt_index] != ct_vals[1]) return error.Unexpected;
+        if (vector[ct_index] != ct_vals[1]) return error.Unexpected;
+        vector[ct_index] = ct_vals[0];
+        if (vector[rt_index] != ct_vals[0]) return error.Unexpected;
+        if (vector[ct_index] != ct_vals[0]) return error.Unexpected;
+        vector[ct_index] = rt_vals[1];
+        if (vector[rt_index] != ct_vals[1]) return error.Unexpected;
+        if (vector[ct_index] != ct_vals[1]) return error.Unexpected;
     }
 }
 test accessVector {

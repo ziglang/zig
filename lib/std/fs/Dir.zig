@@ -784,6 +784,7 @@ pub const OpenError = error{
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
@@ -1348,13 +1349,11 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
     const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
-    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
-    if (end_index > out_buffer.len)
+    const len = std.unicode.calcWtf8Len(wide_slice);
+    if (len > out_buffer.len)
         return error.NameTooLong;
-    const result = out_buffer[0..end_index];
-    @memcpy(result, big_out_buf[0..end_index]);
-    return result;
+    const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+    return out_buffer[0..end_index];
 }
 
 pub const RealPathAllocError = RealPathError || Allocator.Error;
@@ -1696,6 +1695,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
@@ -1960,7 +1960,7 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
+    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
 }
 
 /// On success, caller owns returned buffer.
@@ -1977,9 +1977,9 @@ pub fn readFileAllocOptions(
     file_path: []const u8,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
@@ -2005,6 +2005,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2079,6 +2080,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2175,6 +2177,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2282,6 +2285,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2383,6 +2387,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,

@@ -22,7 +22,7 @@ unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
 stack_check: ?bool,
-sanitize_c: ?bool,
+sanitize_c: ?std.zig.SanitizeC,
 sanitize_thread: ?bool,
 fuzz: ?bool,
 code_model: std.builtin.CodeModel,
@@ -33,6 +33,7 @@ omit_frame_pointer: ?bool,
 error_tracing: ?bool,
 link_libc: ?bool,
 link_libcpp: ?bool,
+no_builtin: ?bool,
 
 /// Symbols to be exported when compiling to WebAssembly.
 export_symbol_names: []const []const u8 = &.{},
@@ -256,7 +257,7 @@ pub const CreateOptions = struct {
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
-    sanitize_c: ?bool = null,
+    sanitize_c: ?std.zig.SanitizeC = null,
     sanitize_thread: ?bool = null,
     fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
@@ -268,6 +269,7 @@ pub const CreateOptions = struct {
     /// more difficult to obtain stack traces. Has target-dependent effects.
     omit_frame_pointer: ?bool = null,
     error_tracing: ?bool = null,
+    no_builtin: ?bool = null,
 };
 
 pub const Import = struct {
@@ -314,6 +316,7 @@ pub fn init(
                 .omit_frame_pointer = options.omit_frame_pointer,
                 .error_tracing = options.error_tracing,
                 .export_symbol_names = &.{},
+                .no_builtin = options.no_builtin,
             };
 
             m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
@@ -474,7 +477,7 @@ pub fn addObjectFile(m: *Module, object: LazyPath) void {
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
-    assert(object.kind == .obj);
+    assert(object.kind == .obj or object.kind == .test_obj);
     m.linkLibraryOrObject(object);
 }
 
@@ -559,12 +562,18 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
     try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
     try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+    try addFlag(zig_args, m.no_builtin, "-fno-builtin", "-fbuiltin");
+
+    if (m.sanitize_c) |sc| switch (sc) {
+        .off => try zig_args.append("-fno-sanitize-c"),
+        .trap => try zig_args.append("-fsanitize-c=trap"),
+        .full => try zig_args.append("-fsanitize-c=full"),
+    };
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {

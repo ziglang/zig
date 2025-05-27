@@ -67,7 +67,7 @@ pub fn addMaybeWrap(
 ) CompileError!Value {
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
-    if (lhs.isUndef(zcu)) return rhs;
+    if (rhs.isUndef(zcu)) return rhs;
     switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intAddWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatAdd(sema, lhs, rhs, ty),
@@ -86,7 +86,7 @@ pub fn subMaybeWrap(
 ) CompileError!Value {
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
-    if (lhs.isUndef(zcu)) return rhs;
+    if (rhs.isUndef(zcu)) return rhs;
     switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intSubWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatSub(sema, lhs, rhs, ty),
@@ -105,7 +105,7 @@ pub fn mulMaybeWrap(
 ) CompileError!Value {
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
-    if (lhs.isUndef(zcu)) return rhs;
+    if (rhs.isUndef(zcu)) return rhs;
     switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intMulWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatMul(sema, lhs, rhs, ty),

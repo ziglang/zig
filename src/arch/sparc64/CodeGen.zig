@@ -275,7 +275,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const func_ty = Type.fromInterned(func.ty);
     const file_scope = zcu.navFileScope(func.owner_nav);
-    const target = &file_scope.mod.resolved_target.result;
+    const target = &file_scope.mod.?.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -604,6 +604,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => try self.airAtomicRmw(inst),
             .atomic_load     => try self.airAtomicLoad(inst),
             .memcpy          => @panic("TODO try self.airMemcpy(inst)"),
+            .memmove         => @panic("TODO try self.airMemmove(inst)"),
             .memset          => try self.airMemset(inst, false),
             .memset_safe     => try self.airMemset(inst, true),
             .set_union_tag   => try self.airSetUnionTag(inst),

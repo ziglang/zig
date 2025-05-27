@@ -90,6 +90,7 @@ set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
+set(ZIG_STATIC_LIBXML2 OFF CACHE BOOL "Enable static linking against libxml2")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -132,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 19)
-find_package(clang 19)
-find_package(lld 19)
+find_package(llvm 20)
+find_package(clang 20)
+find_package(lld 20)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -165,6 +166,12 @@ if(ZIG_STATIC_CURSES)
         /usr/local/opt/ncurses/lib
         /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
+endif()
+
+if(ZIG_STATIC_LIBXML2)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
+    find_library(LIBXML2 NAMES libxml2.a NAMES_PER_DIR)
+    list(APPEND LLVM_LIBRARIES "${LIBXML2}")
 endif()
 
 find_package(Threads)
@@ -444,7 +451,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
-    lib/std/linked_list.zig
     lib/std/log.zig
     lib/std/macho.zig
     lib/std/math.zig
@@ -537,6 +543,7 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
+    src/arch/powerpc/CodeGen.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
     src/arch/riscv64/CodeGen.zig
@@ -580,11 +587,13 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
-    src/glibc.zig
+    src/libs/freebsd.zig
+    src/libs/glibc.zig
+    src/libs/netbsd.zig
     src/introspect.zig
-    src/libcxx.zig
-    src/libtsan.zig
-    src/libunwind.zig
+    src/libs/libcxx.zig
+    src/libs/libtsan.zig
+    src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
@@ -606,6 +615,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
+    src/link/Goff.zig
     src/link/LdScript.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
@@ -633,7 +643,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/NvPtx.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
     src/link/SpirV.zig
@@ -646,6 +655,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
+    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -656,8 +666,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/tapi/yaml.zig
     src/link/tapi/yaml/test.zig
     src/main.zig
-    src/mingw.zig
-    src/musl.zig
+    src/libs/mingw.zig
+    src/libs/musl.zig
     src/mutable_value.zig
     src/print_air.zig
     src/print_env.zig
@@ -668,7 +678,7 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/wasi_libc.zig
+    src/libs/wasi_libc.zig
 )
 
 if(MSVC)
@@ -698,6 +708,13 @@ add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 # and with "exe_cflags" in build.zig
 target_compile_features(zigcpp PRIVATE cxx_std_17)
 set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
+
+if(LLVM_LINK_MODE STREQUAL "static")
+  target_compile_definitions(zigcpp PRIVATE
+    LLVM_BUILD_STATIC
+    CLANG_BUILD_STATIC
+  )
+endif()
 
 if(NOT MSVC)
   if(MINGW)
@@ -809,7 +826,7 @@ if(MSVC)
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
@@ -938,12 +955,24 @@ if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
 
+set(ZIG_RELEASE_SAFE OFF CACHE BOOL "Build Zig as ReleaseSafe (with debug assertions on)")
+
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
 else()
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+  if("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+    list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSmall)
+  else()
+    # Release and RelWithDebInfo
+    if(ZIG_RELEASE_SAFE)
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSafe)
+    else()
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
+    endif()
+    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+      list(APPEND ZIG_BUILD_ARGS -Dstrip)
+    endif()
+  endif()
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)

@@ -507,7 +507,6 @@ test "tuple with runtime value coerced into a slice with a sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -602,4 +601,22 @@ test "empty union in tuple" {
     try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
     try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
     try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
+}
+
+test "field pointer of underaligned tuple" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    const S = struct {
+        fn doTheTest() !void {
+            const T = struct { u8, u32 };
+            var val: T align(2) = .{ 1, 2 };
+
+            comptime assert(@TypeOf(&val[0]) == *u8); // `u8` field pointer isn't overaligned
+            comptime assert(@TypeOf(&val[1]) == *align(2) u32); // `u32` field pointer is correctly underaligned
+
+            try expect(val[0] == 1);
+            try expect(val[1] == 2);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

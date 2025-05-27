@@ -2919,6 +2919,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .set_runtime_safety,
             .memcpy,
             .memset,
+            .memmove,
             .validate_deref,
             .validate_destructure,
             .save_err_ret_index,
@@ -4298,12 +4299,12 @@ fn fnDeclInner(
                             &[_]u32{
                                 try astgen.errNoteNode(
                                     type_expr,
-                                    "if this is a name, annotate its type '{s}: T'",
+                                    "if this is a name, annotate its type: '{s}: T'",
                                     .{identifier_str},
                                 ),
                                 try astgen.errNoteNode(
                                     type_expr,
-                                    "if this is a type, give it a name '<name>: {s}'",
+                                    "if this is a type, give it a name: 'name: {s}'",
                                     .{identifier_str},
                                 ),
                             },
@@ -8854,10 +8855,10 @@ fn asmExpr(
             return astgen.failNode(node, "assembly expression with no output must be marked volatile", .{});
         }
     }
-    if (full.outputs.len > 32) {
-        return astgen.failNode(full.outputs[32], "too many asm outputs", .{});
+    if (full.outputs.len >= 16) {
+        return astgen.failNode(full.outputs[16], "too many asm outputs", .{});
     }
-    var outputs_buffer: [32]Zir.Inst.Asm.Output = undefined;
+    var outputs_buffer: [15]Zir.Inst.Asm.Output = undefined;
     const outputs = outputs_buffer[0..full.outputs.len];
 
     var output_type_bits: u32 = 0;
@@ -8893,10 +8894,10 @@ fn asmExpr(
         }
     }
 
-    if (full.inputs.len > 32) {
+    if (full.inputs.len >= 32) {
         return astgen.failNode(full.inputs[32], "too many asm inputs", .{});
     }
-    var inputs_buffer: [32]Zir.Inst.Asm.Input = undefined;
+    var inputs_buffer: [31]Zir.Inst.Asm.Input = undefined;
     const inputs = inputs_buffer[0..full.inputs.len];
 
     for (full.inputs, 0..) |input_node, i| {
@@ -8912,7 +8913,7 @@ fn asmExpr(
         };
     }
 
-    var clobbers_buffer: [32]u32 = undefined;
+    var clobbers_buffer: [63]u32 = undefined;
     var clobber_i: usize = 0;
     if (full.first_clobber) |first_clobber| clobbers: {
         // asm ("foo" ::: "a", "b")
@@ -9714,6 +9715,13 @@ fn builtinCall(
             _ = try gz.addPlNode(.memset, node, Zir.Inst.Bin{
                 .lhs = lhs,
                 .rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = elem_ty } }, params[1]),
+            });
+            return rvalue(gz, ri, .void_value, node);
+        },
+        .memmove => {
+            _ = try gz.addPlNode(.memmove, node, Zir.Inst.Bin{
+                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },
@@ -12932,14 +12940,14 @@ const GenZir = struct {
         }
         gz.astgen.extra.appendSliceAssumeCapacity(args.clobbers);
 
-        //  * 0b00000000_000XXXXX - `outputs_len`.
-        //  * 0b000000XX_XXX00000 - `inputs_len`.
-        //  * 0b0XXXXX00_00000000 - `clobbers_len`.
+        //  * 0b00000000_0000XXXX - `outputs_len`.
+        //  * 0b0000000X_XXXX0000 - `inputs_len`.
+        //  * 0b0XXXXXX0_00000000 - `clobbers_len`.
         //  * 0bX0000000_00000000 - is volatile
-        const small: u16 = @as(u16, @intCast(args.outputs.len)) |
-            @as(u16, @intCast(args.inputs.len << 5)) |
-            @as(u16, @intCast(args.clobbers.len << 10)) |
-            (@as(u16, @intFromBool(args.is_volatile)) << 15);
+        const small: u16 = @as(u16, @as(u4, @intCast(args.outputs.len))) << 0 |
+            @as(u16, @as(u5, @intCast(args.inputs.len))) << 4 |
+            @as(u16, @as(u6, @intCast(args.clobbers.len))) << 9 |
+            @as(u16, @intFromBool(args.is_volatile)) << 15;
 
         const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
         astgen.instructions.appendAssumeCapacity(.{

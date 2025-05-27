@@ -167,6 +167,9 @@ discard_local_symbols: bool = false,
 /// Position Independent Executable
 pie: ?bool = null,
 
+/// Link Time Optimization mode
+lto: ?std.zig.LtoMode = null,
+
 dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
@@ -185,7 +188,9 @@ force_undefined_symbols: std.StringHashMap(void),
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
+/// Deprecated; prefer using `lto`.
 want_lto: ?bool = null,
+
 use_llvm: ?bool,
 use_lld: ?bool,
 
@@ -223,8 +228,6 @@ error_limit: ?u32 = null,
 is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
-
-no_builtin: bool = false,
 
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
@@ -288,6 +291,7 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+    test_obj,
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -365,7 +369,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     }
 
     // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if (options.kind == .@"test" and mem.eql(u8, name, "test"))
+    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
         ""
     else
         owner.fmt("{s} ", .{name});
@@ -380,6 +384,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .lib => "zig build-lib",
             .obj => "zig build-obj",
             .@"test" => "zig test",
+            .test_obj => "zig test-obj",
         },
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
@@ -391,7 +396,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .target = target,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
-            .obj => .Obj,
+            .obj, .test_obj => .Obj,
             .exe, .@"test" => .Exe,
         },
         .link_mode = options.linkage,
@@ -1048,6 +1053,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .exe => "build-exe",
         .obj => "build-obj",
         .@"test" => "test",
+        .test_obj => "test-obj",
     };
     try zig_args.append(cmd);
 
@@ -1217,9 +1223,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (other.kind) {
                                 .exe => return step.fail("cannot link with an executable build artifact", .{}),
                                 .@"test" => return step.fail("cannot link with a test", .{}),
-                                .obj => {
+                                .obj, .test_obj => {
                                     const included_in_lib_or_obj = !my_responsibility and
-                                        (dep_compile.kind == .lib or dep_compile.kind == .obj);
+                                        (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
                                     if (!already_linked and !included_in_lib_or_obj) {
                                         try zig_args.append(other.getEmittedBin().getPath2(b, step));
                                         total_linker_objects += 1;
@@ -1441,6 +1447,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("--debug-compile-errors");
     }
 
+    if (b.debug_incremental) {
+        try zig_args.append("--debug-incremental");
+    }
+
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
@@ -1638,10 +1648,6 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         }
     }
 
-    if (compile.no_builtin) {
-        try zig_args.append("-fno-builtin");
-    }
-
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
     }
@@ -1689,7 +1695,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
-    if (compile.build_id) |build_id| {
+    if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
             .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
                 std.fmt.fmtSliceHexLower(hs.toSlice()),
@@ -1711,7 +1717,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
-    try addFlag(&zig_args, "lto", compile.want_lto);
+
+    if (compile.lto) |lto| {
+        try zig_args.append(switch (lto) {
+            .full => "-flto=full",
+            .thin => "-flto=thin",
+            .none => "-fno-lto",
+        });
+    } else try addFlag(&zig_args, "lto", compile.want_lto);
+
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {

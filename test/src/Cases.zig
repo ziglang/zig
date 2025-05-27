@@ -62,6 +62,7 @@ pub const Case = struct {
         Header: []const u8,
     },
 
+    emit_asm: bool = false,
     emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
@@ -173,6 +174,23 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
 }
 
 pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
+    const can_emit_asm = switch (target.result.cpu.arch) {
+        .csky,
+        .xtensa,
+        => false,
+        else => true,
+    };
+    const can_emit_bin = switch (target.result.cpu.arch) {
+        .arc,
+        .csky,
+        .nvptx,
+        .nvptx64,
+        .xcore,
+        .xtensa,
+        => false,
+        else => true,
+    };
+
     ctx.cases.append(.{
         .name = name,
         .target = target,
@@ -181,6 +199,8 @@ pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarge
         .output_mode = .Obj,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .backend = .llvm,
+        .emit_bin = can_emit_bin,
+        .emit_asm = can_emit_asm,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -358,7 +378,7 @@ fn addFromDirInner(
         current_file.* = filename;
 
         const max_file_size = 10 * 1024 * 1024;
-        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, .@"1", 0);
 
         // Parse the manifest
         var manifest = try TestManifest.parse(ctx.arena, src);
@@ -371,6 +391,7 @@ fn addFromDirInner(
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
         const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
         const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_asm = try manifest.getConfigForKeyAssertSingle("emit_asm", bool);
         const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
         const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
@@ -438,6 +459,7 @@ fn addFromDirInner(
                     .backend = backend,
                     .files = .init(ctx.arena),
                     .case = null,
+                    .emit_asm = emit_asm,
                     .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
@@ -663,7 +685,10 @@ pub fn lowerToBuildSteps(
 
         switch (case.case.?) {
             .Compile => {
-                // Force the binary to be emitted if requested.
+                // Force the assembly/binary to be emitted if requested.
+                if (case.emit_asm) {
+                    _ = artifact.getEmittedAsm();
+                }
                 if (case.emit_bin) {
                     _ = artifact.getEmittedBin();
                 }
@@ -761,6 +786,8 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_asm")) {
+            return "false";
         } else if (std.mem.eql(u8, key, "emit_bin")) {
             return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
@@ -802,6 +829,7 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_asm", {} },
         .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
@@ -828,7 +856,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimEnd(u8, next_inner[3..], " \t");
         }
     };
 

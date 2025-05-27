@@ -779,6 +779,10 @@ const targets = [_]ArchTarget{
                 .zig_name = "v9_5a",
             },
             .{
+                .llvm_name = "armv9.6-a",
+                .zig_name = "v9_6a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -893,6 +897,10 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "v9.5a",
                 .zig_name = "has_v9_5a",
+            },
+            .{
+                .llvm_name = "v9.6a",
+                .zig_name = "has_v9_6a",
             },
         },
         .extra_cpus = &.{
@@ -1040,6 +1048,128 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "spirv",
+        .llvm = .{
+            .name = "SPIRV",
+            .td_name = "SPIRV",
+        },
+        .branch_quota = 2000,
+        .extra_features = &.{
+            .{
+                .zig_name = "v1_0",
+                .desc = "Enable version 1.0",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "v1_1",
+                .desc = "Enable version 1.1",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "v1_2",
+                .desc = "Enable version 1.2",
+                .deps = &.{"v1_1"},
+            },
+            .{
+                .zig_name = "v1_3",
+                .desc = "Enable version 1.3",
+                .deps = &.{"v1_2"},
+            },
+            .{
+                .zig_name = "v1_4",
+                .desc = "Enable version 1.4",
+                .deps = &.{"v1_3"},
+            },
+            .{
+                .zig_name = "v1_5",
+                .desc = "Enable version 1.5",
+                .deps = &.{"v1_4"},
+            },
+            .{
+                .zig_name = "v1_6",
+                .desc = "Enable version 1.6",
+                .deps = &.{"v1_5"},
+            },
+            .{
+                .zig_name = "int64",
+                .desc = "Enable Int64 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "float16",
+                .desc = "Enable Float16 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "float64",
+                .desc = "Enable Float64 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "matrix",
+                .desc = "Enable Matrix capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "storage_push_constant16",
+                .desc = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
+                .deps = &.{"v1_3"},
+            },
+            .{
+                .zig_name = "arbitrary_precision_integers",
+                .desc = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
+                .deps = &.{"v1_5"},
+            },
+            .{
+                .zig_name = "kernel",
+                .desc = "Enable Kernel capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "addresses",
+                .desc = "Enable Addresses capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "generic_pointer",
+                .desc = "Enable GenericPointer capability",
+                .deps = &.{ "v1_0", "addresses" },
+            },
+            .{
+                .zig_name = "vector16",
+                .desc = "Enable Vector16 capability",
+                .deps = &.{ "v1_0", "kernel" },
+            },
+            .{
+                .zig_name = "shader",
+                .desc = "Enable Shader capability",
+                .deps = &.{ "v1_0", "matrix" },
+            },
+            .{
+                .zig_name = "variable_pointers",
+                .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "physical_storage_buffer",
+                .desc = "Enable SPV_KHR_variable_pointers extension and the (VariablePointers, VariablePointersStorageBuffer) capabilities",
+                .deps = &.{"v1_0"},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "vulkan_v1_2",
+                .features = &.{ "v1_5", "shader" },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "opencl_v2",
+                .features = &.{ "v1_2", "kernel", "addresses", "generic_pointer" },
+            },
+        },
+    },
+    .{
         .zig_name = "riscv",
         .llvm = .{
             .name = "RISCV",
@@ -1092,25 +1222,23 @@ const targets = [_]ArchTarget{
             .name = "WebAssembly",
             .td_name = "WebAssembly",
         },
+        // For whatever reason, LLVM's WebAssembly backend sets these implied features in code
+        // rather than making them proper dependencies, so fix that here...
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "bulk-memory",
+                .extra_deps = &.{"bulk_memory_opt"},
+            },
+            .{
+                .llvm_name = "reference-types",
+                .extra_deps = &.{"call_indirect_overlong"},
+            },
+        },
         .extra_features = &.{
             .{
                 .zig_name = "nontrapping_bulk_memory_len0",
                 .desc = "Bulk memory operations with a zero length do not trap",
-                .deps = &.{"bulk_memory"},
-            },
-        },
-        .extra_cpus = &.{
-            .{
-                .llvm_name = null,
-                .zig_name = "lime1",
-                .features = &.{
-                    "bulk_memory",
-                    "extended_const",
-                    "multivalue",
-                    "mutable_globals",
-                    "nontrapping_fptoint",
-                    "sign_ext",
-                },
+                .deps = &.{"bulk_memory_opt"},
             },
         },
     },

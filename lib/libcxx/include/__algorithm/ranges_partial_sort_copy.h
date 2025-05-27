@@ -42,9 +42,7 @@ namespace ranges {
 template <class _InIter, class _OutIter>
 using partial_sort_copy_result = in_out_result<_InIter, _OutIter>;
 
-namespace __partial_sort_copy {
-
-struct __fn {
+struct __partial_sort_copy {
   template <input_iterator _Iter1,
             sentinel_for<_Iter1> _Sent1,
             random_access_iterator _Iter2,
@@ -98,10 +96,8 @@ struct __fn {
   }
 };
 
-} // namespace __partial_sort_copy
-
 inline namespace __cpo {
-inline constexpr auto partial_sort_copy = __partial_sort_copy::__fn{};
+inline constexpr auto partial_sort_copy = __partial_sort_copy{};
 } // namespace __cpo
 } // namespace ranges
 

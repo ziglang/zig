@@ -4,6 +4,7 @@ const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Alignment = std.mem.Alignment;
 
 /// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
@@ -775,18 +776,15 @@ pub fn Log2IntCeil(comptime T: type) type {
 /// Returns the smallest integer type that can hold both from and to.
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
     assert(from <= to);
-    if (from == 0 and to == 0) {
-        return u0;
-    }
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    const largest_positive_integer = @max(if (from < 0) (-from) - 1 else from, to); // two's complement
-    const base = log2(largest_positive_integer);
-    const upper = (1 << base) - 1;
-    var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
-    if (signedness == .signed) {
-        magnitude_bits += 1;
-    }
-    return std.meta.Int(signedness, magnitude_bits);
+    return @Type(.{ .int = .{
+        .signedness = signedness,
+        .bits = @as(u16, @intFromBool(signedness == .signed)) +
+            switch (if (from < 0) @max(@abs(from) - 1, to) else to) {
+                0 => 0,
+                else => |pos_max| 1 + log2(pos_max),
+            },
+    } });
 }
 
 test IntFittingRange {
@@ -1086,19 +1084,16 @@ test cast {
 
 pub const AlignCastError = error{UnalignedMemory};
 
-fn AlignCastResult(comptime alignment: u29, comptime Ptr: type) type {
+fn AlignCastResult(comptime alignment: Alignment, comptime Ptr: type) type {
     var ptr_info = @typeInfo(Ptr);
-    ptr_info.pointer.alignment = alignment;
+    ptr_info.pointer.alignment = alignment.toByteUnits();
     return @Type(ptr_info);
 }
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
-    const addr = @intFromPtr(ptr);
-    if (addr % alignment != 0) {
-        return error.UnalignedMemory;
-    }
-    return @alignCast(ptr);
+pub fn alignCast(comptime alignment: Alignment, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
+    if (alignment.check(@intFromPtr(ptr))) return @alignCast(ptr);
+    return error.UnalignedMemory;
 }
 
 /// Asserts `int > 0`.
@@ -1269,6 +1264,19 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
     return @as(Log2Int(T), @intCast(@typeInfo(T).int.bits - 1 - @clz(x)));
+}
+
+test log2_int {
+    try testing.expect(log2_int(u32, 1) == 0);
+    try testing.expect(log2_int(u32, 2) == 1);
+    try testing.expect(log2_int(u32, 3) == 1);
+    try testing.expect(log2_int(u32, 4) == 2);
+    try testing.expect(log2_int(u32, 5) == 2);
+    try testing.expect(log2_int(u32, 6) == 2);
+    try testing.expect(log2_int(u32, 7) == 2);
+    try testing.expect(log2_int(u32, 8) == 3);
+    try testing.expect(log2_int(u32, 9) == 3);
+    try testing.expect(log2_int(u32, 10) == 3);
 }
 
 /// Return the log base 2 of integer value x, rounding up to the

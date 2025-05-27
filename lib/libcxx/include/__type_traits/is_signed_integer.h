@@ -25,7 +25,7 @@ template <>          struct __libcpp_is_signed_integer<signed short>     : publi
 template <>          struct __libcpp_is_signed_integer<signed int>       : public true_type {};
 template <>          struct __libcpp_is_signed_integer<signed long>      : public true_type {};
 template <>          struct __libcpp_is_signed_integer<signed long long> : public true_type {};
-#ifndef _LIBCPP_HAS_NO_INT128
+#if _LIBCPP_HAS_INT128
 template <>          struct __libcpp_is_signed_integer<__int128_t>       : public true_type {};
 #endif
 // clang-format on

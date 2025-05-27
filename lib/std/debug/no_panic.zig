@@ -125,7 +125,10 @@ pub fn forLenMismatch() noreturn {
     @trap();
 }
 
-pub fn memcpyLenMismatch() noreturn {
+/// Delete after next zig1.wasm update
+pub const memcpyLenMismatch = copyLenMismatch;
+
+pub fn copyLenMismatch() noreturn {
     @branchHint(.cold);
     @trap();
 }

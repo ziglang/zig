@@ -34,9 +34,7 @@ pub const UpdateError = error{
     std.fs.File.PReadError ||
     std.fs.File.PWriteError;
 
-pub const FlushError =
-    UpdateError ||
-    std.process.GetCwdError;
+pub const FlushError = UpdateError;
 
 pub const RelocError =
     std.fs.File.PWriteError;
@@ -967,7 +965,7 @@ const Entry = struct {
             const ip = &zcu.intern_pool;
             for (dwarf.types.keys(), dwarf.types.values()) |ty, other_entry| {
                 const ty_unit: Unit.Index = if (Type.fromInterned(ty).typeDeclInst(zcu)) |inst_index|
-                    dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod) catch unreachable
+                    dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod.?) catch unreachable
                 else
                     .main;
                 if (sec.getUnit(ty_unit) == unit and unit.getEntry(other_entry) == entry)
@@ -977,7 +975,7 @@ const Entry = struct {
                     });
             }
             for (dwarf.navs.keys(), dwarf.navs.values()) |nav, other_entry| {
-                const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod) catch unreachable;
+                const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod.?) catch unreachable;
                 if (sec.getUnit(nav_unit) == unit and unit.getEntry(other_entry) == entry)
                     log.err("missing Nav({}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
             }
@@ -1438,7 +1436,7 @@ pub const WipNav = struct {
     debug_info: std.ArrayListUnmanaged(u8),
     debug_line: std.ArrayListUnmanaged(u8),
     debug_loclists: std.ArrayListUnmanaged(u8),
-    pending_lazy: std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: PendingLazy,
 
     pub fn deinit(wip_nav: *WipNav) void {
         const gpa = wip_nav.dwarf.gpa;
@@ -1447,7 +1445,8 @@ pub const WipNav = struct {
         wip_nav.debug_info.deinit(gpa);
         wip_nav.debug_line.deinit(gpa);
         wip_nav.debug_loclists.deinit(gpa);
-        wip_nav.pending_lazy.deinit(gpa);
+        wip_nav.pending_lazy.types.deinit(gpa);
+        wip_nav.pending_lazy.values.deinit(gpa);
     }
 
     pub fn genDebugFrame(wip_nav: *WipNav, loc: u32, cfa: Cfa) UpdateError!void {
@@ -1619,7 +1618,7 @@ pub const WipNav = struct {
 
         const new_func_info = zcu.funcInfo(func);
         const new_file = zcu.navFileScopeIndex(new_func_info.owner_nav);
-        const new_unit = try dwarf.getUnit(zcu.fileByIndex(new_file).mod);
+        const new_unit = try dwarf.getUnit(zcu.fileByIndex(new_file).mod.?);
 
         const dlw = wip_nav.debug_line.writer(dwarf.gpa);
         if (dwarf.incremental()) {
@@ -1809,7 +1808,7 @@ pub const WipNav = struct {
     fn getNavEntry(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) UpdateError!struct { Unit.Index, Entry.Index } {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
-        const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav_index).srcInst(ip).resolveFile(ip)).mod);
+        const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav_index).srcInst(ip).resolveFile(ip)).mod.?);
         const gop = try wip_nav.dwarf.navs.getOrPut(wip_nav.dwarf.gpa, nav_index);
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
@@ -1827,14 +1826,14 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const maybe_inst_index = ty.typeDeclInst(zcu);
         const unit = if (maybe_inst_index) |inst_index|
-            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod)
+            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod.?)
         else
             .main;
         const gop = try wip_nav.dwarf.types.getOrPut(wip_nav.dwarf.gpa, ty.toIntern());
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        if (maybe_inst_index == null) try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, ty.toIntern());
+        if (maybe_inst_index == null) try wip_nav.pending_lazy.types.append(wip_nav.dwarf.gpa, ty.toIntern());
         return .{ unit, entry };
     }
 
@@ -1848,14 +1847,16 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
-        if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (!value.isUndef(zcu)) {
+            if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
+            if (ip.isFunctionType(ty.toIntern())) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        }
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
         gop.value_ptr.* = entry;
-        try wip_nav.pending_lazy.append(wip_nav.dwarf.gpa, value.toIntern());
+        try wip_nav.pending_lazy.values.append(wip_nav.dwarf.gpa, value.toIntern());
         return .{ unit, entry };
     }
 
@@ -2051,12 +2052,20 @@ pub const WipNav = struct {
         try wip_nav.infoSectionOffset(.debug_info, wip_nav.unit, generic_decl_entry, 0);
     }
 
+    const PendingLazy = struct {
+        types: std.ArrayListUnmanaged(InternPool.Index),
+        values: std.ArrayListUnmanaged(InternPool.Index),
+
+        const empty: PendingLazy = .{ .types = .empty, .values = .empty };
+    };
+
     fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) UpdateError!void {
-        const ip = &wip_nav.pt.zcu.intern_pool;
-        while (wip_nav.pending_lazy.pop()) |val| switch (ip.typeOf(val)) {
-            .type_type => try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-            else => try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
-        };
+        while (true) if (wip_nav.pending_lazy.types.pop()) |pending_ty|
+            try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, pending_ty, &wip_nav.pending_lazy)
+        else if (wip_nav.pending_lazy.values.pop()) |pending_val|
+            try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, pending_val, &wip_nav.pending_lazy)
+        else
+            break;
     }
 };
 
@@ -2375,7 +2384,7 @@ fn initWipNavInner(
         else => {},
     }
 
-    const unit = try dwarf.getUnit(file.mod);
+    const unit = try dwarf.getUnit(file.mod.?);
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = if (!nav_gop.found_existing) dwarf.navs.pop();
     if (nav_gop.found_existing) {
@@ -2503,7 +2512,7 @@ fn initWipNavInner(
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
-            const target = file.mod.resolved_target.result;
+            const target = file.mod.?.resolved_target.result;
             try uleb128(diw, switch (nav.status.fully_resolved.alignment) {
                 .none => target_info.defaultFunctionAlignment(target),
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
@@ -2715,7 +2724,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
     var wip_nav: WipNav = .{
         .dwarf = dwarf,
         .pt = pt,
-        .unit = try dwarf.getUnit(file.mod),
+        .unit = try dwarf.getUnit(file.mod.?),
         .entry = undefined,
         .any_children = false,
         .func = .none,
@@ -3133,7 +3142,7 @@ fn updateLazyType(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     type_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -3635,7 +3644,7 @@ fn updateLazyValue(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     value_index: InternPool.Index,
-    pending_lazy: *std.ArrayListUnmanaged(InternPool.Index),
+    pending_lazy: *WipNav.PendingLazy,
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -4033,7 +4042,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
 
     const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    const unit = try dwarf.getUnit(file.mod);
+    const unit = try dwarf.getUnit(file.mod.?);
     const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
     if (inst_info.inst == .main_struct_inst) {
         const type_gop = try dwarf.types.getOrPut(dwarf.gpa, type_index);
@@ -4337,7 +4346,7 @@ pub fn updateLineNumber(dwarf: *Dwarf, zcu: *Zcu, zir_index: InternPool.TrackedI
     var line_buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &line_buf, decl.src_line + 1, dwarf.endian);
 
-    const unit = dwarf.debug_info.section.getUnit(dwarf.getUnitIfExists(file.mod) orelse return);
+    const unit = dwarf.debug_info.section.getUnit(dwarf.getUnitIfExists(file.mod.?) orelse return);
     const entry = unit.getEntry(dwarf.decls.get(zir_index) orelse return);
     try dwarf.getFile().?.pwriteAll(&line_buf, dwarf.debug_info.section.off(dwarf) + unit.off + unit.header_len + entry.off + DebugInfo.declEntryLineOff(dwarf));
 }
@@ -4407,18 +4416,10 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         try wip_nav.updateLazy(.unneeded);
     }
 
-    {
-        const cwd = try std.process.getCwdAlloc(dwarf.gpa);
-        defer dwarf.gpa.free(cwd);
-        for (dwarf.mods.keys(), dwarf.mods.values()) |mod, *mod_info| {
-            const root_dir_path = try std.fs.path.resolve(dwarf.gpa, &.{
-                cwd,
-                mod.root.root_dir.path orelse "",
-                mod.root.sub_path,
-            });
-            defer dwarf.gpa.free(root_dir_path);
-            mod_info.root_dir_path = try dwarf.debug_line_str.addString(dwarf, root_dir_path);
-        }
+    for (dwarf.mods.keys(), dwarf.mods.values()) |mod, *mod_info| {
+        const root_dir_path = try mod.root.toAbsolute(zcu.comp.dirs, dwarf.gpa);
+        defer dwarf.gpa.free(root_dir_path);
+        mod_info.root_dir_path = try dwarf.debug_line_str.addString(dwarf, root_dir_path);
     }
 
     var header = std.ArrayList(u8).init(dwarf.gpa);
@@ -4676,7 +4677,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
                 dwarf.writeInt(
                     header.addManyAsSliceAssumeCapacity(dir_index_info.bytes),
-                    mod_info.dirs.getIndex(dwarf.getUnitIfExists(file.mod).?).?,
+                    mod_info.dirs.getIndex(dwarf.getUnitIfExists(file.mod.?).?) orelse 0,
                 );
                 unit.cross_section_relocs.appendAssumeCapacity(.{
                     .source_off = @intCast(header.items.len),
@@ -4684,7 +4685,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                     .target_unit = StringSection.unit,
                     .target_entry = (try dwarf.debug_line_str.addString(
                         dwarf,
-                        if (file.mod.builtin_file == file) file.source.? else "",
+                        if (file.is_builtin) file.source.? else "",
                     )).toOptional(),
                 });
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());

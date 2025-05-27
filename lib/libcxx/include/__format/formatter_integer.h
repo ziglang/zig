@@ -67,7 +67,7 @@ template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<long, _CharT> : public __formatter_integer<_CharT> {};
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<long long, _CharT> : public __formatter_integer<_CharT> {};
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<__int128_t, _CharT> : public __formatter_integer<_CharT> {};
 #  endif
@@ -83,12 +83,43 @@ template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<unsigned long, _CharT> : public __formatter_integer<_CharT> {};
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<unsigned long long, _CharT> : public __formatter_integer<_CharT> {};
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<__uint128_t, _CharT> : public __formatter_integer<_CharT> {};
 #  endif
 
-#endif //_LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 23
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<signed char> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<short> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<int> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<long> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<long long> = true;
+#    if _LIBCPP_HAS_INT128
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<__int128_t> = true;
+#    endif
+
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<unsigned char> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<unsigned short> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<unsigned> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<unsigned long> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<unsigned long long> = true;
+#    if _LIBCPP_HAS_INT128
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<__uint128_t> = true;
+#    endif
+#  endif // _LIBCPP_STD_VER >= 23
+#endif   // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

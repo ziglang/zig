@@ -72,9 +72,9 @@ sema_prog_node: std.Progress.Node = std.Progress.Node.none,
 codegen_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 /// Used by AstGen worker to load and store ZIR cache.
-global_zir_cache: Compilation.Directory,
+global_zir_cache: Cache.Directory,
 /// Used by AstGen worker to load and store ZIR cache.
-local_zir_cache: Compilation.Directory,
+local_zir_cache: Cache.Directory,
 
 /// This is where all `Export` values are stored. Not all values here are necessarily valid exports;
 /// to enumerate all exports, `single_exports` and `multi_exports` must be consulted.
@@ -93,27 +93,72 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
     len: u32,
 }) = .{},
 
+/// Key is the digest returned by `Builtin.hash`; value is the corresponding module.
+builtin_modules: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, *Package.Module) = .empty,
+
+/// Populated as soon as the `Compilation` is created. Guaranteed to contain all modules, even builtin ones.
+/// Modules whose root file is not a Zig or ZON file have the value `.none`.
+module_roots: std.AutoArrayHashMapUnmanaged(*Package.Module, File.Index.Optional) = .empty,
+
 /// The set of all the Zig source files in the Zig Compilation Unit. Tracked in
 /// order to iterate over it and check which source files have been modified on
 /// the file system when an update is requested, as well as to cache `@import`
 /// results.
 ///
-/// Keys are fully resolved file paths. This table owns the keys and values.
+/// Always accessed through `ImportTableAdapter`, where keys are fully resolved
+/// file paths in order to ensure files are properly deduplicated. This table owns
+/// the keys and values.
 ///
 /// Protected by Compilation's mutex.
 ///
 /// Not serialized. This state is reconstructed during the first call to
 /// `Compilation.update` of the process for a given `Compilation`.
-///
-/// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
+import_table: std.ArrayHashMapUnmanaged(
+    File.Index,
+    void,
+    struct {
+        pub const hash = @compileError("all accesses should be through ImportTableAdapter");
+        pub const eql = @compileError("all accesses should be through ImportTableAdapter");
+    },
+    true, // This is necessary! Without it, the map tries to use its Context to rehash. #21918
+) = .empty,
+
+/// The set of all files in `import_table` which are "alive" this update, meaning
+/// they are reachable by traversing imports starting from an analysis root. This
+/// is usually all files in `import_table`, but some could be omitted if an incremental
+/// update removes an import, or if a module specified on the CLI is never imported.
+/// Reconstructed on every update, after AstGen and before Sema.
+/// Value is why the file is alive.
+alive_files: std.AutoArrayHashMapUnmanaged(File.Index, File.Reference) = .empty,
+
+/// If this is populated, a "file exists in multiple modules" error should be emitted.
+/// This causes file errors to not be shown, because we don't really know which files
+/// should be alive (because the user has messed up their imports somewhere!).
+/// Cleared and recomputed every update, after AstGen and before Sema.
+multi_module_err: ?struct {
+    file: File.Index,
+    modules: [2]*Package.Module,
+    refs: [2]File.Reference,
+} = null,
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
 /// modified on the file system when an update is requested, as well as to cache
 /// `@embedFile` results.
-/// Keys are fully resolved file paths. This table owns the keys and values.
-embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .empty,
+///
+/// Like `import_table`, this is accessed through `EmbedTableAdapter`, so that it is keyed
+/// on the `Compilation.Path` of the `EmbedFile`.
+///
+/// This table owns all of the `*EmbedFile` memory, which is allocated into gpa.
+embed_table: std.ArrayHashMapUnmanaged(
+    *EmbedFile,
+    void,
+    struct {
+        pub const hash = @compileError("all accesses should be through EmbedTableAdapter");
+        pub const eql = @compileError("all accesses should be through EmbedTableAdapter");
+    },
+    true, // This is necessary! Without it, the map tries to use its Context to rehash. #21918
+) = .empty,
 
 /// Stores all Type and Value objects.
 /// The idea is that this will be periodically garbage-collected, but such logic
@@ -130,21 +175,58 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
-/// Keep track of one `@compileLog` callsite per `AnalUnit`.
-/// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
-compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
+/// Keep track of `@compileLog`s per `AnalUnit`.
+/// We track the source location of the first `@compileLog` call, and all logged lines as a linked list.
+/// The list is singly linked, but we do track its tail for fast appends (optimizing many logs in one unit).
+compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
     base_node_inst: InternPool.TrackedInst.Index,
     node_offset: Ast.Node.Offset,
+    first_line: CompileLogLine.Index,
+    last_line: CompileLogLine.Index,
     pub fn src(self: @This()) LazySrcLoc {
         return .{
             .base_node_inst = self.base_node_inst,
             .offset = LazySrcLoc.Offset.nodeOffset(self.node_offset),
         };
     }
-}) = .{},
-/// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
+}) = .empty,
+compile_log_lines: std.ArrayListUnmanaged(CompileLogLine) = .empty,
+free_compile_log_lines: std.ArrayListUnmanaged(CompileLogLine.Index) = .empty,
+/// This tracks files which triggered errors when generating AST/ZIR/ZOIR.
+/// If not `null`, the value is a retryable error (the file status is guaranteed
+/// to be `.retryable_failure`). Otherwise, the file status is `.astgen_failure`
+/// or `.success`, and there are ZIR/ZOIR errors which should be printed.
+/// We just store a `[]u8` instead of a full `*ErrorMsg`, because the source
+/// location is always the entire file. The `[]u8` memory is owned by the map
+/// and allocated into `gpa`.
+failed_files: std.AutoArrayHashMapUnmanaged(File.Index, ?[]u8) = .empty,
+/// AstGen is not aware of modules, and so cannot determine whether an import
+/// string makes sense. That is the job of a traversal after AstGen.
+///
+/// There are several ways in which an import can fail:
+///
+/// * It is an import of a file which does not exist. This case is not handled
+///   by this field, but with a `failed_files` entry on the *imported* file.
+/// * It is an import of a module which does not exist in the current module's
+///   dependency table. This happens at `Sema` time, so is not tracked by this
+///   field.
+/// * It is an import which reaches outside of the current module's root
+///   directory. This is tracked by this field.
+/// * It is an import which reaches into an "illegal import directory". Right now,
+///   the only such directory is 'global_cache/b/', but in general, these are
+///   directories the compiler treats specially. This is tracked by this field.
+///
+/// This is a flat array containing all of the relevant errors. It is cleared and
+/// recomputed on every update. The errors here are fatal, i.e. they block any
+/// semantic analysis this update.
+///
+/// Allocated into gpa.
+failed_imports: std.ArrayListUnmanaged(struct {
+    file_index: File.Index,
+    import_string: Zir.NullTerminatedString,
+    import_token: Ast.TokenIndex,
+    kind: enum { file_outside_module_root, illegal_zig_import },
+}) = .empty,
 failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
@@ -196,8 +278,6 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
-compile_log_text: std.ArrayListUnmanaged(u8) = .empty,
-
 test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
 global_assembly: std.AutoArrayHashMapUnmanaged(AnalUnit, []u8) = .empty,
@@ -212,6 +292,9 @@ all_references: std.ArrayListUnmanaged(Reference) = .empty,
 /// Freelist of indices in `all_references`.
 free_references: std.ArrayListUnmanaged(u32) = .empty,
 
+inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame) = .empty,
+free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index) = .empty,
+
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
 /// Value is index into `all_type_reference` of the first reference triggered by the unit.
@@ -225,9 +308,83 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 
+incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
+    if (build_options.enable_debug_extensions) .init else {},
+
 generation: u32 = 0,
 
+pub const IncrementalDebugState = struct {
+    /// All container types in the ZCU, even dead ones.
+    /// Value is the generation the type was created on.
+    types: std.AutoArrayHashMapUnmanaged(InternPool.Index, u32),
+    /// All `Nav`s in the ZCU, even dead ones.
+    /// Value is the generation the `Nav` was created on.
+    navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, u32),
+    /// All `AnalUnit`s in the ZCU, even dead ones.
+    units: std.AutoArrayHashMapUnmanaged(AnalUnit, UnitInfo),
+
+    pub const init: IncrementalDebugState = .{
+        .types = .empty,
+        .navs = .empty,
+        .units = .empty,
+    };
+    pub fn deinit(ids: *IncrementalDebugState, gpa: Allocator) void {
+        for (ids.units.values()) |*unit_info| {
+            unit_info.deps.deinit(gpa);
+        }
+        ids.types.deinit(gpa);
+        ids.navs.deinit(gpa);
+        ids.units.deinit(gpa);
+    }
+
+    pub const UnitInfo = struct {
+        last_update_gen: u32,
+        /// This information isn't easily recoverable from `InternPool`'s dependency storage format.
+        deps: std.ArrayListUnmanaged(InternPool.Dependee),
+    };
+    pub fn getUnitInfo(ids: *IncrementalDebugState, gpa: Allocator, unit: AnalUnit) Allocator.Error!*UnitInfo {
+        const gop = try ids.units.getOrPut(gpa, unit);
+        if (!gop.found_existing) gop.value_ptr.* = .{
+            .last_update_gen = std.math.maxInt(u32),
+            .deps = .empty,
+        };
+        return gop.value_ptr;
+    }
+    pub fn newType(ids: *IncrementalDebugState, zcu: *Zcu, ty: InternPool.Index) Allocator.Error!void {
+        try ids.types.putNoClobber(zcu.gpa, ty, zcu.generation);
+    }
+    pub fn newNav(ids: *IncrementalDebugState, zcu: *Zcu, nav: InternPool.Nav.Index) Allocator.Error!void {
+        try ids.navs.putNoClobber(zcu.gpa, nav, zcu.generation);
+    }
+};
+
 pub const PerThread = @import("Zcu/PerThread.zig");
+
+pub const ImportTableAdapter = struct {
+    zcu: *const Zcu,
+    pub fn hash(ctx: ImportTableAdapter, path: Compilation.Path) u32 {
+        _ = ctx;
+        return @truncate(std.hash.Wyhash.hash(@intFromEnum(path.root), path.sub_path));
+    }
+    pub fn eql(ctx: ImportTableAdapter, a_path: Compilation.Path, b_file: File.Index, b_index: usize) bool {
+        _ = b_index;
+        const b_path = ctx.zcu.fileByIndex(b_file).path;
+        return a_path.root == b_path.root and mem.eql(u8, a_path.sub_path, b_path.sub_path);
+    }
+};
+
+pub const EmbedTableAdapter = struct {
+    pub fn hash(ctx: EmbedTableAdapter, path: Compilation.Path) u32 {
+        _ = ctx;
+        return @truncate(std.hash.Wyhash.hash(@intFromEnum(path.root), path.sub_path));
+    }
+    pub fn eql(ctx: EmbedTableAdapter, a_path: Compilation.Path, b_file: *EmbedFile, b_index: usize) bool {
+        _ = ctx;
+        _ = b_index;
+        const b_path = b_file.path;
+        return a_path.root == b_path.root and mem.eql(u8, a_path.sub_path, b_path.sub_path);
+    }
+};
 
 /// Names of declarations in `std.builtin` whose values are memoized in a `BuiltinDecl.Memoized`.
 /// The name must exactly match the declaration name, as comptime logic is used to compute the namespace accesses.
@@ -297,7 +454,7 @@ pub const BuiltinDecl = enum {
     @"panic.shiftRhsTooBig",
     @"panic.invalidEnumValue",
     @"panic.forLenMismatch",
-    @"panic.memcpyLenMismatch",
+    @"panic.copyLenMismatch",
     @"panic.memcpyAlias",
     @"panic.noreturnReturned",
 
@@ -374,7 +531,7 @@ pub const BuiltinDecl = enum {
             .@"panic.shiftRhsTooBig",
             .@"panic.invalidEnumValue",
             .@"panic.forLenMismatch",
-            .@"panic.memcpyLenMismatch",
+            .@"panic.copyLenMismatch",
             .@"panic.memcpyAlias",
             .@"panic.noreturnReturned",
             => .func,
@@ -441,7 +598,7 @@ pub const SimplePanicId = enum {
     shift_rhs_too_big,
     invalid_enum_value,
     for_len_mismatch,
-    memcpy_len_mismatch,
+    copy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
 
@@ -465,7 +622,7 @@ pub const SimplePanicId = enum {
             .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
             .invalid_enum_value         => .@"panic.invalidEnumValue",
             .for_len_mismatch           => .@"panic.forLenMismatch",
-            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .copy_len_mismatch          => .@"panic.copyLenMismatch",
             .memcpy_alias               => .@"panic.memcpyAlias",
             .noreturn_returned          => .@"panic.noreturnReturned",
             // zig fmt: on
@@ -547,6 +704,31 @@ pub const Export = struct {
     };
 };
 
+pub const CompileLogLine = struct {
+    next: Index.Optional,
+    /// Does *not* include the trailing newline.
+    data: InternPool.NullTerminatedString,
+    pub const Index = enum(u32) {
+        _,
+        pub fn get(idx: Index, zcu: *Zcu) *CompileLogLine {
+            return &zcu.compile_log_lines.items[@intFromEnum(idx)];
+        }
+        pub fn toOptional(idx: Index) Optional {
+            return @enumFromInt(@intFromEnum(idx));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
+    };
+};
+
 pub const Reference = struct {
     /// The `AnalUnit` whose semantic analysis was triggered by this reference.
     referenced: AnalUnit,
@@ -555,6 +737,42 @@ pub const Reference = struct {
     next: u32,
     /// The source location of the reference.
     src: LazySrcLoc,
+    /// If not `.none`, this is the index of the `InlineReferenceFrame` which should appear
+    /// between the referencer and `referenced` in the reference trace. These frames represent
+    /// inline calls, which do not create actual references (since they happen in the caller's
+    /// `AnalUnit`), but do show in the reference trace.
+    inline_frame: InlineReferenceFrame.Index.Optional,
+};
+
+pub const InlineReferenceFrame = struct {
+    /// The inline *callee*; that is, the function which was called inline.
+    /// The *caller* is either `parent`, or else the unit causing the original `Reference`.
+    callee: InternPool.Index,
+    /// The source location of the inline call, in the *caller*.
+    call_src: LazySrcLoc,
+    /// If not `.none`, a frame which should appear directly below this one.
+    /// This will be the "parent" inline call; this frame's `callee` is our caller.
+    parent: InlineReferenceFrame.Index.Optional,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn ptr(idx: Index, zcu: *Zcu) *InlineReferenceFrame {
+            return &zcu.inline_reference_frames.items[@intFromEnum(idx)];
+        }
+        pub fn toOptional(idx: Index) Optional {
+            return @enumFromInt(@intFromEnum(idx));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
+    };
 };
 
 pub const TypeReference = struct {
@@ -665,29 +883,37 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    /// Relative to the owning package's root source directory.
-    /// Memory is stored in gpa, owned by File.
-    sub_file_path: []const u8,
-
     status: enum {
         /// We have not yet attempted to load this file.
         /// `stat` is not populated and may be `undefined`.
         never_loaded,
         /// A filesystem access failed. It should be retried on the next update.
-        /// There is a `failed_files` entry containing a non-`null` message.
+        /// There is guaranteed to be a `failed_files` entry with at least one message.
+        /// ZIR/ZOIR errors should not be emitted as `zir`/`zoir` is not up-to-date.
         /// `stat` is not populated and may be `undefined`.
         retryable_failure,
-        /// Parsing/AstGen/ZonGen of this file has failed.
-        /// There is an error in `zir` or `zoir`.
-        /// There is a `failed_files` entry (with a `null` message).
+        /// This file has failed parsing, AstGen, or ZonGen.
+        /// There is guaranteed to be a `failed_files` entry, which may or may not have messages.
+        /// ZIR/ZOIR errors *should* be emitted as `zir`/`zoir` is up-to-date.
         /// `stat` is populated.
         astgen_failure,
         /// Parsing and AstGen/ZonGen of this file has succeeded.
+        /// There may still be a `failed_files` entry, e.g. for non-fatal AstGen errors.
         /// `stat` is populated.
         success,
     },
     /// Whether this is populated depends on `status`.
     stat: Cache.File.Stat,
+
+    /// Whether this file is the generated file of a "builtin" module. This matters because those
+    /// files are generated and stored in-nemory rather than being read off-disk. The rest of the
+    /// pipeline generally shouldn't care about this.
+    is_builtin: bool,
+
+    /// The path of this file. It is important that this path has a "canonical form" because files
+    /// are deduplicated based on path; `Compilation.Path` guarantees this. Owned by this `File`,
+    /// allocated into `gpa`.
+    path: Compilation.Path,
 
     source: ?[:0]const u8,
     tree: ?Ast,
@@ -695,11 +921,23 @@ pub const File = struct {
     zoir: ?Zoir,
 
     /// Module that this file is a part of, managed externally.
-    mod: *Package.Module,
-    /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
-    multi_pkg: bool = false,
-    /// List of references to this file, used for multi-package errors.
-    references: std.ArrayListUnmanaged(File.Reference) = .empty,
+    /// This is initially `null`. After AstGen, a pass is run to determine which module each
+    /// file belongs to, at which point this field is set. It is never set to `null` again;
+    /// this is so that if the file starts belonging to a different module instead, we can
+    /// tell, and invalidate dependencies as needed (see `module_changed`).
+    /// During semantic analysis, this is always non-`null` for alive files (i.e. those which
+    /// have imports targeting them).
+    mod: ?*Package.Module,
+    /// Relative to the root directory of `mod`. If `mod == null`, this field is `undefined`.
+    /// This memory is managed externally and must not be directly freed.
+    /// Its lifetime is at least equal to that of this `File`.
+    sub_file_path: []const u8,
+
+    /// If this file's module identity changes on an incremental update, this flag is set to signal
+    /// to `Zcu.updateZirRefs` that all references to this file must be invalidated. This matters
+    /// because changing your module changes things like your optimization mode and codegen flags,
+    /// so everything needs to be re-done. `updateZirRefs` is responsible for resetting this flag.
+    module_changed: bool,
 
     /// The ZIR for this file from the last update with no file failures. As such, this ZIR is never
     /// failed (although it may have compile errors).
@@ -710,7 +948,7 @@ pub const File = struct {
     ///
     /// In other words, if `TrackedInst`s are tied to ZIR other than what's in the `zir` field, this
     /// field is populated with that old ZIR.
-    prev_zir: ?*Zir = null,
+    prev_zir: ?*Zir,
 
     /// This field serves a similar purpose to `prev_zir`, but for ZOIR. However, since we do not
     /// need to map old ZOIR to new ZOIR -- instead only invalidating dependencies if the ZOIR
@@ -718,27 +956,42 @@ pub const File = struct {
     ///
     /// When `zoir` is updated, this field is set to `true`. In `updateZirRefs`, if this is `true`,
     /// we invalidate the corresponding `zon_file` dependency, and reset it to `false`.
-    zoir_invalidated: bool = false,
+    zoir_invalidated: bool,
+
+    pub const Path = struct {
+        root: enum {
+            cwd,
+            fs_root,
+            local_cache,
+            global_cache,
+            lib_dir,
+        },
+    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
-        /// The file is imported directly (i.e. not as a package) with @import.
+        analysis_root: *Package.Module,
         import: struct {
-            file: File.Index,
-            token: Ast.TokenIndex,
+            importer: Zcu.File.Index,
+            tok: Ast.TokenIndex,
+            /// If the file is imported as the root of a module, this is that module.
+            /// `null` means the file was imported directly by path.
+            module: ?*Package.Module,
         },
-        /// The file is the root of a module.
-        root: *Package.Module,
     };
 
     pub fn getMode(self: File) Ast.Mode {
-        if (std.mem.endsWith(u8, self.sub_file_path, ".zon")) {
+        // We never create a `File` whose path doesn't give a mode.
+        return modeFromPath(self.path.sub_path).?;
+    }
+
+    pub fn modeFromPath(path: []const u8) ?Ast.Mode {
+        if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, self.sub_file_path, ".zig")) {
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
             return .zig;
         } else {
-            // `Module.importFile` rejects all other extensions
-            unreachable;
+            return null;
         }
     }
 
@@ -775,15 +1028,18 @@ pub const File = struct {
         stat: Cache.File.Stat,
     };
 
-    pub fn getSource(file: *File, gpa: Allocator) !Source {
+    pub fn getSource(file: *File, zcu: *const Zcu) !Source {
+        const gpa = zcu.gpa;
+
         if (file.source) |source| return .{
             .bytes = source,
             .stat = file.stat,
         };
 
-        // Keep track of inode, file size, mtime, hash so we can detect which files
-        // have been modified when an incremental update is requested.
-        var f = try file.mod.root.openFile(file.sub_file_path, .{});
+        var f = f: {
+            const dir, const sub_path = file.path.openInfo(zcu.comp.dirs);
+            break :f try dir.openFile(sub_path, .{});
+        };
         defer f.close();
 
         const stat = try f.stat();
@@ -815,26 +1071,12 @@ pub const File = struct {
         };
     }
 
-    pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
+    pub fn getTree(file: *File, zcu: *const Zcu) !*const Ast {
         if (file.tree) |*tree| return tree;
 
-        const source = try file.getSource(gpa);
-        file.tree = try .parse(gpa, source.bytes, file.getMode());
+        const source = try file.getSource(zcu);
+        file.tree = try .parse(zcu.gpa, source.bytes, file.getMode());
         return &file.tree.?;
-    }
-
-    pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
-        if (file.zoir) |*zoir| return zoir;
-
-        const tree = file.tree.?;
-        assert(tree.mode == .zon);
-
-        file.zoir = try ZonGen.generate(zcu.gpa, tree, .{});
-        if (file.zoir.?.hasCompileErrors()) {
-            try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
-            return error.AnalysisFail;
-        }
-        return &file.zoir.?;
     }
 
     pub fn fullyQualifiedNameLen(file: File) usize {
@@ -870,85 +1112,49 @@ pub const File = struct {
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
-    pub fn fullPath(file: File, ally: Allocator) ![]u8 {
-        return file.mod.root.joinString(ally, file.sub_file_path);
-    }
-
-    pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
-        const loc = std.zig.findLineColumn(file.source.bytes, src);
-        std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
-    }
-
-    /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, zcu: *Zcu, ref: File.Reference) !void {
-        // Don't add the same module root twice. Note that since we always add module roots at the
-        // front of the references array (see below), this loop is actually O(1) on valid code.
-        if (ref == .root) {
-            for (file.references.items) |other| {
-                switch (other) {
-                    .root => |r| if (ref.root == r) return,
-                    else => break, // reached the end of the "is-root" references
-                }
-            }
-        }
-
-        switch (ref) {
-            // We put root references at the front of the list both to make the above loop fast and
-            // to make multi-module errors more helpful (since "root-of" notes are generally more
-            // informative than "imported-from" notes). This path is hit very rarely, so the speed
-            // of the insert operation doesn't matter too much.
-            .root => try file.references.insert(zcu.gpa, 0, ref),
-
-            // Other references we'll just put at the end.
-            else => try file.references.append(zcu.gpa, ref),
-        }
-
-        const mod = switch (ref) {
-            .import => |import| zcu.fileByIndex(import.file).mod,
-            .root => |mod| mod,
-        };
-        if (mod != file.mod) file.multi_pkg = true;
-    }
-
-    /// Mark this file and every file referenced by it as multi_pkg and report an
-    /// astgen_failure error for them. AstGen must have completed in its entirety.
-    pub fn recursiveMarkMultiPkg(file: *File, pt: Zcu.PerThread) void {
-        file.multi_pkg = true;
-        file.status = .astgen_failure;
-
-        // We can only mark children as failed if the ZIR is loaded, which may not
-        // be the case if there were other astgen failures in this file
-        if (file.zir == null) return;
-
-        const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
-        if (imports_index == 0) return;
-        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
-
-        var extra_index = extra.end;
-        for (0..extra.data.imports_len) |_| {
-            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
-            extra_index = item.end;
-
-            const import_path = file.zir.?.nullTerminatedString(item.data.name);
-            if (mem.eql(u8, import_path, "builtin")) continue;
-
-            const res = pt.importFile(file, import_path) catch continue;
-            if (!res.is_pkg and !res.file.multi_pkg) {
-                res.file.recursiveMarkMultiPkg(pt);
-            }
-        }
-    }
-
     pub const Index = InternPool.FileIndex;
+
+    pub fn errorBundleWholeFileSrc(
+        file: *File,
+        zcu: *const Zcu,
+        eb: *std.zig.ErrorBundle.Wip,
+    ) !std.zig.ErrorBundle.SourceLocationIndex {
+        return eb.addSourceLocation(.{
+            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+            .line = 0,
+            .column = 0,
+            .source_line = 0,
+        });
+    }
+    pub fn errorBundleTokenSrc(
+        file: *File,
+        tok: Ast.TokenIndex,
+        zcu: *const Zcu,
+        eb: *std.zig.ErrorBundle.Wip,
+    ) !std.zig.ErrorBundle.SourceLocationIndex {
+        const source = try file.getSource(zcu);
+        const tree = try file.getTree(zcu);
+        const start = tree.tokenStart(tok);
+        const end = start + tree.tokenSlice(tok).len;
+        const loc = std.zig.findLineColumn(source.bytes, start);
+        return eb.addSourceLocation(.{
+            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .span_start = start,
+            .span_main = start,
+            .span_end = @intCast(end),
+            .line = @intCast(loc.line),
+            .column = @intCast(loc.column),
+            .source_line = try eb.addString(loc.source_line),
+        });
+    }
 };
 
 /// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
-    /// Module that this file is a part of, managed externally.
-    owner: *Package.Module,
-    /// Relative to the owning module's root directory.
-    sub_file_path: InternPool.NullTerminatedString,
-
+    path: Compilation.Path,
     /// `.none` means the file was not loaded, so `stat` is undefined.
     val: InternPool.Index,
     /// If this is `null` and `val` is `.none`, the file has never been loaded.
@@ -958,7 +1164,7 @@ pub const EmbedFile = struct {
     pub const Index = enum(u32) {
         _,
         pub fn get(idx: Index, zcu: *const Zcu) *EmbedFile {
-            return zcu.embed_table.values()[@intFromEnum(idx)];
+            return zcu.embed_table.keys()[@intFromEnum(idx)];
         }
     };
 };
@@ -1036,32 +1242,31 @@ pub const SrcLoc = struct {
 
     pub const Span = Ast.Span;
 
-    pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
+    pub fn span(src_loc: SrcLoc, zcu: *const Zcu) !Span {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .entire_file => return Span{ .start = 0, .end = 1, .main = 0 },
 
             .byte_abs => |byte_index| return Span{ .start = byte_index, .end = byte_index + 1, .main = byte_index },
 
             .token_abs => |tok_index| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const start = tree.tokenStart(tok_index);
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
             },
             .node_abs => |node| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 return tree.nodeToSpan(node);
             },
             .byte_offset => |byte_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const tok_index = src_loc.baseSrcToken();
                 const start = tree.tokenStart(tok_index) + byte_off;
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
             },
             .token_offset => |tok_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const tok_index = tok_off.toAbsolute(src_loc.baseSrcToken());
                 const start = tree.tokenStart(tok_index);
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
@@ -1069,23 +1274,23 @@ pub const SrcLoc = struct {
             },
             .node_offset => |traced_off| {
                 const node_off = traced_off.x;
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const main_token = tree.nodeMainToken(node);
                 return tree.tokensToSpan(main_token, main_token, main_token);
             },
             .node_offset_bin_op => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.tokensToSpan(
                     tree.firstToken(node) - 3,
@@ -1094,7 +1299,7 @@ pub const SrcLoc = struct {
                 );
             },
             .node_offset_var_decl_ty => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const full = switch (tree.nodeTag(node)) {
                     .global_var_decl,
@@ -1116,7 +1321,7 @@ pub const SrcLoc = struct {
                 return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset_var_decl_align => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const align_node = if (tree.fullVarDecl(node)) |v|
@@ -1128,7 +1333,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(align_node);
             },
             .node_offset_var_decl_section => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const section_node = if (tree.fullVarDecl(node)) |v|
@@ -1140,7 +1345,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const addrspace_node = if (tree.fullVarDecl(node)) |v|
@@ -1152,7 +1357,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const init_node = switch (tree.nodeTag(node)) {
                     .global_var_decl,
@@ -1166,14 +1371,14 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(init_node);
             },
             .node_offset_builtin_call_arg => |builtin_arg| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = builtin_arg.builtin_call_node.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const params = tree.builtinCallParams(&buf, node).?;
                 return tree.nodeToSpan(params[builtin_arg.arg_index]);
             },
             .node_offset_ptrcast_operand => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
 
                 var node = node_off.toAbsolute(src_loc.base_node);
                 while (true) {
@@ -1206,7 +1411,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(node);
             },
             .node_offset_array_access_index => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
             },
@@ -1215,7 +1420,7 @@ pub const SrcLoc = struct {
             .node_offset_slice_end,
             .node_offset_slice_sentinel,
             => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const full = tree.fullSlice(node).?;
                 const part_node = switch (src_loc.lazy) {
@@ -1228,14 +1433,14 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(part_node);
             },
             .node_offset_call_func => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullCall(&buf, node).?;
                 return tree.nodeToSpan(full.ast.fn_expr);
             },
             .node_offset_field_name => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const tok_index = switch (tree.nodeTag(node)) {
@@ -1259,7 +1464,7 @@ pub const SrcLoc = struct {
                 return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset_field_name_init => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const tok_index = tree.firstToken(node) - 2;
                 const start = tree.tokenStart(tok_index);
@@ -1267,18 +1472,18 @@ pub const SrcLoc = struct {
                 return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset_deref_ptr => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(node);
             },
             .node_offset_asm_source => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const full = tree.fullAsm(node).?;
                 return tree.nodeToSpan(full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
@@ -1286,7 +1491,7 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_if_cond => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const src_node = switch (tree.nodeTag(node)) {
                     .if_simple,
@@ -1314,14 +1519,14 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(src_node);
             },
             .for_input => |for_input| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = for_input.for_node_offset.toAbsolute(src_loc.base_node);
                 const for_full = tree.fullFor(node).?;
                 const src_node = for_full.ast.inputs[for_input.input_index];
                 return tree.nodeToSpan(src_node);
             },
             .for_capture_from_input => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const input_node = node_off.toAbsolute(src_loc.base_node);
                 // We have to actually linear scan the whole AST to find the for loop
                 // that contains this input.
@@ -1362,7 +1567,7 @@ pub const SrcLoc = struct {
                 } else unreachable;
             },
             .call_arg => |call_arg| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = call_arg.call_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const call_full = tree.fullCall(buf[0..1], node) orelse {
@@ -1399,7 +1604,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param, .fn_proto_param_type => |fn_proto_param| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = fn_proto_param.fn_proto_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
@@ -1427,17 +1632,17 @@ pub const SrcLoc = struct {
                 unreachable;
             },
             .node_offset_bin_lhs => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(tree.nodeData(node).node_and_node[0]);
             },
             .node_offset_bin_rhs => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(tree.nodeData(node).node_and_node[1]);
             },
             .array_cat_lhs, .array_cat_rhs => |cat| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = cat.array_cat_offset.toAbsolute(src_loc.base_node);
                 const arr_node = if (src_loc.lazy == .array_cat_lhs)
                     tree.nodeData(node).node_and_node[0]
@@ -1463,20 +1668,20 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_try_operand => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(tree.nodeData(node).node);
             },
 
             .node_offset_switch_operand => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 const condition, _ = tree.nodeData(node).node_and_extra;
                 return tree.nodeToSpan(condition);
             },
 
             .node_offset_switch_special_prong => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
                 _, const extra_index = tree.nodeData(switch_node).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
@@ -1493,7 +1698,7 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_range => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
                 _, const extra_index = tree.nodeData(switch_node).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
@@ -1513,28 +1718,28 @@ pub const SrcLoc = struct {
                 } else unreachable;
             },
             .node_offset_fn_type_align => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.align_expr.unwrap().?);
             },
             .node_offset_fn_type_addrspace => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.addrspace_expr.unwrap().?);
             },
             .node_offset_fn_type_section => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.section_expr.unwrap().?);
             },
             .node_offset_fn_type_cc => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
@@ -1542,14 +1747,14 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.return_type.unwrap().?);
             },
             .node_offset_param => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 var first_tok = tree.firstToken(node);
@@ -1564,7 +1769,7 @@ pub const SrcLoc = struct {
                 );
             },
             .token_offset_param => |token_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const main_token = tree.nodeMainToken(src_loc.base_node);
                 const tok_index = token_off.toAbsolute(main_token);
 
@@ -1581,14 +1786,14 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_anyframe_type => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
                 _, const child_type = tree.nodeData(parent_node).token_and_node;
                 return tree.nodeToSpan(child_type);
             },
 
             .node_offset_lib_name => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, parent_node).?;
@@ -1599,75 +1804,75 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_array_type_len => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.sentinel.unwrap().?);
             },
             .node_offset_array_type_elem => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.elem_type);
             },
             .node_offset_un_op => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 return tree.nodeToSpan(tree.nodeData(node).node);
             },
             .node_offset_ptr_elem => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.child_type);
             },
             .node_offset_ptr_sentinel => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.sentinel.unwrap().?);
             },
             .node_offset_ptr_align => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.align_node.unwrap().?);
             },
             .node_offset_ptr_addrspace => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.addrspace_node.unwrap().?);
             },
             .node_offset_ptr_bitoffset => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.bit_range_start.unwrap().?);
             },
             .node_offset_ptr_hostsize => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.bit_range_end.unwrap().?);
             },
             .node_offset_container_tag => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(parent_node)) {
@@ -1690,7 +1895,7 @@ pub const SrcLoc = struct {
                 }
             },
             .node_offset_field_default => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 const full: Ast.full.ContainerField = switch (tree.nodeTag(parent_node)) {
@@ -1701,7 +1906,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(full.ast.value_expr.unwrap().?);
             },
             .node_offset_init_ty => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
 
                 var buf: [2]Ast.Node.Index = undefined;
@@ -1712,7 +1917,7 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(type_expr);
             },
             .node_offset_store_ptr => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
@@ -1739,7 +1944,7 @@ pub const SrcLoc = struct {
                 }
             },
             .node_offset_store_operand => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
 
                 switch (tree.nodeTag(node)) {
@@ -1766,7 +1971,7 @@ pub const SrcLoc = struct {
                 }
             },
             .node_offset_return_operand => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 if (tree.nodeTag(node) == .@"return") {
                     if (tree.nodeData(node).opt_node.unwrap()) |lhs| {
@@ -1780,7 +1985,7 @@ pub const SrcLoc = struct {
             .container_field_type,
             .container_field_align,
             => |field_idx| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = src_loc.base_node;
                 var buf: [2]Ast.Node.Index = undefined;
                 const container_decl = tree.fullContainerDecl(&buf, node) orelse
@@ -1808,7 +2013,7 @@ pub const SrcLoc = struct {
                 } else unreachable;
             },
             .tuple_field_type, .tuple_field_init => |field_info| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = src_loc.base_node;
                 var buf: [2]Ast.Node.Index = undefined;
                 const container_decl = tree.fullContainerDecl(&buf, node) orelse
@@ -1822,7 +2027,7 @@ pub const SrcLoc = struct {
                 });
             },
             .init_elem => |init_elem| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const init_node = init_elem.init_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 if (tree.fullArrayInit(&buf, init_node)) |full| {
@@ -1861,7 +2066,7 @@ pub const SrcLoc = struct {
                     .init_field_dll_import => "dll_import",
                     else => unreachable,
                 };
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const node = builtin_call_node.toAbsolute(src_loc.base_node);
                 var builtin_buf: [2]Ast.Node.Index = undefined;
                 const args = tree.builtinCallParams(&builtin_buf, node).?;
@@ -1900,7 +2105,7 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 };
 
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 const switch_node = switch_node_offset.toAbsolute(src_loc.base_node);
                 _, const extra_index = tree.nodeData(switch_node).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
@@ -1995,7 +2200,7 @@ pub const SrcLoc = struct {
                 }
             },
             .func_decl_param_comptime => |param_idx| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, src_loc.base_node).?;
                 var param_it = full.iterate(tree);
@@ -2004,7 +2209,7 @@ pub const SrcLoc = struct {
                 return tree.tokenToSpan(param.comptime_noalias.?);
             },
             .func_decl_param_ty => |param_idx| {
-                const tree = try src_loc.file_scope.getTree(gpa);
+                const tree = try src_loc.file_scope.getTree(zcu);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, src_loc.base_node).?;
                 var param_it = full.iterate(tree);
@@ -2033,9 +2238,6 @@ pub const LazySrcLoc = struct {
         /// value is being set to this tag.
         /// `base_node_inst` is unused.
         unneeded,
-        /// Means the source location points to an entire file; not any particular
-        /// location within the file. `file_scope` union field will be active.
-        entire_file,
         /// The source location points to a byte offset within a source file,
         /// offset from 0. The source file is determined contextually.
         byte_abs: u32,
@@ -2454,15 +2656,37 @@ pub const LazySrcLoc = struct {
 
     /// Like `upgrade`, but returns `null` if the source location has been lost across incremental updates.
     pub fn upgradeOrLost(lazy: LazySrcLoc, zcu: *Zcu) ?SrcLoc {
-        const file, const base_node: Ast.Node.Index = if (lazy.offset == .entire_file) .{
-            zcu.fileByIndex(lazy.base_node_inst.resolveFile(&zcu.intern_pool)),
-            .root,
-        } else resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
+        const file, const base_node: Ast.Node.Index = resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
         return .{
             .file_scope = file,
             .base_node = base_node,
             .lazy = lazy.offset,
         };
+    }
+
+    /// Used to sort error messages, so that they're printed in a consistent order.
+    /// If an error is returned, that error makes sorting impossible.
+    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu) !bool {
+        const lhs_src = lhs_lazy.upgradeOrLost(zcu) orelse {
+            // LHS source location lost, so should never be referenced. Just sort it to the end.
+            return false;
+        };
+        const rhs_src = rhs_lazy.upgradeOrLost(zcu) orelse {
+            // RHS source location lost, so should never be referenced. Just sort it to the end.
+            return true;
+        };
+        if (lhs_src.file_scope != rhs_src.file_scope) {
+            const lhs_path = lhs_src.file_scope.path;
+            const rhs_path = rhs_src.file_scope.path;
+            if (lhs_path.root != rhs_path.root) {
+                return @intFromEnum(lhs_path.root) < @intFromEnum(rhs_path.root);
+            }
+            return std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).compare(.lt);
+        }
+
+        const lhs_span = try lhs_src.span(zcu);
+        const rhs_span = try rhs_src.span(zcu);
+        return lhs_span.main < rhs_span.main;
     }
 };
 
@@ -2492,21 +2716,19 @@ pub fn deinit(zcu: *Zcu) void {
 
         if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
-        for (zcu.import_table.keys()) |key| {
-            gpa.free(key);
-        }
-        for (zcu.import_table.values()) |file_index| {
+        zcu.builtin_modules.deinit(gpa);
+        zcu.module_roots.deinit(gpa);
+        for (zcu.import_table.keys()) |file_index| {
             pt.destroyFile(file_index);
         }
         zcu.import_table.deinit(gpa);
+        zcu.alive_files.deinit(gpa);
 
-        for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
-            gpa.free(path);
+        for (zcu.embed_table.keys()) |embed_file| {
+            embed_file.path.deinit(gpa);
             gpa.destroy(embed_file);
         }
         zcu.embed_table.deinit(gpa);
-
-        zcu.compile_log_text.deinit(gpa);
 
         zcu.local_zir_cache.handle.close();
         zcu.global_zir_cache.handle.close();
@@ -2521,9 +2743,10 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.failed_types.deinit(gpa);
 
         for (zcu.failed_files.values()) |value| {
-            if (value) |msg| msg.destroy(gpa);
+            if (value) |msg| gpa.free(msg);
         }
         zcu.failed_files.deinit(gpa);
+        zcu.failed_imports.deinit(gpa);
 
         for (zcu.failed_exports.values()) |value| {
             value.destroy(gpa);
@@ -2535,7 +2758,9 @@ pub fn deinit(zcu: *Zcu) void {
         }
         zcu.cimport_errors.deinit(gpa);
 
-        zcu.compile_log_sources.deinit(gpa);
+        zcu.compile_logs.deinit(gpa);
+        zcu.compile_log_lines.deinit(gpa);
+        zcu.free_compile_log_lines.deinit(gpa);
 
         zcu.all_exports.deinit(gpa);
         zcu.free_exports.deinit(gpa);
@@ -2561,11 +2786,18 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.all_references.deinit(gpa);
         zcu.free_references.deinit(gpa);
 
+        zcu.inline_reference_frames.deinit(gpa);
+        zcu.free_inline_reference_frames.deinit(gpa);
+
         zcu.type_reference_table.deinit(gpa);
         zcu.all_type_references.deinit(gpa);
         zcu.free_type_references.deinit(gpa);
 
         if (zcu.resolved_references) |*r| r.deinit(gpa);
+
+        if (zcu.comp.debugIncremental()) {
+            zcu.incremental_debug_state.deinit(gpa);
+        }
     }
     zcu.intern_pool.deinit(gpa);
 }
@@ -2753,7 +2985,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         },
         .{
             .base = @ptrCast(zoir.limbs),
-            .len = zoir.limbs.len * 4,
+            .len = zoir.limbs.len * @sizeOf(std.math.big.Limb),
         },
         .{
             .base = zoir.string_bytes.ptr,
@@ -3313,27 +3545,21 @@ pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav_id: InternPool.Nav.Index) !void
     zcu.nav_val_analysis_queued.putAssumeCapacityNoClobber(nav_id, {});
 }
 
-pub const ImportFileResult = struct {
-    file: *File,
-    file_index: File.Index,
+pub const ImportResult = struct {
+    /// Whether `file` has been newly created; in other words, whether this is the first import of
+    /// this file. This should only be `true` when importing files during AstGen. After that, all
+    /// files should have already been discovered.
     is_new: bool,
-    is_pkg: bool,
-};
 
-pub fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
-    const want_local_cache = mod == zcu.main_mod;
-    var path_hash: Cache.HashHelper = .{};
-    path_hash.addBytes(build_options.version);
-    path_hash.add(builtin.zig_backend);
-    if (!want_local_cache) {
-        path_hash.addOptionalBytes(mod.root.root_dir.path);
-        path_hash.addBytes(mod.root.sub_path);
-    }
-    path_hash.addBytes(sub_file_path);
-    var bin: Cache.BinDigest = undefined;
-    path_hash.hasher.final(&bin);
-    return bin;
-}
+    /// `file.mod` is not populated by this function, so if `is_new`, then it is `undefined`.
+    file: *Zcu.File,
+    file_index: File.Index,
+
+    /// If this import was a simple file path, this is `null`; the imported file should exist within
+    /// the importer's module. Otherwise, it's the module which the import resolved to. This module
+    /// could match the module of `cur_file`, since a module can depend on itself.
+    module: ?*Package.Module,
+};
 
 /// Delete all the Export objects that are caused by this `AnalUnit`. Re-analysis of
 /// this `AnalUnit` will cause them to be re-created (or not).
@@ -3388,12 +3614,28 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
         var idx = kv.value;
 
         while (idx != std.math.maxInt(u32)) {
+            const ref = zcu.all_references.items[idx];
             zcu.free_references.append(gpa, idx) catch {
                 // This space will be reused eventually, so we need not propagate this error.
                 // Just leak it for now, and let GC reclaim it later on.
                 break :unit_refs;
             };
-            idx = zcu.all_references.items[idx].next;
+            idx = ref.next;
+
+            var opt_inline_frame = ref.inline_frame;
+            while (opt_inline_frame.unwrap()) |inline_frame| {
+                // The same inline frame could be used multiple times by one unit. We need to
+                // detect this case to avoid adding it to `free_inline_reference_frames` more
+                // than once. We do that by setting `parent` to itself as a marker.
+                if (inline_frame.ptr(zcu).parent == inline_frame.toOptional()) break;
+                zcu.free_inline_reference_frames.append(gpa, inline_frame) catch {
+                    // This space will be reused eventually, so we need not propagate this error.
+                    // Just leak it for now, and let GC reclaim it later on.
+                    break :unit_refs;
+                };
+                opt_inline_frame = inline_frame.ptr(zcu).parent;
+                inline_frame.ptr(zcu).parent = inline_frame.toOptional(); // signal to code above
+            }
         }
     }
 
@@ -3412,7 +3654,38 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     }
 }
 
-pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
+/// Delete all compile logs performed by this `AnalUnit`.
+/// Re-analysis of the `AnalUnit` will cause logs to be rediscovered.
+pub fn deleteUnitCompileLogs(zcu: *Zcu, anal_unit: AnalUnit) void {
+    const kv = zcu.compile_logs.fetchSwapRemove(anal_unit) orelse return;
+    const gpa = zcu.gpa;
+    var opt_line_idx = kv.value.first_line.toOptional();
+    while (opt_line_idx.unwrap()) |line_idx| {
+        zcu.free_compile_log_lines.append(gpa, line_idx) catch {
+            // This space will be reused eventually, so we need not propagate this error.
+            // Just leak it for now, and let GC reclaim it later on.
+            return;
+        };
+        opt_line_idx = line_idx.get(zcu).next;
+    }
+}
+
+pub fn addInlineReferenceFrame(zcu: *Zcu, frame: InlineReferenceFrame) Allocator.Error!Zcu.InlineReferenceFrame.Index {
+    const frame_idx: InlineReferenceFrame.Index = zcu.free_inline_reference_frames.pop() orelse idx: {
+        _ = try zcu.inline_reference_frames.addOne(zcu.gpa);
+        break :idx @enumFromInt(zcu.inline_reference_frames.items.len - 1);
+    };
+    frame_idx.ptr(zcu).* = frame;
+    return frame_idx;
+}
+
+pub fn addUnitReference(
+    zcu: *Zcu,
+    src_unit: AnalUnit,
+    referenced_unit: AnalUnit,
+    ref_src: LazySrcLoc,
+    inline_frame: InlineReferenceFrame.Index.Optional,
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     zcu.clearCachedResolvedReferences();
@@ -3432,6 +3705,7 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
         .referenced = referenced_unit,
         .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
         .src = ref_src,
+        .inline_frame = inline_frame,
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
@@ -3471,7 +3745,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
     const target = zcu.getTarget();
 
     if (zcu.error_limit == 0) return 0;
-    if (target.cpu.arch == .spirv64) {
+    if (target.cpu.arch.isSpirV()) {
         if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
             return 32;
         }
@@ -3619,6 +3893,7 @@ pub fn atomicPtrAlignment(
         .mips,
         .mipsel,
         .nvptx,
+        .or1k,
         .powerpc,
         .powerpcle,
         .riscv32,
@@ -3759,7 +4034,10 @@ pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionT
 
 pub const ResolvedReference = struct {
     referencer: AnalUnit,
+    /// If `inline_frame` is not `.none`, this is the *deepest* source location in the chain of
+    /// inline calls. For source locations further up the inline call stack, consult `inline_frame`.
     src: LazySrcLoc,
+    inline_frame: InlineReferenceFrame.Index.Optional,
 };
 
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
@@ -3795,15 +4073,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
 
     try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
     for (zcu.analysis_roots.slice()) |mod| {
-        // Logic ripped from `Zcu.PerThread.importPkg`.
-        // TODO: this is silly, `Module` should just store a reference to its root `File`.
-        const resolved_path = try std.fs.path.resolve(gpa, &.{
-            mod.root.root_dir.path orelse ".",
-            mod.root.sub_path,
-            mod.root_src_path,
-        });
-        defer gpa.free(resolved_path);
-        const file = zcu.import_table.get(resolved_path).?;
+        const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
         type_queue.putAssumeCapacityNoClobber(root_ty, null);
@@ -3968,6 +4238,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try unit_queue.put(gpa, ref.referenced, .{
                             .referencer = unit,
                             .src = ref.src,
+                            .inline_frame = ref.inline_frame,
                         });
                     }
                     ref_idx = ref.next;
@@ -3986,6 +4257,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try type_queue.put(gpa, ref.referenced, .{
                             .referencer = unit,
                             .src = ref.src,
+                            .inline_frame = .none,
                         });
                     }
                     ref_idx = ref.next;
@@ -4017,13 +4289,6 @@ pub fn setFileRootType(zcu: *Zcu, file_index: File.Index, root_type: InternPool.
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
     files.view().items(.root_type)[file_index_unwrapped.index] = root_type;
-}
-
-pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
-    const ip = &zcu.intern_pool;
-    const file_index_unwrapped = file_index.unwrap(ip);
-    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    return files.view().items(.bin_digest)[file_index_unwrapped.index];
 }
 
 pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
@@ -4081,8 +4346,8 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
         .@"comptime" => |cu_id| {
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
-                const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
-                return writer.print("comptime(inst=('{s}', %{}) [{}])", .{ file_path, @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                const file_path = zcu.fileByIndex(resolved.file).path;
+                return writer.print("comptime(inst=('{}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
@@ -4106,8 +4371,8 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
-            return writer.print("inst('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
+            const file_path = zcu.fileByIndex(info.file).path;
+            return writer.print("inst('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
@@ -4123,30 +4388,26 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             else => unreachable,
         },
         .zon_file => |file| {
-            const file_path = zcu.fileByIndex(file).sub_file_path;
-            return writer.print("zon_file('{s}')", .{file_path});
+            const file_path = zcu.fileByIndex(file).path;
+            return writer.print("zon_file('{}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
-            return writer.print("embed_file('{s}')", .{std.fs.path.fmtJoin(&.{
-                ef.owner.root.root_dir.path orelse "",
-                ef.owner.root.sub_path,
-                ef.sub_file_path.toSlice(ip),
-            })});
+            return writer.print("embed_file('{}')", .{ef.path.fmt(zcu.comp)});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("namespace(<lost>)");
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
-            return writer.print("namespace('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
+            const file_path = zcu.fileByIndex(info.file).path;
+            return writer.print("namespace('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
                 return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
             };
-            const file_path = zcu.fileByIndex(info.file).sub_file_path;
-            return writer.print("namespace('{s}', %{d}, '{}')", .{ file_path, @intFromEnum(info.inst), k.name.fmt(ip) });
+            const file_path = zcu.fileByIndex(info.file).path;
+            return writer.print("namespace('{}', %{d}, '{}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4284,6 +4545,26 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             .naked => true,
             else => false,
         },
+        .stage2_powerpc => switch (target.cpu.arch) {
+            .powerpc, .powerpcle => switch (cc) {
+                .powerpc_sysv,
+                .powerpc_sysv_altivec,
+                .powerpc_aix,
+                .powerpc_aix_altivec,
+                .naked,
+                => true,
+                else => false,
+            },
+            .powerpc64, .powerpc64le => switch (cc) {
+                .powerpc64_elf,
+                .powerpc64_elf_altivec,
+                .powerpc64_elf_v2,
+                .naked,
+                => true,
+                else => false,
+            },
+            else => unreachable,
+        },
         .stage2_riscv64 => switch (cc) {
             .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
             .naked => true,
@@ -4362,4 +4643,115 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
     }
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
     return error.CodegenFail;
+}
+
+/// Asserts that `zcu.multi_module_err != null`.
+pub fn addFileInMultipleModulesError(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+) !void {
+    const gpa = zcu.gpa;
+
+    const info = zcu.multi_module_err.?;
+    const file = info.file;
+
+    // error: file exists in modules 'root.foo' and 'root.bar'
+    // note: files must belong to only one module
+    // note: file is imported here
+    // note: which is imported here
+    // note: which is the root of module 'root.foo' imported here
+    // note: file is the root of module 'root.bar' imported here
+
+    const file_src = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb);
+    const root_msg = try eb.printString("file exists in modules '{s}' and '{s}'", .{
+        info.modules[0].fully_qualified_name,
+        info.modules[1].fully_qualified_name,
+    });
+
+    var notes: std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex) = .empty;
+    defer notes.deinit(gpa);
+
+    try notes.append(gpa, try eb.addErrorMessage(.{
+        .msg = try eb.addString("files must belong to only one module"),
+        .src_loc = file_src,
+    }));
+
+    try zcu.explainWhyFileIsInModule(eb, &notes, file, info.modules[0], info.refs[0]);
+    try zcu.explainWhyFileIsInModule(eb, &notes, file, info.modules[1], info.refs[1]);
+
+    try eb.addRootErrorMessage(.{
+        .msg = root_msg,
+        .src_loc = file_src,
+        .notes_len = @intCast(notes.items.len),
+    });
+    const notes_start = try eb.reserveNotes(@intCast(notes.items.len));
+    const notes_slice: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+    @memcpy(notes_slice, notes.items);
+}
+
+fn explainWhyFileIsInModule(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+    notes_out: *std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex),
+    file: File.Index,
+    in_module: *Package.Module,
+    ref: File.Reference,
+) !void {
+    const gpa = zcu.gpa;
+
+    // error: file is the root of module 'foo'
+    //
+    // error: file is imported here by the root of module 'foo'
+    //
+    // error: file is imported here
+    // note: which is imported here
+    // note: which is imported here by the root of module 'foo'
+
+    var import = switch (ref) {
+        .analysis_root => |mod| {
+            assert(mod == in_module);
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("file is the root of module '{s}'", .{mod.fully_qualified_name}),
+                .src_loc = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb),
+            }));
+            return;
+        },
+        .import => |import| if (import.module) |mod| {
+            assert(mod == in_module);
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("file is the root of module '{s}'", .{mod.fully_qualified_name}),
+                .src_loc = try zcu.fileByIndex(file).errorBundleWholeFileSrc(zcu, eb),
+            }));
+            return;
+        } else import,
+    };
+
+    var is_first = true;
+    while (true) {
+        const thing: []const u8 = if (is_first) "file" else "which";
+        is_first = false;
+
+        const import_src = try zcu.fileByIndex(import.importer).errorBundleTokenSrc(import.tok, zcu, eb);
+
+        const importer_ref = zcu.alive_files.get(import.importer).?;
+        const importer_root: ?*Package.Module = switch (importer_ref) {
+            .analysis_root => |mod| mod,
+            .import => |i| i.module,
+        };
+
+        if (importer_root) |m| {
+            try notes_out.append(gpa, try eb.addErrorMessage(.{
+                .msg = try eb.printString("{s} is imported here by the root of module '{s}'", .{ thing, m.fully_qualified_name }),
+                .src_loc = import_src,
+            }));
+            return;
+        }
+
+        try notes_out.append(gpa, try eb.addErrorMessage(.{
+            .msg = try eb.printString("{s} is imported here", .{thing}),
+            .src_loc = import_src,
+        }));
+
+        import = importer_ref.import;
+    }
 }
