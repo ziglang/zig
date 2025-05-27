@@ -2991,7 +2991,7 @@ fn zirStructDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -3250,7 +3250,7 @@ fn zirEnumDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     return Air.internedToRef(wip_ty.index);
 }
@@ -3368,7 +3368,7 @@ fn zirUnionDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -3455,7 +3455,7 @@ fn zirOpaqueDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.addTypeReferenceEntry(src, wip_ty.index);
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -20086,7 +20086,7 @@ fn structInitAnon(
             codegen_type: {
                 if (zcu.comp.config.use_llvm) break :codegen_type;
                 if (block.ownerModule().strip) break :codegen_type;
-                try zcu.comp.queueJob(.{ .codegen_type = wip.index });
+                try zcu.comp.queueJob(.{ .link_type = wip.index });
             }
             if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip.index);
             break :ty wip.finish(ip, new_namespace_index);
@@ -21396,7 +21396,7 @@ fn reifyEnum(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     return Air.internedToRef(wip_ty.index);
 }
@@ -21650,7 +21650,7 @@ fn reifyUnion(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -22004,7 +22004,7 @@ fn reifyStruct(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);

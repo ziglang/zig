@@ -1320,7 +1320,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         }
 
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_nav = nav_id });
+        try zcu.comp.queueJob(.{ .link_nav = nav_id });
     }
 
     switch (old_nav.status) {
@@ -1716,7 +1716,7 @@ fn analyzeFuncBody(
     }
 
     // This job depends on any resolve_type_fully jobs queued up before it.
-    try comp.queueJob(.{ .codegen_func = .{
+    try comp.queueJob(.{ .link_func = .{
         .func = func_index,
         .air = air,
     } });
@@ -1880,7 +1880,7 @@ fn createFileRootStruct(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -3457,73 +3457,8 @@ pub fn populateTestFunctions(
             zcu.codegen_prog_node = std.Progress.Node.none;
         }
 
-        try pt.linkerUpdateNav(nav_index);
-    }
-}
-
-pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
-    const zcu = pt.zcu;
-    const comp = zcu.comp;
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-
-    const nav = zcu.intern_pool.getNav(nav_index);
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
-        // The value of this nav failed to resolve. This is a transitive failure.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
-    } else if (comp.bin_file) |lf| {
-        lf.updateNav(pt, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow, error.RelocationNotByteAligned => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "unable to codegen: {s}",
-                    .{@errorName(err)},
-                ));
-                // Not a retryable failure.
-            },
-        };
-    } else if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    }
-}
-
-pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{OutOfMemory}!void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const comp = zcu.comp;
-    const ip = &zcu.intern_pool;
-
-    const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(gpa);
-
-    if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
-        // This type failed to resolve. This is a transitive failure.
-        return;
-    }
-
-    if (comp.bin_file) |lf| lf.updateContainerType(pt, ty) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
-    };
-}
-
-pub fn linkerUpdateLineNumber(pt: Zcu.PerThread, ti: InternPool.TrackedInst.Index) !void {
-    if (pt.zcu.comp.bin_file) |lf| {
-        lf.updateLineNumber(pt, ti) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
-        };
+        // The linker thread is not running, so we actually need to dispatch this task directly.
+        @import("../link.zig").doTask(zcu.comp, @intFromEnum(pt.tid), .{ .link_nav = nav_index });
     }
 }
 
@@ -3984,7 +3919,7 @@ pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!
     const result = try pt.zcu.intern_pool.getExtern(pt.zcu.gpa, pt.tid, key);
     if (result.new_nav.unwrap()) |nav| {
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try pt.zcu.comp.queueJob(.{ .codegen_nav = nav });
+        try pt.zcu.comp.queueJob(.{ .link_nav = nav });
         if (pt.zcu.comp.debugIncremental()) try pt.zcu.incremental_debug_state.newNav(pt.zcu, nav);
     }
     return result.index;
@@ -4132,7 +4067,7 @@ fn recreateStructType(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -4225,7 +4160,7 @@ fn recreateUnionType(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);

@@ -704,7 +704,7 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Nav.
-    pub fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
+    fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
         const nav = pt.zcu.intern_pool.getNav(nav_index);
         assert(nav.status == .fully_resolved);
         switch (base.tag) {
@@ -721,7 +721,7 @@ pub const File = struct {
         TypeFailureReported,
     };
 
-    pub fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
+    fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
         switch (base.tag) {
             else => {},
             inline .elf => |tag| {
@@ -732,6 +732,7 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Decl.
+    /// TODO: currently `pub` because `Zcu.PerThread` is calling this.
     pub fn updateFunc(
         base: *File,
         pt: Zcu.PerThread,
@@ -755,7 +756,7 @@ pub const File = struct {
 
     /// On an incremental update, fixup the line number of all `Nav`s at the given `TrackedInst`, because
     /// its line number has changed. The ZIR instruction `ti_id` has tag `.declaration`.
-    pub fn updateLineNumber(base: *File, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) UpdateLineNumberError!void {
+    fn updateLineNumber(base: *File, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) UpdateLineNumberError!void {
         {
             const ti = ti_id.resolveFull(&pt.zcu.intern_pool).?;
             const file = pt.zcu.fileByIndex(ti.file);
@@ -1435,10 +1436,10 @@ pub const Task = union(enum) {
     load_input: Input,
 
     /// Write the constant value for a Decl to the output file.
-    codegen_nav: InternPool.Nav.Index,
+    link_nav: InternPool.Nav.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: CodegenFunc,
-    codegen_type: InternPool.Index,
+    link_func: CodegenFunc,
+    link_type: InternPool.Index,
 
     update_line_number: InternPool.TrackedInst.Index,
 
@@ -1585,47 +1586,90 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 },
             };
         },
-        .codegen_nav => |nav_index| {
-            if (comp.remaining_prelink_tasks == 0) {
-                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-                defer pt.deactivate();
-                pt.linkerUpdateNav(nav_index) catch |err| switch (err) {
+        .link_nav => |nav_index| {
+            if (comp.remaining_prelink_tasks != 0) {
+                comp.link_task_queue_postponed.appendAssumeCapacity(task);
+                return;
+            }
+            const zcu = comp.zcu.?;
+            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+            defer pt.deactivate();
+            if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+                // Type resolution failed in a way which affects this `Nav`. This is a transitive
+                // failure, but it doesn't need recording, because this `Nav` semantically depends
+                // on the failed type, so when it is changed the `Nav` will be updated.
+                return;
+            }
+            if (comp.bin_file) |lf| {
+                lf.updateNav(pt, nav_index) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                    error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+                    error.Overflow, error.RelocationNotByteAligned => {
+                        zcu.failed_codegen.ensureUnusedCapacity(zcu.gpa, 1) catch return diags.setAllocFailure();
+                        const msg = Zcu.ErrorMsg.create(
+                            zcu.gpa,
+                            zcu.navSrcLoc(nav_index),
+                            "unable to codegen: {s}",
+                            .{@errorName(err)},
+                        ) catch return diags.setAllocFailure();
+                        zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
+                        // Not a retryable failure.
+                    },
+                };
+            } else if (zcu.llvm_object) |llvm_object| {
+                llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
                 };
-            } else {
-                comp.link_task_queue_postponed.appendAssumeCapacity(task);
             }
         },
-        .codegen_func => |func| {
-            if (comp.remaining_prelink_tasks == 0) {
-                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-                defer pt.deactivate();
-                var air = func.air;
-                defer air.deinit(comp.gpa);
-                pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
-                };
-            } else {
+        .link_func => |func| {
+            if (comp.remaining_prelink_tasks != 0) {
                 comp.link_task_queue_postponed.appendAssumeCapacity(task);
+                return;
             }
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
+            var air = func.air;
+            defer air.deinit(comp.gpa);
+            pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
+                error.OutOfMemory => diags.setAllocFailure(),
+            };
         },
-        .codegen_type => |ty| {
-            if (comp.remaining_prelink_tasks == 0) {
-                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-                defer pt.deactivate();
-                pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
-                };
-            } else {
+        .link_type => |ty| {
+            if (comp.remaining_prelink_tasks != 0) {
                 comp.link_task_queue_postponed.appendAssumeCapacity(task);
+                return;
+            }
+            const zcu = comp.zcu.?;
+            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+            defer pt.deactivate();
+            if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(zcu.gpa);
+            if (!Air.typeFullyResolved(.fromInterned(ty), zcu)) {
+                // Type resolution failed in a way which affects this type. This is a transitive
+                // failure, but it doesn't need recording, because this type semantically depends
+                // on the failed type, so when that is changed, this type will be updated.
+                return;
+            }
+            if (comp.bin_file) |lf| {
+                lf.updateContainerType(pt, ty) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                    error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
+                };
             }
         },
         .update_line_number => |ti| {
+            if (comp.remaining_prelink_tasks != 0) {
+                comp.link_task_queue_postponed.appendAssumeCapacity(task);
+                return;
+            }
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
-            pt.linkerUpdateLineNumber(ti) catch |err| switch (err) {
-                error.OutOfMemory => diags.setAllocFailure(),
-            };
+            if (comp.bin_file) |lf| {
+                lf.updateLineNumber(pt, ti) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                    else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
+                };
+            }
         },
     }
 }

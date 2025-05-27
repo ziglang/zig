@@ -848,17 +848,18 @@ pub const RcIncludes = enum {
 const Job = union(enum) {
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_nav: InternPool.Nav.Index,
+    link_nav: InternPool.Nav.Index,
+    /// Corresponds to the task in `link.Task`.
+    /// TODO: this is currently also responsible for performing codegen.
+    /// Only needed for backends that haven't yet been updated to not race against Sema.
+    link_func: link.Task.CodegenFunc,
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_func: link.Task.CodegenFunc,
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_type: InternPool.Index,
+    link_type: InternPool.Index,
     update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
-    /// If the unit is a function, a `codegen_func` job will then be queued.
+    /// If the unit is a test function, an `analyze_func` job will then be queued.
     analyze_comptime_unit: InternPool.AnalUnit,
     /// This function must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
@@ -879,13 +880,13 @@ const Job = union(enum) {
         return switch (tag) {
             // Prioritize functions so that codegen can get to work on them on a
             // separate thread, while Sema goes back to its own work.
-            .resolve_type_fully, .analyze_func, .codegen_func => 0,
+            .resolve_type_fully, .analyze_func, .link_func => 0,
             else => 1,
         };
     }
     comptime {
         // Job dependencies
-        assert(stage(.resolve_type_fully) <= stage(.codegen_func));
+        assert(stage(.resolve_type_fully) <= stage(.link_func));
     }
 };
 
@@ -4552,7 +4553,7 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     switch (job) {
-        .codegen_nav => |nav_index| {
+        .link_nav => |nav_index| {
             const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
             if (nav.analysis != null) {
@@ -4562,16 +4563,16 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 }
             }
             assert(nav.status == .fully_resolved);
-            comp.dispatchCodegenTask(tid, .{ .codegen_nav = nav_index });
+            comp.dispatchLinkTask(tid, .{ .link_nav = nav_index });
         },
-        .codegen_func => |func| {
-            comp.dispatchCodegenTask(tid, .{ .codegen_func = func });
+        .link_func => |func| {
+            comp.dispatchLinkTask(tid, .{ .link_func = func });
         },
-        .codegen_type => |ty| {
-            comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
+        .link_type => |ty| {
+            comp.dispatchLinkTask(tid, .{ .link_type = ty });
         },
         .update_line_number => |ti| {
-            comp.dispatchCodegenTask(tid, .{ .update_line_number = ti });
+            comp.dispatchLinkTask(tid, .{ .update_line_number = ti });
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
@@ -4665,7 +4666,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
 
 /// The reason for the double-queue here is that the first queue ensures any
 /// resolve_type_fully tasks are complete before this dispatch function is called.
-fn dispatchCodegenTask(comp: *Compilation, tid: usize, link_task: link.Task) void {
+fn dispatchLinkTask(comp: *Compilation, tid: usize, link_task: link.Task) void {
     if (comp.separateCodegenThreadOk()) {
         comp.queueLinkTasks(&.{link_task});
     } else {
