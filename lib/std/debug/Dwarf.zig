@@ -2241,7 +2241,7 @@ pub const ElfModule = struct {
                 if (chdr.ch_type != .ZLIB) continue;
                 const ch_size = chdr.ch_size;
 
-                var zlib_stream: std.compress.zlib.Decompressor = .init(&section_reader);
+                var zlib_stream: std.compress.flate.Decompress = .init(&section_reader, .zlib);
 
                 const decompressed_section = zlib_stream.reader().readRemainingAlloc(gpa, .limited(ch_size)) catch continue;
                 if (decompressed_section.len != ch_size) {

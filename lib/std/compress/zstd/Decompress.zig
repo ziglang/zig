@@ -267,8 +267,8 @@ fn discard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
 
 fn readVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
     var bw: BufferedWriter = undefined;
-    bw.initFixed(data[0]);
-    return read(context, &bw, .limited(data[0].len)) catch |err| switch (err) {
+    bw.initVec(data);
+    return read(context, &bw, .countVec(data)) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         else => |e| return e,
     };

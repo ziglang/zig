@@ -68,7 +68,8 @@ pub const FileError = std.fs.File.PReadError || error{
     Unimplemented,
 };
 
-pub const Limit = std.io.Reader.Limit;
+/// TODO: no pub
+pub const Limit = std.io.Limit;
 
 pub const Offset = enum(u64) {
     zero = 0,
