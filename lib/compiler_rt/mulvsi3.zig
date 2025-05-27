@@ -11,12 +11,12 @@ pub fn __mulvsi3(a: i32, b: i32) callconv(.c) i32 {
     if (a == -2147483648) {
         if (b == 0 or b == 1)
             return a * b;
-        @panic("compiler-rt: interger overflow");
+        @panic("compiler-rt: integer overflow");
     }
     if (b == -2147483648) {
         if (a == 0 or a == 1)
             return a * b;
-        @panic("compiler-rt: interger overflow");
+        @panic("compiler-rt: integer overflow");
     }
     const sa = a >> (bits - 1);
     const abs_a = (a ^ sa) - sa;
@@ -26,10 +26,10 @@ pub fn __mulvsi3(a: i32, b: i32) callconv(.c) i32 {
         return a * b;
     if (sa == sb) {
         if (abs_a > @divTrunc(2147483647, abs_b))
-            @panic("compiler-rt: interger overflow");
+            @panic("compiler-rt: integer overflow");
     } else {
         if (abs_a > @divTrunc(-2147483648, -abs_b))
-            @panic("compiler-rt: interger overflow");
+            @panic("compiler-rt: integer overflow");
     }
     return a * b;
 }
