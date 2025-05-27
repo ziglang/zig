@@ -1,3 +1,4 @@
+const subv = @import("subo.zig");
 const common = @import("./common.zig");
 
 pub const panic = common.panic;
@@ -7,14 +8,8 @@ comptime {
 }
 
 pub fn __subvdi3(a: i64, b: i64) callconv(.c) i64 {
-    // first allow overflow to panic with a reference to compiler-rt
-    const sum: i64 = a -% b;
-    if (b >= 0) {
-        if (sum > a)
-            @panic("compiler-rt: integer overflow");
-    } else {
-        if (sum <= a)
-            @panic("compiler-rt: integer overflow");
-    }
+    var overflow: c_int = 0;
+    const sum = subv.__subodi4(a, b, &overflow);
+    if (overflow == 1) @panic("compiler-rt: integer overflow");
     return sum;
 }
