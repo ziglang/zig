@@ -1203,11 +1203,6 @@ test "wait waits for all terminated processes" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
-    const nohang = if (@hasDecl(posix.W, "NOHANG"))
-        posix.W.NOHANG
-    else
-        0;
-
     const pid1 = try posix.fork();
     if (pid1 == 0) posix.exit(0);
 
@@ -1216,7 +1211,10 @@ test "wait waits for all terminated processes" {
 
     try expect(posix.wait(0) != null);
     try expect(posix.wait(0) != null);
-    try expect(posix.wait(nohang) == null);
+
+    if (!@hasDecl(posix.W, "NOHANG"))
+        return error.SkipZigTest;
+    try expect(posix.wait(posix.W.NOHANG) == null);
 }
 
 test "rename smoke test" {
