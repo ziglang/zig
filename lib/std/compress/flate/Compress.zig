@@ -51,9 +51,37 @@ const math = std.math;
 const Compress = @This();
 const Token = @import("Token.zig");
 const BlockWriter = @import("BlockWriter.zig");
-const Container = std.compress.flate.Container;
+const flate = @import("../flate.zig");
+const Container = flate.Container;
 const Lookup = @import("Lookup.zig");
-const huffman = std.compress.flate.huffman;
+const huffman = flate.huffman;
+
+lookup: Lookup = .{},
+tokens: Tokens = .{},
+/// Asserted to have a buffer capacity of at least `flate.max_window_len`.
+input: *std.io.BufferedReader,
+block_writer: BlockWriter,
+level: LevelArgs,
+hasher: Container.Hasher,
+
+// Match and literal at the previous position.
+// Used for lazy match finding in processWindow.
+prev_match: ?Token = null,
+prev_literal: ?u8 = null,
+
+pub fn readable(c: *Compress, buffer: []u8) std.io.BufferedReader {
+    return .{
+        .unbuffered_reader = .{
+            .context = c,
+            .vtable = .{
+                .read = read,
+                .readVec = readVec,
+                .discard = discard,
+            },
+        },
+        .buffer = buffer,
+    };
+}
 
 pub const Options = struct {
     level: Level = .default,
@@ -77,10 +105,10 @@ pub const Level = enum(u4) {
     best = 0xd,
 };
 
-// Number of tokens to accumulate in deflate before starting block encoding.
-//
-// In zlib this depends on memlevel: 6 + memlevel, where default memlevel is
-// 8 and max 9 that gives 14 or 15 bits.
+/// Number of tokens to accumulate in deflate before starting block encoding.
+///
+/// In zlib this depends on memlevel: 6 + memlevel, where default memlevel is
+/// 8 and max 9 that gives 14 or 15 bits.
 pub const n_tokens = 1 << 15;
 
 /// Algorithm knobs for each level.
@@ -102,85 +130,60 @@ const LevelArgs = struct {
     }
 };
 
-lookup: Lookup = .{},
-tokens: Tokens = .{},
-output: *std.io.BufferedWriter,
-block_writer: BlockWriter,
-level: LevelArgs,
-hasher: Container.Hasher,
-
-// Match and literal at the previous position.
-// Used for lazy match finding in processWindow.
-prev_match: ?Token = null,
-prev_literal: ?u8 = null,
-
-pub fn init(output: *std.io.BufferedWriter, options: Options) std.io.Writer.Error!Compress {
-    try output.writeAll(options.container.header(output));
+pub fn init(input: *std.io.BufferedReader, options: Options) Compress {
     return .{
-        .output = output,
-        .block_writer = .init(output),
+        .input = input,
+        .block_writer = undefined,
         .level = .get(options.level),
         .hasher = .init(options.container),
+        .state = .header,
     };
 }
 
 const FlushOption = enum { none, flush, final };
 
-// Process data in window and create tokens. If token buffer is full
-// flush tokens to the token writer. In the case of `flush` or `final`
-// option it will process all data from the window. In the `none` case
-// it will preserve some data for the next match.
-fn tokenize(self: *Compress, flush_opt: FlushOption) !void {
-    // flush - process all data from window
-    const should_flush = (flush_opt != .none);
+/// Process data in window and create tokens. If token buffer is full
+/// flush tokens to the token writer.
+///
+/// Returns number of bytes consumed from `lh`.
+fn tokenizeSlice(c: *Compress, bw: *std.io.BufferedWriter, limit: std.io.Limit, lh: []const u8) !usize {
+    _ = bw;
+    _ = limit;
+    if (true) @panic("TODO");
+    var step: u16 = 1; // 1 in the case of literal, match length otherwise
+    const pos: u16 = c.win.pos();
+    const literal = lh[0]; // literal at current position
+    const min_len: u16 = if (c.prev_match) |m| m.length() else 0;
 
-    // While there is data in active lookahead buffer.
-    while (self.win.activeLookahead(should_flush)) |lh| {
-        var step: u16 = 1; // 1 in the case of literal, match length otherwise
-        const pos: u16 = self.win.pos();
-        const literal = lh[0]; // literal at current position
-        const min_len: u16 = if (self.prev_match) |m| m.length() else 0;
+    // Try to find match at least min_len long.
+    if (c.findMatch(pos, lh, min_len)) |match| {
+        // Found better match than previous.
+        try c.addPrevLiteral();
 
-        // Try to find match at least min_len long.
-        if (self.findMatch(pos, lh, min_len)) |match| {
-            // Found better match than previous.
-            try self.addPrevLiteral();
-
-            // Is found match length good enough?
-            if (match.length() >= self.level.lazy) {
-                // Don't try to lazy find better match, use this.
-                step = try self.addMatch(match);
-            } else {
-                // Store this match.
-                self.prev_literal = literal;
-                self.prev_match = match;
-            }
+        // Is found match length good enough?
+        if (match.length() >= c.level.lazy) {
+            // Don't try to lazy find better match, use this.
+            step = try c.addMatch(match);
         } else {
-            // There is no better match at current pos then it was previous.
-            // Write previous match or literal.
-            if (self.prev_match) |m| {
-                // Write match from previous position.
-                step = try self.addMatch(m) - 1; // we already advanced 1 from previous position
-            } else {
-                // No match at previous position.
-                // Write previous literal if any, and remember this literal.
-                try self.addPrevLiteral();
-                self.prev_literal = literal;
-            }
+            // Store this match.
+            c.prev_literal = literal;
+            c.prev_match = match;
         }
-        // Advance window and add hashes.
-        self.windowAdvance(step, lh, pos);
+    } else {
+        // There is no better match at current pos then it was previous.
+        // Write previous match or literal.
+        if (c.prev_match) |m| {
+            // Write match from previous position.
+            step = try c.addMatch(m) - 1; // we already advanced 1 from previous position
+        } else {
+            // No match at previous position.
+            // Write previous literal if any, and remember this literal.
+            try c.addPrevLiteral();
+            c.prev_literal = literal;
+        }
     }
-
-    if (should_flush) {
-        // In the case of flushing, last few lookahead buffers were smaller then min match len.
-        // So only last literal can be unwritten.
-        assert(self.prev_match == null);
-        try self.addPrevLiteral();
-        self.prev_literal = null;
-
-        try self.flushTokens(flush_opt);
-    }
+    // Advance window and add hashes.
+    c.windowAdvance(step, lh, pos);
 }
 
 fn windowAdvance(self: *Compress, step: u16, lh: []const u8, pos: u16) void {
@@ -226,7 +229,7 @@ fn findMatch(self: *Compress, pos: u16, lh: []const u8, min_len: u16) ?Token {
     // Hot path loop!
     while (prev_pos > 0 and chain > 0) : (chain -= 1) {
         const distance = pos - prev_pos;
-        if (distance > std.compress.flate.match.max_distance)
+        if (distance > flate.match.max_distance)
             break;
 
         const new_len = self.win.match(prev_pos, pos, len);
@@ -272,33 +275,6 @@ fn slide(self: *Compress) void {
     self.lookup.slide(n);
 }
 
-/// Compresses as much data as possible, stops when the reader becomes
-/// empty. It will introduce some output latency (reading input without
-/// producing all output) because some data are still in internal
-/// buffers.
-///
-/// It is up to the caller to call flush (if needed) or finish (required)
-/// when is need to output any pending data or complete stream.
-///
-pub fn compress(self: *Compress, reader: anytype) !void {
-    while (true) {
-        // Fill window from reader
-        const buf = self.win.writable();
-        if (buf.len == 0) {
-            try self.tokenize(.none);
-            self.slide();
-            continue;
-        }
-        const n = try reader.readAll(buf);
-        self.hasher.update(buf[0..n]);
-        self.win.written(n);
-        // Process window
-        try self.tokenize(.none);
-        // Exit when no more data in reader
-        if (n < buf.len) break;
-    }
-}
-
 /// Flushes internal buffers to the output writer. Outputs empty stored
 /// block to sync bit stream to the byte boundary, so that the
 /// decompressor can get all input data available so far.
@@ -311,8 +287,8 @@ pub fn compress(self: *Compress, reader: anytype) !void {
 /// stored block that is three zero bits plus filler bits to the next
 /// byte, followed by four bytes (00 00 ff ff).
 ///
-pub fn flush(self: *Compress) !void {
-    try self.tokenize(.flush);
+pub fn flush(c: *Compress) !void {
+    try c.tokenize(.flush);
 }
 
 /// Completes deflate bit stream by writing any pending data as deflate
@@ -320,9 +296,9 @@ pub fn flush(self: *Compress) !void {
 /// the compressor as a signal that next block has to have final bit
 /// set.
 ///
-pub fn finish(self: *Compress) !void {
-    try self.tokenize(.final);
-    try self.hasher.writeFooter(self.output);
+pub fn finish(c: *Compress) !void {
+    _ = c;
+    @panic("TODO");
 }
 
 /// Use another writer while preserving history. Most probably flush
@@ -436,24 +412,6 @@ fn SimpleCompressor(
                 .store => try self.block_writer.storedBlock(buf, final),
             }
             self.wp = 0;
-        }
-
-        // Writes all data from the input reader of uncompressed data.
-        // It is up to the caller to call flush or finish if there is need to
-        // output compressed blocks.
-        pub fn compress(self: *Self, reader: anytype) !void {
-            while (true) {
-                // read from rdr into buffer
-                const buf = self.buffer[self.wp..];
-                if (buf.len == 0) {
-                    try self.flushBuffer(false);
-                    continue;
-                }
-                const n = try reader.readAll(buf);
-                self.hasher.update(buf[0..n]);
-                self.wp += n;
-                if (n < buf.len) break; // no more data in reader
-            }
         }
     };
 }
@@ -811,6 +769,119 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
     return a.freq < b.freq;
 }
 
+fn read(
+    context: ?*anyopaque,
+    bw: *std.io.BufferedWriter,
+    limit: std.io.Reader.Limit,
+) std.io.Reader.RwError!usize {
+    const c: *Compress = @ptrCast(@alignCast(context));
+    switch (c.state) {
+        .header => |i| {
+            const header = c.hasher.container().header();
+            const n = try bw.write(header[i..]);
+            if (header.len - i - n == 0) {
+                c.state = .middle;
+            } else {
+                c.state.header += n;
+            }
+            return n;
+        },
+        .middle => {
+            c.input.fillMore() catch |err| switch (err) {
+                error.EndOfStream => {
+                    c.state = .final;
+                    return 0;
+                },
+                else => |e| return e,
+            };
+            const buffer_contents = c.input.bufferContents();
+            const min_lookahead = flate.match.min_length + flate.match.max_length;
+            const history_plus_lookahead_len = flate.history_len + min_lookahead;
+            if (buffer_contents.len < history_plus_lookahead_len) return 0;
+            const lookahead = buffer_contents[flate.history_len..];
+            const start = bw.count;
+            const n = try c.tokenizeSlice(bw, limit, lookahead) catch |err| switch (err) {
+                error.WriteFailed => return error.WriteFailed,
+            };
+            c.hasher.update(lookahead[0..n]);
+            c.input.toss(n);
+            return bw.count - start;
+        },
+        .final => {
+            const buffer_contents = c.input.bufferContents();
+            const start = bw.count;
+            const n = c.tokenizeSlice(bw, limit, buffer_contents) catch |err| switch (err) {
+                error.WriteFailed => return error.WriteFailed,
+            };
+            if (buffer_contents.len - n == 0) {
+                c.hasher.update(buffer_contents);
+                c.input.tossAll();
+                {
+                    // In the case of flushing, last few lookahead buffers were
+                    // smaller than min match len, so only last literal can be
+                    // unwritten.
+                    assert(c.prev_match == null);
+                    try c.addPrevLiteral();
+                    c.prev_literal = null;
+
+                    try c.flushTokens(.final);
+                }
+                switch (c.hasher) {
+                    .gzip => |*gzip| {
+                        // GZIP 8 bytes footer
+                        //  - 4 bytes, CRC32 (CRC-32)
+                        //  - 4 bytes, ISIZE (Input SIZE) - size of the original (uncompressed) input data modulo 2^32
+                        comptime assert(c.footer_buffer.len == 8);
+                        std.mem.writeInt(u32, c.footer_buffer[0..4], gzip.final(), .little);
+                        std.mem.writeInt(u32, c.footer_buffer[4..8], gzip.bytes_read, .little);
+                        c.state = .{ .footer = 0 };
+                    },
+                    .zlib => |*zlib| {
+                        // ZLIB (RFC 1950) is big-endian, unlike GZIP (RFC 1952).
+                        // 4 bytes of ADLER32 (Adler-32 checksum)
+                        // Checksum value of the uncompressed data (excluding any
+                        // dictionary data) computed according to Adler-32
+                        // algorithm.
+                        comptime assert(c.footer_buffer.len == 8);
+                        std.mem.writeInt(u32, c.footer_buffer[4..8], zlib.final, .big);
+                        c.state = .{ .footer = 4 };
+                    },
+                    .raw => {
+                        c.state = .ended;
+                    },
+                }
+            }
+            return bw.count - start;
+        },
+        .ended => return error.EndOfStream,
+        .footer => |i| {
+            const remaining = c.footer_buffer[i..];
+            const n = try bw.write(limit.slice(remaining));
+            c.state = if (n == remaining) .ended else .{ .footer = i - n };
+            return n;
+        },
+    }
+}
+
+fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initVec(data);
+    return read(context, &bw, .countVec(data)) catch |err| switch (err) {
+        error.WriteFailed => unreachable, // Prevented by the limit.
+        else => |e| return e,
+    };
+}
+
+fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+    var trash_buffer: [64]u8 = undefined;
+    var null_writer: std.io.Writer.Null = undefined;
+    var bw = null_writer.writer().buffered(&trash_buffer);
+    return read(context, &bw, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        else => |e| return e,
+    };
+}
+
 test "generate a Huffman code from an array of frequencies" {
     var freqs: [19]u16 = [_]u16{
         8, // 0
@@ -1099,7 +1170,8 @@ test "file tokenization" {
         const data = case.data;
 
         for (levels, 0..) |level, i| { // for each compression level
-            var original = io.fixedBufferStream(data);
+            var original: std.io.BufferedReader = undefined;
+            original.initFixed(data);
 
             // buffer for decompressed data
             var al = std.ArrayList(u8).init(testing.allocator);
@@ -1173,21 +1245,22 @@ test "store simple compressor" {
         //0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x21,
     };
 
-    var fbs = std.io.fixedBufferStream(data);
+    var fbs: std.io.BufferedReader = undefined;
+    fbs.initFixed(data);
     var al = std.ArrayList(u8).init(testing.allocator);
     defer al.deinit();
 
     var cmp = try store.compressor(.raw, al.writer());
-    try cmp.compress(fbs.reader());
+    try cmp.compress(&fbs);
     try cmp.finish();
     try testing.expectEqualSlices(u8, &expected, al.items);
 
-    fbs.reset();
+    fbs.initFixed(data);
     try al.resize(0);
 
     // huffman only compresoor will also emit store block for this small sample
     var hc = try huffman.compressor(.raw, al.writer());
-    try hc.compress(fbs.reader());
+    try hc.compress(&fbs);
     try hc.finish();
     try testing.expectEqualSlices(u8, &expected, al.items);
 }

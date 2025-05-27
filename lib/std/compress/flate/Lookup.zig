@@ -10,7 +10,7 @@ const flate = @import("../flate.zig");
 const Lookup = @This();
 
 const prime4 = 0x9E3779B1; // 4 bytes prime number 2654435761
-const chain_len = 2 * flate.history.len;
+const chain_len = 2 * flate.history_len;
 
 // Maps hash => first position
 head: [flate.lookup.len]u16 = [_]u16{0} ** flate.lookup.len,

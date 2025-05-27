@@ -68,81 +68,23 @@ pub const Container = enum {
             //
             // CINFO = 7, CM = 8, FLEVEL = 0b10, FDICT = 0, FCHECK = 0b11100
             .zlib => &[_]u8{ 0x78, 0b10_0_11100 },
-            .raw => &{},
+            .raw => &.{},
         };
     }
 
-    pub fn parseHeader(comptime wrap: Container, reader: *std.io.BufferedReader) !void {
-        switch (wrap) {
-            .gzip => try parseGzipHeader(reader),
-            .zlib => try parseZlibHeader(reader),
-            .raw => {},
-        }
-    }
-
-    fn parseGzipHeader(reader: *std.io.BufferedReader) !void {
-        const magic1 = try reader.read(u8);
-        const magic2 = try reader.read(u8);
-        const method = try reader.read(u8);
-        const flags = try reader.read(u8);
-        try reader.skipBytes(6); // mtime(4), xflags, os
-        if (magic1 != 0x1f or magic2 != 0x8b or method != 0x08)
-            return error.BadGzipHeader;
-        // Flags description: https://www.rfc-editor.org/rfc/rfc1952.html#page-5
-        if (flags != 0) {
-            if (flags & 0b0000_0100 != 0) { // FEXTRA
-                const extra_len = try reader.read(u16);
-                try reader.skipBytes(extra_len);
-            }
-            if (flags & 0b0000_1000 != 0) { // FNAME
-                try reader.skipStringZ();
-            }
-            if (flags & 0b0001_0000 != 0) { // FCOMMENT
-                try reader.skipStringZ();
-            }
-            if (flags & 0b0000_0010 != 0) { // FHCRC
-                try reader.skipBytes(2);
-            }
-        }
-    }
-
-    fn parseZlibHeader(reader: *std.io.BufferedReader) !void {
-        const cm = try reader.read(u4);
-        const cinfo = try reader.read(u4);
-        _ = try reader.read(u8);
-        if (cm != 8 or cinfo > 7) {
-            return error.BadZlibHeader;
-        }
-    }
-
-    pub fn parseFooter(comptime wrap: Container, hasher: *Hasher(wrap), reader: *std.io.BufferedReader) !void {
-        switch (wrap) {
-            .gzip => {
-                try reader.fill(0);
-                if (try reader.read(u32) != hasher.chksum()) return error.WrongGzipChecksum;
-                if (try reader.read(u32) != hasher.bytesRead()) return error.WrongGzipSize;
-            },
-            .zlib => {
-                const chksum: u32 = @byteSwap(hasher.chksum());
-                if (try reader.read(u32) != chksum) return error.WrongZlibChecksum;
-            },
-            .raw => {},
-        }
-    }
-
     pub const Hasher = union(Container) {
+        raw: void,
         gzip: struct {
             crc: std.hash.Crc32 = .init(),
             count: usize = 0,
         },
         zlib: std.hash.Adler32,
-        raw: void,
 
         pub fn init(containter: Container) Hasher {
             return switch (containter) {
                 .gzip => .{ .gzip = .{} },
                 .zlib => .{ .zlib = .init() },
-                .raw => {},
+                .raw => .raw,
             };
         }
 
@@ -288,15 +230,18 @@ test "compress/decompress" {
                 // compress original stream to compressed stream
                 {
                     var original: std.io.BufferedReader = undefined;
-                    original.initFixed(data);
+                    original.initFixed(@constCast(data));
                     var compressed: std.io.BufferedWriter = undefined;
                     compressed.initFixed(&cmp_buf);
-                    try Compress.pump(container, original.reader(), &compressed, .{ .level = level });
+                    var compress: Compress = .init(&original, .raw);
+                    var compress_br = compress.readable(&.{});
+                    const n = try compress_br.readRemaining(&compressed, .{ .level = level });
                     if (compressed_size == 0) {
                         if (container == .gzip)
                             print("case {d} gzip level {} compressed size: {d}\n", .{ case_no, level, compressed.pos });
                         compressed_size = compressed.pos;
                     }
+                    try testing.expectEqual(compressed_size, n);
                     try testing.expectEqual(compressed_size, compressed.pos);
                 }
                 // decompress compressed stream to decompressed stream
@@ -688,9 +633,7 @@ pub const match = struct {
     pub const max_distance = 32768;
 };
 
-pub const history = struct {
-    pub const len = match.max_distance;
-};
+pub const history_len = match.max_distance;
 
 pub const lookup = struct {
     pub const bits = 15;
@@ -707,7 +650,8 @@ test "zlib should not overshoot" {
         0x03, 0x00, 0x8b, 0x61, 0x0f, 0xa4, 0x52, 0x5a, 0x94, 0x12,
     };
 
-    var stream = std.io.fixedBufferStream(data[0..]);
+    var stream: std.io.BufferedReader = undefined;
+    stream.initFixed(&data);
     const reader = stream.reader();
 
     var dcp = Decompress.init(reader);
