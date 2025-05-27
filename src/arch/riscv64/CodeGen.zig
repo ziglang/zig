@@ -162,12 +162,8 @@ const MCValue = union(enum) {
     immediate: u64,
     /// The value doesn't exist in memory yet.
     load_symbol: SymbolOffset,
-    /// A TLV value.
-    load_tlv: u32,
     /// The address of the memory location not-yet-allocated by the linker.
     lea_symbol: SymbolOffset,
-    /// The address of a TLV value.
-    lea_tlv: u32,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is split across two registers
@@ -224,7 +220,6 @@ const MCValue = union(enum) {
             .lea_frame,
             .undef,
             .lea_symbol,
-            .lea_tlv,
             .air_ref,
             .reserved_frame,
             => false,
@@ -233,7 +228,6 @@ const MCValue = union(enum) {
             .register_pair,
             .register_offset,
             .load_symbol,
-            .load_tlv,
             .indirect,
             => true,
 
@@ -254,12 +248,10 @@ const MCValue = union(enum) {
             .undef,
             .air_ref,
             .lea_symbol,
-            .lea_tlv,
             .reserved_frame,
             => unreachable, // not in memory
 
             .load_symbol => |sym_off| .{ .lea_symbol = sym_off },
-            .load_tlv => |sym| .{ .lea_tlv = sym },
             .memory => |addr| .{ .immediate = addr },
             .load_frame => |off| .{ .lea_frame = off },
             .indirect => |reg_off| switch (reg_off.off) {
@@ -281,7 +273,6 @@ const MCValue = union(enum) {
             .register_pair,
             .load_frame,
             .load_symbol,
-            .load_tlv,
             .reserved_frame,
             => unreachable, // not a pointer
 
@@ -290,7 +281,6 @@ const MCValue = union(enum) {
             .register_offset => |reg_off| .{ .indirect = reg_off },
             .lea_frame => |off| .{ .load_frame = off },
             .lea_symbol => |sym_off| .{ .load_symbol = sym_off },
-            .lea_tlv => |sym| .{ .load_tlv = sym },
         };
     }
 
@@ -308,8 +298,6 @@ const MCValue = union(enum) {
             .indirect,
             .load_symbol,
             .lea_symbol,
-            .lea_tlv,
-            .load_tlv,
             => switch (off) {
                 0 => mcv,
                 else => unreachable,
@@ -367,8 +355,6 @@ const InstTracking = struct {
             .memory,
             .load_frame,
             .lea_frame,
-            .load_tlv,
-            .lea_tlv,
             .load_symbol,
             .lea_symbol,
             => result,
@@ -424,8 +410,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => inst_tracking.long,
             .dead,
             .register,
@@ -454,8 +438,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => assert(std.meta.eql(inst_tracking.long, target.long)),
             .load_frame,
             .reserved_frame,
@@ -1664,6 +1646,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try func.airWrapOptional(inst),
             .wrap_errunion_payload => try func.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try func.airWrapErrUnionErr(inst),
+
+            .tlv_dllimport_ptr => try func.airTlvDllimportPtr(inst),
 
             .add_optimized,
             .sub_optimized,
@@ -3620,6 +3604,50 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty_nav = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const ptr_ty: Type = .fromInterned(ty_nav.ty);
+
+    const nav = ip.getNav(ty_nav.nav);
+    const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
+        const zo = elf_file.zigObjectPtr().?;
+        if (nav.getExtern(ip)) |e| {
+            const sym = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
+            zo.symbol(sym).flags.is_extern_ptr = true;
+            break :sym sym;
+        }
+        break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
+    } else return func.fail("TODO tlv_dllimport_ptr on {}", .{func.bin_file.tag});
+
+    const dest_mcv = try func.allocRegOrMem(ptr_ty, inst, true);
+    if (dest_mcv.isRegister()) {
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = dest_mcv.getReg().?,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+    } else {
+        const tmp_reg, const tmp_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(tmp_lock);
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = tmp_reg,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+        try func.genCopy(ptr_ty, dest_mcv, .{ .register = tmp_reg });
+    }
+
+    return func.finishAir(inst, dest_mcv, .{ .none, .none, .none });
+}
+
 fn airTry(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.Try, pl_op.payload);
@@ -4494,14 +4522,12 @@ fn load(func: *Func, dst_mcv: MCValue, ptr_mcv: MCValue, ptr_ty: Type) InnerErro
         .register_offset,
         .lea_frame,
         .lea_symbol,
-        .lea_tlv,
         => try func.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -4548,14 +4574,12 @@ fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type) !void {
         .register_offset,
         .lea_symbol,
         .lea_frame,
-        .lea_tlv,
         => try func.genCopy(src_ty, ptr_mcv.deref(), src_mcv),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -6544,7 +6568,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             ty,
             src_mcv,
         ),
-        .load_symbol, .load_tlv => {
+        .load_symbol => {
             const addr_reg, const addr_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(addr_lock);
 
@@ -7072,25 +7096,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             try func.genSetReg(ty, addr_reg, src_mcv.address());
             try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
         },
-        .lea_tlv => |sym| {
-            const atom_index = try func.owner.getSymbolIndex(func);
-
-            _ = try func.addInst(.{
-                .tag = .pseudo_load_tlv,
-                .data = .{ .reloc = .{
-                    .register = reg,
-                    .atom_index = atom_index,
-                    .sym_index = sym,
-                } },
-            });
-        },
-        .load_tlv => {
-            const addr_reg, const addr_lock = try func.allocReg(.int);
-            defer func.register_manager.unlockReg(addr_lock);
-
-            try func.genSetReg(ty, addr_reg, src_mcv.address());
-            try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
-        },
         .air_ref => |ref| try func.genSetReg(ty, reg, try func.resolveInst(ref)),
         else => return func.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
     }
@@ -7256,7 +7261,6 @@ fn genSetMem(
             return func.genSetMem(base, disp, ty, .{ .register = reg });
         },
         .air_ref => |src_ref| try func.genSetMem(base, disp, ty, try func.resolveInst(src_ref)),
-        else => return func.fail("TODO: genSetMem {s}", .{@tagName(src_mcv)}),
     }
 }
 
@@ -8190,7 +8194,6 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
             .undef => unreachable,
             .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
             .load_got, .load_direct, .lea_direct => {

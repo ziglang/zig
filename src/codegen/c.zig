@@ -3453,6 +3453,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
             .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
 
+            .tlv_dllimport_ptr => try airTlvDllimportPtr(f, inst),
+
             .c_va_start => try airCVaStart(f, inst),
             .c_va_arg => try airCVaArg(f, inst),
             .c_va_end => try airCVaEnd(f, inst),
@@ -7614,6 +7616,17 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(");\n");
     try v.end(f, inst, writer);
 
+    return local;
+}
+
+fn airTlvDllimportPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_nav = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, .fromInterned(ty_nav.ty));
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(" = ");
+    try f.object.dg.renderNav(writer, ty_nav.nav, .Other);
+    try writer.writeAll(";\n");
     return local;
 }
 

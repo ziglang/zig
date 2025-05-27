@@ -849,6 +849,17 @@ pub const Inst = struct {
         /// Uses the `vector_store_elem` field.
         vector_store_elem,
 
+        /// Compute a pointer to a threadlocal or dllimport `Nav`, meaning one of:
+        ///
+        /// * `threadlocal var`
+        /// * `extern threadlocal var` (or corresponding `@extern`)
+        /// * `@extern` with `.is_dll_import = true`
+        ///
+        /// Such pointers are runtime values, so cannot be represented with an InternPool index.
+        ///
+        /// Uses the `ty_nav` field.
+        tlv_dllimport_ptr,
+
         /// Implements @cVaArg builtin.
         /// Uses the `ty_op` field.
         c_va_arg,
@@ -1149,6 +1160,10 @@ pub const Inst = struct {
             vector_ptr: Ref,
             // Index into a different array.
             payload: u32,
+        },
+        ty_nav: struct {
+            ty: InternPool.Index,
+            nav: InternPool.Nav.Index,
         },
         inferred_alloc_comptime: InferredAllocComptime,
         inferred_alloc: InferredAlloc,
@@ -1604,6 +1619,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
+        .tlv_dllimport_ptr => return .fromInterned(datas[@intFromEnum(inst)].ty_nav.ty),
+
         .work_item_id,
         .work_group_size,
         .work_group_id,
@@ -1876,6 +1893,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .err_return_trace,
         .addrspace_cast,
         .save_err_return_trace_index,
+        .tlv_dllimport_ptr,
         .work_item_id,
         .work_group_size,
         .work_group_id,

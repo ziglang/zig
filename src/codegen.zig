@@ -818,10 +818,6 @@ pub const GenResult = union(enum) {
         /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
-        /// Threadlocal variable with address deferred until the linker allocates
-        /// everything in virtual memory.
-        /// Payload is a symbol index.
-        load_tlv: u32,
         /// Decl with address deferred until the linker allocates everything in virtual memory.
         /// Payload is a symbol index.
         load_direct: u32,
@@ -883,13 +879,13 @@ fn genNavRef(
     }
 
     const nav = ip.getNav(nav_index);
+    assert(!nav.isThreadlocal(ip));
 
-    const is_extern, const lib_name, const is_threadlocal = if (nav.getExtern(ip)) |e|
-        .{ true, e.lib_name, e.is_threadlocal }
+    const is_extern, const lib_name = if (nav.getExtern(ip)) |e|
+        .{ true, e.lib_name }
     else
-        .{ false, .none, nav.isThreadlocal(ip) };
+        .{ false, .none };
 
-    const single_threaded = zcu.navFileScope(nav_index).mod.?.single_threaded;
     const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
@@ -899,9 +895,6 @@ fn genNavRef(
             return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
         const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
-        if (!single_threaded and is_threadlocal) {
-            return .{ .mcv = .{ .load_tlv = sym_index } };
-        }
         return .{ .mcv = .{ .lea_symbol = sym_index } };
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
@@ -912,9 +905,6 @@ fn genNavRef(
         }
         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
         const sym = zo.symbols.items[sym_index];
-        if (!single_threaded and is_threadlocal) {
-            return .{ .mcv = .{ .load_tlv = sym.nlist_idx } };
-        }
         return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
     } else if (lf.cast(.coff)) |coff_file| {
         if (is_extern) {

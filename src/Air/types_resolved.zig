@@ -311,6 +311,10 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(bin.rhs, zcu)) return false;
             },
 
+            .tlv_dllimport_ptr => {
+                if (!checkType(.fromInterned(data.ty_nav.ty), zcu)) return false;
+            },
+
             .select,
             .mul_add,
             => {
