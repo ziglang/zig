@@ -1087,16 +1087,14 @@ pub const Coff = struct {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
-        var stream = std.io.fixedBufferStream(data);
-        const reader = stream.reader();
-        try stream.seekTo(pe_pointer_offset);
+        var reader: std.io.BufferedReader = undefined;
+        reader.initFixed(data[pe_pointer_offset..]);
         const coff_header_offset = try reader.readInt(u32, .little);
-        try stream.seekTo(coff_header_offset);
-        var buf: [4]u8 = undefined;
-        try reader.readNoEof(&buf);
-        const is_image = mem.eql(u8, pe_magic, &buf);
+        reader.initFixed(data[coff_header_offset..]);
+        const magic = try reader.peek(4);
+        const is_image = mem.eql(u8, pe_magic, magic);
 
-        var coff = @This(){
+        var coff: Coff = .{
             .data = data,
             .is_image = is_image,
             .is_loaded = is_loaded,
@@ -1123,16 +1121,16 @@ pub const Coff = struct {
         if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
 
         const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
-        var stream = std.io.fixedBufferStream(self.data);
-        const reader = stream.reader();
+        var reader: std.io.BufferedReader = undefined;
+        reader.initFixed(self.data);
 
         if (self.is_loaded) {
-            try stream.seekTo(debug_dir.virtual_address);
+            reader.initFixed(self.data[debug_dir.virtual_address..]);
         } else {
             // Find what section the debug_dir is in, in order to convert the RVA to a file offset
             for (self.getSectionHeaders()) |*sect| {
                 if (debug_dir.virtual_address >= sect.virtual_address and debug_dir.virtual_address < sect.virtual_address + sect.virtual_size) {
-                    try stream.seekTo(sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address));
+                    reader.initFixed(self.data[sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address) ..]);
                     break;
                 }
             } else return error.InvalidDebugDirectory;
@@ -1143,10 +1141,10 @@ pub const Coff = struct {
         const debug_dir_entry_count = debug_dir.size / @sizeOf(DebugDirectoryEntry);
         var i: u32 = 0;
         while (i < debug_dir_entry_count) : (i += 1) {
-            const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
+            const debug_dir_entry = try reader.takeStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
                 const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
-                try stream.seekTo(dir_offset);
+                reader.initFixed(self.data[dir_offset..]);
                 break;
             }
         } else return null;

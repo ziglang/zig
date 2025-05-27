@@ -67,7 +67,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
         return error.InvalidDebugInfo;
     const reader = stream.reader();
 
-    const header = try reader.readStruct(std.pdb.DbiStreamHeader);
+    const header = try reader.takeStruct(std.pdb.DbiStreamHeader);
     if (header.version_header != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     // if (header.Age != age)
@@ -82,7 +82,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try reader.readStruct(pdb.ModInfo);
+        const mod_info = try reader.takeStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
@@ -131,7 +131,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try reader.readStruct(pdb.SectionContribEntry);
+        entry.* = try reader.takeStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -175,7 +175,7 @@ pub fn parseInfoStream(self: *Pdb) !void {
                 return cap * 2 / 3 + 1;
             }
         };
-        const hash_tbl_hdr = try reader.readStruct(HashTableHeader);
+        const hash_tbl_hdr = try reader.takeStruct(HashTableHeader);
         if (hash_tbl_hdr.capacity == 0)
             return error.InvalidDebugInfo;
 
@@ -397,7 +397,7 @@ const Msf = struct {
     fn init(allocator: Allocator, file: File) !Msf {
         const in = file.reader();
 
-        const superblock = try in.readStruct(pdb.SuperBlock);
+        const superblock = try in.takeStruct(pdb.SuperBlock);
 
         // Sanity checks
         if (!std.mem.eql(u8, &superblock.file_magic, pdb.SuperBlock.expect_magic))

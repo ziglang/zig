@@ -33,8 +33,10 @@ fn expectFiles(
         std.mem.replaceScalar(u8, normalized_sub_path, '\\', '/');
         var file = try dir.openFile(normalized_sub_path, .{});
         defer file.close();
+        var file_reader = file.reader();
+        var file_br = file_reader.readable(&.{});
         var content_buf: [4096]u8 = undefined;
-        const n = try file.reader().readAll(&content_buf);
+        const n = try file_br.readSliceShort(&content_buf);
         try testing.expectEqualStrings(test_file.content, content_buf[0..n]);
     }
 }
@@ -49,24 +51,21 @@ const FileStore = struct {
     uncompressed_size: usize,
 };
 
-fn makeZip(buf: []u8, files: []const File, options: WriteZipOptions) !std.io.BufferedReader {
+fn makeZip(file_writer: *std.fs.File.Writer, files: []const File, options: WriteZipOptions) !std.io.BufferedReader {
     const store = try std.testing.allocator.alloc(FileStore, files.len);
     defer std.testing.allocator.free(store);
-    return makeZipWithStore(buf, files, options, store);
+    return makeZipWithStore(file_writer, files, options, store);
 }
 
 fn makeZipWithStore(
-    buf: []u8,
+    file_writer: *std.fs.File.Writer,
     files: []const File,
     options: WriteZipOptions,
     store: []FileStore,
-) !std.io.BufferedReader {
-    var out: std.io.BufferedWriter = undefined;
-    out.initFixed(buf);
-    try writeZip(&out, files, store, options);
-    var result: std.io.BufferedReader = undefined;
-    result.initFixed(buf[0..out.end]);
-    return result;
+) !void {
+    var buffer: [200]u8 = undefined;
+    var bw = file_writer.writable(&buffer);
+    try writeZip(&bw, files, store, options);
 }
 
 const WriteZipOptions = struct {
@@ -201,9 +200,12 @@ const Zipper = struct {
                 const offset = writer.count;
                 var br: std.io.BufferedReader = undefined;
                 br.initFixed(@constCast(opt.content));
-                try std.compress.flate.deflate.compress(.raw, &br, writer, .{});
+                var compress: std.compress.flate.Compress = .init(&br, .{});
+                var compress_br = compress.readable(&.{});
+                const n = try compress_br.readRemaining(writer);
                 assert(br.seek == opt.content.len);
-                compressed_size = @intCast(writer.count - offset);
+                try testing.expectEqual(n, writer.count - offset);
+                compressed_size = @intCast(n);
             },
             else => unreachable,
         }
@@ -306,21 +308,27 @@ fn testZipWithStore(
     write_opt: WriteZipOptions,
     store: []FileStore,
 ) !void {
-    var zip_buf: [4096]u8 = undefined;
-    var fbs = try makeZipWithStore(&zip_buf, test_files, write_opt, store);
-
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
-    try zip.extract(tmp.dir, fbs.seekableStream(), options);
+
+    var file = tmp.createFile();
+    defer file.close();
+    var file_writer = file.writer();
+    try makeZipWithStore(&file_writer, test_files, write_opt, store);
+    var file_reader = file_writer.moveToReader();
+    try zip.extract(tmp.dir, &file_reader, options);
     try expectFiles(test_files, tmp.dir, .{});
 }
 fn testZipError(expected_error: anyerror, file: File, options: zip.ExtractOptions) !void {
-    var zip_buf: [4096]u8 = undefined;
-    var store: [1]FileStore = undefined;
-    var fbs = try makeZipWithStore(&zip_buf, &[_]File{file}, .{}, &store);
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
-    try testing.expectError(expected_error, zip.extract(tmp.dir, fbs.seekableStream(), options));
+    const tmp_file = tmp.createFile();
+    defer tmp_file.close();
+    var file_writer = tmp_file.writer();
+    var store: [1]FileStore = undefined;
+    try makeZipWithStore(&file_writer, &[_]File{file}, .{}, &store);
+    var file_reader = file_writer.moveToReader();
+    try testing.expectError(expected_error, zip.extract(tmp.dir, &file_reader, options));
 }
 
 test "zip one file" {
@@ -416,53 +424,93 @@ test "zip64" {
 test "bad zip files" {
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
-    var zip_buf: [4096]u8 = undefined;
+    var buffer: [4096]u8 = undefined;
 
     const file_a = [_]File{.{ .name = "a", .content = "", .compression = .store }};
 
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .sig = [_]u8{ 1, 2, 3, 4 } } });
-        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .sig = [_]u8{ 1, 2, 3, 4 } } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .comment_len = 1 } });
-        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .comment_len = 1 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .comment = "a", .comment_len = 0 } });
-        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .comment = "a", .comment_len = 0 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .disk_number = 1 } });
-        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .disk_number = 1 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_disk_number = 1 } });
-        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .central_directory_disk_number = 1 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .record_count_disk = 1 } });
-        try testing.expectError(error.ZipDiskRecordCountTooLarge, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .record_count_disk = 1 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipDiskRecordCountTooLarge, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &.{}, .{ .end = .{ .central_directory_size = 1 } });
-        try testing.expectError(error.ZipCdOversized, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &.{}, .{ .end = .{ .central_directory_size = 1 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipCdOversized, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_size = 0 } });
-        try testing.expectError(error.ZipCdUndersized, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &file_a, .{ .end = .{ .central_directory_size = 0 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipCdUndersized, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &file_a, .{ .end = .{ .central_directory_offset = 0 } });
-        try testing.expectError(error.ZipBadCdOffset, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &file_a, .{ .end = .{ .central_directory_offset = 0 } });
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipBadCdOffset, zip.extract(tmp.dir, &file_reader, .{}));
     }
     {
-        var fbs = try makeZip(&zip_buf, &file_a, .{
+        const tmp_file = tmp.createFile();
+        defer tmp_file.close();
+        var file_writer = tmp_file.writable(&buffer);
+        try makeZip(&file_writer, &file_a, .{
             .end = .{
                 .zip64 = .{ .locator_sig = [_]u8{ 1, 2, 3, 4 } },
                 .central_directory_size = std.math.maxInt(u32), // trigger 64
             },
         });
-        try testing.expectError(error.ZipBadLocatorSig, zip.extract(tmp.dir, fbs.seekableStream(), .{}));
+        var file_reader = file_writer.moveToReader();
+        try testing.expectError(error.ZipBadLocatorSig, zip.extract(tmp.dir, &file_reader, .{}));
     }
 }

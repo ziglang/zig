@@ -828,8 +828,7 @@ pub const BufPrintError = error{
     NoSpaceLeft,
 };
 
-/// Print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
-/// Returns a slice of the bytes printed to.
+/// Print a Formatter string into `buf`. Returns a slice of the bytes printed.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var bw: std.io.BufferedWriter = undefined;
     bw.initFixed(buf);
@@ -1015,18 +1014,18 @@ test "int.padded" {
 test "buffer" {
     {
         var buf1: [32]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf1);
-        var bw = fbs.writer();
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(&buf1);
         try bw.printValue("", .{}, 1234, std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("1234", fbs.getWritten());
+        try std.testing.expectEqualStrings("1234", bw.getWritten());
 
-        fbs.reset();
+        bw.initFixed(&buf1);
         try bw.printValue("c", .{}, 'a', std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("a", fbs.getWritten());
+        try std.testing.expectEqualStrings("a", bw.getWritten());
 
-        fbs.reset();
+        bw.initFixed(&buf1);
         try bw.printValue("b", .{}, 0b1100, std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("1100", fbs.getWritten());
+        try std.testing.expectEqualStrings("1100", bw.getWritten());
     }
 }
 
