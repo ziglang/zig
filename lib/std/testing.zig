@@ -609,6 +609,11 @@ pub const TmpDir = struct {
         self.parent_dir.close();
         self.* = undefined;
     }
+
+    pub fn createFile(td: *TmpDir) std.fs.File {
+        _ = td;
+        @panic("TODO");
+    }
 };
 
 pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {

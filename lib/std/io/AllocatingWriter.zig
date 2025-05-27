@@ -130,7 +130,7 @@ pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
 }
 
 fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-    if (data.len == 0 and splat == 0) return 0;
+    assert(data.len != 0);
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const start_len = aw.written.len;
     const bw = &aw.buffered_writer;

@@ -54,8 +54,8 @@ pub const Tz = struct {
         },
     };
 
-    pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Tz {
-        var legacy_header = try reader.readStruct(Header);
+    pub fn parse(allocator: std.mem.Allocator, reader: *std.io.BufferedReader) !Tz {
+        var legacy_header = try reader.takeStruct(Header);
         if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
         if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
 
@@ -70,7 +70,7 @@ pub const Tz = struct {
             const skipv = legacy_header.counts.timecnt * 5 + legacy_header.counts.typecnt * 6 + legacy_header.counts.charcnt + legacy_header.counts.leapcnt * 8 + legacy_header.counts.isstdcnt + legacy_header.counts.isutcnt;
             try reader.skipBytes(skipv, .{});
 
-            var header = try reader.readStruct(Header);
+            var header = try reader.takeStruct(Header);
             if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
             if (header.version != '2' and header.version != '3') return error.BadVersion;
             if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
@@ -215,9 +215,10 @@ pub const Tz = struct {
 
 test "slim" {
     const data = @embedFile("tz/asia_tokyo.tzif");
-    var in_stream = std.io.fixedBufferStream(data);
+    var in_stream: std.io.BufferedReader = undefined;
+    in_stream.initFixed(data);
 
-    var tz = try std.Tz.parse(std.testing.allocator, in_stream.reader());
+    var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();
 
     try std.testing.expectEqual(tz.transitions.len, 9);
@@ -228,9 +229,10 @@ test "slim" {
 
 test "fat" {
     const data = @embedFile("tz/antarctica_davis.tzif");
-    var in_stream = std.io.fixedBufferStream(data);
+    var in_stream: std.io.BufferedReader = undefined;
+    in_stream.initFixed(data);
 
-    var tz = try std.Tz.parse(std.testing.allocator, in_stream.reader());
+    var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();
 
     try std.testing.expectEqual(tz.transitions.len, 8);
@@ -241,9 +243,10 @@ test "fat" {
 test "legacy" {
     // Taken from Slackware 8.0, from 2001
     const data = @embedFile("tz/europe_vatican.tzif");
-    var in_stream = std.io.fixedBufferStream(data);
+    var in_stream: std.io.BufferedReader = undefined;
+    in_stream.initFixed(data);
 
-    var tz = try std.Tz.parse(std.testing.allocator, in_stream.reader());
+    var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();
 
     try std.testing.expectEqual(tz.transitions.len, 170);

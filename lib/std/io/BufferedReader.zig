@@ -253,6 +253,12 @@ pub fn toss(br: *BufferedReader, n: usize) void {
     assert(br.seek <= br.end);
 }
 
+/// Equivalent to `toss(br.bufferedLen())`.
+pub fn tossAll(br: *BufferedReader) void {
+    br.seek = 0;
+    br.end = 0;
+}
+
 /// Equivalent to `peek` followed by `toss`.
 ///
 /// The data returned is invalidated by the next call to `take`, `peek`,
@@ -791,8 +797,9 @@ pub fn fill(br: *BufferedReader, n: usize) Reader.Error!void {
     }
 }
 
-/// Fills the buffer with at least one more byte of data, without advancing the
-/// seek position, doing exactly one underlying read.
+/// Without advancing the seek position, does exactly one underlying read, filling the buffer as
+/// much as possible. This may result in zero bytes added to the buffer, which is not an end of
+/// stream condition. End of stream is communicated via returning `error.EndOfStream`.
 ///
 /// Asserts buffer capacity is at least 1.
 pub fn fillMore(br: *BufferedReader) Reader.Error!void {
