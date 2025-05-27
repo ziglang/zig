@@ -348,8 +348,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
-    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subvdi3.zig
+    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
