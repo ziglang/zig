@@ -1916,7 +1916,7 @@ pub const Stream = struct {
             fn read(
                 context: ?*anyopaque,
                 bw: *std.io.BufferedWriter,
-                limit: std.io.Reader.Limit,
+                limit: std.io.Limit,
             ) std.io.Reader.Error!usize {
                 const buf = limit.slice(try bw.writableSliceGreedy(1));
                 const n = try readVec(context, &.{buf});
@@ -1958,7 +1958,7 @@ pub const Stream = struct {
                 return .{ .len = n, .end = n == 0 };
             }
 
-            fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+            fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
                 _ = context;
                 _ = limit;
                 @panic("TODO");

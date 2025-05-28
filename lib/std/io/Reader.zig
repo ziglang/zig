@@ -128,7 +128,7 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 /// See also:
 /// * `readRemainingArrayList`
 /// * `BufferedReader.readRemainingArrayList`
-pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Reader.Limit) LimitedAllocError![]u8 {
+pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Limit) LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
     try readRemainingArrayList(r, gpa, null, &buffer, limit, 1);

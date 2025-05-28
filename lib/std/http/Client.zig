@@ -1631,7 +1631,7 @@ pub const FetchOptions = struct {
         list: *std.ArrayListUnmanaged(u8),
         /// If null then only the existing capacity will be used.
         allocator: ?Allocator = null,
-        append_limit: std.io.Reader.Limit = .unlimited,
+        append_limit: std.io.Limit = .unlimited,
     };
 };
 

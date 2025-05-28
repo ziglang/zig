@@ -768,7 +768,7 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
 fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
 ) std.io.Reader.RwError!usize {
     const c: *Compress = @ptrCast(@alignCast(context));
     switch (c.state) {

@@ -160,13 +160,12 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.
 
 fn writeFile(
     context: ?*anyopaque,
-    file: std.fs.File,
-    offset: std.io.Writer.Offset,
+    file_reader: *std.fs.File.Reader,
     limit: std.io.Writer.Limit,
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
 ) std.io.Writer.FileError!usize {
-    if (std.fs.File.Handle == void) unreachable;
+    if (std.fs.File.Handle == void) return error.Unimplemented;
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const gpa = aw.allocator;
     var list = aw.toArrayList();
@@ -178,35 +177,24 @@ fn writeFile(
         break :b .{ headers_and_trailers_full[1..], headers_len_full - 1 };
     } else .{ headers_and_trailers_full, headers_len_full };
     const trailers = headers_and_trailers[headers_len..];
-    const pos = offset.toInt() orelse @panic("TODO treat file as stream");
-    const limit_int = limit.toInt() orelse {
-        var new_capacity: usize = list.capacity + std.atomic.cache_line;
-        for (headers_and_trailers) |bytes| new_capacity += bytes.len;
-        list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
-        for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
-        const dest = list.items.ptr[list.items.len..list.capacity];
-        const n = try file.pread(dest, pos);
-        if (n == 0) {
-            new_capacity = list.capacity;
-            for (trailers) |bytes| new_capacity += bytes.len;
-            list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
-            for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
-            return list.items.len - start_len;
-        }
-        list.items.len += n;
-        return list.items.len - start_len;
-    };
-    var new_capacity: usize = list.capacity + limit_int;
+    const pos = file_reader.pos;
+
+    const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+    var new_capacity: usize = list.capacity + limit.minInt(additional);
     for (headers_and_trailers) |bytes| new_capacity += bytes.len;
     list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
     for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
-    const dest = list.items.ptr[list.items.len..][0..limit_int];
-    const n = try file.pread(dest, pos);
-    list.items.len += n;
-    if (n < dest.len) {
-        return list.items.len - start_len;
+    const dest = limit.slice(list.items.ptr[list.items.len..list.capacity]);
+    const n = try file_reader.read(dest);
+    const is_end = if (file_reader.getSize()) |size| n >= size - pos else n == 0;
+    if (is_end) {
+        new_capacity = list.capacity;
+        for (trailers) |bytes| new_capacity += bytes.len;
+        list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
+        for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
+    } else {
+        list.items.len += n;
     }
-    for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
     return list.items.len - start_len;
 }
 

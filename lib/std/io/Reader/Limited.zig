@@ -3,9 +3,10 @@ const Limited = @This();
 const std = @import("../../std.zig");
 const Reader = std.io.Reader;
 const BufferedWriter = std.io.BufferedWriter;
+const Limit = std.io.Limit;
 
 unlimited_reader: Reader,
-remaining: Reader.Limit,
+remaining: Limit,
 
 pub fn reader(l: *Limited) Reader {
     return .{
@@ -18,7 +19,7 @@ pub fn reader(l: *Limited) Reader {
     };
 }
 
-fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.RwError!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
     const n = try l.unlimited_reader.read(bw, combined_limit);
@@ -26,7 +27,7 @@ fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) 
     return n;
 }
 
-fn passthruDiscard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
+fn passthruDiscard(context: ?*anyopaque, limit: Limit) Reader.Error!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
     const n = try l.unlimited_reader.discard(combined_limit);
