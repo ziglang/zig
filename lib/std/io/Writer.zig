@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Writer = @This();
+const Limit = std.io.Limit;
 
 pub const Null = @import("Writer/Null.zig");
 
@@ -47,6 +48,8 @@ pub const VTable = struct {
         offset: Offset,
         /// Maximum amount of bytes to read from the file. Implementations may
         /// assume that the file size does not exceed this amount.
+        ///
+        /// `headers_and_trailers` do not count towards this limit.
         limit: Limit,
         /// Headers and trailers must be passed together so that in case `len` is
         /// zero, they can be forwarded directly to `VTable.writeVec`.
@@ -67,9 +70,6 @@ pub const FileError = std.fs.File.PReadError || error{
     /// offer a more efficient implementation.
     Unimplemented,
 };
-
-/// TODO: no pub
-pub const Limit = std.io.Limit;
 
 pub const Offset = enum(u64) {
     zero = 0,

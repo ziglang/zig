@@ -57,6 +57,12 @@ pub const Request = struct {
     /// Pointers in this struct are invalidated with the next call to
     /// `receiveHead`.
     head: Head,
+    respond_err: ?RespondError,
+
+    pub const RespondError = error{
+        /// The request contained an `expect` header with an unrecognized value.
+        HttpExpectationFailed,
+    };
 
     pub const Head = struct {
         method: http.Method,
@@ -306,7 +312,7 @@ pub const Request = struct {
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) std.io.Writer.Error!void {
+    ) ExpectContinueError!void {
         try respondUnflushed(request, content, options);
         try request.server.out.flush();
     }
@@ -315,7 +321,7 @@ pub const Request = struct {
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) std.io.Writer.Error!void {
+    ) ExpectContinueError!void {
         assert(options.status != .@"continue");
         if (std.debug.runtime_safety) {
             for (options.extra_headers) |header| {
@@ -325,6 +331,7 @@ pub const Request = struct {
                 assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
             }
         }
+        try writeExpectContinue(request);
 
         const transfer_encoding_none = (options.transfer_encoding orelse .chunked) == .none;
         const server_keep_alive = !transfer_encoding_none and options.keep_alive;
@@ -333,17 +340,6 @@ pub const Request = struct {
         const phrase = options.reason orelse options.status.phrase() orelse "";
 
         const out = request.server.out;
-        if (request.head.expect != null) {
-            // reader() and hence discardBody() above sets expect to null if it
-            // is handled. So the fact that it is not null here means unhandled.
-            var vecs: [3][]const u8 = .{
-                "HTTP/1.1 417 Expectation Failed\r\n",
-                if (keep_alive) "" else "connection: close\r\n",
-                "content-length: 0\r\n\r\n",
-            };
-            try out.writeVecAll(&vecs);
-            return;
-        }
         try out.print("{s} {d} {s}\r\n", .{
             @tagName(options.version), @intFromEnum(options.status), phrase,
         });
@@ -402,6 +398,7 @@ pub const Request = struct {
     ///
     /// Asserts status is not `continue`.
     pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) std.io.Writer.Error!http.BodyWriter {
+        try writeExpectContinue(request);
         const o = options.respond_options;
         assert(o.status != .@"continue");
         const transfer_encoding_none = (o.transfer_encoding orelse .chunked) == .none;
@@ -410,43 +407,34 @@ pub const Request = struct {
         const phrase = o.reason orelse o.status.phrase() orelse "";
         const out = request.server.out;
 
-        const elide_body = if (request.head.expect != null) eb: {
-            // reader() and hence discardBody() above sets expect to null if it
-            // is handled. So the fact that it is not null here means unhandled.
-            try out.writeAll("HTTP/1.1 417 Expectation Failed\r\n");
-            if (!keep_alive) try out.writeAll("connection: close\r\n");
-            try out.writeAll("content-length: 0\r\n\r\n");
-            break :eb true;
-        } else eb: {
-            try out.print("{s} {d} {s}\r\n", .{
-                @tagName(o.version), @intFromEnum(o.status), phrase,
-            });
+        try out.print("{s} {d} {s}\r\n", .{
+            @tagName(o.version), @intFromEnum(o.status), phrase,
+        });
 
-            switch (o.version) {
-                .@"HTTP/1.0" => if (keep_alive) try out.writeAll("connection: keep-alive\r\n"),
-                .@"HTTP/1.1" => if (!keep_alive) try out.writeAll("connection: close\r\n"),
-            }
+        switch (o.version) {
+            .@"HTTP/1.0" => if (keep_alive) try out.writeAll("connection: keep-alive\r\n"),
+            .@"HTTP/1.1" => if (!keep_alive) try out.writeAll("connection: close\r\n"),
+        }
 
-            if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
-                .chunked => try out.writeAll("transfer-encoding: chunked\r\n"),
-                .none => {},
-            } else if (options.content_length) |len| {
-                try out.print("content-length: {d}\r\n", .{len});
-            } else {
-                try out.writeAll("transfer-encoding: chunked\r\n");
-            }
+        if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
+            .chunked => try out.writeAll("transfer-encoding: chunked\r\n"),
+            .none => {},
+        } else if (options.content_length) |len| {
+            try out.print("content-length: {d}\r\n", .{len});
+        } else {
+            try out.writeAll("transfer-encoding: chunked\r\n");
+        }
 
-            for (o.extra_headers) |header| {
-                assert(header.name.len != 0);
-                try out.writeAll(header.name);
-                try out.writeAll(": ");
-                try out.writeAll(header.value);
-                try out.writeAll("\r\n");
-            }
-
+        for (o.extra_headers) |header| {
+            assert(header.name.len != 0);
+            try out.writeAll(header.name);
+            try out.writeAll(": ");
+            try out.writeAll(header.value);
             try out.writeAll("\r\n");
-            break :eb request.head.method == .HEAD;
-        };
+        }
+
+        try out.writeAll("\r\n");
+        const elide_body = request.head.method == .HEAD;
 
         return .{
             .http_protocol_output = request.server.out,
@@ -460,15 +448,82 @@ pub const Request = struct {
         };
     }
 
-    pub const ReaderError = error{
-        /// Failed to write "100-continue" to the stream.
-        WriteFailed,
-        /// Failed to write "100-continue" to the stream because it ended.
-        EndOfStream,
-        /// The client sent an expect HTTP header value other than
-        /// "100-continue".
-        HttpExpectationFailed,
+    pub const UpgradeRequest = union(enum) {
+        websocket: ?[]const u8,
+        other: []const u8,
+        none,
     };
+
+    pub fn upgradeRequested(request: *const Request) UpgradeRequest {
+        switch (request.head.version) {
+            .@"HTTP/1.0" => return null,
+            .@"HTTP/1.1" => if (request.head.method != .GET) return null,
+        }
+
+        var sec_websocket_key: ?[]const u8 = null;
+        var upgrade_name: ?[]const u8 = null;
+        var it = request.iterateHeaders();
+        while (it.next()) |header| {
+            if (std.ascii.eqlIgnoreCase(header.name, "sec-websocket-key")) {
+                sec_websocket_key = header.value;
+            } else if (std.ascii.eqlIgnoreCase(header.name, "upgrade")) {
+                upgrade_name = header.value;
+            }
+        }
+
+        const name = upgrade_name orelse return .none;
+        if (std.ascii.eqlIgnoreCase(name, "websocket")) return .{ .websocket = sec_websocket_key };
+        return .{ .other = name };
+    }
+
+    pub const WebSocketOptions = struct {
+        /// The value from `UpgradeRequest.websocket` (sec-websocket-key header value).
+        key: []const u8,
+        reason: ?[]const u8 = null,
+        extra_headers: []const http.Header = &.{},
+    };
+
+    /// The header is not guaranteed to be sent until `WebSocket.flush` is
+    /// called on the returned struct.
+    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) std.io.Writer.Error!WebSocket {
+        if (request.head.expect != null) return error.HttpExpectationFailed;
+
+        const out = request.server.out;
+        const version: http.Version = .@"HTTP/1.1";
+        const status: http.Status = .switching_protocols;
+        const phrase = options.reason orelse status.phrase() orelse "";
+
+        assert(request.head.version == version);
+        assert(request.head.method == .GET);
+
+        var sha1 = std.crypto.hash.Sha1.init(.{});
+        sha1.update(options.key);
+        sha1.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+        var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
+        sha1.final(&digest);
+        try out.print("{s} {d} {s}\r\n", .{ @tagName(version), @intFromEnum(status), phrase });
+        try out.writeAll("connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: ");
+        const base64_digest = try out.writableArray(28);
+        assert(std.base64.standard.Encoder.encode(&base64_digest, &digest).len == base64_digest.len);
+        out.advance(base64_digest.len);
+        try out.writeAll("\r\n");
+
+        for (options.extra_headers) |header| {
+            assert(header.name.len != 0);
+            try out.writeAll(header.name);
+            try out.writeAll(": ");
+            try out.writeAll(header.value);
+            try out.writeAll("\r\n");
+        }
+
+        try out.writeAll("\r\n");
+
+        return .{
+            .input = request.server.reader.in,
+            .output = request.server.out,
+            .key = options.key,
+        };
+    }
 
     /// In the case that the request contains "expect: 100-continue", this
     /// function writes the continuation header, which means it can fail with a
@@ -476,18 +531,41 @@ pub const Request = struct {
     /// request's expect field to `null`.
     ///
     /// Asserts that this function is only called once.
-    pub fn reader(request: *Request) ReaderError!std.io.Reader {
+    ///
+    /// See `readerExpectNone` for an infallible alternative that cannot write
+    /// to the server output stream.
+    pub fn readerExpectContinue(request: *Request) ExpectContinueError!std.io.Reader {
+        const flush = request.head.expect != null;
+        try writeExpectContinue(request);
+        if (flush) try request.server.out.flush();
+        return readerExpectNone(request);
+    }
+
+    /// Asserts the expect header is `null`. The caller must handle the
+    /// expectation manually and then set the value to `null` prior to calling
+    /// this function.
+    ///
+    /// Asserts that this function is only called once.
+    pub fn readerExpectNone(request: *Request) std.io.Reader {
         assert(request.server.reader.state == .received_head);
-        if (request.head.expect) |expect| {
-            if (mem.eql(u8, expect, "100-continue")) {
-                try request.server.out.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
-                request.head.expect = null;
-            } else {
-                return error.HttpExpectationFailed;
-            }
-        }
+        assert(request.head.expect == null);
         if (!request.head.method.requestHasBody()) return .ending;
         return request.server.reader.bodyReader(request.head.transfer_encoding, request.head.content_length);
+    }
+
+    pub const ExpectContinueError = error{
+        /// Failed to write "HTTP/1.1 100 Continue\r\n\r\n" to the stream.
+        WriteFailed,
+        /// The client sent an expect HTTP header value other than
+        /// "100-continue".
+        HttpExpectationFailed,
+    };
+
+    pub fn writeExpectContinue(request: *Request) ExpectContinueError!void {
+        const expect = request.head.expect orelse return;
+        if (!mem.eql(u8, expect, "100-continue")) return error.HttpExpectationFailed;
+        try request.server.out.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
+        request.head.expect = null;
     }
 
     /// Returns whether the connection should remain persistent.
@@ -526,5 +604,152 @@ pub const Request = struct {
             else => {},
         }
         return false;
+    }
+};
+
+/// See https://tools.ietf.org/html/rfc6455
+pub const WebSocket = struct {
+    key: []const u8,
+    input: *std.io.BufferedReader,
+    output: *std.io.BufferedWriter,
+
+    pub const Header0 = packed struct(u8) {
+        opcode: Opcode,
+        rsv3: u1 = 0,
+        rsv2: u1 = 0,
+        rsv1: u1 = 0,
+        fin: bool,
+    };
+
+    pub const Header1 = packed struct(u8) {
+        payload_len: enum(u7) {
+            len16 = 126,
+            len64 = 127,
+            _,
+        },
+        mask: bool,
+    };
+
+    pub const Opcode = enum(u4) {
+        continuation = 0,
+        text = 1,
+        binary = 2,
+        connection_close = 8,
+        ping = 9,
+        /// "A Pong frame MAY be sent unsolicited. This serves as a unidirectional
+        /// heartbeat. A response to an unsolicited Pong frame is not expected."
+        pong = 10,
+        _,
+    };
+
+    pub const ReadSmallTextMessageError = error{
+        ConnectionClose,
+        UnexpectedOpCode,
+        MessageTooBig,
+        MissingMaskBit,
+    };
+
+    pub const SmallMessage = struct {
+        /// Can be text, binary, or ping.
+        opcode: Opcode,
+        data: []u8,
+    };
+
+    /// Reads the next message from the WebSocket stream, failing if the
+    /// message does not fit into the input buffer. The returned memory points
+    /// into the input buffer and is invalidated on the next read.
+    pub fn readSmallMessage(ws: *WebSocket) ReadSmallTextMessageError!SmallMessage {
+        const in = ws.input;
+        while (true) {
+            const h0 = in.takeStruct(Header0);
+            const h1 = in.takeStruct(Header1);
+
+            switch (h0.opcode) {
+                .text, .binary, .pong, .ping => {},
+                .connection_close => return error.ConnectionClose,
+                .continuation => return error.UnexpectedOpCode,
+                _ => return error.UnexpectedOpCode,
+            }
+
+            if (!h0.fin) return error.MessageTooBig;
+            if (!h1.mask) return error.MissingMaskBit;
+
+            const len: usize = switch (h1.payload_len) {
+                .len16 => try in.takeInt(u16, .big),
+                .len64 => std.math.cast(usize, try in.takeInt(u64, .big)) orelse return error.MessageTooBig,
+                else => @intFromEnum(h1.payload_len),
+            };
+            if (len > in.buffer.len) return error.MessageTooBig;
+            const mask: u32 = @bitCast((try in.takeArray(4)).*);
+            const payload = try in.take(len);
+
+            // Skip pongs.
+            if (h0.opcode == .pong) continue;
+
+            // The last item may contain a partial word of unused data.
+            const floored_len = (payload.len / 4) * 4;
+            const u32_payload: []align(1) u32 = @ptrCast(payload[0..floored_len]);
+            for (u32_payload) |*elem| elem.* ^= mask;
+            const mask_bytes: []const u8 = @ptrCast(&mask);
+            for (payload[floored_len..], mask_bytes[0 .. payload.len - floored_len]) |*leftover, m|
+                leftover.* ^= m;
+
+            return .{
+                .opcode = h0.opcode,
+                .data = payload,
+            };
+        }
+    }
+
+    pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) std.io.Writer.Error!void {
+        try writeMessageVecUnflushed(ws, &.{data}, op);
+        try ws.output.flush();
+    }
+
+    pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) std.io.Writer.Error!void {
+        try writeMessageVecUnflushed(ws, &.{data}, op);
+    }
+
+    pub fn writeMessageVec(ws: *WebSocket, data: []const []const u8, op: Opcode) std.io.Writer.Error!void {
+        try writeMessageVecUnflushed(ws, data, op);
+        try ws.output.flush();
+    }
+
+    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: []const []const u8, op: Opcode) std.io.Writer.Error!void {
+        const total_len = l: {
+            var total_len: u64 = 0;
+            for (data) |iovec| total_len += iovec.len;
+            break :l total_len;
+        };
+        const out = ws.output;
+        try out.writeStruct(@as(Header0, .{
+            .opcode = op,
+            .fin = true,
+        }));
+        switch (total_len) {
+            0...125 => try out.writeStruct(@as(Header1, .{
+                .payload_len = @enumFromInt(total_len),
+                .mask = false,
+            })),
+            126...0xffff => {
+                try out.writeStruct(@as(Header1, .{
+                    .payload_len = .len16,
+                    .mask = false,
+                }));
+                try out.writeInt(u16, @intCast(total_len), .big);
+            },
+            else => {
+                try out.writeStruct(@as(Header1, .{
+                    .payload_len = .len64,
+                    .mask = false,
+                }));
+                try out.writeInt(u64, total_len, .big);
+            },
+        }
+        try out.writeVecAll(data);
+    }
+
+    pub fn flush(ws: *WebSocket) std.io.Writer.Error!void {
+        try ws.output.flush();
     }
 };

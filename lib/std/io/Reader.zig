@@ -5,6 +5,7 @@ const BufferedWriter = std.io.BufferedWriter;
 const BufferedReader = std.io.BufferedReader;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
+const Limit = std.io.Limit;
 
 pub const Limited = @import("Reader/Limited.zig");
 
@@ -25,21 +26,7 @@ pub const VTable = struct {
     /// Implementations are encouraged to utilize mandatory minimum buffer
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
-    read: *const fn (context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize,
-
-    /// Writes bytes from the internally tracked stream position to `data`.
-    ///
-    /// Returns the number of bytes written, which will be at minimum `0` and
-    /// at most the sum of each data slice length. The number of bytes read,
-    /// including zero, does not indicate end of stream.
-    ///
-    /// The reader's internal logical seek position moves forward in accordance
-    /// with the number of bytes returned from this function.
-    ///
-    /// Implementations are encouraged to utilize mandatory minimum buffer
-    /// sizes combined with short reads (returning a value less than the total
-    /// buffer capacity inside `data`) in order to minimize complexity.
-    readVec: *const fn (context: ?*anyopaque, data: []const []u8) Error!usize,
+    read: *const fn (context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamError!usize,
 
     /// Consumes bytes from the internally tracked stream position without
     /// providing access to them.
@@ -54,10 +41,15 @@ pub const VTable = struct {
     /// Implementations are encouraged to utilize mandatory minimum buffer
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
-    discard: *const fn (context: ?*anyopaque, limit: Limit) Error!usize,
+    ///
+    /// If an implementation sets this to `null`, a default implementation is
+    /// provided which is based on calling `read`, borrowing
+    /// `BufferedReader.buffer` to construct a temporary `BufferedWriter` and
+    /// ignoring the written data.
+    discard: *const fn (context: ?*anyopaque, limit: Limit) DiscardError!usize = null,
 };
 
-pub const RwError = error{
+pub const StreamError = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
@@ -67,7 +59,7 @@ pub const RwError = error{
     EndOfStream,
 };
 
-pub const Error = error{
+pub const DiscardError = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
     EndOfStream,
@@ -85,10 +77,7 @@ pub const ShortError = error{
     ReadFailed,
 };
 
-/// TODO: no pub
-pub const Limit = std.io.Limit;
-
-pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) RwError!usize {
+pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) StreamError!usize {
     const before = bw.count;
     const n = try r.vtable.read(r.context, bw, limit);
     assert(n <= @intFromEnum(limit));
@@ -96,11 +85,7 @@ pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) RwError!usize {
     return n;
 }
 
-pub fn readVec(r: Reader, data: []const []u8) Error!usize {
-    return r.vtable.readVec(r.context, data);
-}
-
-pub fn discard(r: Reader, limit: Limit) Error!usize {
+pub fn discard(r: Reader, limit: Limit) DiscardError!usize {
     const n = try r.vtable.discard(r.context, limit);
     assert(n <= @intFromEnum(limit));
     return n;
@@ -188,7 +173,6 @@ pub const failing: Reader = .{
     .context = undefined,
     .vtable = &.{
         .read = failingRead,
-        .readVec = failingReadVec,
         .discard = failingDiscard,
     },
 };
@@ -197,7 +181,6 @@ pub const ending: Reader = .{
     .context = undefined,
     .vtable = &.{
         .read = endingRead,
-        .readVec = endingReadVec,
         .discard = endingDiscard,
     },
 };
@@ -222,39 +205,27 @@ pub fn limited(r: Reader, limit: Limit) Limited {
     };
 }
 
-fn endingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize {
+fn endingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamError!usize {
     _ = context;
     _ = bw;
     _ = limit;
     return error.EndOfStream;
 }
 
-fn endingReadVec(context: ?*anyopaque, data: []const []u8) Error!usize {
-    _ = context;
-    _ = data;
-    return error.EndOfStream;
-}
-
-fn endingDiscard(context: ?*anyopaque, limit: Limit) Error!usize {
+fn endingDiscard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
     _ = context;
     _ = limit;
     return error.EndOfStream;
 }
 
-fn failingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize {
+fn failingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamError!usize {
     _ = context;
     _ = bw;
     _ = limit;
     return error.ReadFailed;
 }
 
-fn failingReadVec(context: ?*anyopaque, data: []const []u8) Error!usize {
-    _ = context;
-    _ = data;
-    return error.ReadFailed;
-}
-
-fn failingDiscard(context: ?*anyopaque, limit: Limit) Error!usize {
+fn failingDiscard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
     _ = context;
     _ = limit;
     return error.ReadFailed;
@@ -308,7 +279,6 @@ pub fn Hashed(comptime Hasher: type) type {
                     .context = this,
                     .vtable = &.{
                         .read = @This().read,
-                        .readVec = @This().readVec,
                         .discard = @This().discard,
                     },
                 },
@@ -318,7 +288,7 @@ pub fn Hashed(comptime Hasher: type) type {
             };
         }
 
-        fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) RwError!usize {
+        fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamError!usize {
             const this: *@This() = @alignCast(@ptrCast(context));
             const slice = limit.slice(try bw.writableSliceGreedy(1));
             const n = try this.in.readVec(&.{slice});
@@ -327,7 +297,7 @@ pub fn Hashed(comptime Hasher: type) type {
             return n;
         }
 
-        fn discard(context: ?*anyopaque, limit: Limit) Error!usize {
+        fn discard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
             const this: *@This() = @alignCast(@ptrCast(context));
             var bw = this.hasher.writable(&.{});
             const n = this.in.read(&bw, limit) catch |err| switch (err) {
@@ -337,7 +307,7 @@ pub fn Hashed(comptime Hasher: type) type {
             return n;
         }
 
-        fn readVec(context: ?*anyopaque, data: []const []u8) Error!usize {
+        fn readVec(context: ?*anyopaque, data: []const []u8) DiscardError!usize {
             const this: *@This() = @alignCast(@ptrCast(context));
             const n = try this.in.readVec(data);
             var remaining: usize = n;

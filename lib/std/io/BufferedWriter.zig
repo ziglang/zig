@@ -5,6 +5,7 @@ const native_endian = @import("builtin").target.cpu.arch.endian();
 const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
+const Limit = std.io.Limit;
 
 /// Underlying stream to send bytes to.
 ///
@@ -42,7 +43,7 @@ pub fn writer(bw: *BufferedWriter) Writer {
 
 const fixed_vtable: Writer.VTable = .{
     .writeSplat = fixedWriteSplat,
-    .writeFile = Writer.failingWriteFile,
+    .writeFile = Writer.unimplementedWriteFile,
 };
 
 /// Replaces the `BufferedWriter` with one that writes to `buffer` and returns
@@ -82,7 +83,7 @@ pub fn flush(bw: *BufferedWriter) Writer.Error!void {
     bw.end = 0;
 }
 
-pub fn flushLimit(bw: *BufferedWriter, limit: Writer.Limit) Writer.Error!void {
+pub fn flushLimit(bw: *BufferedWriter, limit: Limit) Writer.Error!void {
     const buffer = limit.slice(bw.buffer[0..bw.end]);
     var index: usize = 0;
     while (index < buffer.len) index += try bw.unbuffered_writer.writeVec(&.{buffer[index..]});
@@ -228,7 +229,7 @@ pub fn writeSplatLimit(
     bw: *BufferedWriter,
     data: []const []const u8,
     splat: usize,
-    limit: Writer.Limit,
+    limit: Limit,
 ) Writer.Error!usize {
     _ = bw;
     _ = data;
@@ -544,7 +545,7 @@ pub fn writeFile(
     bw: *BufferedWriter,
     file: std.fs.File,
     offset: Writer.Offset,
-    limit: Writer.Limit,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) Writer.FileError!usize {
@@ -560,7 +561,7 @@ pub fn writeFileReading(
     bw: *BufferedWriter,
     file: std.fs.File,
     offset: Writer.Offset,
-    limit: Writer.Limit,
+    limit: Limit,
 ) WriteFileReadingError!usize {
     const dest = limit.slice(try bw.writableSliceGreedy(1));
     const n = if (offset.toInt()) |pos| try file.pread(dest, pos) else try file.read(dest);
@@ -572,7 +573,7 @@ fn passthruWriteFile(
     context: ?*anyopaque,
     file: std.fs.File,
     offset: Writer.Offset,
-    limit: Writer.Limit,
+    limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) Writer.FileError!usize {
@@ -653,7 +654,7 @@ pub const WriteFileOptions = struct {
     offset: Writer.Offset = .none,
     /// If the size of the source file is known, it is likely that passing the
     /// size here will save one syscall.
-    limit: Writer.Limit = .unlimited,
+    limit: Limit = .unlimited,
     /// Headers and trailers must be passed together so that in case `len` is
     /// zero, they can be forwarded directly to `Writer.VTable.writeSplat`.
     ///
@@ -749,7 +750,7 @@ pub fn writeFileReadingAll(
     bw: *BufferedWriter,
     file: std.fs.File,
     offset: Writer.Offset,
-    limit: Writer.Limit,
+    limit: Limit,
 ) WriteFileReadingError!void {
     if (offset.toInt()) |start_pos| {
         var remaining = limit;
