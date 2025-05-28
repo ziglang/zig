@@ -43,14 +43,23 @@ test "ldexpf.special" {
     try expect(math.isPositiveInf(ldexpf(math.inf(f32), 0)));
 }
 
-pub fn ldexpl(x: f128, n: i32) callconv(.c) f128 {
-    return math.ldexp(x, n);
+pub fn ldexpl(x: c_longdouble, n: i32) callconv(.c) c_longdouble {
+    switch (@typeInfo(c_longdouble).float.bits) {
+        16 => return math.ldexp(@as(f16, x), n),
+        32 => return math.ldexp(@as(f32, x), n),
+        64 => return math.ldexp(@as(f64, x), n),
+        80 => return math.ldexp(@as(f80, x), n),
+        128 => return math.ldexp(@as(f128, x), n),
+        else => @compileError("unreachable"),
+    }
 }
 
 test "ldexpl" {
     // Ported from libc-test
     // https://repo.or.cz/libc-test.git/blob/HEAD:/src/math/sanity/ldexpl.h
-    try expect(ldexpl(-0x1.02239f3c6a8f13dep+3, -2) == -0x1.02239f3c6a8f13dep+1);
+    const x: c_longdouble = -0x1.02239f3c6a8f13dep+3;
+    const expected: c_longdouble = -0x1.02239f3c6a8f13dep+1;
+    try expect(ldexpl(x, -2) == expected);
 }
 
 test "ldexpl.special" {
