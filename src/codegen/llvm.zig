@@ -1587,12 +1587,15 @@ pub const Object = struct {
         const comp = zcu.comp;
 
         // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
-        if (comp.bin_file != null and
-            comp.bin_file.?.tag == .coff and
-            zcu.comp.config.use_lld and
-            ip.isFunctionType(ip.getNav(nav_index).typeOf(ip)))
-        {
-            const flags = &comp.bin_file.?.cast(.coff).?.lld_export_flags;
+        coff_export_flags: {
+            const lf = comp.bin_file orelse break :coff_export_flags;
+            const lld = lf.cast(.lld) orelse break :coff_export_flags;
+            const coff = switch (lld.ofmt) {
+                .elf, .wasm => break :coff_export_flags,
+                .coff => |*coff| coff,
+            };
+            if (!ip.isFunctionType(ip.getNav(nav_index).typeOf(ip))) break :coff_export_flags;
+            const flags = &coff.lld_export_flags;
             for (export_indices) |export_index| {
                 const name = export_index.ptr(zcu).opts.name;
                 if (name.eqlSlice("main", ip)) flags.c_main = true;

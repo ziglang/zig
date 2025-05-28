@@ -1592,9 +1592,9 @@ pub const CreateOptions = struct {
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = true,
-    linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null,
+    linker_compress_debug_sections: ?link.File.Lld.Elf.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
-    linker_sort_section: ?link.File.Elf.SortSection = null,
+    linker_sort_section: ?link.File.Lld.Elf.SortSection = null,
     major_subsystem_version: ?u16 = null,
     minor_subsystem_version: ?u16 = null,
     clang_passthrough_mode: bool = false,
@@ -1616,7 +1616,7 @@ pub const CreateOptions = struct {
     /// building such dependencies themselves, this flag must be set to avoid
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
-    hash_style: link.File.Elf.HashStyle = .both,
+    hash_style: link.File.Lld.Elf.HashStyle = .both,
     entry: Entry = .default,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .empty,
     stack_size: ?u64 = null,

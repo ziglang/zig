@@ -301,7 +301,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .sixtyfour_bit = sixtyfour_bit,
@@ -494,7 +493,7 @@ fn updateFinish(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     // write the symbol
     // we already have the got index
     const sym: aout.Sym = .{
-        .value = undefined, // the value of stuff gets filled in in flushZcu
+        .value = undefined, // the value of stuff gets filled in in flush
         .type = atom.type,
         .name = try gpa.dupe(u8, nav.name.toSlice(ip)),
     };
@@ -525,25 +524,6 @@ fn allocateGotIndex(self: *Plan9) usize {
         self.got_len += 1;
         return self.got_len - 1;
     }
-}
-
-pub fn flush(
-    self: *Plan9,
-    arena: Allocator,
-    tid: Zcu.PerThread.Id,
-    prog_node: std.Progress.Node,
-) link.File.FlushError!void {
-    const comp = self.base.comp;
-    const diags = &comp.link_diags;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    assert(!use_lld);
-
-    switch (link.File.effectiveOutputMode(use_lld, comp.config.output_mode)) {
-        .Exe => {},
-        .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
-        .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
-    }
-    return self.flushZcu(arena, tid, prog_node);
 }
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
@@ -586,7 +566,7 @@ fn atomCount(self: *Plan9) usize {
     return data_nav_count + fn_nav_count + lazy_atom_count + extern_atom_count + uav_atom_count;
 }
 
-pub fn flushZcu(
+pub fn flush(
     self: *Plan9,
     arena: Allocator,
     /// TODO: stop using this
@@ -607,10 +587,16 @@ pub fn flushZcu(
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
 
+    switch (comp.config.output_mode) {
+        .Exe => {},
+        .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
+        .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
+    }
+
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    log.debug("flushZcu", .{});
+    log.debug("flush", .{});
 
     defer assert(self.hdr.entry != 0x0);
 
@@ -1039,7 +1025,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, pt: Zcu.PerThread, lazy_sym: F
     const atom = atom_ptr.*;
     _ = try self.getAtomPtr(atom).getOrCreateSymbolTableEntry(self);
     _ = self.getAtomPtr(atom).getOrCreateOffsetTableEntry(self);
-    // anyerror needs to be deferred until flushZcu
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbolAtom(pt, lazy_sym, atom);
     return atom;
 }
@@ -1182,11 +1168,7 @@ pub fn open(
 
     const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .read = true,
-        .mode = link.File.determineMode(
-            use_lld,
-            comp.config.output_mode,
-            comp.config.link_mode,
-        ),
+        .mode = link.File.determineMode(comp.config.output_mode, comp.config.link_mode),
     });
     errdefer file.close();
     self.base.file = file;

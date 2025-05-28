@@ -145,7 +145,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = file,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
     };
@@ -381,10 +380,6 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushZcu(arena, tid, prog_node);
-}
-
 fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     const gpa = self.base.comp.gpa;
     var defines = std.ArrayList(u8).init(gpa);
@@ -400,7 +395,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     return defines;
 }
 
-pub fn flushZcu(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());

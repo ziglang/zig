@@ -17,7 +17,7 @@
 //! All regular functions.
 
 // Because SPIR-V requires re-compilation anyway, and so hot swapping will not work
-// anyway, we simply generate all the code in flushZcu. This keeps
+// anyway, we simply generate all the code in flush. This keeps
 // things considerably simpler.
 
 const SpirV = @This();
@@ -83,7 +83,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .object = codegen.Object.init(gpa, comp.getTarget()),
@@ -193,18 +192,14 @@ pub fn updateExports(
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushZcu(arena, tid, prog_node);
-}
-
-pub fn flushZcu(
+pub fn flush(
     self: *SpirV,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
     // The goal is to never use this because it's only needed if we need to
-    // write to InternPool, but flushZcu is too late to be writing to the
+    // write to InternPool, but flush is too late to be writing to the
     // InternPool.
     _ = tid;
 

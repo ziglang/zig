@@ -178,7 +178,7 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) !u64
     return offset;
 }
 
-pub fn flushZcu(self: *DebugSymbols, macho_file: *MachO) !void {
+pub fn flush(self: *DebugSymbols, macho_file: *MachO) !void {
     const zo = macho_file.getZigObject().?;
     for (self.relocs.items) |*reloc| {
         const sym = zo.symbols.items[reloc.target];

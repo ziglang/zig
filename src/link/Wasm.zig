@@ -40,7 +40,6 @@ const Zcu = @import("../Zcu.zig");
 const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
-const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
 const wasi_libc = @import("../libs/wasi_libc.zig");
 const Value = @import("../Value.zig");
@@ -74,8 +73,6 @@ global_base: ?u64,
 initial_memory: ?u64,
 /// When defined, sets the maximum memory size of the memory.
 max_memory: ?u64,
-/// When true, will import the function table from the host environment.
-import_table: bool,
 /// When true, will export the function table to the host environment.
 export_table: bool,
 /// Output name of the file
@@ -2935,17 +2932,14 @@ pub fn createEmpty(
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
 
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
     const wasi_exec_model = comp.config.wasi_exec_model;
 
-    // If using LLD to link, this code should produce an object file so that it
-    // can be passed to LLD.
     // If using LLVM to generate the object file for the zig compilation unit,
     // we need a place to put the object file so that it can be subsequently
     // handled.
-    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+    const zcu_object_sub_path = if (!use_llvm)
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
@@ -2970,13 +2964,11 @@ pub fn createEmpty(
             },
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .name = undefined,
         .string_table = .empty,
         .string_bytes = .empty,
-        .import_table = options.import_table,
         .export_table = options.export_table,
         .import_symbols = options.import_symbols,
         .export_symbol_names = options.export_symbol_names,
@@ -3004,17 +2996,7 @@ pub fn createEmpty(
         .named => |name| (try wasm.internString(name)).toOptional(),
     };
 
-    if (use_lld and (use_llvm or !comp.config.have_zcu)) {
-        // LLVM emits the object file (if any); LLD links it into the final product.
-        return wasm;
-    }
-
-    // What path should this Wasm linker code output to?
-    // If using LLD to link, this code should produce an object file so that it
-    // can be passed to LLD.
-    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
-
-    wasm.base.file = try emit.root_dir.handle.createFile(sub_path, .{
+    wasm.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
@@ -3025,7 +3007,7 @@ pub fn createEmpty(
         else
             0,
     });
-    wasm.name = sub_path;
+    wasm.name = emit.sub_path;
 
     return wasm;
 }
@@ -3365,21 +3347,6 @@ pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
         .object => |obj| try parseObject(wasm, obj),
         .archive => |obj| try parseArchive(wasm, obj),
     }
-}
-
-pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const comp = wasm.base.comp;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    const diags = &comp.link_diags;
-
-    if (use_lld) {
-        return wasm.linkWithLLD(arena, tid, prog_node) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LinkFailure => return error.LinkFailure,
-            else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
-        };
-    }
-    return wasm.flushZcu(arena, tid, prog_node);
 }
 
 pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -3773,14 +3740,14 @@ fn markTable(wasm: *Wasm, i: ObjectTableIndex) link.File.FlushError!void {
     try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(i), {});
 }
 
-pub fn flushZcu(
+pub fn flush(
     wasm: *Wasm,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
     // The goal is to never use this because it's only needed if we need to
-    // write to InternPool, but flushZcu is too late to be writing to the
+    // write to InternPool, but flush is too late to be writing to the
     // InternPool.
     _ = tid;
     const comp = wasm.base.comp;
@@ -3830,436 +3797,6 @@ pub fn flushZcu(
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("failed to flush wasm: {s}", .{@errorName(e)}),
     };
-}
-
-fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
-    dev.check(.lld_linker);
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const comp = wasm.base.comp;
-    const diags = &comp.link_diags;
-    const shared_memory = comp.config.shared_memory;
-    const export_memory = comp.config.export_memory;
-    const import_memory = comp.config.import_memory;
-    const target = comp.root_mod.resolved_target.result;
-
-    const gpa = comp.gpa;
-
-    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
-
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu) |zcu| blk: {
-        if (zcu.llvm_object == null) {
-            try wasm.flushZcu(arena, tid, prog_node);
-        } else {
-            // `Compilation.flush` has already made LLVM emit this object file for us.
-        }
-
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
-        } else {
-            break :blk wasm.base.zcu_object_sub_path.?;
-        }
-    } else null;
-
-    const sub_prog_node = prog_node.start("LLD Link", 0);
-    defer sub_prog_node.end();
-
-    const is_obj = comp.config.output_mode == .Obj;
-    const compiler_rt_path: ?Path = blk: {
-        if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
-        if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
-        break :blk null;
-    };
-    const ubsan_rt_path: ?Path = blk: {
-        if (comp.ubsan_rt_lib) |lib| break :blk lib.full_object_path;
-        if (comp.ubsan_rt_obj) |obj| break :blk obj.full_object_path;
-        break :blk null;
-    };
-
-    const id_symlink_basename = "lld.id";
-
-    var man: Cache.Manifest = undefined;
-    defer if (!wasm.base.disable_lld_caching) man.deinit();
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-
-    if (!wasm.base.disable_lld_caching) {
-        man = comp.cache_parent.obtain();
-
-        // We are about to obtain this lock, so here we give other processes a chance first.
-        wasm.base.releaseLock();
-
-        comptime assert(Compilation.link_hash_implementation_version == 14);
-
-        try link.hashInputs(&man, comp.link_inputs);
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        try man.addOptionalFile(module_obj_path);
-        try man.addOptionalFilePath(compiler_rt_path);
-        try man.addOptionalFilePath(ubsan_rt_path);
-        man.hash.addOptionalBytes(wasm.entry_name.slice(wasm));
-        man.hash.add(wasm.base.stack_size);
-        man.hash.add(wasm.base.build_id);
-        man.hash.add(import_memory);
-        man.hash.add(export_memory);
-        man.hash.add(wasm.import_table);
-        man.hash.add(wasm.export_table);
-        man.hash.addOptional(wasm.initial_memory);
-        man.hash.addOptional(wasm.max_memory);
-        man.hash.add(shared_memory);
-        man.hash.addOptional(wasm.global_base);
-        man.hash.addListOfBytes(wasm.export_symbol_names);
-        // strip does not need to go into the linker hash because it is part of the hash namespace
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("WASM LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("WASM LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            // Hot diggity dog! The output binary is already there.
-            wasm.base.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("WASM LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
-
-    if (is_obj) {
-        // LLD's WASM driver does not support the equivalent of `-r` so we do a simple file copy
-        // here. TODO: think carefully about how we can avoid this redundant operation when doing
-        // build-obj. See also the corresponding TODO in linkAsArchive.
-        const the_object_path = blk: {
-            if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
-
-            if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.keys()[0].status.success.object_path;
-
-            if (module_obj_path) |p|
-                break :blk Path.initCwd(p);
-
-            // TODO I think this is unreachable. Audit this situation when solving the above TODO
-            // regarding eliding redundant object -> object transformations.
-            return error.NoObjectsToLink;
-        };
-        try fs.Dir.copyFile(
-            the_object_path.root_dir.handle,
-            the_object_path.sub_path,
-            directory.handle,
-            wasm.base.emit.sub_path,
-            .{},
-        );
-    } else {
-        // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
-        defer argv.deinit();
-        // We will invoke ourselves as a child process to gain access to LLD.
-        // This is necessary because LLD does not behave properly as a library -
-        // it calls exit() and does not reset all global data between invocations.
-        const linker_command = "wasm-ld";
-        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
-        try argv.append("--error-limit=0");
-
-        if (comp.config.lto != .none) {
-            switch (comp.root_mod.optimize_mode) {
-                .Debug => {},
-                .ReleaseSmall => try argv.append("-O2"),
-                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
-            }
-        }
-
-        if (import_memory) {
-            try argv.append("--import-memory");
-        }
-
-        if (export_memory) {
-            try argv.append("--export-memory");
-        }
-
-        if (wasm.import_table) {
-            assert(!wasm.export_table);
-            try argv.append("--import-table");
-        }
-
-        if (wasm.export_table) {
-            assert(!wasm.import_table);
-            try argv.append("--export-table");
-        }
-
-        // For wasm-ld we only need to specify '--no-gc-sections' when the user explicitly
-        // specified it as garbage collection is enabled by default.
-        if (!wasm.base.gc_sections) {
-            try argv.append("--no-gc-sections");
-        }
-
-        if (comp.config.debug_format == .strip) {
-            try argv.append("-s");
-        }
-
-        if (wasm.initial_memory) |initial_memory| {
-            const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
-            try argv.append(arg);
-        }
-
-        if (wasm.max_memory) |max_memory| {
-            const arg = try std.fmt.allocPrint(arena, "--max-memory={d}", .{max_memory});
-            try argv.append(arg);
-        }
-
-        if (shared_memory) {
-            try argv.append("--shared-memory");
-        }
-
-        if (wasm.global_base) |global_base| {
-            const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
-            try argv.append(arg);
-        } else {
-            // We prepend it by default, so when a stack overflow happens the runtime will trap correctly,
-            // rather than silently overwrite all global declarations. See https://github.com/ziglang/zig/issues/4496
-            //
-            // The user can overwrite this behavior by setting the global-base
-            try argv.append("--stack-first");
-        }
-
-        // Users are allowed to specify which symbols they want to export to the wasm host.
-        for (wasm.export_symbol_names) |symbol_name| {
-            const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
-            try argv.append(arg);
-        }
-
-        if (comp.config.rdynamic) {
-            try argv.append("--export-dynamic");
-        }
-
-        if (wasm.entry_name.slice(wasm)) |entry_name| {
-            try argv.appendSlice(&.{ "--entry", entry_name });
-        } else {
-            try argv.append("--no-entry");
-        }
-
-        try argv.appendSlice(&.{
-            "-z",
-            try std.fmt.allocPrint(arena, "stack-size={d}", .{wasm.base.stack_size}),
-        });
-
-        switch (wasm.base.build_id) {
-            .none => try argv.append("--build-id=none"),
-            .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
-                @tagName(wasm.base.build_id),
-            })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
-            .md5 => {},
-        }
-
-        if (wasm.import_symbols) {
-            try argv.append("--allow-undefined");
-        }
-
-        if (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic) {
-            try argv.append("--shared");
-        }
-        if (comp.config.pie) {
-            try argv.append("--pie");
-        }
-
-        try argv.appendSlice(&.{ "-o", full_out_path });
-
-        if (target.cpu.arch == .wasm64) {
-            try argv.append("-mwasm64");
-        }
-
-        const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
-            (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
-
-        if (comp.config.link_libc and is_exe_or_dyn_lib) {
-            if (target.os.tag == .wasi) {
-                for (comp.wasi_emulated_libs) |crt_file| {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.emulatedLibCRFileLibName(crt_file),
-                    ));
-                }
-
-                try argv.append(try comp.crtFileAsString(
-                    arena,
-                    wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
-                ));
-                try argv.append(try comp.crtFileAsString(arena, "libc.a"));
-            }
-
-            if (comp.zigc_static_lib) |zigc| {
-                try argv.append(try zigc.full_object_path.toString(arena));
-            }
-
-            if (comp.config.link_libcpp) {
-                try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-                try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-            }
-        }
-
-        // Positional arguments to the linker such as object files.
-        var whole_archive = false;
-        for (comp.link_inputs) |link_input| switch (link_input) {
-            .object, .archive => |obj| {
-                if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
-                    whole_archive = true;
-                } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
-                    whole_archive = false;
-                }
-                try argv.append(try obj.path.toString(arena));
-            },
-            .dso => |dso| {
-                try argv.append(try dso.path.toString(arena));
-            },
-            .dso_exact => unreachable,
-            .res => unreachable,
-        };
-        if (whole_archive) {
-            try argv.append("-no-whole-archive");
-            whole_archive = false;
-        }
-
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
-        }
-        if (module_obj_path) |p| {
-            try argv.append(p);
-        }
-
-        if (compiler_rt_path) |p| {
-            try argv.append(try p.toString(arena));
-        }
-
-        if (ubsan_rt_path) |p| {
-            try argv.append(try p.toStringZ(arena));
-        }
-
-        if (comp.verbose_link) {
-            // Skip over our own name so that the LLD linker name is the first argv item.
-            Compilation.dump_argv(argv.items[1..]);
-        }
-
-        if (std.process.can_spawn) {
-            // If possible, we run LLD as a child process because it does not always
-            // behave properly as a library, unfortunately.
-            // https://github.com/ziglang/zig/issues/3825
-            var child = std.process.Child.init(argv.items, arena);
-            if (comp.clang_passthrough_mode) {
-                child.stdin_behavior = .Inherit;
-                child.stdout_behavior = .Inherit;
-                child.stderr_behavior = .Inherit;
-
-                const term = child.spawnAndWait() catch |err| {
-                    log.err("failed to spawn (passthrough mode) LLD {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnWasm;
-                };
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            std.process.exit(code);
-                        }
-                    },
-                    else => std.process.abort(),
-                }
-            } else {
-                child.stdin_behavior = .Ignore;
-                child.stdout_behavior = .Ignore;
-                child.stderr_behavior = .Pipe;
-
-                try child.spawn();
-
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
-
-                const term = child.wait() catch |err| {
-                    log.err("failed to spawn LLD {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnWasm;
-                };
-
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            diags.lockAndParseLldStderr(linker_command, stderr);
-                            return error.LinkFailure;
-                        }
-                    },
-                    else => {
-                        return diags.fail("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                    },
-                }
-
-                if (stderr.len != 0) {
-                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
-                }
-            }
-        } else {
-            const exit_code = try lldMain(arena, argv.items, false);
-            if (exit_code != 0) {
-                if (comp.clang_passthrough_mode) {
-                    std.process.exit(exit_code);
-                } else {
-                    return diags.fail("{s} returned exit code {d}:\n{s}", .{ argv.items[0], exit_code });
-                }
-            }
-        }
-
-        // Give +x to the .wasm file if it is an executable and the OS is WASI.
-        // Some systems may be configured to execute such binaries directly. Even if that
-        // is not the case, it means we will get "exec format error" when trying to run
-        // it, and then can react to that in the same way as trying to run an ELF file
-        // from a foreign CPU architecture.
-        if (fs.has_executable_bit and target.os.tag == .wasi and
-            comp.config.output_mode == .Exe)
-        {
-            // TODO: what's our strategy for reporting linker errors from this function?
-            // report a nice error here with the file path if it fails instead of
-            // just returning the error code.
-            // chmod does not interact with umask, so we use a conservative -rwxr--r-- here.
-            std.posix.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0) catch |err| switch (err) {
-                error.OperationNotSupported => unreachable, // Not a symlink.
-                else => |e| return e,
-            };
-        }
-    }
-
-    if (!wasm.base.disable_lld_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest symlink: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        wasm.base.lock = man.toOwnedLock();
-    }
 }
 
 fn defaultEntrySymbolName(

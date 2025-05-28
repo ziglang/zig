@@ -46,7 +46,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
     };
@@ -105,10 +104,6 @@ pub fn updateExports(
 }
 
 pub fn flush(self: *Goff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushZcu(arena, tid, prog_node);
-}
-
-pub fn flushZcu(self: *Goff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     _ = self;
     _ = arena;
     _ = tid;

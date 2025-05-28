@@ -194,7 +194,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = allow_shlib_undefined,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .rpath_list = options.rpath_list,
@@ -227,7 +226,7 @@ pub fn createEmpty(
     self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
-        .mode = link.File.determineMode(false, output_mode, link_mode),
+        .mode = link.File.determineMode(output_mode, link_mode),
     });
 
     // Append null file
@@ -342,15 +341,6 @@ pub fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
-    try self.flushZcu(arena, tid, prog_node);
-}
-
-pub fn flushZcu(
-    self: *MachO,
-    arena: Allocator,
-    tid: Zcu.PerThread.Id,
-    prog_node: std.Progress.Node,
-) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -373,7 +363,7 @@ pub fn flushZcu(
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
-    if (self.getZigObject()) |zo| try zo.flushZcu(self, tid);
+    if (self.getZigObject()) |zo| try zo.flush(self, tid);
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
@@ -617,7 +607,7 @@ pub fn flushZcu(
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("failed to calculate and write uuid: {s}", .{@errorName(e)}),
     };
-    if (self.getDebugSymbols()) |dsym| dsym.flushZcu(self) catch |err| switch (err) {
+    if (self.getDebugSymbols()) |dsym| dsym.flush(self) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return diags.fail("failed to get debug symbols: {s}", .{@errorName(e)}),
     };

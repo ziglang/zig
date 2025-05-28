@@ -550,7 +550,7 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
     return sect;
 }
 
-pub fn flushZcu(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.File.FlushError!void {
+pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.File.FlushError!void {
     const diags = &macho_file.base.comp.link_diags;
 
     // Handle any lazy symbols that were emitted by incremental compilation.
@@ -589,7 +589,7 @@ pub fn flushZcu(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) lin
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
-        dwarf.flushZcu(pt) catch |err| switch (err) {
+        dwarf.flush(pt) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| return diags.fail("failed to flush dwarf module: {s}", .{@errorName(e)}),
         };
@@ -599,7 +599,7 @@ pub fn flushZcu(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) lin
         self.debug_strtab_dirty = false;
     }
 
-    // The point of flushZcu() is to commit changes, so in theory, nothing should
+    // The point of flush() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,
     // such as debug_line_header_dirty and debug_info_header_dirty.
@@ -1537,7 +1537,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const symbol_index = symbol_index_ptr.*;
-    // anyerror needs to be deferred until flushZcu
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbol(macho_file, pt, lazy_sym, symbol_index);
     return symbol_index;
 }
