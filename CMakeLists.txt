@@ -313,6 +313,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/gexf2.zig
     lib/compiler_rt/int.zig
     lib/compiler_rt/int_from_float.zig
+    lib/compiler_rt/ldexp.zig
     lib/compiler_rt/log.zig
     lib/compiler_rt/log10.zig
     lib/compiler_rt/log2.zig
