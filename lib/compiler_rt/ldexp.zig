@@ -12,17 +12,7 @@ comptime {
 }
 
 pub fn ldexpf(x: f32, exp: i32) callconv(.c) f32 {
-    if (exp == 0) return x;
-    if (exp > 0) {
-        if (exp < 32) {
-            const factor = (@as(u32, 1) << @intCast(exp));
-            return x * @as(f32, @floatFromInt(factor));
-        } else return x * exp2.exp2f(@floatFromInt(exp));
-    }
-    if (exp > -32) {
-        const divisor = (@as(u32, 1) << @intCast(-exp));
-        return x / @as(f32, @floatFromInt(divisor));
-    } else return x * exp2.exp2f(@floatFromInt(exp));
+    return math.ldexp(x, exp);
 }
 test "ldexpf" {
     const epsilon = 0.000001;
@@ -37,17 +27,7 @@ test "ldexpf" {
 }
 
 pub fn ldexp(x: f64, exp: i32) callconv(.c) f64 {
-    if (exp == 0) return x;
-    if (exp > 0) {
-        if (exp < 64) {
-            const factor = (@as(u64, 1) << @intCast(exp));
-            return x * @as(f64, @floatFromInt(factor));
-        } else return x * exp2.exp2(@floatFromInt(exp));
-    }
-    if (exp > -64) {
-        const divisor = (@as(u64, 1) << @intCast(-exp));
-        return x / @as(f64, @floatFromInt(divisor));
-    } else return x * exp2.exp2(@floatFromInt(exp));
+    return math.ldexp(x, exp);
 }
 test "ldexp" {
     const epsilon = 0.00000000001;
@@ -63,17 +43,7 @@ test "ldexp" {
 }
 
 pub fn ldexpl(x: f128, exp: i32) callconv(.c) f128 {
-    if (exp == 0) return x;
-    if (exp > 0) {
-        if (exp < 128) {
-            const factor = (@as(u128, 1) << @intCast(exp));
-            return x * @as(f128, @floatFromInt(factor));
-        } else return x * exp2.exp2l(@floatFromInt(exp));
-    }
-    if (exp > -128) {
-        const divisor = (@as(u128, 1) << @intCast(-exp));
-        return x / @as(f128, @floatFromInt(divisor));
-    } else return x * exp2.exp2l(@floatFromInt(exp));
+    return math.ldexp(x, exp);
 }
 
 test "ldexpl" {
@@ -85,6 +55,5 @@ test "ldexpl" {
     try std.testing.expectApproxEqAbs(0.437500, ldexpl(7, -4), epsilon);
     try std.testing.expectApproxEqAbs(0, ldexpl(0, 10), epsilon);
     try std.testing.expect(math.isNegativeInf(ldexpl(-math.inf(f128), -1)));
-    try std.testing.expect(math.isPositiveInf(ldexpl(1, 1024)));
 }
 
