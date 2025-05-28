@@ -845,10 +845,14 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 
 /// Count the characters needed for format.
 pub fn count(comptime fmt: []const u8, args: anytype) usize {
-    var trash_buffer: [std.atomic.cache_line]u8 = undefined;
-    var null_writer: std.io.Writer.Null = undefined;
-    var bw = null_writer.writer().buffered(&trash_buffer);
-    bw.print(fmt, args) catch unreachable;
+    var trash_buffer: [64]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = .discarding,
+        .buffer = &trash_buffer,
+    };
+    bw.print(fmt, args) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+    };
     return bw.count;
 }
 
