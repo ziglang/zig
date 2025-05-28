@@ -932,6 +932,8 @@ pub const StackIterator = struct {
             }
         }
 
+        if (builtin.omit_frame_pointer) return null;
+
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
             math.add(usize, it.fp, fp_offset) catch return null
