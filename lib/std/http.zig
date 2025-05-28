@@ -7,7 +7,6 @@ pub const Server = @import("http/Server.zig");
 pub const HeadParser = @import("http/HeadParser.zig");
 pub const ChunkParser = @import("http/ChunkParser.zig");
 pub const HeaderIterator = @import("http/HeaderIterator.zig");
-pub const WebSocket = @import("http/WebSocket.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -508,7 +507,7 @@ pub const Reader = struct {
     fn contentLengthRead(
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
-        limit: std.io.Reader.Limit,
+        limit: std.io.Limit,
     ) std.io.Reader.RwError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const remaining_content_length = &reader.state.body_remaining_content_length;
@@ -535,7 +534,7 @@ pub const Reader = struct {
         return n;
     }
 
-    fn contentLengthDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+    fn contentLengthDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
@@ -551,7 +550,7 @@ pub const Reader = struct {
     fn chunkedRead(
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
-        limit: std.io.Reader.Limit,
+        limit: std.io.Limit,
     ) std.io.Reader.RwError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const chunk_len_ptr = switch (reader.state) {
@@ -576,7 +575,7 @@ pub const Reader = struct {
     fn chunkedReadEndless(
         reader: *Reader,
         bw: *std.io.BufferedWriter,
-        limit: std.io.Reader.Limit,
+        limit: std.io.Limit,
         chunk_len_ptr: *RemainingChunkLen,
     ) (BodyError || std.io.Reader.RwError)!usize {
         const in = reader.in;
@@ -712,7 +711,7 @@ pub const Reader = struct {
         return amt_read;
     }
 
-    fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+    fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
@@ -734,7 +733,7 @@ pub const Reader = struct {
 
     fn chunkedDiscardEndless(
         reader: *Reader,
-        limit: std.io.Reader.Limit,
+        limit: std.io.Limit,
         chunk_len_ptr: *RemainingChunkLen,
     ) (BodyError || std.io.Reader.Error)!usize {
         const in = reader.in;
@@ -812,8 +811,8 @@ pub const Decompressor = struct {
     buffered_reader: std.io.BufferedReader,
 
     pub const Compression = union(enum) {
-        deflate: std.compress.zlib.Decompressor,
-        gzip: std.compress.gzip.Decompressor,
+        deflate: std.compress.flate.Decompressor,
+        gzip: std.compress.flate.Decompressor,
         zstd: std.compress.zstd.Decompress,
         none: void,
     };
@@ -1238,7 +1237,6 @@ test {
     _ = Method;
     _ = ChunkParser;
     _ = HeadParser;
-    _ = WebSocket;
 
     if (builtin.os.tag != .wasi) {
         _ = Client;
