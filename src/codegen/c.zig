@@ -5299,8 +5299,11 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
 fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {
     const dg = f.object.dg;
     const target = &dg.mod.resolved_target.result;
+    const brace_start = mem.indexOfScalar(u8, constraint, '{');
+    if (brace_start != null)
+        return true;
+
     return switch (constraint[0]) {
-        '{' => true,
         'i', 'r' => false,
         'I' => !target.cpu.arch.isArm(),
         else => switch (value) {
@@ -5349,21 +5352,58 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
         const locals_begin = @as(LocalIndex, @intCast(f.locals.items.len));
         const constraints_extra_begin = extra_i;
-        for (outputs) |output| {
+
+        // gcc and clang support at most 30 input + output + clobbers
+        var clobbers: [30]?[]const u8 = @splat(null);
+        var clobbered_inputs: [30]?usize = @splat(null);
+
+        for (outputs) |_| {
             const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
             const constraint = mem.sliceTo(extra_bytes, 0);
             const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+        }
 
-            if (constraint.len < 2 or constraint[0] != '=' or
-                (constraint[1] == '{' and constraint[constraint.len - 1] != '}'))
+        for (inputs, 0..) |_, input_i| {
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+
+            clobbered_inputs[input_i] = extra_i;
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+        }
+        for (0..clobbers_len) |clobber_i| {
+            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
+
+            clobbers[clobber_i] = clobber;
+        }
+
+        const end_of_clobbers = extra_i;
+        extra_i = constraints_extra_begin;
+
+        for (outputs) |output| {
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const brace_start = mem.indexOfScalar(u8, constraint, '{');
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+            if (constraint.len < 2 or (constraint[0] != '=' and constraint[0] != '+') or
+                (brace_start != null and constraint[constraint.len - 1] != '}'))
             {
                 return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
             }
 
-            const is_reg = constraint[1] == '{';
+            const is_reg = brace_start != null;
             if (is_reg) {
                 const output_ty = if (output == .none) inst_ty else f.typeOf(output).childType(zcu);
                 try writer.writeAll("register ");
@@ -5374,7 +5414,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.allocs.put(gpa, output_local.new_local, false);
                 try f.object.dg.renderTypeAndName(writer, output_ty, output_local, .{}, .none, .complete);
                 try writer.writeAll(" __asm(\"");
-                try writer.writeAll(constraint["={".len .. constraint.len - "}".len]);
+                try writer.writeAll(constraint[brace_start.? + "{".len .. constraint.len - "}".len]);
                 try writer.writeAll("\")");
                 if (f.wantSafety()) {
                     try writer.writeAll(" = ");
@@ -5383,21 +5423,76 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(";\n");
             }
         }
-        for (inputs) |input| {
+
+        for (0..inputs.len) |i| {
+            const input_i = inputs.len - i - 1;
+            const input = inputs[i];
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[clobbered_inputs[input_i].?..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const brace_start = mem.indexOfScalar(u8, constraint, '{');
+            if (brace_start == null) {
+                clobbered_inputs[input_i] = null;
+                continue;
+            }
+
+            const register_name = constraint[brace_start.? + "{".len .. constraint.len - "}".len];
+
+            if (register_name.len == 0) {
+                clobbered_inputs[input_i] = null;
+                continue;
+            }
+
+            var is_clobbered = false;
+            for (clobbers[0..clobbers_len]) |*clobber| {
+                if (clobber.* != null and std.mem.eql(u8, clobber.*.?, register_name)) {
+                    is_clobbered = true;
+                    clobber.* = null;
+                }
+            }
+
+            if (!is_clobbered) {
+                clobbered_inputs[input_i] = null;
+                continue;
+            }
+            if (brace_start.? != 0 or constraint[constraint.len - 1] != '}')
+                return f.fail("CBE: input linked to clobber with other constraints is not supported: '{s}'", .{constraint});
+
+            const input_ty = f.typeOf(input);
+            const input_val = try f.resolveInst(input);
+            try writer.writeAll("register ");
+            const input_local = try f.allocLocalValue(.{
+                .ctype = try f.ctypeFromType(input_ty, .complete),
+                .alignas = CType.AlignAs.fromAbiAlignment(input_ty.abiAlignment(zcu)),
+            });
+            try f.allocs.put(gpa, input_local.new_local, false);
+            try f.object.dg.renderTypeAndName(writer, input_ty, input_local, .{}, .none, .complete);
+            try writer.writeAll(" __asm(\"");
+            try writer.writeAll(constraint[brace_start.? + "{".len .. constraint.len - "}".len]);
+            try writer.writeAll("\")");
+            try writer.writeAll(" = ");
+            try f.writeCValue(writer, input_val, .Other);
+            try writer.writeAll(";\n");
+        }
+
+        for (inputs, 0..) |input, input_i| {
             const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
             const constraint = mem.sliceTo(extra_bytes, 0);
             const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const brace_start = mem.indexOfScalar(u8, constraint, '{');
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
+            // input is linked to a clobber, skip
+            if (clobbered_inputs[input_i] != null) continue;
+
             if (constraint.len < 1 or mem.indexOfScalar(u8, "=+&%", constraint[0]) != null or
-                (constraint[0] == '{' and constraint[constraint.len - 1] != '}'))
+                (brace_start != null and constraint[constraint.len - 1] != '}'))
             {
                 return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
             }
 
-            const is_reg = constraint[0] == '{';
+            const is_reg = brace_start != null;
             const input_val = try f.resolveInst(input);
             if (asmInputNeedsLocal(f, constraint, input_val)) {
                 const input_ty = f.typeOf(input);
@@ -5407,10 +5502,11 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                     .alignas = CType.AlignAs.fromAbiAlignment(input_ty.abiAlignment(zcu)),
                 });
                 try f.allocs.put(gpa, input_local.new_local, false);
-                try f.object.dg.renderTypeAndName(writer, input_ty, input_local, Const, .none, .complete);
+                // gcc's docs indicates to not use the const qualifier as the compiler may optimize away the declaration
+                try f.object.dg.renderTypeAndName(writer, input_ty, input_local, .{}, .none, .complete);
                 if (is_reg) {
                     try writer.writeAll(" __asm(\"");
-                    try writer.writeAll(constraint["{".len .. constraint.len - "}".len]);
+                    try writer.writeAll(constraint[brace_start.? + "{".len .. constraint.len - "}".len]);
                     try writer.writeAll("\")");
                 }
                 try writer.writeAll(" = ");
@@ -5418,12 +5514,8 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(";\n");
             }
         }
-        for (0..clobbers_len) |_| {
-            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
-        }
+
+        extra_i = end_of_clobbers;
 
         {
             const asm_source = mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
@@ -5452,7 +5544,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 dst_i += 1;
 
                 if (asm_source[src_i] != '[') {
-                    // This also handles %%
+                    // This also handles %% and %=
                     fixed_asm_source[dst_i] = asm_source[src_i];
                     src_i += 1;
                     dst_i += 1;
@@ -5483,19 +5575,40 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i = constraints_extra_begin;
         var locals_index = locals_begin;
         try writer.writeByte(':');
-        for (outputs, 0..) |output, index| {
+        var output_index: usize = 0;
+        for (clobbered_inputs[0..inputs.len]) |in_extra_i| {
+            if (in_extra_i == null) continue;
+
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[in_extra_i.?..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+
+            if (output_index > 0) try writer.writeByte(',');
+            try writer.writeByte(' ');
+            if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
+            try writer.writeAll("\"+r\"(");
+
+            try f.writeCValue(writer, .{ .local = locals_index }, .Other);
+            locals_index += 1;
+            try writer.writeByte(')');
+
+            output_index += 1;
+        }
+
+        for (outputs) |output| {
             const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
             const constraint = mem.sliceTo(extra_bytes, 0);
             const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const brace_start = mem.indexOfScalar(u8, constraint, '{');
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            if (index > 0) try writer.writeByte(',');
+            if (output_index > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
             if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
-            const is_reg = constraint[1] == '{';
-            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint, null)});
+            const is_reg = brace_start != null;
+            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) constraint[0..brace_start.?] else constraint, if (is_reg) 'r' else null)});
             if (is_reg) {
                 try f.writeCValue(writer, .{ .local = locals_index }, .Other);
                 locals_index += 1;
@@ -5505,6 +5618,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValueDeref(writer, try f.resolveInst(output));
             }
             try writer.writeByte(')');
+            output_index += 1;
         }
         try writer.writeByte(':');
         for (inputs, 0..) |input, index| {
@@ -5515,11 +5629,14 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
+            // if input is linked to a clobber, skip
+            if (clobbered_inputs[index] != null) continue;
+
             if (index > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
             if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
 
-            const is_reg = constraint[0] == '{';
+            const is_reg = mem.indexOfScalar(u8, constraint, '{') != null;
             const input_val = try f.resolveInst(input);
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
@@ -5536,6 +5653,8 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
 
+            // if a clobber is linked to an input, clobbers[clobber_i] is null
+            if (clobbers[clobber_i] == null) continue;
             if (clobber.len == 0) continue;
 
             if (clobber_i > 0) try writer.writeByte(',');
@@ -5553,7 +5672,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            const is_reg = constraint[1] == '{';
+            const is_reg = mem.indexOfScalar(u8, constraint, '{') != null;
             if (is_reg) {
                 try f.writeCValueDeref(writer, if (output == .none)
                     .{ .local_ref = inst_local.new_local }
