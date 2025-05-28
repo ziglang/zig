@@ -5100,6 +5100,7 @@ inline fn reduceMin(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child
 test reduceMin {
     const test_reduce_min = unary(reduceMin, .{});
     try test_reduce_min.testIntVectors();
+    try test_reduce_min.testFloatVectors();
 }
 
 inline fn reduceMax(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
