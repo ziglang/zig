@@ -73,11 +73,7 @@ pub fn readable(c: *Compress, buffer: []u8) std.io.BufferedReader {
     return .{
         .unbuffered_reader = .{
             .context = c,
-            .vtable = .{
-                .read = read,
-                .readVec = readVec,
-                .discard = discard,
-            },
+            .vtable = .{ .read = read },
         },
         .buffer = buffer,
     };
@@ -861,25 +857,6 @@ fn read(
             return n;
         },
     }
-}
-
-fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initVec(data);
-    return read(context, &bw, .countVec(data)) catch |err| switch (err) {
-        error.WriteFailed => unreachable, // Prevented by the limit.
-        else => |e| return e,
-    };
-}
-
-fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
-    var trash_buffer: [64]u8 = undefined;
-    var null_writer: std.io.Writer.Null = undefined;
-    var bw = null_writer.writer().buffered(&trash_buffer);
-    return read(context, &bw, limit) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
 }
 
 test "generate a Huffman code from an array of frequencies" {

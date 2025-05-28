@@ -78,7 +78,7 @@ max_stdio_size: usize,
 
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
-stdio_limit: std.io.Reader.Limit,
+stdio_limit: std.io.Limit,
 
 captured_stdout: ?*Output,
 captured_stderr: ?*Output,
