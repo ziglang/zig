@@ -30,7 +30,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 //  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
 //  try a.append(255);
 //  try a.append(255);
-//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
+//  const b = @ptrCast(*const [1]u16, a.slice().ptr);
 //  try testing.expectEqual(@as(u16, 65535), b[0]);
 /// ```
 pub fn BoundedArrayAligned(
@@ -59,11 +59,6 @@ pub fn BoundedArrayAligned(
             return self.buffer[0..self.len];
         }
 
-        /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: *const Self) []align(alignment.toByteUnits()) const T {
-            return self.slice();
-        }
-
         /// Adjust the slice's length to `len`.
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, len: usize) error{Overflow}!void {
@@ -85,7 +80,7 @@ pub fn BoundedArrayAligned(
 
         /// Return the element at index `i` of the slice.
         pub fn get(self: Self, i: usize) T {
-            return self.constSlice()[i];
+            return self.slice()[i];
         }
 
         /// Set the value of the element at index `i` of the slice.
@@ -172,7 +167,7 @@ pub fn BoundedArrayAligned(
         pub fn insertSlice(self: *Self, i: usize, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
             self.len += items.len;
-            mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
+            mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.slice()[i .. self.len - items.len]);
             @memcpy(self.slice()[i..][0..items.len], items);
         }
 
@@ -198,7 +193,7 @@ pub fn BoundedArrayAligned(
             } else {
                 @memcpy(range[0..new_items.len], new_items);
                 const after_subrange = start + new_items.len;
-                for (self.constSlice()[after_range..], 0..) |item, i| {
+                for (self.slice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
                 }
                 self.len -= len - new_items.len;
@@ -298,17 +293,17 @@ test BoundedArray {
 
     try testing.expectEqual(a.capacity(), 64);
     try testing.expectEqual(a.slice().len, 32);
-    try testing.expectEqual(a.constSlice().len, 32);
+    try testing.expectEqual(a.slice().len, 32);
 
     try a.resize(48);
     try testing.expectEqual(a.len, 48);
 
     const x = [_]u8{1} ** 10;
     a = try BoundedArray(u8, 64).fromSlice(&x);
-    try testing.expectEqualSlices(u8, &x, a.constSlice());
+    try testing.expectEqualSlices(u8, &x, a.slice());
 
     var a2 = a;
-    try testing.expectEqualSlices(u8, a.constSlice(), a2.constSlice());
+    try testing.expectEqualSlices(u8, a.slice(), a2.slice());
     a2.set(0, 0);
     try testing.expect(a.get(0) != a2.get(0));
 
@@ -396,7 +391,7 @@ test BoundedArray {
     const w = a.writer();
     const s = "hello, this is a test string";
     try w.writeAll(s);
-    try testing.expectEqualStrings(s, a.constSlice());
+    try testing.expectEqualStrings(s, a.slice());
 }
 
 test "BoundedArrayAligned" {
@@ -406,7 +401,7 @@ test "BoundedArrayAligned" {
     try a.append(255);
     try a.append(255);
 
-    const b = @as(*const [2]u16, @ptrCast(a.constSlice().ptr));
+    const b = @as(*const [2]u16, @ptrCast(a.slice().ptr));
     try testing.expectEqual(@as(u16, 0), b[0]);
     try testing.expectEqual(@as(u16, 65535), b[1]);
 }
