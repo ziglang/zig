@@ -138,7 +138,7 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
     defer ordered_nodes.deinit();
     try ordered_nodes.ensureTotalCapacityPrecise(self.nodes.items(.is_terminal).len);
 
-    var fifo = std.fifo.LinearFifo(Node.Index, .Dynamic).init(allocator);
+    var fifo = DeprecatedLinearFifo(Node.Index).init(allocator);
     defer fifo.deinit();
 
     try fifo.writeItem(self.root.?);
@@ -409,6 +409,7 @@ const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
 const trace = @import("../../../tracy.zig").trace;
+const DeprecatedLinearFifo = @import("../../../deprecated.zig").LinearFifo;
 
 const Allocator = mem.Allocator;
 const MachO = @import("../../MachO.zig");
