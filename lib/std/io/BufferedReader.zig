@@ -6,8 +6,10 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const BufferedWriter = std.io.BufferedWriter;
 const Reader = std.io.Reader;
+const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
+const Limit = std.io.Limit;
 
 const BufferedReader = @This();
 
@@ -63,12 +65,12 @@ pub fn readVec(br: *BufferedReader, data: []const []u8) Reader.Error!usize {
 }
 
 /// Equivalent semantics to `std.io.Reader.VTable.read`.
-pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+pub fn read(br: *BufferedReader, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
     return passthruRead(br, bw, limit);
 }
 
 /// Equivalent semantics to `std.io.Reader.VTable.discard`.
-pub fn discard(br: *BufferedReader, limit: Reader.Limit) Reader.Error!usize {
+pub fn discard(br: *BufferedReader, limit: Limit) Reader.Error!usize {
     return passthruDiscard(br, limit);
 }
 
@@ -90,7 +92,7 @@ pub fn readVecAll(br: *BufferedReader, data: [][]u8) Reader.Error!void {
 }
 
 /// "Pump" data from the reader to the writer.
-pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!void {
+pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Limit) Reader.StreamError!void {
     var remaining = limit;
     while (remaining.nonzero()) {
         const n = try br.read(bw, remaining);
@@ -113,8 +115,8 @@ pub fn readRemaining(br: *BufferedReader, bw: *BufferedWriter) Reader.RwRemainin
 }
 
 /// Equivalent to `readVec` but reads at most `limit` bytes.
-pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit) Reader.Error!usize {
-    assert(@intFromEnum(Reader.Limit.unlimited) == std.math.maxInt(usize));
+pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Limit) Reader.Error!usize {
+    assert(@intFromEnum(Limit.unlimited) == std.math.maxInt(usize));
     var remaining = @intFromEnum(limit);
     for (data, 0..) |buf, i| {
         const buffered = br.buffer[br.seek..br.end];
@@ -165,7 +167,7 @@ pub fn readVecLimit(br: *BufferedReader, data: []const []u8, limit: Reader.Limit
     return @intFromEnum(limit) - remaining;
 }
 
-fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(context));
     const buffer = limit.slice(br.buffer[br.seek..br.end]);
     if (buffer.len > 0) {
@@ -176,28 +178,91 @@ fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) 
     return br.unbuffered_reader.read(bw, limit);
 }
 
-fn passthruDiscard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
+fn passthruDiscard(context: ?*anyopaque, limit: Limit) Reader.Error!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(context));
     const buffered_len = br.end - br.seek;
-    if (limit.toInt()) |n| {
+    const remaining: Limit = if (limit.toInt()) |n| l: {
         if (buffered_len >= n) {
             br.seek += n;
             return n;
         }
-        br.seek = 0;
-        br.end = 0;
-        const additional = try br.unbuffered_reader.discard(.limited(n - buffered_len));
-        return n + additional;
-    }
-    const n = try br.unbuffered_reader.discard(.unlimited);
+        break :l .limited(n - buffered_len);
+    } else .unlimited;
     br.seek = 0;
     br.end = 0;
+    const n = if (br.unbuffered_reader.discard) |f| try f(remaining) else try br.defaultDiscard(remaining);
     return buffered_len + n;
 }
 
 fn passthruReadVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
     const br: *BufferedReader = @alignCast(@ptrCast(context));
     return readVecLimit(br, data, .unlimited);
+}
+
+fn defaultDiscard(br: *BufferedReader, limit: Limit) Reader.Error!usize {
+    assert(br.seek == 0);
+    assert(br.end == 0);
+    var bw: BufferedWriter = .{
+        .unbuffered_writer = .{
+            .context = undefined,
+            .vtable = &.{
+                .writeSplat = defaultDiscardWriteSplat,
+                .writeFile = defaultDiscardWriteFile,
+            },
+        },
+        .buffer = br.buffer,
+    };
+    const n = br.read(&bw, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.EndOfStream,
+    };
+    if (n > @intFromEnum(limit)) {
+        const over_amt = n - @intFromEnum(limit);
+        assert(over_amt <= bw.buffer.end); // limit may be exceeded only by an amount within buffer capacity.
+        br.seek = bw.end - over_amt;
+        br.end = bw.end;
+        return @intFromEnum(limit);
+    }
+    return n;
+}
+
+fn defaultDiscardWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
+    _ = context;
+    const headers = data[0 .. data.len - 1];
+    const pattern = data[headers.len..];
+    var written: usize = pattern.len * splat;
+    for (headers) |bytes| written += bytes.len;
+    return written;
+}
+
+fn defaultDiscardWriteFile(
+    context: ?*anyopaque,
+    file_reader: *std.fs.File.Reader,
+    limit: Limit,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Writer.FileError!usize {
+    _ = context;
+    if (file_reader.getSize()) |size| {
+        const remaining = size - file_reader.pos;
+        const seek_amt = limit.minInt(remaining);
+        // Error is observable on `file_reader` instance, and is safe to ignore
+        // depending on the caller's needs. Caller can make that decision.
+        file_reader.seekForward(seek_amt) catch {};
+        var n: usize = seek_amt;
+        for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
+        if (seek_amt == remaining) {
+            // Since we made it all the way through the file, the trailers are
+            // also included.
+            for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
+        }
+        return n;
+    } else |_| {
+        // Error is observable on `file_reader` instance, and it is better to
+        // treat the file as a pipe.
+        return error.Unimplemented;
+    }
 }
 
 /// Returns the next `len` bytes from `unbuffered_reader`, filling the buffer as
@@ -475,7 +540,7 @@ pub fn readSliceAlloc(br: *BufferedReader, allocator: Allocator, len: usize) Rea
 ///
 /// See also:
 /// * `readRemainingArrayList`
-pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Reader.Limit) Reader.LimitedAllocError![]u8 {
+pub fn readRemainingAlloc(r: Reader, gpa: Allocator, limit: Limit) Reader.LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
     try readRemainingArrayList(r, gpa, null, &buffer, limit);
@@ -499,7 +564,7 @@ pub fn readRemainingArrayList(
     gpa: Allocator,
     comptime alignment: ?std.mem.Alignment,
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
-    limit: Reader.Limit,
+    limit: Limit,
 ) Reader.LimitedAllocError!void {
     const buffer = br.buffer;
     const buffered = buffer[br.seek..br.end];
@@ -680,7 +745,7 @@ pub fn peekDelimiterExclusive(br: *BufferedReader, delimiter: u8) DelimiterError
 /// found. Does not write the delimiter itself.
 ///
 /// Returns number of bytes streamed.
-pub fn readDelimiter(br: *BufferedReader, bw: *BufferedWriter, delimiter: u8) Reader.RwError!usize {
+pub fn readDelimiter(br: *BufferedReader, bw: *BufferedWriter, delimiter: u8) Reader.StreamError!usize {
     const amount, const to = try br.readAny(bw, delimiter, .unlimited);
     return switch (to) {
         .delimiter => amount,
@@ -722,7 +787,7 @@ pub fn readDelimiterLimit(
     br: *BufferedReader,
     bw: *BufferedWriter,
     delimiter: u8,
-    limit: Reader.Limit,
+    limit: Limit,
 ) StreamDelimiterLimitedError!usize {
     const amount, const to = try br.readAny(bw, delimiter, limit);
     return switch (to) {
@@ -736,7 +801,7 @@ fn readAny(
     br: *BufferedReader,
     bw: *BufferedWriter,
     delimiter: ?u8,
-    limit: Reader.Limit,
+    limit: Limit,
 ) Reader.RwRemainingError!struct { usize, enum { delimiter, limit, end } } {
     var amount: usize = 0;
     var remaining = limit;

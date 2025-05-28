@@ -894,11 +894,7 @@ pub fn init(
 pub fn reader(c: *Client) Reader {
     return .{
         .context = c,
-        .vtable = &.{
-            .read = read,
-            .readVec = readVec,
-            .discard = discard,
-        },
+        .vtable = &.{ .read = read },
     };
 }
 
@@ -1223,24 +1219,6 @@ fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) R
         },
         else => return failRead(c, error.TlsUnexpectedMessage),
     }
-}
-
-fn readVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initVec(data);
-    return read(context, &bw, .countVec(data)) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
-}
-
-fn discard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
-    var null_writer: Writer.Null = undefined;
-    var bw = null_writer.writer().unbuffered();
-    return read(context, &bw, limit) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
 }
 
 fn failRead(c: *Client, err: ReadError) error{ReadFailed} {
