@@ -899,6 +899,15 @@ pub fn writeFileAll(self: File, in_file: File, options: BufferedWriter.WriteFile
     };
 }
 
+/// Memoizes key information about a file handle such as:
+/// * The size from calling stat, or the error that occurred therein.
+/// * The current seek position.
+/// * The error that occurred when trying to seek.
+/// * Whether reading should be done positionally or streaming.
+/// * Whether reading should be done via fd-to-fd syscalls (e.g. `sendfile`)
+///   versus plain variants (e.g. `read`).
+///
+/// Fulfills the `std.io.Reader` interface.
 pub const Reader = struct {
     file: File,
     err: ?ReadError = null,
@@ -951,14 +960,40 @@ pub const Reader = struct {
         };
     }
 
+    pub fn seekBy(r: *Reader, offset: i64) SeekError!void {
+        switch (r.mode) {
+            .positional, .positional_reading => {
+                r.pos += offset;
+            },
+            .streaming, .streaming_reading => {
+                const seek_err = r.seek_err orelse e: {
+                    if (posix.lseek_CUR(r.file.handle, offset)) |_| {
+                        r.pos += offset;
+                        return;
+                    } else |err| {
+                        r.seek_err = err;
+                        break :e err;
+                    }
+                };
+                if (offset < 0) return seek_err;
+                var remaining = offset;
+                while (remaining > 0) {
+                    const n = discard(r, .limited(remaining)) catch |err| switch (err) {};
+                    r.pos += n;
+                    remaining -= n;
+                }
+            },
+        }
+    }
+
     pub fn seekTo(r: *Reader, offset: u64) SeekError!void {
-        // TODO if the offset is after the current offset, seek by discarding.
-        if (r.seek_err) |err| return err;
         switch (r.mode) {
             .positional, .positional_reading => {
                 r.pos = offset;
             },
             .streaming, .streaming_reading => {
+                if (offset >= r.pos) return Reader.seekBy(r, offset - r.pos);
+                if (r.seek_err) |err| return err;
                 posix.lseek_SET(r.file.handle, offset) catch |err| {
                     r.seek_err = err;
                     return err;
