@@ -175,11 +175,7 @@ pub const Decompress = union {
                 return .{
                     .unbuffered_reader = .{
                         .context = d,
-                        .vtable = &.{
-                            .read = readStore,
-                            .readVec = readVecUnimplemented,
-                            .discard = discardUnimplemented,
-                        },
+                        .vtable = &.{ .read = readStore },
                     },
                     .buffer = buffer,
                     .end = 0,
@@ -191,11 +187,7 @@ pub const Decompress = union {
                 return .{
                     .unbuffered_reader = .{
                         .context = d,
-                        .vtable = &.{
-                            .read = readDeflate,
-                            .readVec = readVecUnimplemented,
-                            .discard = discardUnimplemented,
-                        },
+                        .vtable = &.{ .read = readDeflate },
                     },
                     .buffer = buffer,
                     .end = 0,
@@ -222,18 +214,6 @@ pub const Decompress = union {
     ) std.io.Reader.RwError!usize {
         const d: *Decompress = @ptrCast(@alignCast(context));
         return std.compress.flate.Decompress.read(&d.inflate, writer, limit);
-    }
-
-    fn readVecUnimplemented(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-        _ = context;
-        _ = data;
-        @panic("TODO remove readVec primitive");
-    }
-
-    fn discardUnimplemented(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
-        _ = context;
-        _ = limit;
-        @panic("TODO allow discard to be null");
     }
 };
 
