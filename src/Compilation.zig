@@ -45,6 +45,8 @@ const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
 const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 
+const DeprecatedLinearFifo = @import("deprecated.zig").LinearFifo;
+
 pub const Config = @import("Compilation/Config.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -137,15 +139,15 @@ work_queues: [
         }
         break :len len;
     }
-]std.fifo.LinearFifo(Job, .Dynamic),
+]DeprecatedLinearFifo(Job),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
-c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
+c_object_work_queue: DeprecatedLinearFifo(*CObject),
 
 /// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
 /// gets linked with the Compilation.
-win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic) else struct {
+win32_resource_work_queue: if (dev.env.supports(.win32_resource)) DeprecatedLinearFifo(*Win32Resource) else struct {
     pub fn ensureUnusedCapacity(_: @This(), _: u0) error{}!void {}
     pub fn readItem(_: @This()) ?noreturn {
         return null;
@@ -1950,8 +1952,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
             .work_queues = @splat(.init(gpa)),
-            .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
-            .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
+            .c_object_work_queue = DeprecatedLinearFifo(*CObject).init(gpa),
+            .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) DeprecatedLinearFifo(*Win32Resource).init(gpa) else .{},
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
