@@ -5109,6 +5109,7 @@ inline fn reduceMax(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child
 test reduceMax {
     const test_reduce_max = unary(reduceMax, .{});
     try test_reduce_max.testIntVectors();
+    try test_reduce_max.testFloatVectors();
 }
 
 inline fn reduceAdd(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
