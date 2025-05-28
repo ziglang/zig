@@ -1243,6 +1243,133 @@ test trim {
     try testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
 }
 
+const ScalarSimdOp = enum {
+    index,
+    last_index,
+    count,
+    contains_at_least,
+
+    const ContainsAtLeast = struct {
+        found: usize,
+        needed: usize,
+    };
+
+    fn Arg(op: ScalarSimdOp) type {
+        return switch (op) {
+            .index, .last_index => void,
+            .count => *usize,
+            .contains_at_least => *ContainsAtLeast,
+        };
+    }
+
+    fn Ret(op: ScalarSimdOp) type {
+        return switch (op) {
+            .index => usize,
+            .last_index => usize,
+            .count => void,
+            .contains_at_least => bool,
+        };
+    }
+};
+
+inline fn scalarSimdOp(
+    comptime T: type,
+    slice: []const T,
+    value: T,
+    i: *usize,
+    comptime op: ScalarSimdOp,
+    arg: op.Arg(),
+) ?op.Ret() {
+    if (!backend_supports_vectors) return null;
+    if (@inComptime()) return null;
+    if (@typeInfo(T) != .int and @typeInfo(T) != .float) return null;
+    if (!std.math.isPowerOfTwo(@bitSizeOf(T))) return null;
+    const block_len = std.simd.suggestVectorLength(T) orelse return null;
+
+    // Potentially a runtime check.
+    if (std.debug.inValgrind()) return null; // https://github.com/ziglang/zig/issues/17717
+
+    // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
+    // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
+    //
+    // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
+    // however this usually isn't necessary unless your arch has a performance penalty due to this.
+    //
+    // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
+    // line so explicit alignment prologues may be worth exploration.
+
+    const Block = @Vector(block_len, T);
+    if (op == .last_index) {
+        const block_even = slice.len -| (slice.len % (block_len * 2));
+        while (i.* != block_even) {
+            i.* -= 1;
+            if (slice[i.*] == value) return i.*;
+        }
+
+        const mask: Block = @splat(value);
+        while (i.* != 0) {
+            inline for (0..2) |_| {
+                i.* -= block_len;
+                const block: Block = slice[i.*..][0..block_len].*;
+                const matches = block == mask;
+
+                if (std.simd.lastTrue(matches)) |found| return i.* + found;
+            }
+        }
+        return null;
+    }
+
+    // Unrolling here is ~10% improvement. We can then do one bounds check every 2 blocks
+    // instead of one which adds up.
+    if (i.* + 2 * block_len < slice.len) {
+        const mask: Block = @splat(value);
+        while (true) {
+            inline for (0..2) |_| {
+                const block: Block = slice[i.*..][0..block_len].*;
+                const matches = block == mask;
+
+                switch (op) {
+                    .count => arg.* += std.simd.countTrues(matches),
+                    .contains_at_least => {
+                        arg.found += std.simd.countTrues(matches);
+                        if (arg.found >= arg.needed) return true;
+                    },
+                    .index => if (std.simd.firstTrue(matches)) |found| return i.* + found,
+                    .last_index => unreachable,
+                }
+                i.* += block_len;
+            }
+            if (i.* + 2 * block_len >= slice.len) break;
+        }
+    }
+
+    // {block_len, block_len / 2} check
+    inline for (0..2) |j| {
+        const block_x_len = block_len / (1 << j);
+        comptime if (block_x_len < 4) break;
+
+        const BlockX = @Vector(block_x_len, T);
+        if (i.* + block_x_len < slice.len) {
+            const mask: BlockX = @splat(value);
+            const block: BlockX = slice[i.*..][0..block_x_len].*;
+            const matches = block == mask;
+
+            switch (op) {
+                .count => arg.* += std.simd.countTrues(matches),
+                .contains_at_least => {
+                    arg.found += std.simd.countTrues(matches);
+                    if (arg.found >= arg.needed) return true;
+                },
+                .index => if (std.simd.firstTrue(matches)) |found| return i.* + found,
+                .last_index => unreachable,
+            }
+            i.* += block_x_len;
+        }
+    }
+
+    return null;
+}
+
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return indexOfScalarPos(T, slice, 0, value);
@@ -1251,6 +1378,8 @@ pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
 /// Linear search for the last index of a scalar value inside a slice.
 pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     var i: usize = slice.len;
+    if (scalarSimdOp(T, slice, value, &i, .last_index, {})) |index| return index;
+
     while (i != 0) {
         i -= 1;
         if (slice[i] == value) return i;
@@ -1262,57 +1391,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     if (start_index >= slice.len) return null;
 
     var i: usize = start_index;
-    if (backend_supports_vectors and
-        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
-        !@inComptime() and
-        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
-    {
-        if (std.simd.suggestVectorLength(T)) |block_len| {
-            // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
-            // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
-            //
-            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
-            // however this usually isn't necessary unless your arch has a performance penalty due to this.
-            //
-            // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
-            // line so explicit alignment prologues may be worth exploration.
-
-            // Unrolling here is ~10% improvement. We can then do one bounds check every 2 blocks
-            // instead of one which adds up.
-            const Block = @Vector(block_len, T);
-            if (i + 2 * block_len < slice.len) {
-                const mask: Block = @splat(value);
-                while (true) {
-                    inline for (0..2) |_| {
-                        const block: Block = slice[i..][0..block_len].*;
-                        const matches = block == mask;
-                        if (@reduce(.Or, matches)) {
-                            return i + std.simd.firstTrue(matches).?;
-                        }
-                        i += block_len;
-                    }
-                    if (i + 2 * block_len >= slice.len) break;
-                }
-            }
-
-            // {block_len, block_len / 2} check
-            inline for (0..2) |j| {
-                const block_x_len = block_len / (1 << j);
-                comptime if (block_x_len < 4) break;
-
-                const BlockX = @Vector(block_x_len, T);
-                if (i + block_x_len < slice.len) {
-                    const mask: BlockX = @splat(value);
-                    const block: BlockX = slice[i..][0..block_x_len].*;
-                    const matches = block == mask;
-                    if (@reduce(.Or, matches)) {
-                        return i + std.simd.firstTrue(matches).?;
-                    }
-                    i += block_x_len;
-                }
-            }
-        }
-    }
+    if (scalarSimdOp(T, slice, value, &i, .index, {})) |index| return index;
 
     for (slice[i..], i..) |c, j| {
         if (c == value) return j;
@@ -1488,7 +1567,11 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
 /// `lastIndexOfLinear` on small inputs.
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
-    if (needle.len == 0) return haystack.len;
+    if (needle.len < 2) {
+        if (needle.len == 0) return haystack.len;
+        // lastIndexOfScalar is significantly faster than lastIndexOfLinear
+        return lastIndexOfScalar(T, haystack, needle[0]);
+    }
 
     if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
@@ -1603,6 +1686,10 @@ test "indexOfPos empty needle" {
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     assert(needle.len > 0);
+    if (needle.len == 1) {
+        return countScalar(T, haystack, needle[0]);
+    }
+
     var i: usize = 0;
     var found: usize = 0;
 
@@ -1628,6 +1715,29 @@ test count {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
+/// Returns the number of needles inside the haystack
+//
+/// See also: `count`
+pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
+    var i: usize = 0;
+    var found: usize = 0;
+
+    _ = scalarSimdOp(T, haystack, needle, &i, .count, &found);
+
+    for (haystack[i..]) |c| {
+        if (c == needle) found += 1;
+    }
+
+    return found;
+}
+
+test countScalar {
+    try testing.expect(countScalar(u8, "", 'a') == 0);
+    try testing.expect(countScalar(u8, "a", 'a') == 1);
+    try testing.expect(countScalar(u8, "aa", 'a') == 2);
+    try testing.expect(countScalar(u8, "abbbabba", 'a') == 3);
+}
+
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
@@ -1636,6 +1746,9 @@ test count {
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
     assert(needle.len > 0);
     if (expected_count == 0) return true;
+    if (expected_count == 1) {
+        return containsAtLeastScalar(T, haystack, expected_count, needle[0]);
+    }
 
     var i: usize = 0;
     var found: usize = 0;
@@ -1670,12 +1783,20 @@ test containsAtLeast {
 pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
     if (expected_count == 0) return true;
 
-    var found: usize = 0;
+    var i: usize = 0;
+    var ctx: ScalarSimdOp.ContainsAtLeast = .{
+        .found = 0,
+        .needed = expected_count,
+    };
+    if (scalarSimdOp(T, haystack, needle, &i, .contains_at_least, &ctx)) |found_enough| {
+        std.mem.assert(found_enough);
+        return true;
+    }
 
-    for (haystack) |item| {
+    for (haystack[i..]) |item| {
         if (item == needle) {
-            found += 1;
-            if (found == expected_count) return true;
+            ctx.found += 1;
+            if (ctx.found == expected_count) return true;
         }
     }
 
