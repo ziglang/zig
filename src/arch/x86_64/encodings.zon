@@ -1111,10 +1111,10 @@
     .{ .fcomp,  .z, .{      }, .{ 0xd8, 0xd9 }, 0, .none, .x87 },
     .{ .fcompp, .z, .{      }, .{ 0xde, 0xd9 }, 0, .none, .x87 },
 
-    .{ .fcomi,   .zo, .{ .st0, .st }, .{ 0xdb, 0xf0 }, 0, .none, .x87 },
-    .{ .fcomip,  .zo, .{ .st0, .st }, .{ 0xdf, 0xf0 }, 0, .none, .x87 },
-    .{ .fucomi,  .zo, .{ .st0, .st }, .{ 0xdb, 0xe8 }, 0, .none, .x87 },
-    .{ .fucomip, .zo, .{ .st0, .st }, .{ 0xdf, 0xe8 }, 0, .none, .x87 },
+    .{ .fcomi,   .zo, .{ .st0, .st }, .{ 0xdb, 0xf0 }, 0, .none, .@"cmov x87" },
+    .{ .fcomip,  .zo, .{ .st0, .st }, .{ 0xdf, 0xf0 }, 0, .none, .@"cmov x87" },
+    .{ .fucomi,  .zo, .{ .st0, .st }, .{ 0xdb, 0xe8 }, 0, .none, .@"cmov x87" },
+    .{ .fucomip, .zo, .{ .st0, .st }, .{ 0xdf, 0xe8 }, 0, .none, .@"cmov x87" },
 
     .{ .fcos, .z, .{}, .{ 0xd9, 0xff }, 0, .none, .x87 },
 

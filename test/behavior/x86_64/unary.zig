@@ -5128,6 +5128,15 @@ test reduceMul {
     try test_reduce_mul.testFloatVectors();
 }
 
+inline fn reduceMinOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+    @setFloatMode(.optimized);
+    return @reduce(.Min, rhs);
+}
+test reduceMinOptimized {
+    const test_reduce_min_optimized = unary(reduceMinOptimized, .{});
+    try test_reduce_min_optimized.testFloatVectors();
+}
+
 inline fn reduceAddOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     @setFloatMode(.optimized);
     return @reduce(.Add, rhs);
