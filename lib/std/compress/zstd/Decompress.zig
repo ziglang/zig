@@ -73,11 +73,7 @@ pub fn init(input: *BufferedReader, options: Options) Decompress {
 pub fn reader(self: *Decompress) Reader {
     return .{
         .context = self,
-        .vtable = &.{
-            .read = read,
-            .readVec = readVec,
-            .discard = discard,
-        },
+        .vtable = &.{ .read = read },
     };
 }
 
@@ -253,25 +249,6 @@ fn readInFrame(d: *Decompress, bw: *BufferedWriter, limit: Reader.Limit, state: 
     }
 
     return bytes_written;
-}
-
-fn discard(context: ?*anyopaque, limit: Reader.Limit) Reader.Error!usize {
-    var trash_buffer: [64]u8 = undefined;
-    var null_writer: std.io.Writer.Null = undefined;
-    var bw = null_writer.writer().buffered(&trash_buffer);
-    return read(context, &bw, limit) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
-}
-
-fn readVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
-    var bw: BufferedWriter = undefined;
-    bw.initVec(data);
-    return read(context, &bw, .countVec(data)) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
 }
 
 pub const Frame = struct {

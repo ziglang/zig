@@ -2,8 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Writer = @This();
 const Limit = std.io.Limit;
-
-pub const Null = @import("Writer/Null.zig");
+const File = std.fs.File;
 
 context: ?*anyopaque,
 vtable: *const VTable,
@@ -37,15 +36,7 @@ pub const VTable = struct {
     /// efficient implementation.
     writeFile: *const fn (
         ctx: ?*anyopaque,
-        file: std.fs.File,
-        /// If this is `Offset.none`, `file` will be streamed, affecting the
-        /// seek position. Otherwise, it will be read positionally without
-        /// affecting the seek position. `error.Unseekable` is only possible
-        /// when reading positionally.
-        ///
-        /// An offset past the end of the file is treated the same as an offset
-        /// equal to the end of the file.
-        offset: Offset,
+        file_reader: *File.Reader,
         /// Maximum amount of bytes to read from the file. Implementations may
         /// assume that the file size does not exceed this amount.
         ///
@@ -63,36 +54,14 @@ pub const Error = error{
     WriteFailed,
 };
 
-pub const FileError = std.fs.File.PReadError || error{
+pub const FileError = error{
+    /// Detailed diagnostics are found on the `File.Reader` struct.
+    ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
     /// Indicates the caller should do its own file reading; the callee cannot
     /// offer a more efficient implementation.
     Unimplemented,
-};
-
-pub const Offset = enum(u64) {
-    zero = 0,
-    /// Indicates to read the file as a stream.
-    none = std.math.maxInt(u64),
-    _,
-
-    pub fn init(integer: u64) Offset {
-        const result: Offset = @enumFromInt(integer);
-        assert(result != .none);
-        return result;
-    }
-
-    pub fn toInt(o: Offset) ?u64 {
-        return if (o == .none) null else @intFromEnum(o);
-    }
-
-    pub fn advance(o: Offset, amount: u64) Offset {
-        return switch (o) {
-            .none => .none,
-            else => .init(@intFromEnum(o) + amount),
-        };
-    }
 };
 
 pub fn writeVec(w: Writer, data: []const []const u8) Error!usize {
@@ -107,13 +76,12 @@ pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) Error!usize
 
 pub fn writeFile(
     w: Writer,
-    file: std.fs.File,
-    offset: Offset,
+    file_reader: *File.Reader,
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) FileError!usize {
-    return w.vtable.writeFile(w.context, file, offset, limit, headers_and_trailers, headers_len);
+    return w.vtable.writeFile(w.context, file_reader, limit, headers_and_trailers, headers_len);
 }
 
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
@@ -136,15 +104,13 @@ pub fn failingWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: 
 
 pub fn failingWriteFile(
     context: ?*anyopaque,
-    file: std.fs.File,
-    offset: Offset,
+    file_reader: *File.Reader,
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) FileError!usize {
     _ = context;
-    _ = file;
-    _ = offset;
+    _ = file_reader;
     _ = limit;
     _ = headers_and_trailers;
     _ = headers_len;
@@ -159,19 +125,63 @@ pub const failing: Writer = .{
     },
 };
 
+pub fn discardingWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Error!usize {
+    _ = context;
+    const headers = data[0 .. data.len - 1];
+    const pattern = data[headers.len..];
+    var written: usize = pattern.len * splat;
+    for (headers) |bytes| written += bytes.len;
+    return written;
+}
+
+pub fn discardingWriteFile(
+    context: ?*anyopaque,
+    file_reader: *std.fs.File.Reader,
+    limit: Limit,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) Writer.FileError!usize {
+    _ = context;
+    if (file_reader.getSize()) |size| {
+        const remaining = size - file_reader.pos;
+        const seek_amt = limit.minInt(remaining);
+        // Error is observable on `file_reader` instance, and is safe to ignore
+        // depending on the caller's needs. Caller can make that decision.
+        file_reader.seekForward(seek_amt) catch {};
+        var n: usize = seek_amt;
+        for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
+        if (seek_amt == remaining) {
+            // Since we made it all the way through the file, the trailers are
+            // also included.
+            for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
+        }
+        return n;
+    } else |_| {
+        // Error is observable on `file_reader` instance, and it is better to
+        // treat the file as a pipe.
+        return error.Unimplemented;
+    }
+}
+
+pub const discarding: Writer = .{
+    .context = undefined,
+    .vtable = &.{
+        .writeSplat = discardingWriteSplat,
+        .writeFile = discardingWriteFile,
+    },
+};
+
 /// For use when the `Writer` implementation can cannot offer a more efficient
 /// implementation than a basic read/write loop on the file.
 pub fn unimplementedWriteFile(
     context: ?*anyopaque,
-    file: std.fs.File,
-    offset: Offset,
+    file_reader: *File.Reader,
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) FileError!usize {
     _ = context;
-    _ = file;
-    _ = offset;
+    _ = file_reader;
     _ = limit;
     _ = headers_and_trailers;
     _ = headers_len;
@@ -254,8 +264,4 @@ pub fn Hashed(comptime Hasher: type) type {
             return n;
         }
     };
-}
-
-test {
-    _ = Null;
 }

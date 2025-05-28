@@ -1040,8 +1040,10 @@ pub const Serializer = struct {
 };
 
 test Serializer {
-    var null_writer: std.io.Writer.Null = undefined;
-    var bw = null_writer.writer().unbuffered();
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = .discarding,
+        .buffer = &.{},
+    };
     var s: Serializer = .{ .writer = &bw };
     var vec2 = try s.beginStruct(.{});
     try vec2.field("x", 1.5, .{});

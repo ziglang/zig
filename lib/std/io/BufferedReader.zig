@@ -203,13 +203,7 @@ fn defaultDiscard(br: *BufferedReader, limit: Limit) Reader.Error!usize {
     assert(br.seek == 0);
     assert(br.end == 0);
     var bw: BufferedWriter = .{
-        .unbuffered_writer = .{
-            .context = undefined,
-            .vtable = &.{
-                .writeSplat = defaultDiscardWriteSplat,
-                .writeFile = defaultDiscardWriteFile,
-            },
-        },
+        .unbuffered_writer = .discarding,
         .buffer = br.buffer,
     };
     const n = br.read(&bw, limit) catch |err| switch (err) {
@@ -225,44 +219,6 @@ fn defaultDiscard(br: *BufferedReader, limit: Limit) Reader.Error!usize {
         return @intFromEnum(limit);
     }
     return n;
-}
-
-fn defaultDiscardWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
-    _ = context;
-    const headers = data[0 .. data.len - 1];
-    const pattern = data[headers.len..];
-    var written: usize = pattern.len * splat;
-    for (headers) |bytes| written += bytes.len;
-    return written;
-}
-
-fn defaultDiscardWriteFile(
-    context: ?*anyopaque,
-    file_reader: *std.fs.File.Reader,
-    limit: Limit,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) Writer.FileError!usize {
-    _ = context;
-    if (file_reader.getSize()) |size| {
-        const remaining = size - file_reader.pos;
-        const seek_amt = limit.minInt(remaining);
-        // Error is observable on `file_reader` instance, and is safe to ignore
-        // depending on the caller's needs. Caller can make that decision.
-        file_reader.seekForward(seek_amt) catch {};
-        var n: usize = seek_amt;
-        for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
-        if (seek_amt == remaining) {
-            // Since we made it all the way through the file, the trailers are
-            // also included.
-            for (headers_and_trailers[headers_len..]) |bytes| n += bytes.len;
-        }
-        return n;
-    } else |_| {
-        // Error is observable on `file_reader` instance, and it is better to
-        // treat the file as a pipe.
-        return error.Unimplemented;
-    }
 }
 
 /// Returns the next `len` bytes from `unbuffered_reader`, filling the buffer as

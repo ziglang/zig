@@ -1361,7 +1361,7 @@ pub const Writer = struct {
         context: ?*anyopaque,
         in_file: std.fs.File,
         in_offset: std.io.Writer.Offset,
-        in_limit: std.io.Writer.Limit,
+        in_limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) std.io.Writer.FileError!usize {
