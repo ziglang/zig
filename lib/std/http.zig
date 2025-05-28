@@ -508,7 +508,7 @@ pub const Reader = struct {
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Limit,
-    ) std.io.Reader.RwError!usize {
+    ) std.io.Reader.StreamError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
@@ -551,7 +551,7 @@ pub const Reader = struct {
         ctx: ?*anyopaque,
         bw: *std.io.BufferedWriter,
         limit: std.io.Limit,
-    ) std.io.Reader.RwError!usize {
+    ) std.io.Reader.StreamError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
@@ -577,7 +577,7 @@ pub const Reader = struct {
         bw: *std.io.BufferedWriter,
         limit: std.io.Limit,
         chunk_len_ptr: *RemainingChunkLen,
-    ) (BodyError || std.io.Reader.RwError)!usize {
+    ) (BodyError || std.io.Reader.StreamError)!usize {
         const in = reader.in;
         len: switch (chunk_len_ptr.*) {
             .head => {

@@ -19,7 +19,7 @@ pub fn reader(l: *Limited) Reader {
     };
 }
 
-fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.RwError!usize {
+fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
     const n = try l.unlimited_reader.read(bw, combined_limit);
