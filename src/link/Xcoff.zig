@@ -17,10 +17,8 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 base: link.File,
-llvm_object: LlvmObject.Ptr,
 
 pub fn createEmpty(
     arena: Allocator,
@@ -36,7 +34,6 @@ pub fn createEmpty(
     assert(!use_lld); // Caught by Compilation.Config.resolve.
     assert(target.os.tag == .aix); // Caught by Compilation.Config.resolve.
 
-    const llvm_object = try LlvmObject.create(arena, comp);
     const xcoff = try arena.create(Xcoff);
     xcoff.* = .{
         .base = .{
@@ -52,7 +49,6 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
-        .llvm_object = llvm_object,
     };
 
     return xcoff;
@@ -70,7 +66,7 @@ pub fn open(
 }
 
 pub fn deinit(self: *Xcoff) void {
-    self.llvm_object.deinit();
+    _ = self;
 }
 
 pub fn updateFunc(
@@ -80,17 +76,19 @@ pub fn updateFunc(
     air: Air,
     liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .xcoff)
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-
-    try self.llvm_object.updateFunc(pt, func_index, air, liveness);
+    _ = self;
+    _ = pt;
+    _ = func_index;
+    _ = air;
+    _ = liveness;
+    unreachable; // we always use llvm
 }
 
 pub fn updateNav(self: *Xcoff, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .xcoff)
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-
-    return self.llvm_object.updateNav(pt, nav);
+    _ = self;
+    _ = pt;
+    _ = nav;
+    unreachable; // we always use llvm
 }
 
 pub fn updateExports(
@@ -99,21 +97,21 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) !void {
-    if (build_options.skip_non_native and builtin.object_format != .xcoff)
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-
-    return self.llvm_object.updateExports(pt, exported, export_indices);
+    _ = self;
+    _ = pt;
+    _ = exported;
+    _ = export_indices;
+    unreachable; // we always use llvm
 }
 
 pub fn flush(self: *Xcoff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
+    return self.flushZcu(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *Xcoff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    if (build_options.skip_non_native and builtin.object_format != .xcoff)
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-
+pub fn flushZcu(self: *Xcoff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    _ = self;
+    _ = arena;
     _ = tid;
-
-    try self.base.emitLlvmObject(arena, self.llvm_object, prog_node);
+    _ = prog_node;
+    unreachable; // we always use llvm
 }

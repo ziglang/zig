@@ -56,9 +56,8 @@ comptime {
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
 comp: *Compilation,
-/// Usually, the LlvmObject is managed by linker code, however, in the case
-/// that -fno-emit-bin is specified, the linker code never executes, so we
-/// store the LlvmObject here.
+/// If the ZCU is emitting an LLVM object (i.e. we are using the LLVM backend), then this is the
+/// `LlvmObject` we are emitting to.
 llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
@@ -266,16 +265,6 @@ resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = n
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
 /// Reset to `false` at the start of each update in `Compilation.update`.
 skip_analysis_this_update: bool = false,
-
-stage1_flags: packed struct {
-    have_winmain: bool = false,
-    have_wwinmain: bool = false,
-    have_winmain_crt_startup: bool = false,
-    have_wwinmain_crt_startup: bool = false,
-    have_dllmain_crt_startup: bool = false,
-    have_c_main: bool = false,
-    reserved: u2 = 0,
-} = .{},
 
 test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 

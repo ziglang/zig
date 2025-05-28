@@ -1586,6 +1586,24 @@ pub const Object = struct {
         const global_index = self.nav_map.get(nav_index).?;
         const comp = zcu.comp;
 
+        // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
+        if (comp.bin_file != null and
+            comp.bin_file.?.tag == .coff and
+            zcu.comp.config.use_lld and
+            ip.isFunctionType(ip.getNav(nav_index).typeOf(ip)))
+        {
+            const flags = &comp.bin_file.?.cast(.coff).?.lld_export_flags;
+            for (export_indices) |export_index| {
+                const name = export_index.ptr(zcu).opts.name;
+                if (name.eqlSlice("main", ip)) flags.c_main = true;
+                if (name.eqlSlice("WinMain", ip)) flags.winmain = true;
+                if (name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
+                if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
+                if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
+                if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+            }
+        }
+
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
         } else {

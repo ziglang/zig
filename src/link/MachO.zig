@@ -6,9 +6,6 @@ base: link.File,
 
 rpath_list: []const []const u8,
 
-/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?LlvmObject.Ptr = null,
-
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
 
@@ -225,9 +222,6 @@ pub fn createEmpty(
         .force_load_objc = options.force_load_objc,
         .discard_local_symbols = options.discard_local_symbols,
     };
-    if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, comp);
-    }
     errdefer self.base.destroy();
 
     self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
@@ -279,8 +273,6 @@ pub fn open(
 
 pub fn deinit(self: *MachO) void {
     const gpa = self.base.comp.gpa;
-
-    if (self.llvm_object) |llvm_object| llvm_object.deinit();
 
     if (self.d_sym) |*d_sym| {
         d_sym.deinit();
@@ -350,10 +342,10 @@ pub fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
-    try self.flushModule(arena, tid, prog_node);
+    try self.flushZcu(arena, tid, prog_node);
 }
 
-pub fn flushModule(
+pub fn flushZcu(
     self: *MachO,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
@@ -365,10 +357,6 @@ pub fn flushModule(
     const comp = self.base.comp;
     const gpa = comp.gpa;
     const diags = &self.base.comp.link_diags;
-
-    if (self.llvm_object) |llvm_object| {
-        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
-    }
 
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
@@ -385,7 +373,7 @@ pub fn flushModule(
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
-    if (self.getZigObject()) |zo| try zo.flushModule(self, tid);
+    if (self.getZigObject()) |zo| try zo.flushZcu(self, tid);
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
@@ -629,7 +617,7 @@ pub fn flushModule(
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("failed to calculate and write uuid: {s}", .{@errorName(e)}),
     };
-    if (self.getDebugSymbols()) |dsym| dsym.flushModule(self) catch |err| switch (err) {
+    if (self.getDebugSymbols()) |dsym| dsym.flushZcu(self) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return diags.fail("failed to get debug symbols: {s}", .{@errorName(e)}),
     };
@@ -3079,7 +3067,6 @@ pub fn updateFunc(
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
     return self.getZigObject().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
@@ -3087,12 +3074,10 @@ pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) lin
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
     return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
 pub fn updateLineNumber(self: *MachO, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
-    if (self.llvm_object) |_| return;
     return self.getZigObject().?.updateLineNumber(pt, ti_id);
 }
 
@@ -3105,7 +3090,6 @@ pub fn updateExports(
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
     return self.getZigObject().?.updateExports(self, pt, exported, export_indices);
 }
 
@@ -3114,17 +3098,14 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    if (self.llvm_object) |_| return;
     return self.getZigObject().?.deleteExport(self, exported, name);
 }
 
 pub fn freeNav(self: *MachO, nav: InternPool.Nav.Index) void {
-    if (self.llvm_object) |llvm_object| return llvm_object.freeNav(nav);
     return self.getZigObject().?.freeNav(nav);
 }
 
 pub fn getNavVAddr(self: *MachO, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
-    assert(self.llvm_object == null);
     return self.getZigObject().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
@@ -3139,7 +3120,6 @@ pub fn lowerUav(
 }
 
 pub fn getUavVAddr(self: *MachO, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
-    assert(self.llvm_object == null);
     return self.getZigObject().?.getUavVAddr(self, uav, reloc_info);
 }
 
@@ -5496,7 +5476,6 @@ const ObjcStubsSection = synthetic.ObjcStubsSection;
 const Object = @import("MachO/Object.zig");
 const LazyBind = bind.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");

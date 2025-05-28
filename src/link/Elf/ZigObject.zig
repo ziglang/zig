@@ -310,7 +310,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
-        try dwarf.flushModule(pt);
+        try dwarf.flushZcu(pt);
 
         const gpa = elf_file.base.comp.gpa;
         const cpu_arch = elf_file.getTarget().cpu.arch;
@@ -481,7 +481,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
         self.debug_str_section_dirty = false;
     }
 
-    // The point of flushModule() is to commit changes, so in theory, nothing should
+    // The point of flushZcu() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,
     // such as debug_line_header_dirty and debug_info_header_dirty.
@@ -661,7 +661,7 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
-            // Perhaps it would make sense to save the code until flushModule where we
+            // Perhaps it would make sense to save the code until flushZcu where we
             // would free all of generated code?
             const code = try self.codeAlloc(elf_file, atom_index);
             defer gpa.free(code);
@@ -1075,7 +1075,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const symbol_index = symbol_index_ptr.*;
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flushZcu
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbol(elf_file, pt, lazy_sym, symbol_index);
     return symbol_index;
 }

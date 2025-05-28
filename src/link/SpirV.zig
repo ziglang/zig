@@ -17,7 +17,7 @@
 //! All regular functions.
 
 // Because SPIR-V requires re-compilation anyway, and so hot swapping will not work
-// anyway, we simply generate all the code in flushModule. This keeps
+// anyway, we simply generate all the code in flushZcu. This keeps
 // things considerably simpler.
 
 const SpirV = @This();
@@ -194,17 +194,17 @@ pub fn updateExports(
 }
 
 pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
+    return self.flushZcu(arena, tid, prog_node);
 }
 
-pub fn flushModule(
+pub fn flushZcu(
     self: *SpirV,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
     // The goal is to never use this because it's only needed if we need to
-    // write to InternPool, but flushModule is too late to be writing to the
+    // write to InternPool, but flushZcu is too late to be writing to the
     // InternPool.
     _ = tid;
 

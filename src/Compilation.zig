@@ -2188,14 +2188,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             },
         }
 
-        // Handle the case of e.g. -fno-emit-bin -femit-llvm-ir.
-        if (options.emit_bin == null and (comp.verbose_llvm_ir != null or
-            comp.verbose_llvm_bc != null or
-            (use_llvm and comp.emit_asm != null) or
-            comp.emit_llvm_ir != null or
-            comp.emit_llvm_bc != null))
-        {
-            if (opt_zcu) |zcu| zcu.llvm_object = try LlvmObject.create(arena, comp);
+        if (use_llvm) {
+            if (opt_zcu) |zcu| {
+                zcu.llvm_object = try LlvmObject.create(arena, comp);
+            }
         }
 
         break :comp comp;
@@ -2945,6 +2941,33 @@ fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) !void {
+    if (comp.zcu) |zcu| {
+        if (zcu.llvm_object) |llvm_object| {
+            // Emit the ZCU object from LLVM now; it's required to flush the output file.
+            // If there's an output file, it wants to decide where the LLVM object goes!
+            const zcu_obj_emit_loc: ?EmitLoc = if (comp.bin_file) |lf| .{
+                .directory = null,
+                .basename = lf.zcu_object_sub_path.?,
+            } else null;
+            const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
+            defer sub_prog_node.end();
+            try llvm_object.emit(.{
+                .pre_ir_path = comp.verbose_llvm_ir,
+                .pre_bc_path = comp.verbose_llvm_bc,
+                .bin_path = try resolveEmitLoc(arena, default_artifact_directory, zcu_obj_emit_loc),
+                .asm_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_asm),
+                .post_ir_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_ir),
+                .post_bc_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_bc),
+
+                .is_debug = comp.root_mod.optimize_mode == .Debug,
+                .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
+                .time_report = comp.time_report,
+                .sanitize_thread = comp.config.any_sanitize_thread,
+                .fuzz = comp.config.any_fuzz,
+                .lto = comp.config.lto,
+            });
+        }
+    }
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, tid, prog_node) catch |err| switch (err) {
@@ -2952,13 +2975,8 @@ fn flush(
             error.OutOfMemory => return error.OutOfMemory,
         };
     }
-
     if (comp.zcu) |zcu| {
         try link.File.C.flushEmitH(zcu);
-
-        if (zcu.llvm_object) |llvm_object| {
-            try emitLlvmObject(comp, arena, default_artifact_directory, null, llvm_object, prog_node);
-        }
     }
 }
 
@@ -3231,34 +3249,6 @@ fn emitOthers(comp: *Compilation) void {
             }
         }
     }
-}
-
-pub fn emitLlvmObject(
-    comp: *Compilation,
-    arena: Allocator,
-    default_artifact_directory: Cache.Path,
-    bin_emit_loc: ?EmitLoc,
-    llvm_object: LlvmObject.Ptr,
-    prog_node: std.Progress.Node,
-) !void {
-    const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
-    defer sub_prog_node.end();
-
-    try llvm_object.emit(.{
-        .pre_ir_path = comp.verbose_llvm_ir,
-        .pre_bc_path = comp.verbose_llvm_bc,
-        .bin_path = try resolveEmitLoc(arena, default_artifact_directory, bin_emit_loc),
-        .asm_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_asm),
-        .post_ir_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_ir),
-        .post_bc_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_bc),
-
-        .is_debug = comp.root_mod.optimize_mode == .Debug,
-        .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
-        .time_report = comp.time_report,
-        .sanitize_thread = comp.config.any_sanitize_thread,
-        .fuzz = comp.config.any_fuzz,
-        .lto = comp.config.lto,
-    });
 }
 
 fn resolveEmitLoc(

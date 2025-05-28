@@ -32,9 +32,6 @@ entry_name: ?[]const u8,
 
 ptr_width: PtrWidth,
 
-/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?LlvmObject.Ptr = null,
-
 /// A list of all input files.
 /// First index is a special "null file". Order is otherwise not observed.
 files: std.MultiArrayList(File.Entry) = .{},
@@ -344,9 +341,6 @@ pub fn createEmpty(
         .print_map = options.print_map,
         .dump_argv_list = .empty,
     };
-    if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, comp);
-    }
     errdefer self.base.destroy();
 
     if (use_lld and (use_llvm or !comp.config.have_zcu)) {
@@ -457,8 +451,6 @@ pub fn open(
 pub fn deinit(self: *Elf) void {
     const gpa = self.base.comp.gpa;
 
-    if (self.llvm_object) |llvm_object| llvm_object.deinit();
-
     for (self.file_handles.items) |fh| {
         fh.close();
     }
@@ -515,7 +507,6 @@ pub fn deinit(self: *Elf) void {
 }
 
 pub fn getNavVAddr(self: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
-    assert(self.llvm_object == null);
     return self.zigObjectPtr().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
@@ -530,7 +521,6 @@ pub fn lowerUav(
 }
 
 pub fn getUavVAddr(self: *Elf, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
-    assert(self.llvm_object == null);
     return self.zigObjectPtr().?.getUavVAddr(self, uav, reloc_info);
 }
 
@@ -805,35 +795,29 @@ pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std
             else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
         };
     }
-    try self.flushModule(arena, tid, prog_node);
+    try self.flushZcu(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushZcu(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const comp = self.base.comp;
     const diags = &comp.link_diags;
 
-    if (self.llvm_object) |llvm_object| {
-        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
-        const use_lld = build_options.have_llvm and comp.config.use_lld;
-        if (use_lld) return;
-    }
-
     if (comp.verbose_link) Compilation.dump_argv(self.dump_argv_list.items);
 
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
-    return flushModuleInner(self, arena, tid) catch |err| switch (err) {
+    return flushZcuInner(self, arena, tid) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("ELF flush failed: {s}", .{@errorName(e)}),
     };
 }
 
-fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
+fn flushZcuInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     const comp = self.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -1523,8 +1507,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
-        try self.flushModule(arena, tid, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.zcu) |zcu| blk: {
+        if (zcu.llvm_object == null) {
+            try self.flushZcu(arena, tid, prog_node);
+        } else {
+            // `Compilation.flush` has already made LLVM emit this object file for us.
+        }
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
@@ -2385,7 +2373,6 @@ pub fn writeElfHeader(self: *Elf) !void {
 }
 
 pub fn freeNav(self: *Elf, nav: InternPool.Nav.Index) void {
-    if (self.llvm_object) |llvm_object| return llvm_object.freeNav(nav);
     return self.zigObjectPtr().?.freeNav(self, nav);
 }
 
@@ -2399,7 +2386,6 @@ pub fn updateFunc(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
     return self.zigObjectPtr().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
@@ -2411,7 +2397,6 @@ pub fn updateNav(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
     return self.zigObjectPtr().?.updateNav(self, pt, nav);
 }
 
@@ -2423,7 +2408,6 @@ pub fn updateContainerType(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |_| return;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     return self.zigObjectPtr().?.updateContainerType(pt, ty) catch |err| switch (err) {
@@ -2449,12 +2433,10 @@ pub fn updateExports(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
     return self.zigObjectPtr().?.updateExports(self, pt, exported, export_indices);
 }
 
 pub fn updateLineNumber(self: *Elf, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
-    if (self.llvm_object) |_| return;
     return self.zigObjectPtr().?.updateLineNumber(pt, ti_id);
 }
 
@@ -2463,7 +2445,6 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    if (self.llvm_object) |_| return;
     return self.zigObjectPtr().?.deleteExport(self, exported, name);
 }
 
@@ -5332,7 +5313,6 @@ const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");

@@ -4391,7 +4391,7 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
     return @intFromEnum(abbrev_code);
 }
 
-pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
+pub fn flushZcu(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 

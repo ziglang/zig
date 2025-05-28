@@ -19,7 +19,6 @@ const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Value = @import("Value.zig");
-const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;
 const Package = @import("Package.zig");
 const dev = @import("dev.zig");
@@ -704,7 +703,9 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Nav.
+    /// Asserts that the ZCU is not using the LLVM backend.
     fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         const nav = pt.zcu.intern_pool.getNav(nav_index);
         assert(nav.status == .fully_resolved);
         switch (base.tag) {
@@ -721,7 +722,9 @@ pub const File = struct {
         TypeFailureReported,
     };
 
+    /// Never called when LLVM is codegenning the ZCU.
     fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             else => {},
             inline .elf => |tag| {
@@ -733,6 +736,7 @@ pub const File = struct {
 
     /// May be called before or after updateExports for any given Decl.
     /// TODO: currently `pub` because `Zcu.PerThread` is calling this.
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn updateFunc(
         base: *File,
         pt: Zcu.PerThread,
@@ -740,6 +744,7 @@ pub const File = struct {
         air: Air,
         liveness: Air.Liveness,
     ) UpdateNavError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -756,7 +761,9 @@ pub const File = struct {
 
     /// On an incremental update, fixup the line number of all `Nav`s at the given `TrackedInst`, because
     /// its line number has changed. The ZIR instruction `ti_id` has tag `.declaration`.
+    /// Never called when LLVM is codegenning the ZCU.
     fn updateLineNumber(base: *File, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) UpdateLineNumberError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         {
             const ti = ti_id.resolveFull(&pt.zcu.intern_pool).?;
             const file = pt.zcu.fileByIndex(ti.file);
@@ -846,11 +853,13 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
+    /// Never called when LLVM is codegenning the ZCU.
+    fn flushZcu(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, tid, prog_node);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).flushZcu(arena, tid, prog_node);
             },
         }
     }
@@ -864,12 +873,14 @@ pub const File = struct {
     /// a list of size 1, meaning that `exported` is exported once. However, it is possible
     /// to export the same thing with multiple different symbol names (aliases).
     /// May be called before or after updateDecl for any given Decl.
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn updateExports(
         base: *File,
         pt: Zcu.PerThread,
         exported: Zcu.Exported,
         export_indices: []const Zcu.Export.Index,
     ) UpdateExportsError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -896,7 +907,9 @@ pub const File = struct {
     /// `Nav`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
     /// May be called before or after updateFunc/updateNav therefore it is up to the linker to allocate
     /// the block/atom.
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn getNavVAddr(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: RelocInfo) !u64 {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
@@ -909,6 +922,7 @@ pub const File = struct {
         }
     }
 
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn lowerUav(
         base: *File,
         pt: Zcu.PerThread,
@@ -916,6 +930,7 @@ pub const File = struct {
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
     ) !codegen.GenResult {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
@@ -928,7 +943,9 @@ pub const File = struct {
         }
     }
 
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn getUavVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
@@ -941,11 +958,13 @@ pub const File = struct {
         }
     }
 
+    /// Never called when LLVM is codegenning the ZCU.
     pub fn deleteExport(
         base: *File,
         exported: Zcu.Exported,
         name: InternPool.NullTerminatedString,
     ) void {
+        assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .plan9,
             .spirv,
@@ -1077,7 +1096,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
+    fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         dev.check(.lld_linker);
 
         const tracy = trace(@src());
@@ -1103,9 +1122,12 @@ pub const File = struct {
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
-        const zcu_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
-            try base.flushModule(arena, tid, prog_node);
-
+        const zcu_obj_path: ?[]const u8 = if (opt_zcu) |zcu| blk: {
+            if (zcu.llvm_object == null) {
+                try base.flushZcu(arena, tid, prog_node);
+            } else {
+                // `Compilation.flush` has already made LLVM emit this object file for us.
+            }
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
             break :blk try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
         } else null;
@@ -1344,21 +1366,6 @@ pub const File = struct {
     pub fn isDynLib(self: File) bool {
         const output_mode = self.comp.config.output_mode;
         return output_mode == .Lib and !self.isStatic();
-    }
-
-    pub fn emitLlvmObject(
-        base: File,
-        arena: Allocator,
-        llvm_object: LlvmObject.Ptr,
-        prog_node: std.Progress.Node,
-    ) !void {
-        return base.comp.emitLlvmObject(arena, .{
-            .root_dir = base.emit.root_dir,
-            .sub_path = std.fs.path.dirname(base.emit.sub_path) orelse "",
-        }, .{
-            .directory = null,
-            .basename = base.zcu_object_sub_path.?,
-        }, llvm_object, prog_node);
     }
 
     pub fn cgFail(
@@ -1600,7 +1607,11 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 // on the failed type, so when it is changed the `Nav` will be updated.
                 return;
             }
-            if (comp.bin_file) |lf| {
+            if (zcu.llvm_object) |llvm_object| {
+                llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                };
+            } else if (comp.bin_file) |lf| {
                 lf.updateNav(pt, nav_index) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
                     error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
@@ -1615,10 +1626,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                         zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
                         // Not a retryable failure.
                     },
-                };
-            } else if (zcu.llvm_object) |llvm_object| {
-                llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
                 };
             }
         },
@@ -1650,11 +1657,13 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 // on the failed type, so when that is changed, this type will be updated.
                 return;
             }
-            if (comp.bin_file) |lf| {
-                lf.updateContainerType(pt, ty) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
-                    error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
-                };
+            if (zcu.llvm_object == null) {
+                if (comp.bin_file) |lf| {
+                    lf.updateContainerType(pt, ty) catch |err| switch (err) {
+                        error.OutOfMemory => diags.setAllocFailure(),
+                        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
+                    };
+                }
             }
         },
         .update_line_number => |ti| {
@@ -1664,11 +1673,13 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
-            if (comp.bin_file) |lf| {
-                lf.updateLineNumber(pt, ti) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
-                    else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
-                };
+            if (pt.zcu.llvm_object == null) {
+                if (comp.bin_file) |lf| {
+                    lf.updateLineNumber(pt, ti) catch |err| switch (err) {
+                        error.OutOfMemory => diags.setAllocFailure(),
+                        else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
+                    };
+                }
             }
         },
     }

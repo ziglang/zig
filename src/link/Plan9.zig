@@ -494,7 +494,7 @@ fn updateFinish(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     // write the symbol
     // we already have the got index
     const sym: aout.Sym = .{
-        .value = undefined, // the value of stuff gets filled in in flushModule
+        .value = undefined, // the value of stuff gets filled in in flushZcu
         .type = atom.type,
         .name = try gpa.dupe(u8, nav.name.toSlice(ip)),
     };
@@ -543,7 +543,7 @@ pub fn flush(
         .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
         .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
     }
-    return self.flushModule(arena, tid, prog_node);
+    return self.flushZcu(arena, tid, prog_node);
 }
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
@@ -586,7 +586,7 @@ fn atomCount(self: *Plan9) usize {
     return data_nav_count + fn_nav_count + lazy_atom_count + extern_atom_count + uav_atom_count;
 }
 
-pub fn flushModule(
+pub fn flushZcu(
     self: *Plan9,
     arena: Allocator,
     /// TODO: stop using this
@@ -610,7 +610,7 @@ pub fn flushModule(
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    log.debug("flushModule", .{});
+    log.debug("flushZcu", .{});
 
     defer assert(self.hdr.entry != 0x0);
 
@@ -1039,7 +1039,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, pt: Zcu.PerThread, lazy_sym: F
     const atom = atom_ptr.*;
     _ = try self.getAtomPtr(atom).getOrCreateSymbolTableEntry(self);
     _ = self.getAtomPtr(atom).getOrCreateOffsetTableEntry(self);
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flushZcu
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbolAtom(pt, lazy_sym, atom);
     return atom;
 }

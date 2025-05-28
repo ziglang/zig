@@ -1784,8 +1784,12 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
         };
     }
 
-    if (comp.bin_file) |lf| {
-        lf.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
+    if (zcu.llvm_object) |llvm_object| {
+        llvm_object.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+    } else if (comp.bin_file) |lf| {
+        lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
             error.Overflow, error.RelocationNotByteAligned => {
@@ -1797,10 +1801,6 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
                 ));
                 // Not a retryable failure.
             },
-        };
-    } else if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
         };
     }
 }
@@ -1877,7 +1877,6 @@ fn createFileRootStruct(
     try pt.scanNamespace(namespace_index, decls);
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
@@ -3309,10 +3308,10 @@ fn processExportsInner(
         .uav => {},
     }
 
-    if (zcu.comp.bin_file) |lf| {
-        try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
-    } else if (zcu.llvm_object) |llvm_object| {
+    if (zcu.llvm_object) |llvm_object| {
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
+    } else if (zcu.comp.bin_file) |lf| {
+        try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     }
 }
 
@@ -4064,7 +4063,6 @@ fn recreateStructType(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
@@ -4157,7 +4155,6 @@ fn recreateUnionType(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });

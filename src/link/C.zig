@@ -382,7 +382,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
 }
 
 pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
+    return self.flushZcu(arena, tid, prog_node);
 }
 
 fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
@@ -400,7 +400,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     return defines;
 }
 
-pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushZcu(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());

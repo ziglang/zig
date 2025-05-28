@@ -36,7 +36,6 @@ const abi = @import("../arch/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
@@ -81,8 +80,6 @@ import_table: bool,
 export_table: bool,
 /// Output name of the file
 name: []const u8,
-/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?LlvmObject.Ptr = null,
 /// List of relocatable files to be linked into the final binary.
 objects: std.ArrayListUnmanaged(Object) = .{},
 
@@ -2992,9 +2989,6 @@ pub fn createEmpty(
         .object_host_name = .none,
         .preloaded_strings = undefined,
     };
-    if (use_llvm and comp.config.have_zcu) {
-        wasm.llvm_object = try LlvmObject.create(arena, comp);
-    }
     errdefer wasm.base.destroy();
 
     if (options.object_host_name) |name| wasm.object_host_name = (try wasm.internString(name)).toOptional();
@@ -3116,7 +3110,6 @@ fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
 
 pub fn deinit(wasm: *Wasm) void {
     const gpa = wasm.base.comp.gpa;
-    if (wasm.llvm_object) |llvm_object| llvm_object.deinit();
 
     wasm.navs_exe.deinit(gpa);
     wasm.navs_obj.deinit(gpa);
@@ -3196,7 +3189,6 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
 
     dev.check(.wasm_backend);
 
@@ -3228,7 +3220,6 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav_index);
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -3308,8 +3299,6 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    if (wasm.llvm_object != null) return;
-
     const zcu = wasm.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const name_slice = name.toSlice(ip);
@@ -3332,7 +3321,6 @@ pub fn updateExports(
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3391,7 +3379,7 @@ pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
             else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
         };
     }
-    return wasm.flushModule(arena, tid, prog_node);
+    return wasm.flushZcu(arena, tid, prog_node);
 }
 
 pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -3785,25 +3773,19 @@ fn markTable(wasm: *Wasm, i: ObjectTableIndex) link.File.FlushError!void {
     try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(i), {});
 }
 
-pub fn flushModule(
+pub fn flushZcu(
     wasm: *Wasm,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
     // The goal is to never use this because it's only needed if we need to
-    // write to InternPool, but flushModule is too late to be writing to the
+    // write to InternPool, but flushZcu is too late to be writing to the
     // InternPool.
     _ = tid;
     const comp = wasm.base.comp;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
-
-    if (wasm.llvm_object) |llvm_object| {
-        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
-        if (use_lld) return;
-    }
 
     if (comp.verbose_link) Compilation.dump_argv(wasm.dump_argv_list.items);
 
@@ -3870,8 +3852,12 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
-        try wasm.flushModule(arena, tid, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.zcu) |zcu| blk: {
+        if (zcu.llvm_object == null) {
+            try wasm.flushZcu(arena, tid, prog_node);
+        } else {
+            // `Compilation.flush` has already made LLVM emit this object file for us.
+        }
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });

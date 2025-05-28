@@ -3,9 +3,6 @@
 //! LLD for traditional linking (linking relocatable object files).
 //! LLD is also the default linker for LLVM.
 
-/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?LlvmObject.Ptr = null,
-
 base: link.File,
 image_base: u64,
 subsystem: ?std.Target.SubSystem,
@@ -86,6 +83,16 @@ base_relocs: BaseRelocationTable = .{},
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+/// When linking with LLD, these flags are used to determine the subsystem to pass on the LLD command line.
+lld_export_flags: struct {
+    c_main: bool = false,
+    winmain: bool = false,
+    wwinmain: bool = false,
+    winmain_crt_startup: bool = false,
+    wwinmain_crt_startup: bool = false,
+    dllmain_crt_startup: bool = false,
+} = .{},
 
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
     .windows => true,
@@ -302,9 +309,6 @@ pub fn createEmpty(
         .pdb_out_path = options.pdb_out_path,
         .repro = options.repro,
     };
-    if (use_llvm and comp.config.have_zcu) {
-        coff.llvm_object = try LlvmObject.create(arena, comp);
-    }
     errdefer coff.base.destroy();
 
     if (use_lld and (use_llvm or !comp.config.have_zcu)) {
@@ -322,7 +326,6 @@ pub fn createEmpty(
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
 
-    assert(coff.llvm_object == null);
     const gpa = comp.gpa;
 
     try coff.strtab.buffer.ensureUnusedCapacity(gpa, @sizeOf(u32));
@@ -427,8 +430,6 @@ pub fn open(
 
 pub fn deinit(coff: *Coff) void {
     const gpa = coff.base.comp.gpa;
-
-    if (coff.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (coff.sections.items(.free_list)) |*free_list| {
         free_list.deinit(gpa);
@@ -1103,9 +1104,6 @@ pub fn updateFunc(
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (coff.llvm_object) |llvm_object| {
-        return llvm_object.updateFunc(pt, func_index, air, liveness);
-    }
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1205,7 +1203,6 @@ pub fn updateNav(
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (coff.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1330,7 +1327,7 @@ pub fn getOrCreateAtomForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const atom = atom_ptr.*;
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flushZcu
     if (lazy_sym.ty != .anyerror_type) try coff.updateLazySymbolAtom(pt, lazy_sym, atom, switch (lazy_sym.kind) {
         .code => coff.text_section_index.?,
         .const_data => coff.rdata_section_index.?,
@@ -1463,8 +1460,6 @@ fn updateNavCode(
 }
 
 pub fn freeNav(coff: *Coff, nav_index: InternPool.NavIndex) void {
-    if (coff.llvm_object) |llvm_object| return llvm_object.freeNav(nav_index);
-
     const gpa = coff.base.comp.gpa;
 
     if (coff.decls.fetchOrderedRemove(nav_index)) |const_kv| {
@@ -1485,50 +1480,7 @@ pub fn updateExports(
     }
 
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const comp = coff.base.comp;
-    const target = comp.root_mod.resolved_target.result;
-
-    if (comp.config.use_llvm) {
-        // Even in the case of LLVM, we need to notice certain exported symbols in order to
-        // detect the default subsystem.
-        for (export_indices) |export_idx| {
-            const exp = export_idx.ptr(zcu);
-            const exported_nav_index = switch (exp.exported) {
-                .nav => |nav| nav,
-                .uav => continue,
-            };
-            const exported_nav = ip.getNav(exported_nav_index);
-            const exported_ty = exported_nav.typeOf(ip);
-            if (!ip.isFunctionType(exported_ty)) continue;
-            const c_cc = target.cCallingConvention().?;
-            const winapi_cc: std.builtin.CallingConvention = switch (target.cpu.arch) {
-                .x86 => .{ .x86_stdcall = .{} },
-                else => c_cc,
-            };
-            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(zcu);
-            const CcTag = std.builtin.CallingConvention.Tag;
-            if (@as(CcTag, exported_cc) == @as(CcTag, c_cc) and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
-                zcu.stage1_flags.have_c_main = true;
-            } else if (@as(CcTag, exported_cc) == @as(CcTag, winapi_cc) and target.os.tag == .windows) {
-                if (exp.opts.name.eqlSlice("WinMain", ip)) {
-                    zcu.stage1_flags.have_winmain = true;
-                } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {
-                    zcu.stage1_flags.have_wwinmain = true;
-                } else if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_winmain_crt_startup = true;
-                } else if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_dllmain_crt_startup = true;
-                }
-            }
-        }
-    }
-
-    if (coff.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
-
-    const gpa = comp.gpa;
+    const gpa = zcu.gpa;
 
     const metadata = switch (exported) {
         .nav => |nav| blk: {
@@ -1621,7 +1573,6 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    if (coff.llvm_object) |_| return;
     const metadata = switch (exported) {
         .nav => |nav| coff.navs.getPtr(nav),
         .uav => |uav| coff.uavs.getPtr(uav),
@@ -1692,7 +1643,7 @@ pub fn flush(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
         };
     }
     switch (comp.config.output_mode) {
-        .Exe, .Obj => return coff.flushModule(arena, tid, prog_node),
+        .Exe, .Obj => return coff.flushZcu(arena, tid, prog_node),
         .Lib => return diags.fail("writing lib files not yet implemented for COFF", .{}),
     }
 }
@@ -1711,8 +1662,12 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
-        try coff.flushModule(arena, tid, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.zcu) |zcu| blk: {
+        if (zcu.llvm_object == null) {
+            try coff.flushZcu(arena, tid, prog_node);
+        } else {
+            // `Compilation.flush` has already made LLVM emit this object file for us.
+        }
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, coff.base.zcu_object_sub_path.? });
@@ -1998,16 +1953,16 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             if (coff.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
-                    if (comp.zcu) |module| {
-                        if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
+                    if (comp.zcu != null) {
+                        if (coff.lld_export_flags.dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
-                        if (module.stage1_flags.have_c_main or comp.config.is_test or
-                            module.stage1_flags.have_winmain_crt_startup or
-                            module.stage1_flags.have_wwinmain_crt_startup)
+                        if (coff.lld_export_flags.c_main or comp.config.is_test or
+                            coff.lld_export_flags.winmain_crt_startup or
+                            coff.lld_export_flags.wwinmain_crt_startup)
                         {
                             break :blk .Console;
                         }
-                        if (module.stage1_flags.have_winmain or module.stage1_flags.have_wwinmain)
+                        if (coff.lld_export_flags.winmain or coff.lld_export_flags.wwinmain)
                             break :blk .Windows;
                     }
                 },
@@ -2136,8 +2091,8 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 } else {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib and entry_name == null) {
-                        if (comp.zcu) |module| {
-                            if (module.stage1_flags.have_winmain_crt_startup) {
+                        if (comp.zcu != null) {
+                            if (coff.lld_export_flags.winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
                             } else {
                                 try argv.append("-ENTRY:wWinMainCRTStartup");
@@ -2244,7 +2199,7 @@ fn findLib(arena: Allocator, name: []const u8, lib_directories: []const Director
     return null;
 }
 
-pub fn flushModule(
+pub fn flushZcu(
     coff: *Coff,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
@@ -2256,22 +2211,17 @@ pub fn flushModule(
     const comp = coff.base.comp;
     const diags = &comp.link_diags;
 
-    if (coff.llvm_object) |llvm_object| {
-        try coff.base.emitLlvmObject(arena, llvm_object, prog_node);
-        return;
-    }
-
     const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
-    return flushModuleInner(coff, arena, tid) catch |err| switch (err) {
+    return flushZcuInner(coff, arena, tid) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("COFF flush failed: {s}", .{@errorName(e)}),
     };
 }
 
-fn flushModuleInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
+fn flushZcuInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     _ = arena;
 
     const comp = coff.base.comp;
@@ -2397,7 +2347,6 @@ pub fn getNavVAddr(
     nav_index: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    assert(coff.llvm_object == null);
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2483,8 +2432,6 @@ pub fn getUavVAddr(
     uav: InternPool.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    assert(coff.llvm_object == null);
-
     const this_atom_index = coff.uavs.get(uav).?.atom;
     const sym_index = coff.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = coff.getAtomIndexForSymbol(.{
@@ -3798,7 +3745,6 @@ const trace = @import("../tracy.zig").trace;
 
 const Air = @import("../Air.zig");
 const Compilation = @import("../Compilation.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const TableSection = @import("table_section.zig").TableSection;
