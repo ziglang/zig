@@ -1954,7 +1954,7 @@ pub fn readFileAlloc(
     /// * The array list's length is increased by exactly one byte past `limit`.
     /// * The file seek position is advanced by exactly one byte past `limit`.
     /// * `error.StreamTooLong` is returned.
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
 ) ReadFileAllocError![]u8 {
     return dir.readFileAllocOptions(file_path, gpa, limit, null, .of(u8), null);
 }
@@ -1973,7 +1973,7 @@ pub fn readFileAllocOptions(
     /// * The array list's length is increased by exactly one byte past `limit`.
     /// * The file seek position is advanced by exactly one byte past `limit`.
     /// * `error.StreamTooLong` is returned.
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
     /// If specified, the initial buffer size is calculated using this value,
     /// otherwise the effective file size is used instead.
     size_hint: ?usize,
@@ -2011,7 +2011,7 @@ pub fn readFileIntoArrayList(
     /// On other platforms, an opaque sequence of bytes with no particular encoding.
     file_path: []const u8,
     gpa: Allocator,
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
     /// If specified, the initial buffer size is calculated using this value,
     /// otherwise the effective file size is used instead.
     size_hint: ?usize,

@@ -1043,7 +1043,7 @@ pub fn eof(c: Client) bool {
     return c.received_close_notify;
 }
 
-fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Limit) Reader.RwError!usize {
     const c: *Client = @ptrCast(@alignCast(context));
     if (c.eof()) return error.EndOfStream;
     const input = c.input;

@@ -922,12 +922,13 @@ pub const Reader = struct {
         positional,
         streaming_reading,
         positional_reading,
+        failure,
 
         pub fn toStreaming(m: @This()) @This() {
             return switch (m) {
-                .positional => .streaming,
-                .positional_reading => .streaming_reading,
-                else => unreachable,
+                .positional, .streaming => .streaming,
+                .positional_reading, .streaming_reading => .streaming_reading,
+                .failure => .failure,
             };
         }
     };
@@ -936,8 +937,7 @@ pub const Reader = struct {
         return .{
             .context = r,
             .vtable = &.{
-                .read = Reader.read,
-                .readVec = Reader.readVec,
+                .read = Reader.stream,
                 .discard = Reader.discard,
             },
         };
@@ -963,12 +963,14 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                r.pos += offset;
+                // TODO: make += operator allow any integer types
+                r.pos = @intCast(@as(i64, @intCast(r.pos)) + offset);
             },
             .streaming, .streaming_reading => {
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
-                        r.pos += offset;
+                        // TODO: make += operator allow any integer types
+                        r.pos = @intCast(@as(i64, @intCast(r.pos)) + offset);
                         return;
                     } else |err| {
                         r.seek_err = err;
@@ -983,6 +985,7 @@ pub const Reader = struct {
                     remaining -= n;
                 }
             },
+            .failure => return error.Unseekable,
         }
     }
 
@@ -1006,188 +1009,42 @@ pub const Reader = struct {
     /// vectors through the underlying read calls as possible.
     const max_buffers_len = 16;
 
-    fn read(
+    fn stream(
         context: ?*anyopaque,
         bw: *BufferedWriter,
-        limit: std.io.Reader.Limit,
-    ) std.io.Reader.RwError!usize {
+        limit: std.io.Limit,
+    ) std.io.Reader.StreamError!usize {
         const r: *Reader = @ptrCast(@alignCast(context));
-        const file = r.file;
-        const pos = r.pos;
-        switch (r.mode) {
-            .positional => {
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                        r.mode = .streaming;
-                    }
+        return bw.writeFile(r, limit, &.{}, 0) catch |write_file_error| switch (write_file_error) {
+            error.ReadFailed => return error.ReadFailed,
+            error.WriteFailed => return error.WriteFailed,
+            error.Unimplemented => switch (r.mode) {
+                .positional => {
+                    r.mode = .positional_reading;
                     return 0;
-                };
-                const new_limit = limit.min(.limited(size - pos));
-                const n = bw.writeFile(file, .init(pos), new_limit, &.{}, 0) catch |err| switch (err) {
-                    error.WriteFailed => return error.WriteFailed,
-                    error.Unseekable => {
-                        r.mode = .streaming;
-                        if (pos != 0) @panic("TODO need to seek here");
-                        return 0;
-                    },
-                    error.Unimplemented => {
-                        r.mode = .positional_reading;
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                r.pos = pos + n;
-                return n;
+                },
+                .streaming => {
+                    r.mode = .streaming_reading;
+                    return 0;
+                },
+                .positional_reading => {
+                    const dest = limit.slice(try bw.writableSliceGreedy(1));
+                    const n = try readPositional(r, dest);
+                    bw.advance(n);
+                    return n;
+                },
+                .streaming_reading => {
+                    const dest = limit.slice(try bw.writableSliceGreedy(1));
+                    const n = try readStreaming(r, dest);
+                    bw.advance(n);
+                    return n;
+                },
+                .failure => return error.ReadFailed,
             },
-            .streaming => {
-                const n = bw.writeFile(file, .none, limit, &.{}, 0) catch |err| switch (err) {
-                    error.WriteFailed => return error.WriteFailed,
-                    error.Unseekable => unreachable, // Passing `Offset.none`.
-                    error.Unimplemented => {
-                        r.mode = .streaming_reading;
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                r.pos = pos + n;
-                return n;
-            },
-            .positional_reading => {
-                const dest = limit.slice(try bw.writableSliceGreedy(1));
-                const n = file.pread(dest, pos) catch |err| switch (err) {
-                    error.Unseekable => {
-                        r.mode = .streaming_reading;
-                        if (pos != 0) @panic("TODO need to seek here");
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                if (n == 0) return error.EndOfStream;
-                r.pos = pos + n;
-                bw.advance(n);
-                return n;
-            },
-            .streaming_reading => {
-                const dest = limit.slice(try bw.writableSliceGreedy(1));
-                const n = file.read(dest) catch |err| {
-                    r.err = err;
-                    return error.ReadFailed;
-                };
-                if (n == 0) return error.EndOfStream;
-                r.pos = pos + n;
-                bw.advance(n);
-                return n;
-            },
-        }
+        };
     }
 
-    fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-        const r: *Reader = @ptrCast(@alignCast(context));
-        const handle = r.file.handle;
-        const pos = r.pos;
-
-        switch (r.mode) {
-            .positional, .positional_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it requires
-                    // page alignment, so we are stuck using only the first slice.
-                    // Avoid empty slices to prevent false positive end detections.
-                    var i: usize = 0;
-                    while (true) : (i += 1) {
-                        if (i >= data.len) return .{};
-                        if (data[i].len > 0) break;
-                    }
-                    const n = windows.ReadFile(handle, data[i], pos) catch |err| {
-                        r.err = err;
-                        return error.ReadFailed;
-                    };
-                    if (n == 0) return error.EndOfFile;
-                    r.pos = pos + n;
-                    return n;
-                }
-
-                var iovecs: [max_buffers_len]std.posix.iovec = undefined;
-                var iovecs_i: usize = 0;
-                for (data) |d| {
-                    // Since the OS checks pointer address before length, we must omit
-                    // length-zero vectors.
-                    if (d.len == 0) continue;
-                    iovecs[iovecs_i] = .{ .base = d.ptr, .len = d.len };
-                    iovecs_i += 1;
-                    if (iovecs_i >= iovecs.len) break;
-                }
-                const send_vecs = iovecs[0..iovecs_i];
-                if (send_vecs.len == 0) return 0; // Prevent false positive end detection on empty `data`.
-                const n = posix.preadv(handle, send_vecs, pos) catch |err| switch (err) {
-                    error.Unseekable => {
-                        r.mode = r.mode.toStreaming();
-                        assert(pos == 0);
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                if (n == 0) return error.EndOfStream;
-                r.pos = pos + n;
-                return n;
-            },
-            .streaming, .streaming_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it requires
-                    // page alignment, so we are stuck using only the first slice.
-                    // Avoid empty slices to prevent false positive end detections.
-                    var i: usize = 0;
-                    while (true) : (i += 1) {
-                        if (i >= data.len) return .{};
-                        if (data[i].len > 0) break;
-                    }
-                    const n = windows.ReadFile(handle, data[i], null) catch |err| {
-                        r.err = err;
-                        return error.ReadFailed;
-                    };
-                    if (n == 0) return error.EndOfFile;
-                    r.pos = pos + n;
-                    return n;
-                }
-
-                var iovecs: [max_buffers_len]std.posix.iovec = undefined;
-                var iovecs_i: usize = 0;
-                for (data) |d| {
-                    // Since the OS checks pointer address before length, we must omit
-                    // length-zero vectors.
-                    if (d.len == 0) continue;
-                    iovecs[iovecs_i] = .{ .base = d.ptr, .len = d.len };
-                    iovecs_i += 1;
-                    if (iovecs_i >= iovecs.len) break;
-                }
-                const send_vecs = iovecs[0..iovecs_i];
-                if (send_vecs.len == 0) return 0; // Prevent false positive end detection on empty `data`.
-                const n = posix.readv(handle, send_vecs) catch |err| {
-                    r.err = err;
-                    return error.ReadFailed;
-                };
-                if (n == 0) return error.EndOfStream;
-                r.pos = pos + n;
-                return n;
-            },
-        }
-    }
-
-    fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+    fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
         const r: *Reader = @ptrCast(@alignCast(context));
         const file = r.file;
         const pos = r.pos;
@@ -1258,6 +1115,44 @@ pub const Reader = struct {
             },
         }
     }
+
+    pub fn readPositional(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
+        const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
+            error.Unseekable => {
+                r.mode = r.mode.toStreaming();
+                if (r.pos != 0) r.seekBy(r.pos) catch {
+                    r.mode = .failure;
+                    return error.ReadFailed;
+                };
+                return 0;
+            },
+            else => |e| {
+                r.err = e;
+                return error.ReadFailed;
+            },
+        };
+        if (n == 0) return error.EndOfStream;
+        r.pos += n;
+        return n;
+    }
+
+    pub fn readStreaming(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
+        const n = r.file.read(dest) catch |err| {
+            r.err = err;
+            return error.ReadFailed;
+        };
+        if (n == 0) return error.EndOfStream;
+        r.pos += n;
+        return n;
+    }
+
+    pub fn read(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
+        switch (r.mode) {
+            .positional, .positional_reading => return readPositional(r, dest),
+            .streaming, .streaming_reading => return readStreaming(r, dest),
+            .failure => return error.ReadFailed,
+        }
+    }
 };
 
 pub const Writer = struct {
@@ -1266,7 +1161,6 @@ pub const Writer = struct {
     mode: Writer.Mode = .positional,
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
-    read_err: ?ReadError = null,
     seek_err: ?SeekError = null,
 
     pub const Mode = Reader.Mode;
@@ -1359,15 +1253,14 @@ pub const Writer = struct {
 
     pub fn writeFile(
         context: ?*anyopaque,
-        in_file: std.fs.File,
-        in_offset: std.io.Writer.Offset,
-        in_limit: std.io.Limit,
+        file_reader: *Reader,
+        limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) std.io.Writer.FileError!usize {
         const w: *Writer = @ptrCast(@alignCast(context));
         const out_fd = w.file.handle;
-        const in_fd = in_file.handle;
+        const in_fd = file_reader.file.handle;
         // TODO try using copy_file_range on Linux
         // TODO try using copy_file_range on FreeBSD
         // TODO try using sendfile on macOS
@@ -1379,23 +1272,41 @@ pub const Writer = struct {
             // support a streaming read from in_file.
             if (headers_len > 0) return writeSplat(context, headers_and_trailers[0..headers_len], 1);
             const max_count = 0x7ffff000; // Avoid EINVAL.
-            const smaller_len = in_limit.minInt(max_count);
             var off: std.os.linux.off_t = undefined;
-            const off_ptr: ?*std.os.linux.off_t = if (in_offset.toInt()) |offset| b: {
-                off = std.math.cast(std.os.linux.off_t, offset) orelse
-                    return writeSplat(context, headers_and_trailers, 1);
-                break :b &off;
-            } else null;
-            const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, smaller_len) catch |err| switch (err) {
-                // Errors that imply sendfile should be avoided on the next write.
-                error.UnsupportedOperation,
-                error.Unexpected,
-                => |e| {
-                    w.sendfile_err = e;
-                    break :sf;
+            const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
+                .positional => o: {
+                    const size = file_reader.size orelse {
+                        if (file_reader.file.getEndPos()) |size| {
+                            file_reader.size = size;
+                        } else |err| {
+                            file_reader.size_err = err;
+                            file_reader.mode = .streaming;
+                        }
+                        return 0;
+                    };
+                    off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse
+                        return writeSplat(context, headers_and_trailers, 1);
+                    break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },
-                else => |e| return e,
+                .streaming => .{ null, limit.minInt(max_count) },
+                .streaming_reading, .positional_reading => break :sf,
+                .failure => return error.ReadFailed,
             };
+            const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, count) catch |err| switch (err) {
+                error.Unseekable => {
+                    file_reader.mode = file_reader.mode.toStreaming();
+                    if (file_reader.pos != 0) file_reader.seekBy(@intCast(file_reader.pos)) catch {
+                        file_reader.mode = .failure;
+                        return error.ReadFailed;
+                    };
+                    return 0;
+                },
+                else => |e| {
+                    w.sendfile_err = e;
+                    return 0;
+                },
+            };
+            file_reader.pos += n;
             w.pos += n;
             return n;
         }

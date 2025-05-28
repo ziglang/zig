@@ -2,6 +2,7 @@ const Decompress = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const Reader = std.io.Reader;
+const Limit = std.io.Limit;
 const BufferedWriter = std.io.BufferedWriter;
 const BufferedReader = std.io.BufferedReader;
 const zstd = @import("../zstd.zig");
@@ -77,7 +78,7 @@ pub fn reader(self: *Decompress) Reader {
     };
 }
 
-fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Reader.Limit) Reader.RwError!usize {
+fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.RwError!usize {
     const d: *Decompress = @ptrCast(@alignCast(context));
     const in = d.input;
 
@@ -139,7 +140,7 @@ fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
     }
 }
 
-fn readInFrame(d: *Decompress, bw: *BufferedWriter, limit: Reader.Limit, state: *State.InFrame) !usize {
+fn readInFrame(d: *Decompress, bw: *BufferedWriter, limit: Limit, state: *State.InFrame) !usize {
     const in = d.input;
 
     const header_bytes = try in.takeArray(3);
@@ -166,7 +167,7 @@ fn readInFrame(d: *Decompress, bw: *BufferedWriter, limit: Reader.Limit, state: 
             var literals_buffer: [zstd.block_size_max]u8 = undefined;
             var sequence_buffer: [zstd.block_size_max]u8 = undefined;
             var decode: Frame.Zstandard.Decode = .init(&literal_fse_buffer, &match_fse_buffer, &offset_fse_buffer);
-            var remaining: Reader.Limit = .limited(block_size);
+            var remaining: Limit = .limited(block_size);
             const literals = try LiteralsSection.decode(in, &remaining, &literals_buffer);
             const sequences_header = try SequencesSection.Header.decode(in, &remaining);
 
@@ -446,7 +447,7 @@ pub const Frame = struct {
             pub fn prepare(
                 self: *Decode,
                 in: *BufferedReader,
-                remaining: *Reader.Limit,
+                remaining: *Limit,
                 literals: LiteralsSection,
                 sequences_header: SequencesSection.Header,
             ) PrepareError!void {
@@ -536,7 +537,7 @@ pub const Frame = struct {
             fn updateFseTable(
                 self: *Decode,
                 in: *BufferedReader,
-                remaining: *Reader.Limit,
+                remaining: *Limit,
                 comptime choice: DataType,
                 mode: SequencesSection.Header.Mode,
             ) !void {
@@ -857,7 +858,7 @@ pub const LiteralsSection = struct {
         compressed_size: ?u18,
 
         /// Decode a literals section header.
-        pub fn decode(in: *BufferedReader, remaining: *Reader.Limit) !Header {
+        pub fn decode(in: *BufferedReader, remaining: *Limit) !Header {
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;
             const byte0 = try in.takeByte();
             const block_type: BlockType = @enumFromInt(byte0 & 0b11);
@@ -964,7 +965,7 @@ pub const LiteralsSection = struct {
             MissingStartBit,
         };
 
-        pub fn decode(in: *BufferedReader, remaining: *Reader.Limit) HuffmanTree.DecodeError!HuffmanTree {
+        pub fn decode(in: *BufferedReader, remaining: *Limit) HuffmanTree.DecodeError!HuffmanTree {
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;
             const header = try in.takeByte();
             if (header < 128) {
@@ -976,7 +977,7 @@ pub const LiteralsSection = struct {
 
         fn decodeDirect(
             in: *BufferedReader,
-            remaining: *Reader.Limit,
+            remaining: *Limit,
             encoded_symbol_count: usize,
         ) HuffmanTree.DecodeError!HuffmanTree {
             var weights: [256]u4 = undefined;
@@ -993,7 +994,7 @@ pub const LiteralsSection = struct {
 
         fn decodeFse(
             in: *BufferedReader,
-            remaining: *Reader.Limit,
+            remaining: *Limit,
             compressed_size: usize,
         ) HuffmanTree.DecodeError!HuffmanTree {
             var weights: [256]u4 = undefined;
@@ -1161,7 +1162,7 @@ pub const LiteralsSection = struct {
         MissingStartBit,
     };
 
-    pub fn decode(in: *BufferedReader, remaining: *Reader.Limit, buffer: []u8) DecodeError!LiteralsSection {
+    pub fn decode(in: *BufferedReader, remaining: *Limit, buffer: []u8) DecodeError!LiteralsSection {
         const header = try Header.decode(in, remaining);
         switch (header.block_type) {
             .raw => {
@@ -1232,7 +1233,7 @@ pub const SequencesSection = struct {
             ReadFailed,
         };
 
-        pub fn decode(in: *BufferedReader, remaining: *Reader.Limit) DecodeError!Header {
+        pub fn decode(in: *BufferedReader, remaining: *Limit) DecodeError!Header {
             var sequence_count: u24 = undefined;
 
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;
