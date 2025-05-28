@@ -78,7 +78,7 @@ pub fn reader(self: *Decompress) Reader {
     };
 }
 
-fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.RwError!usize {
+fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
     const d: *Decompress = @ptrCast(@alignCast(context));
     const in = d.input;
 

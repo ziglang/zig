@@ -202,7 +202,7 @@ pub const Decompress = union {
         context: ?*anyopaque,
         writer: *std.io.BufferedWriter,
         limit: std.io.Limit,
-    ) std.io.Reader.RwError!usize {
+    ) std.io.Reader.StreamError!usize {
         const d: *Decompress = @ptrCast(@alignCast(context));
         return d.store.read(writer, limit);
     }
@@ -211,7 +211,7 @@ pub const Decompress = union {
         context: ?*anyopaque,
         writer: *std.io.BufferedWriter,
         limit: std.io.Limit,
-    ) std.io.Reader.RwError!usize {
+    ) std.io.Reader.StreamError!usize {
         const d: *Decompress = @ptrCast(@alignCast(context));
         return std.compress.flate.Decompress.read(&d.inflate, writer, limit);
     }

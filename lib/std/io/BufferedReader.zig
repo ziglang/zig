@@ -104,7 +104,7 @@ pub fn readAll(br: *BufferedReader, bw: *BufferedWriter, limit: Limit) Reader.St
 /// a success case.
 ///
 /// Returns total number of bytes written to `bw`.
-pub fn readRemaining(br: *BufferedReader, bw: *BufferedWriter) Reader.RwRemainingError!usize {
+pub fn readRemaining(br: *BufferedReader, bw: *BufferedWriter) Reader.StreamRemainingError!usize {
     var offset: usize = 0;
     while (true) {
         offset += br.read(bw, .unlimited) catch |err| switch (err) {
@@ -720,7 +720,7 @@ pub fn readDelimiterEnding(
     br: *BufferedReader,
     bw: *BufferedWriter,
     delimiter: u8,
-) Reader.RwRemainingError!usize {
+) Reader.StreamRemainingError!usize {
     const amount, const to = try br.readAny(bw, delimiter, .unlimited);
     return switch (to) {
         .delimiter, .end => amount,
@@ -728,7 +728,7 @@ pub fn readDelimiterEnding(
     };
 }
 
-pub const StreamDelimiterLimitedError = Reader.RwRemainingError || error{
+pub const StreamDelimiterLimitedError = Reader.StreamRemainingError || error{
     /// Stream ended before the delimiter was found.
     EndOfStream,
     /// The delimiter was not found within the limit.
@@ -758,7 +758,7 @@ fn readAny(
     bw: *BufferedWriter,
     delimiter: ?u8,
     limit: Limit,
-) Reader.RwRemainingError!struct { usize, enum { delimiter, limit, end } } {
+) Reader.StreamRemainingError!struct { usize, enum { delimiter, limit, end } } {
     var amount: usize = 0;
     var remaining = limit;
     while (remaining.nonzero()) {

@@ -769,7 +769,7 @@ fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Limit,
-) std.io.Reader.RwError!usize {
+) std.io.Reader.StreamError!usize {
     const c: *Compress = @ptrCast(@alignCast(context));
     switch (c.state) {
         .header => |i| {
