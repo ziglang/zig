@@ -46,7 +46,7 @@ pub const VTable = struct {
     /// provided which is based on calling `read`, borrowing
     /// `BufferedReader.buffer` to construct a temporary `BufferedWriter` and
     /// ignoring the written data.
-    discard: *const fn (context: ?*anyopaque, limit: Limit) DiscardError!usize = null,
+    discard: *const fn (context: ?*anyopaque, limit: Limit) Error!usize = null,
 };
 
 pub const StreamError = error{
@@ -59,13 +59,13 @@ pub const StreamError = error{
     EndOfStream,
 };
 
-pub const DiscardError = error{
+pub const Error = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
     EndOfStream,
 };
 
-pub const RwRemainingError = error{
+pub const StreamRemainingError = error{
     /// See the `Reader` implementation for detailed diagnostics.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
@@ -85,14 +85,14 @@ pub fn read(r: Reader, bw: *BufferedWriter, limit: Limit) StreamError!usize {
     return n;
 }
 
-pub fn discard(r: Reader, limit: Limit) DiscardError!usize {
+pub fn discard(r: Reader, limit: Limit) Error!usize {
     const n = try r.vtable.discard(r.context, limit);
     assert(n <= @intFromEnum(limit));
     return n;
 }
 
 /// Returns total number of bytes written to `bw`.
-pub fn readRemaining(r: Reader, bw: *BufferedWriter) RwRemainingError!usize {
+pub fn readRemaining(r: Reader, bw: *BufferedWriter) StreamRemainingError!usize {
     const readFn = r.vtable.read;
     var offset: usize = 0;
     while (true) {
@@ -212,7 +212,7 @@ fn endingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamErr
     return error.EndOfStream;
 }
 
-fn endingDiscard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
+fn endingDiscard(context: ?*anyopaque, limit: Limit) Error!usize {
     _ = context;
     _ = limit;
     return error.EndOfStream;
@@ -225,7 +225,7 @@ fn failingRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) StreamEr
     return error.ReadFailed;
 }
 
-fn failingDiscard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
+fn failingDiscard(context: ?*anyopaque, limit: Limit) Error!usize {
     _ = context;
     _ = limit;
     return error.ReadFailed;
@@ -297,7 +297,7 @@ pub fn Hashed(comptime Hasher: type) type {
             return n;
         }
 
-        fn discard(context: ?*anyopaque, limit: Limit) DiscardError!usize {
+        fn discard(context: ?*anyopaque, limit: Limit) Error!usize {
             const this: *@This() = @alignCast(@ptrCast(context));
             var bw = this.hasher.writable(&.{});
             const n = this.in.read(&bw, limit) catch |err| switch (err) {
@@ -307,7 +307,7 @@ pub fn Hashed(comptime Hasher: type) type {
             return n;
         }
 
-        fn readVec(context: ?*anyopaque, data: []const []u8) DiscardError!usize {
+        fn readVec(context: ?*anyopaque, data: []const []u8) Error!usize {
             const this: *@This() = @alignCast(@ptrCast(context));
             const n = try this.in.readVec(data);
             var remaining: usize = n;

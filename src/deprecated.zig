@@ -165,40 +165,6 @@ pub fn LinearFifo(comptime T: type) type {
             return self.read(dest);
         }
 
-        pub fn reader(self: *Self) std.io.Reader {
-            return .{
-                .context = self,
-                .vtable = &.{
-                    .read = &readerRead,
-                    .readVec = &readerReadVec,
-                    .discard = &readerDiscard,
-                },
-            };
-        }
-        fn readerRead(
-            ctx: ?*anyopaque,
-            bw: *std.io.BufferedWriter,
-            limit: std.io.Limit,
-        ) std.io.Reader.RwError!usize {
-            const fifo: *Self = @alignCast(@ptrCast(ctx));
-            _ = fifo;
-            _ = bw;
-            _ = limit;
-            @panic("TODO");
-        }
-        fn readerReadVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-            const fifo: *Self = @alignCast(@ptrCast(ctx));
-            _ = fifo;
-            _ = data;
-            @panic("TODO");
-        }
-        fn readerDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
-            const fifo: *Self = @alignCast(@ptrCast(ctx));
-            _ = fifo;
-            _ = limit;
-            @panic("TODO");
-        }
-
         /// Returns number of items available in fifo
         pub fn writableLength(self: Self) usize {
             return self.buf.len - self.count;

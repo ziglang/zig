@@ -358,7 +358,7 @@ pub const Iterator = struct {
             };
         }
 
-        fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Limit) std.io.Reader.RwError!usize {
+        fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Limit) std.io.Reader.StreamError!usize {
             const file: *File = @ptrCast(@alignCast(context));
             if (file.unread_bytes.* == 0) return error.EndOfStream;
             const n = try file.parent_reader.read(bw, limit.min(.limited(file.unread_bytes.*)));
@@ -381,7 +381,7 @@ pub const Iterator = struct {
             return n;
         }
 
-        pub fn readRemaining(file: *File, out: *std.io.BufferedWriter) std.io.Reader.RwRemainingError!void {
+        pub fn readRemaining(file: *File, out: *std.io.BufferedWriter) std.io.Reader.StreamRemainingError!void {
             return file.reader().readRemaining(out);
         }
     };
