@@ -142,7 +142,7 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 pub fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
 ) std.io.Reader.RwError!usize {
     const d: *Decompress = @alignCast(@ptrCast(context));
     return readInner(d, bw, limit) catch |err| switch (err) {
@@ -160,7 +160,7 @@ pub fn read(
 fn readInner(
     d: *Decompress,
     bw: *std.io.BufferedWriter,
-    limit: std.io.Reader.Limit,
+    limit: std.io.Limit,
 ) (Error || error{ WriteFailed, EndOfStream })!usize {
     const in = d.input;
     sw: switch (d.state) {
@@ -351,7 +351,7 @@ fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
     @panic("TODO remove readVec primitive");
 }
 
-fn discard(context: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
     _ = context;
     _ = limit;
     // Problem here is we still need access to the output ring buffer.

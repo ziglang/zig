@@ -247,7 +247,7 @@ pub fn LinearFifo(
         fn readerRead(
             ctx: ?*anyopaque,
             bw: *std.io.BufferedWriter,
-            limit: std.io.Reader.Limit,
+            limit: std.io.Limit,
         ) std.io.Reader.RwError!usize {
             const fifo: *Self = @alignCast(@ptrCast(ctx));
             _ = fifo;
@@ -261,7 +261,7 @@ pub fn LinearFifo(
             _ = data;
             @panic("TODO");
         }
-        fn readerDiscard(ctx: ?*anyopaque, limit: std.io.Reader.Limit) std.io.Reader.Error!usize {
+        fn readerDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
             const fifo: *Self = @alignCast(@ptrCast(ctx));
             _ = fifo;
             _ = limit;
