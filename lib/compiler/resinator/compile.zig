@@ -1269,9 +1269,7 @@ pub const Compiler = struct {
     pub fn writeResourceDataNoPadding(writer: anytype, data_reader: anytype, data_size: u32) !void {
         var limited_reader = std.io.limitedReader(data_reader, data_size);
 
-        const FifoBuffer = std.fifo.LinearFifo(u8, .{ .Static = 4096 });
-        var fifo = FifoBuffer.init();
-        try fifo.pump(limited_reader.reader(), writer);
+        try limited_reader.reader().readRemaining(writer);
     }
 
     pub fn writeResourceData(writer: anytype, data_reader: anytype, data_size: u32) !void {
