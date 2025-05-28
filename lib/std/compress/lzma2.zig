@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const lzma = std.compress.lzma;
 
-pub fn decompress(gpa: Allocator, reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) std.io.Reader.RwError!void {
+pub fn decompress(gpa: Allocator, reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) std.io.Reader.StreamError!void {
     var decoder = try Decode.init(gpa);
     defer decoder.deinit(gpa);
     return decoder.decompress(gpa, reader, writer);

@@ -143,7 +143,7 @@ pub fn read(
     context: ?*anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Limit,
-) std.io.Reader.RwError!usize {
+) std.io.Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@ptrCast(context));
     return readInner(d, bw, limit) catch |err| switch (err) {
         error.EndOfStream => return error.EndOfStream,

@@ -69,7 +69,7 @@ pub fn writeFileStream(
     size: usize,
     reader: *std.io.BufferedReader,
     options: Options,
-) std.io.Reader.RwError!void {
+) std.io.Reader.StreamError!void {
     try w.writeHeader(.regular, sub_path, "", @intCast(size), options);
     try reader.readAll(w.underlying_writer, .limited(size));
     try w.writePadding(size);
