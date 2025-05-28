@@ -65,7 +65,7 @@ pub fn LinearFifo(comptime T: type) type {
         pub fn ensureTotalCapacity(self: *Self, size: usize) !void {
             if (self.buf.len >= size) return;
             self.realign();
-            const new_size = if (true) math.ceilPowerOfTwo(usize, size) catch return error.OutOfMemory else size;
+            const new_size = math.ceilPowerOfTwo(usize, size) catch return error.OutOfMemory;
             self.buf = try self.allocator.realloc(self.buf, new_size);
         }
 
@@ -126,21 +126,12 @@ pub fn LinearFifo(comptime T: type) type {
                     @memset(unused2, undefined);
                 }
             }
-            if (false and self.count == count) {
-                self.head = 0;
-                self.count = 0;
-            } else {
-                var head = self.head + count;
-                if (true) {
-                    // Note it is safe to do a wrapping subtract as
-                    // bitwise & with all 1s is a noop
-                    head &= self.buf.len -% 1;
-                } else {
-                    head %= self.buf.len;
-                }
-                self.head = head;
-                self.count -= count;
-            }
+            var head = self.head + count;
+            // Note it is safe to do a wrapping subtract as
+            // bitwise & with all 1s is a noop
+            head &= self.buf.len -% 1;
+            self.head = head;
+            self.count -= count;
         }
 
         /// Read the next item from the fifo
@@ -270,11 +261,7 @@ pub fn LinearFifo(comptime T: type) type {
 
         pub fn writeItemAssumeCapacity(self: *Self, item: T) void {
             var tail = self.head + self.count;
-            if (true) {
-                tail &= self.buf.len - 1;
-            } else {
-                tail %= self.buf.len;
-            }
+            tail &= self.buf.len - 1;
             self.buf[tail] = item;
             self.update(1);
         }
@@ -333,11 +320,7 @@ pub fn LinearFifo(comptime T: type) type {
             assert(self.writableLength() >= count);
 
             var head = self.head + (self.buf.len - count);
-            if (true) {
-                head &= self.buf.len - 1;
-            } else {
-                head %= self.buf.len;
-            }
+            head &= self.buf.len - 1;
             self.head = head;
             self.count += count;
         }
@@ -364,11 +347,7 @@ pub fn LinearFifo(comptime T: type) type {
             assert(offset < self.count);
 
             var index = self.head + offset;
-            if (true) {
-                index &= self.buf.len - 1;
-            } else {
-                index %= self.buf.len;
-            }
+            index &= self.buf.len - 1;
             return self.buf[index];
         }
 
