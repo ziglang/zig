@@ -52,6 +52,7 @@ ninja install
 stage3-debug/bin/zig build test docs \
   --maxrss 44918199637 \
   -Dstatic-llvm \
+  -Dskip-non-native \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
