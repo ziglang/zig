@@ -247,40 +247,6 @@ pub fn LinearFifo(comptime T: type) type {
             return bytes.len;
         }
 
-        pub fn writer(fifo: *Self) std.io.Writer {
-            return .{
-                .context = fifo,
-                .vtable = &.{
-                    .writeSplat = writerWriteSplat,
-                    .writeFile = writerWriteFile,
-                },
-            };
-        }
-        fn writerWriteSplat(ctx: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-            const fifo: *Self = @alignCast(@ptrCast(ctx));
-            _ = fifo;
-            _ = data;
-            _ = splat;
-            @panic("TODO");
-        }
-        fn writerWriteFile(
-            ctx: ?*anyopaque,
-            file: std.fs.File,
-            offset: std.io.Writer.Offset,
-            limit: std.io.Writer.Limit,
-            headers_and_trailers: []const []const u8,
-            headers_len: usize,
-        ) std.io.Writer.Error!usize {
-            const fifo: *Self = @alignCast(@ptrCast(ctx));
-            _ = fifo;
-            _ = file;
-            _ = offset;
-            _ = limit;
-            _ = headers_and_trailers;
-            _ = headers_len;
-            @panic("TODO");
-        }
-
         /// Make `count` items available before the current read location
         fn rewind(self: *Self, count: usize) void {
             assert(self.writableLength() >= count);

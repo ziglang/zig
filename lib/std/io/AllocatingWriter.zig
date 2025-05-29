@@ -161,7 +161,7 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.
 fn writeFile(
     context: ?*anyopaque,
     file_reader: *std.fs.File.Reader,
-    limit: std.io.Writer.Limit,
+    limit: std.io.Limit,
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
 ) std.io.Writer.FileError!usize {
@@ -185,8 +185,11 @@ fn writeFile(
     list.ensureTotalCapacity(gpa, new_capacity) catch return error.WriteFailed;
     for (headers_and_trailers[0..headers_len]) |bytes| list.appendSliceAssumeCapacity(bytes);
     const dest = limit.slice(list.items.ptr[list.items.len..list.capacity]);
-    const n = try file_reader.read(dest);
-    const is_end = if (file_reader.getSize()) |size| n >= size - pos else n == 0;
+    const n = file_reader.read(dest) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => 0,
+    };
+    const is_end = if (file_reader.getSize()) |size| n >= size - pos else |_| n == 0;
     if (is_end) {
         new_capacity = list.capacity;
         for (trailers) |bytes| new_capacity += bytes.len;
