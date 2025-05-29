@@ -225,7 +225,7 @@ fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 
     var tool_specific_buf: [64]u8 = undefined;
     const possible_names = possibleProgramNames(tc.driver.raw_target_triple, name, &tool_specific_buf);
 
-    for (possible_names.constSlice()) |tool_name| {
+    for (possible_names.slice()) |tool_name| {
         for (tc.program_paths.items) |program_path| {
             defer fib.reset();
 

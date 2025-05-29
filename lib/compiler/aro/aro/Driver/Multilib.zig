@@ -15,7 +15,7 @@ pub const Detected = struct {
 
     pub fn filter(self: *Detected, multilib_filter: Filter, fs: Filesystem) void {
         var found_count: usize = 0;
-        for (self.multilibs.constSlice()) |multilib| {
+        for (self.multilibs.slice()) |multilib| {
             if (multilib_filter.exists(multilib, fs)) {
                 self.multilibs.set(found_count, multilib);
                 found_count += 1;
@@ -26,9 +26,9 @@ pub const Detected = struct {
 
     pub fn select(self: *Detected, flags: Flags) !bool {
         var filtered: MultilibArray = .{};
-        for (self.multilibs.constSlice()) |multilib| {
-            for (multilib.flags.constSlice()) |multilib_flag| {
-                const matched = for (flags.constSlice()) |arg_flag| {
+        for (self.multilibs.slice()) |multilib| {
+            for (multilib.flags.slice()) |multilib_flag| {
+                const matched = for (flags.slice()) |arg_flag| {
                     if (std.mem.eql(u8, arg_flag[1..], multilib_flag[1..])) break arg_flag;
                 } else multilib_flag;
                 if (matched[0] != multilib_flag[0]) break;
