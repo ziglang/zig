@@ -5434,6 +5434,60 @@ test optionalsNotEqual {
     try test_optionals_not_equal.testFloats();
 }
 
+inline fn reduceAndEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.And, lhs == rhs);
+}
+test reduceAndEqual {
+    const test_reduce_and_equal = binary(reduceAndEqual, .{});
+    try test_reduce_and_equal.testIntVectors();
+    try test_reduce_and_equal.testFloatVectors();
+}
+
+inline fn reduceAndNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.And, lhs != rhs);
+}
+test reduceAndNotEqual {
+    const test_reduce_and_not_equal = binary(reduceAndNotEqual, .{});
+    try test_reduce_and_not_equal.testIntVectors();
+    try test_reduce_and_not_equal.testFloatVectors();
+}
+
+inline fn reduceOrEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Or, lhs == rhs);
+}
+test reduceOrEqual {
+    const test_reduce_or_equal = binary(reduceOrEqual, .{});
+    try test_reduce_or_equal.testIntVectors();
+    try test_reduce_or_equal.testFloatVectors();
+}
+
+inline fn reduceOrNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Or, lhs != rhs);
+}
+test reduceOrNotEqual {
+    const test_reduce_or_not_equal = binary(reduceOrNotEqual, .{});
+    try test_reduce_or_not_equal.testIntVectors();
+    try test_reduce_or_not_equal.testFloatVectors();
+}
+
+inline fn reduceXorEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Xor, lhs == rhs);
+}
+test reduceXorEqual {
+    const test_reduce_xor_equal = binary(reduceXorEqual, .{});
+    try test_reduce_xor_equal.testIntVectors();
+    try test_reduce_xor_equal.testFloatVectors();
+}
+
+inline fn reduceXorNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Xor, lhs != rhs);
+}
+test reduceXorNotEqual {
+    const test_reduce_xor_not_equal = binary(reduceXorNotEqual, .{});
+    try test_reduce_xor_not_equal.testIntVectors();
+    try test_reduce_xor_not_equal.testFloatVectors();
+}
+
 inline fn mulAdd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mulAdd(Type, lhs, rhs, rhs)) {
     return @mulAdd(Type, lhs, rhs, rhs);
 }

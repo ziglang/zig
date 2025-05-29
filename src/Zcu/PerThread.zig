@@ -16,7 +16,6 @@ const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
 const introspect = @import("../introspect.zig");
-const Liveness = @import("../Liveness.zig");
 const log = std.log.scoped(.zcu);
 const Module = @import("../Package.zig").Module;
 const Sema = @import("../Sema.zig");
@@ -1721,34 +1720,43 @@ fn analyzeFuncBody(
 
 /// Takes ownership of `air`, even on error.
 /// If any types referenced by `air` are unresolved, marks the codegen as failed.
-pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Air) Allocator.Error!void {
+pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const comp = zcu.comp;
 
-    defer {
-        var air_mut = air;
-        air_mut.deinit(gpa);
-    }
-
     const func = zcu.funcInfo(func_index);
     const nav_index = func.owner_nav;
     const nav = ip.getNav(nav_index);
 
-    var liveness = try Liveness.analyze(gpa, air, ip);
+    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
+    defer codegen_prog_node.end();
+
+    if (!air.typesFullyResolved(zcu)) {
+        // A type we depend on failed to resolve. This is a transitive failure.
+        // Correcting this failure will involve changing a type this function
+        // depends on, hence triggering re-analysis of this function, so this
+        // interacts correctly with incremental compilation.
+        return;
+    }
+
+    const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+    try air.legalize(backend, zcu);
+
+    var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
     defer liveness.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         std.debug.print("# Begin Function AIR: {}:\n", .{nav.fqn.fmt(ip)});
-        @import("../print_air.zig").dump(pt, air, liveness);
+        @import("../print_air.zig").dump(pt, air.*, liveness);
         std.debug.print("# End Function AIR: {}\n\n", .{nav.fqn.fmt(ip)});
     }
 
     if (std.debug.runtime_safety) {
-        var verify: Liveness.Verify = .{
+        var verify: Air.Liveness.Verify = .{
             .gpa = gpa,
-            .air = air,
+            .air = air.*,
             .liveness = liveness,
             .intern_pool = ip,
         };
@@ -1768,16 +1776,8 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         };
     }
 
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (!air.typesFullyResolved(zcu)) {
-        // A type we depend on failed to resolve. This is a transitive failure.
-        // Correcting this failure will involve changing a type this function
-        // depends on, hence triggering re-analysis of this function, so this
-        // interacts correctly with incremental compilation.
-    } else if (comp.bin_file) |lf| {
-        lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
+    if (comp.bin_file) |lf| {
+        lf.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
             error.Overflow, error.RelocationNotByteAligned => {
@@ -1791,7 +1791,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
+        llvm_object.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
     }
@@ -3080,9 +3080,13 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
 
     try sema.flushExports();
 
+    defer {
+        sema.air_instructions = .empty;
+        sema.air_extra = .empty;
+    }
     return .{
-        .instructions = sema.air_instructions.toOwnedSlice(),
-        .extra = try sema.air_extra.toOwnedSlice(gpa),
+        .instructions = sema.air_instructions.slice(),
+        .extra = sema.air_extra,
     };
 }
 

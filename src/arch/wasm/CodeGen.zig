@@ -17,7 +17,6 @@ const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
-const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const abi = @import("abi.zig");
@@ -39,7 +38,7 @@ owner_nav: InternPool.Nav.Index,
 /// and block
 block_depth: u32 = 0,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 gpa: mem.Allocator,
 func_index: InternPool.Index,
 /// Contains a list of current branches.
@@ -771,7 +770,7 @@ fn resolveValue(cg: *CodeGen, val: Value) InnerError!WValue {
 
 /// NOTE: if result == .stack, it will be stored in .local
 fn finishAir(cg: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []const Air.Inst.Ref) InnerError!void {
-    assert(operands.len <= Liveness.bpi - 1);
+    assert(operands.len <= Air.Liveness.bpi - 1);
     var tomb_bits = cg.liveness.getTombBits(inst);
     for (operands) |operand| {
         const dies = @as(u1, @truncate(tomb_bits)) != 0;
@@ -811,7 +810,7 @@ inline fn currentBranch(cg: *CodeGen) *Branch {
 const BigTomb = struct {
     gen: *CodeGen,
     inst: Air.Inst.Index,
-    lbt: Liveness.BigTomb,
+    lbt: Air.Liveness.BigTomb,
 
     fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
         const dies = bt.lbt.feed();
@@ -1262,7 +1261,7 @@ pub fn function(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) Error!Function {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -2123,7 +2122,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             continue;
         }
         const old_bookkeeping_value = cg.air_bookkeeping;
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, Liveness.bpi);
+        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, Air.Liveness.bpi);
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
@@ -2217,7 +2216,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     if (modifier == .always_tail) return cg.fail("TODO implement tail calls for wasm", .{});
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = cg.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra[extra.end..][0..extra.data.args_len]);
+    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.args_len]);
     const ty = cg.typeOf(pl_op.operand);
 
     const pt = cg.pt;
@@ -3410,7 +3409,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
 fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Block, ty_pl.payload);
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]));
+    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
@@ -3456,7 +3455,7 @@ fn endBlock(cg: *CodeGen) !void {
 fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = cg.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[loop.end..][0..loop.data.body_len]);
 
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
@@ -3475,8 +3474,8 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const condition = try cg.resolveInst(pl_op.operand);
     const extra = cg.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_condbr = cg.liveness.getCondBr(inst);
 
     // result type is always noreturn, so use `block_empty` as type.
@@ -5238,7 +5237,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const result_ty = cg.typeOfIndex(inst);
     const len = @as(usize, @intCast(result_ty.arrayLen(zcu)));
-    const elements = @as([]const Air.Inst.Ref, @ptrCast(cg.air.extra[ty_pl.payload..][0..len]));
+    const elements: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: WValue = result_value: {
         switch (result_ty.zigTypeTag(zcu)) {
@@ -5352,8 +5351,8 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return cg.finishAir(inst, result, &buf);
     }
@@ -6454,7 +6453,7 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     // TODO
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]));
+    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(
@@ -6472,7 +6471,7 @@ fn airTry(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const err_union = try cg.resolveInst(pl_op.operand);
     const extra = cg.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
     const err_union_ty = cg.typeOf(pl_op.operand);
     const result = try lowerTry(cg, inst, err_union, body, err_union_ty, false);
     return cg.finishAir(inst, result, &.{pl_op.operand});
@@ -6483,7 +6482,7 @@ fn airTryPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.TryPtr, ty_pl.payload);
     const err_union_ptr = try cg.resolveInst(extra.data.ptr);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
     const err_union_ty = cg.typeOf(extra.data.ptr).childType(zcu);
     const result = try lowerTry(cg, inst, err_union_ptr, body, err_union_ty, true);
     return cg.finishAir(inst, result, &.{extra.data.ptr});

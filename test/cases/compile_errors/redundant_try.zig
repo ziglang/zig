@@ -44,9 +44,9 @@ comptime {
 //
 // :5:23: error: expected error union type, found 'comptime_int'
 // :10:23: error: expected error union type, found '@TypeOf(.{})'
-// :15:23: error: expected error union type, found 'tmp.test2__struct_505'
+// :15:23: error: expected error union type, found 'tmp.test2__struct_522'
 // :15:23: note: struct declared here
-// :20:27: error: expected error union type, found 'tmp.test3__struct_507'
+// :20:27: error: expected error union type, found 'tmp.test3__struct_524'
 // :20:27: note: struct declared here
 // :25:23: error: expected error union type, found 'struct { comptime *const [5:0]u8 = "hello" }'
 // :31:13: error: expected error union type, found 'u32'

@@ -6,20 +6,19 @@ const Zcu = @import("Zcu.zig");
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const Air = @import("Air.zig");
-const Liveness = @import("Liveness.zig");
 const InternPool = @import("InternPool.zig");
 
-pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) void {
+pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
         (@sizeOf(Air.Inst.Tag) + 8);
-    const extra_bytes = air.extra.len * @sizeOf(u32);
+    const extra_bytes = air.extra.items.len * @sizeOf(u32);
     const tomb_bytes = if (liveness) |l| l.tomb_bits.len * @sizeOf(usize) else 0;
     const liveness_extra_bytes = if (liveness) |l| l.extra.len * @sizeOf(u32) else 0;
     const liveness_special_bytes = if (liveness) |l| l.special.count() * 8 else 0;
     const total_bytes = @sizeOf(Air) + instruction_bytes + extra_bytes +
-        @sizeOf(Liveness) + liveness_extra_bytes +
+        @sizeOf(Air.Liveness) + liveness_extra_bytes +
         liveness_special_bytes + tomb_bytes;
 
     // zig fmt: off
@@ -34,7 +33,7 @@ pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) 
     , .{
         fmtIntSizeBin(total_bytes),
         air.instructions.len, fmtIntSizeBin(instruction_bytes),
-        air.extra.len, fmtIntSizeBin(extra_bytes),
+        air.extra.items.len, fmtIntSizeBin(extra_bytes),
         fmtIntSizeBin(tomb_bytes),
         if (liveness) |l| l.extra.len else 0, fmtIntSizeBin(liveness_extra_bytes),
         if (liveness) |l| l.special.count() else 0, fmtIntSizeBin(liveness_special_bytes),
@@ -57,7 +56,7 @@ pub fn writeInst(
     inst: Air.Inst.Index,
     pt: Zcu.PerThread,
     air: Air,
-    liveness: ?Liveness,
+    liveness: ?Air.Liveness,
 ) void {
     var writer: Writer = .{
         .pt = pt,
@@ -70,11 +69,11 @@ pub fn writeInst(
     writer.writeInst(stream, inst) catch return;
 }
 
-pub fn dump(pt: Zcu.PerThread, air: Air, liveness: ?Liveness) void {
+pub fn dump(pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
     write(std.io.getStdErr().writer(), pt, air, liveness);
 }
 
-pub fn dumpInst(inst: Air.Inst.Index, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) void {
+pub fn dumpInst(inst: Air.Inst.Index, pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
     writeInst(std.io.getStdErr().writer(), inst, pt, air, liveness);
 }
 
@@ -82,7 +81,7 @@ const Writer = struct {
     pt: Zcu.PerThread,
     gpa: Allocator,
     air: Air,
-    liveness: ?Liveness,
+    liveness: ?Air.Liveness,
     indent: usize,
     skip_body: bool,
 
@@ -391,15 +390,15 @@ const Writer = struct {
                     },
                     else => unreachable,
                 }
-                break :body w.air.extra[extra.end..][0..extra.data.body_len];
+                break :body w.air.extra.items[extra.end..][0..extra.data.body_len];
             },
             else => unreachable,
         });
         if (w.skip_body) return s.writeAll(", ...");
-        const liveness_block = if (w.liveness) |liveness|
+        const liveness_block: Air.Liveness.BlockSlices = if (w.liveness) |liveness|
             liveness.getBlock(inst)
         else
-            Liveness.BlockSlices{ .deaths = &.{} };
+            .{ .deaths = &.{} };
 
         try s.writeAll(", {\n");
         const old_indent = w.indent;
@@ -417,7 +416,7 @@ const Writer = struct {
     fn writeLoop(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
 
         try w.writeType(s, ty_pl.ty.toType());
         if (w.skip_body) return s.writeAll(", ...");
@@ -435,7 +434,7 @@ const Writer = struct {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vector_ty = ty_pl.ty.toType();
         const len = @as(usize, @intCast(vector_ty.arrayLen(zcu)));
-        const elements = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[ty_pl.payload..][0..len]));
+        const elements = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[ty_pl.payload..][0..len]));
 
         try w.writeType(s, vector_ty);
         try s.writeAll(", [");
@@ -622,13 +621,13 @@ const Writer = struct {
             try s.writeAll(", volatile");
         }
 
-        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra_i..][0..extra.data.outputs_len]));
+        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..extra.data.outputs_len]));
         extra_i += outputs.len;
-        const inputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra_i..][0..extra.data.inputs_len]));
+        const inputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..extra.data.inputs_len]));
         extra_i += inputs.len;
 
         for (outputs) |output| {
-            const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
 
@@ -648,7 +647,7 @@ const Writer = struct {
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -665,7 +664,7 @@ const Writer = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+                const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
                 const clobber = std.mem.sliceTo(extra_bytes, 0);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
@@ -676,7 +675,7 @@ const Writer = struct {
                 try s.writeAll("}");
             }
         }
-        const asm_source = std.mem.sliceAsBytes(w.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
         try s.print(", \"{}\"", .{std.zig.fmtEscapes(asm_source)});
     }
 
@@ -695,7 +694,7 @@ const Writer = struct {
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Call, pl_op.payload);
-        const args = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]));
+        const args = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra.end..][0..extra.data.args_len]));
         try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", [");
         for (args, 0..) |arg, i| {
@@ -720,11 +719,11 @@ const Writer = struct {
     fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end..][0..extra.data.body_len]);
-        const liveness_condbr = if (w.liveness) |liveness|
+        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
+        const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
-            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
+            .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
@@ -754,11 +753,11 @@ const Writer = struct {
     fn writeTryPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end..][0..extra.data.body_len]);
-        const liveness_condbr = if (w.liveness) |liveness|
+        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
+        const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
-            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
+            .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, extra.data.ptr);
 
@@ -791,12 +790,12 @@ const Writer = struct {
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end..][0..extra.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
-        const liveness_condbr = if (w.liveness) |liveness|
+        const then_body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+        const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
-            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
+            .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
@@ -850,14 +849,14 @@ const Writer = struct {
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const switch_br = w.air.unwrapSwitch(inst);
 
-        const liveness = if (w.liveness) |liveness|
+        const liveness: Air.Liveness.SwitchBrTable = if (w.liveness) |liveness|
             liveness.getSwitchBr(w.gpa, inst, switch_br.cases_len + 1) catch
                 @panic("out of memory")
         else blk: {
             const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.cases_len + 1) catch
                 @panic("out of memory");
             @memset(slice, &.{});
-            break :blk Liveness.SwitchBrTable{ .deaths = slice };
+            break :blk .{ .deaths = slice };
         };
         defer w.gpa.free(liveness.deaths);
 
@@ -956,10 +955,10 @@ const Writer = struct {
         op_index: usize,
         operand: Air.Inst.Ref,
     ) @TypeOf(s).Error!void {
-        const small_tomb_bits = Liveness.bpi - 1;
+        const small_tomb_bits = Air.Liveness.bpi - 1;
         const dies = if (w.liveness) |liveness| blk: {
             if (op_index < small_tomb_bits)
-                break :blk liveness.operandDies(inst, @as(Liveness.OperandInt, @intCast(op_index)));
+                break :blk liveness.operandDies(inst, @intCast(op_index));
             var extra_index = liveness.special.get(inst).?;
             var tomb_op_index: usize = small_tomb_bits;
             while (true) {

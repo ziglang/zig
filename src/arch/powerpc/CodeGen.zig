@@ -5,7 +5,6 @@ const Air = @import("../../Air.zig");
 const codegen = @import("../../codegen.zig");
 const InternPool = @import("../../InternPool.zig");
 const link = @import("../../link.zig");
-const Liveness = @import("../../Liveness.zig");
 const Zcu = @import("../../Zcu.zig");
 
 const assert = std.debug.assert;
@@ -17,7 +16,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {

@@ -30,7 +30,6 @@ const AstGen = std.zig.AstGen;
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
-const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");

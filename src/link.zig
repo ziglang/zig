@@ -15,7 +15,6 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
-const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
@@ -738,7 +737,7 @@ pub const File = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) UpdateNavError!void {
         switch (base.tag) {
             inline else => |tag| {
@@ -1601,8 +1600,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             if (comp.remaining_prelink_tasks == 0) {
                 const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
                 defer pt.deactivate();
-                // This call takes ownership of `func.air`.
-                pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
+                var air = func.air;
+                defer air.deinit(comp.gpa);
+                pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
                 };
             } else {

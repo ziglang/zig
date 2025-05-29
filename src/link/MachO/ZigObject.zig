@@ -778,7 +778,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1820,7 +1820,6 @@ const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
-const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
 const Zcu = @import("../../Zcu.zig");

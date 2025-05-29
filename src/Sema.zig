@@ -753,6 +753,23 @@ pub const Block = struct {
         });
     }
 
+    fn addReduce(block: *Block, operand: Air.Inst.Ref, operation: std.builtin.ReduceOp) !Air.Inst.Ref {
+        const sema = block.sema;
+        const zcu = sema.pt.zcu;
+        const allow_optimized = switch (sema.typeOf(operand).childType(zcu).zigTypeTag(zcu)) {
+            .float => true,
+            .bool, .int => false,
+            else => unreachable,
+        };
+        return block.addInst(.{
+            .tag = if (allow_optimized and block.float_mode == .optimized) .reduce_optimized else .reduce,
+            .data = .{ .reduce = .{
+                .operand = operand,
+                .operation = operation,
+            } },
+        });
+    }
+
     fn addAggregateInit(
         block: *Block,
         aggregate_ty: Type,
@@ -10307,10 +10324,7 @@ fn intCast(
                     const zeros = try sema.splat(operand_ty, try pt.intValue(operand_scalar_ty, 0));
                     const zero_inst = Air.internedToRef(zeros.toIntern());
                     const is_in_range = try block.addCmpVector(operand, zero_inst, .eq);
-                    const all_in_range = try block.addInst(.{
-                        .tag = .reduce,
-                        .data = .{ .reduce = .{ .operand = is_in_range, .operation = .And } },
-                    });
+                    const all_in_range = try block.addReduce(is_in_range, .And);
                     break :ok all_in_range;
                 } else ok: {
                     const zero_inst = Air.internedToRef((try pt.intValue(operand_ty, 0)).toIntern());
@@ -10374,13 +10388,7 @@ fn intCast(
 
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff_unsigned, dest_range, .lte);
-                    const all_in_range = try block.addInst(.{
-                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = is_in_range,
-                            .operation = .And,
-                        } },
-                    });
+                    const all_in_range = try block.addReduce(is_in_range, .And);
                     break :ok all_in_range;
                 } else ok: {
                     const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
@@ -10391,13 +10399,7 @@ fn intCast(
             } else {
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(operand, dest_max, .lte);
-                    const all_in_range = try block.addInst(.{
-                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = is_in_range,
-                            .operation = .And,
-                        } },
-                    });
+                    const all_in_range = try block.addReduce(is_in_range, .And);
                     break :ok all_in_range;
                 } else ok: {
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, dest_max);
@@ -10413,13 +10415,7 @@ fn intCast(
                 const zero_val = try sema.splat(operand_ty, scalar_zero);
                 const zero_inst = Air.internedToRef(zero_val.toIntern());
                 const is_in_range = try block.addCmpVector(operand, zero_inst, .gte);
-                const all_in_range = try block.addInst(.{
-                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = is_in_range,
-                        .operation = .And,
-                    } },
-                });
+                const all_in_range = try block.addReduce(is_in_range, .And);
                 break :ok all_in_range;
             } else ok: {
                 const zero_inst = Air.internedToRef((try pt.intValue(operand_ty, 0)).toIntern());
@@ -14330,13 +14326,7 @@ fn zirShl(
             const ok = if (rhs_ty.zigTypeTag(zcu) == .vector) ok: {
                 const bit_count_inst = Air.internedToRef((try sema.splat(rhs_ty, bit_count_val)).toIntern());
                 const lt = try block.addCmpVector(rhs, bit_count_inst, .lt);
-                break :ok try block.addInst(.{
-                    .tag = .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = lt,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(lt, .And);
             } else ok: {
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
@@ -14358,13 +14348,7 @@ fn zirShl(
             });
             const ov_bit = try sema.tupleFieldValByIndex(block, op_ov, 1, op_ov_tuple_ty);
             const any_ov_bit = if (lhs_ty.zigTypeTag(zcu) == .vector)
-                try block.addInst(.{
-                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = ov_bit,
-                        .operation = .Or,
-                    } },
-                })
+                try block.addReduce(ov_bit, .Or)
             else
                 ov_bit;
             const zero_ov = Air.internedToRef((try pt.intValue(Type.u1, 0)).toIntern());
@@ -14490,13 +14474,7 @@ fn zirShr(
             const ok = if (rhs_ty.zigTypeTag(zcu) == .vector) ok: {
                 const bit_count_inst = Air.internedToRef((try sema.splat(rhs_ty, bit_count_val)).toIntern());
                 const lt = try block.addCmpVector(rhs, bit_count_inst, .lt);
-                break :ok try block.addInst(.{
-                    .tag = .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = lt,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(lt, .And);
             } else ok: {
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
@@ -14509,13 +14487,7 @@ fn zirShr(
 
             const ok = if (rhs_ty.zigTypeTag(zcu) == .vector) ok: {
                 const eql = try block.addCmpVector(lhs, back, .eq);
-                break :ok try block.addInst(.{
-                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = eql,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(eql, .And);
             } else try block.addBinOp(.cmp_eq, lhs, back);
             try sema.addSafetyCheck(block, src, ok, .shr_overflow);
         }
@@ -15565,16 +15537,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             if (resolved_type.zigTypeTag(zcu) == .vector) {
                 const eql = try block.addCmpVector(result, floored, .eq);
-                break :ok try block.addInst(.{
-                    .tag = switch (block.float_mode) {
-                        .strict => .reduce,
-                        .optimized => .reduce_optimized,
-                    },
-                    .data = .{ .reduce = .{
-                        .operand = eql,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(eql, .And);
             } else {
                 const is_in_range = try block.addBinOp(switch (block.float_mode) {
                     .strict => .cmp_eq,
@@ -15594,13 +15557,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const zero_val = try sema.splat(resolved_type, scalar_zero);
                 const zero = Air.internedToRef(zero_val.toIntern());
                 const eql = try block.addCmpVector(remainder, zero, .eq);
-                break :ok try block.addInst(.{
-                    .tag = .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = eql,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(eql, .And);
             } else {
                 const zero = Air.internedToRef(scalar_zero.toIntern());
                 const is_in_range = try block.addBinOp(.cmp_eq, remainder, zero);
@@ -15829,13 +15786,7 @@ fn addDivIntOverflowSafety(
             break :ok try block.addCmpVector(casted_rhs, neg_one_ref, .neq);
         };
 
-        const ok = try block.addInst(.{
-            .tag = .reduce,
-            .data = .{ .reduce = .{
-                .operand = try block.addBinOp(.bool_or, lhs_ok, rhs_ok),
-                .operation = .And,
-            } },
-        });
+        const ok = try block.addReduce(try block.addBinOp(.bool_or, lhs_ok, rhs_ok), .And);
         try sema.addSafetyCheck(block, src, ok, .integer_overflow);
     } else {
         const lhs_ok: Air.Inst.Ref = if (maybe_lhs_val == null) ok: {
@@ -15886,13 +15837,7 @@ fn addDivByZeroSafety(
         const zero_val = try sema.splat(resolved_type, scalar_zero);
         const zero = Air.internedToRef(zero_val.toIntern());
         const ok = try block.addCmpVector(casted_rhs, zero, .neq);
-        break :ok try block.addInst(.{
-            .tag = if (is_int) .reduce else .reduce_optimized,
-            .data = .{ .reduce = .{
-                .operand = ok,
-                .operation = .And,
-            } },
-        });
+        break :ok try block.addReduce(ok, .And);
     } else ok: {
         const zero = Air.internedToRef(scalar_zero.toIntern());
         break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
@@ -16579,13 +16524,7 @@ fn analyzeArithmetic(
                 });
                 const ov_bit = try sema.tupleFieldValByIndex(block, op_ov, 1, op_ov_tuple_ty);
                 const any_ov_bit = if (resolved_type.zigTypeTag(zcu) == .vector)
-                    try block.addInst(.{
-                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = ov_bit,
-                            .operation = .Or,
-                        } },
-                    })
+                    try block.addReduce(ov_bit, .Or)
                 else
                     ov_bit;
                 const zero_ov = Air.internedToRef((try pt.intValue(Type.u1, 0)).toIntern());
@@ -22406,13 +22345,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 const ok_pos = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, 1.0))).toIntern()), .lt);
                 const ok_neg = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, -1.0))).toIntern()), .gt);
                 const ok = try block.addBinOp(.bit_and, ok_pos, ok_neg);
-                break :ok try block.addInst(.{
-                    .tag = .reduce,
-                    .data = .{ .reduce = .{
-                        .operand = ok,
-                        .operation = .And,
-                    } },
-                });
+                break :ok try block.addReduce(ok, .And);
             } else ok: {
                 const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try pt.floatValue(operand_ty, 1.0)).toIntern()));
                 const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try pt.floatValue(operand_ty, -1.0)).toIntern()));
@@ -22555,13 +22488,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 const is_non_zero = if (is_vector) all_non_zero: {
                     const zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
                     const is_non_zero = try block.addCmpVector(operand_coerced, zero_usize, .neq);
-                    break :all_non_zero try block.addInst(.{
-                        .tag = .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = is_non_zero,
-                            .operation = .And,
-                        } },
-                    });
+                    break :all_non_zero try block.addReduce(is_non_zero, .And);
                 } else try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
                 try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
             }
@@ -22578,13 +22505,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 const is_aligned = if (is_vector) all_aligned: {
                     const splat_zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
                     const is_aligned = try block.addCmpVector(remainder, splat_zero_usize, .eq);
-                    break :all_aligned try block.addInst(.{
-                        .tag = .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = is_aligned,
-                            .operation = .And,
-                        } },
-                    });
+                    break :all_aligned try block.addReduce(is_aligned, .And);
                 } else try block.addBinOp(.cmp_eq, remainder, .zero_usize);
                 try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
             }
@@ -24540,13 +24461,7 @@ fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     }
 
     try sema.requireRuntimeBlock(block, block.nodeOffset(inst_data.src_node), operand_src);
-    return block.addInst(.{
-        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-        .data = .{ .reduce = .{
-            .operand = operand,
-            .operation = operation,
-        } },
-    });
+    return block.addReduce(operand, operation);
 }
 
 fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -27324,13 +27239,7 @@ fn addSafetyCheckSentinelMismatch(
 
     const ok = if (sentinel_ty.zigTypeTag(zcu) == .vector) ok: {
         const eql = try parent_block.addCmpVector(expected_sentinel, actual_sentinel, .eq);
-        break :ok try parent_block.addInst(.{
-            .tag = .reduce,
-            .data = .{ .reduce = .{
-                .operand = eql,
-                .operation = .And,
-            } },
-        });
+        break :ok try parent_block.addReduce(eql, .And);
     } else ok: {
         assert(sentinel_ty.isSelfComparable(zcu, true));
         break :ok try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel);
@@ -36595,6 +36504,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -36629,34 +36539,50 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
+        .vector_2_i16_type,
         .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
         .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
+        .vector_1_u128_type,
         .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         .anyerror_void_error_union_type,
         => null,
         .void_type => Value.void,
@@ -36917,7 +36843,7 @@ fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
 pub fn getTmpAir(sema: Sema) Air {
     return .{
         .instructions = sema.air_instructions.slice(),
-        .extra = sema.air_extra.items,
+        .extra = sema.air_extra,
     };
 }
 
