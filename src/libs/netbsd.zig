@@ -100,7 +100,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     try includePath(comp, arena, try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
                         std.zig.target.netbsdArchNameHeaders(target.cpu.arch),
                         @tagName(target.os.tag),
-                        @tagName(target.abi),
+                        std.zig.target.netbsdAbiNameHeaders(target.abi),
                     })),
                     "-I",
                     try includePath(comp, arena, "generic-netbsd"),
